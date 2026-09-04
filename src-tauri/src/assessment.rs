@@ -2251,6 +2251,7 @@ mod tests {
         Scan {
             root,
             stats: crate::scan::ScanStats {
+                headcount: 0,
                 commits: 0,
                 churn_windows: [30, 60, 90, 180],
                 churned: false,

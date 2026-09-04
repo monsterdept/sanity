@@ -620,6 +620,7 @@ mod tests {
             root,
             stats: crate::scan::ScanStats {
                 commits: 0,
+                headcount: 0,
                 churn_windows: [30, 60, 90, 180],
                 churned: false,
                 tangle_bands: Default::default(),

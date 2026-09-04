@@ -212,6 +212,29 @@ impl Blame {
         self.files.extend(other.files);
     }
 
+    /// How many people have lines standing anywhere in this repo.
+    ///
+    /// **The denominator `RangeHistory::headcount` is missing on its own.** One pair of hands
+    /// on a function means something in a repo of forty people and nothing in a repo of one,
+    /// and the function's own count cannot tell those apart. Same reduction one scope up: the
+    /// names are already interned per file, so this is a union of the casts rather than a
+    /// second pass over anything.
+    ///
+    /// Blame's names rather than the log's, so it counts the same thing a function's headcount
+    /// counts — who holds what is STANDING. `ScanStats::authors` is the log's all-time cast,
+    /// capped at `AUTHOR_SLOTS`, and is neither.
+    pub fn headcount(&self) -> u32 {
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for f in self.files.values() {
+            for a in &f.authors {
+                if !a.is_empty() {
+                    seen.insert(a.as_str());
+                }
+            }
+        }
+        seen.len() as u32
+    }
+
     /// How many files this holds per-line history for.
     ///
     /// The numerator of what the map can honestly claim: a pass that was stopped, or one that

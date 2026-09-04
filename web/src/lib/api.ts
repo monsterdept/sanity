@@ -1389,6 +1389,9 @@ export interface Spread {
  *  renamed — which is not hypothetical: `legible` became `illegible` this week. */
 export interface FieldView {
   name: string
+  /** What it is measured over. `repo` fields are the same for every subject — they gate a rule
+   *  rather than narrowing it. */
+  scope: 'subject' | 'repo'
   lens: string | null
   /** The population this field can only be asked of, or null for both. */
   pop: 'func' | 'file' | null

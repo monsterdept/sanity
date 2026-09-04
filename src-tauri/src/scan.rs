@@ -291,6 +291,19 @@ pub struct ScanStats {
     /// neutral, so a rank is worth having well past the point where it is worth naming. What
     /// the cap protects now is the LIST, not the colours.
     pub authors: Vec<String>,
+    /// How many people have lines standing anywhere in this repo — see `Blame::headcount`.
+    ///
+    /// **The denominator a function's own headcount is missing.** One pair of hands on a body
+    /// means something in a repo of forty people and nothing in a repo of one, and the
+    /// function's count cannot tell those apart: `headcount <= 1` is a finding on ceph and a
+    /// tautology on a repo with one author. This is what a rule gates on.
+    ///
+    /// Not `authors.len()`, which is the LOG's all-time cast capped at `AUTHOR_SLOTS` — a
+    /// different measurement, saturating, and counting people whose lines are all gone. Zero
+    /// where blame has not run, which is the same absence every other blame-derived number
+    /// states.
+    #[serde(default)]
+    pub headcount: u32,
     pub model: String,
     /// Call sites that reached a definition in this repo, and ones that did not.
     ///
@@ -323,7 +336,6 @@ pub struct Scan {
     #[serde(skip)]
     pub links: std::sync::Arc<crate::links::Links>,
 }
-
 
 /// One function's score, the moment it is known.
 ///
@@ -1911,6 +1923,7 @@ pub fn scan(
             tangle_bands: bands.clone(),
             // Capped where the palette stops meaning anything — see `ScanStats::authors`.
             authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
+            headcount: blame.headcount(),
             // Out of the walk that just ran rather than a `git rev-list` of its own — see
             // `trace::apply`, which fills this the same way when the trace arrives later.
             // Zero means "print no count" rather than "a repo with none".

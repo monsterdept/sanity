@@ -39,6 +39,20 @@ pub enum Pop {
     File,
 }
 
+/// How far a field reaches — see [`Field::scope`].
+///
+/// **Two, and the second one is what makes a gate expressible.** A subject-scope clause is a
+/// question about the body in front of it and narrows a list; a repo-scope clause is the same
+/// answer for every subject and decides whether the rule applies here at all. `headcount <= 1`
+/// is a finding on a repo of forty people and a tautology on a repo of one, and the only way
+/// a rule can say which repo it is for is to ask about the repo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    Subject,
+    Repo,
+}
+
 /// The quantities a clause can ask about.
 ///
 /// One variant per thing a lens is painted from, named the way the lens is named rather
@@ -101,6 +115,23 @@ pub enum Field {
     /// count them: `headcount <= 1 and callers >= 20` is *load-bearing, and only one person
     /// has been in it*, with nobody named anywhere. See `TODO.md`.
     Headcount,
+    /// How many people have lines standing anywhere in THIS REPO — see `ScanStats::headcount`.
+    ///
+    /// **The first field that is not about the subject, and the grammar had to learn the
+    /// difference.** `callers`, `headcount` and this are all facts about the repo, measured
+    /// over three extents: a function's call sites, a function's lines, the whole tree. What
+    /// makes this one different is that every subject has the same value — so it is a GATE
+    /// rather than a filter, and four things that assume a clause narrows have to know:
+    /// `Spreads` (one value is not a distribution), `calibrate` (sorting identical values is a
+    /// no-op that would report a suggestion), the vacuity guard (true of all or none is what
+    /// this field IS, not a mistake) and the picker (choosing one is a different act). See
+    /// `Field::scope`.
+    ///
+    /// **Not a lifecycle fact.** `blocked` says "nobody has read this repo yet" — sanity's own
+    /// progress, and every one of its sentences names work that would fix it. *This repo has
+    /// two contributors* is not that: no pass changes it. Keeping the two lists apart is what
+    /// stops the actionable one from stopping being actionable.
+    RepoHeadcount,
     /// 1 where the reader marked something that will bite whoever edits this next.
     ///
     /// A MARK rather than a grade — a body either carries one or it does not — which is why
@@ -128,6 +159,7 @@ impl Field {
             // called in files written before the name was found to be backwards.
             "illegible" | "legible" => Field::Legible,
             "headcount" | "hands" => Field::Headcount,
+            "repo_headcount" => Field::RepoHeadcount,
             "trap" | "traps" => Field::Trap,
             _ => return None,
         })
@@ -150,6 +182,7 @@ impl Field {
             Field::Documented => "documented",
             Field::Legible => "illegible",
             Field::Headcount => "headcount",
+            Field::RepoHeadcount => "repo_headcount",
             Field::Trap => "trap",
         }
     }
@@ -177,7 +210,7 @@ impl Field {
             Field::Trap => "traps",
             // Blame paints NAMES; this is a count of them, which no lens draws. See the
             // variant, where the case for leaving it lensless is made.
-            Field::Headcount | Field::Read => return None,
+            Field::Headcount | Field::RepoHeadcount | Field::Read => return None,
         })
     }
 
@@ -191,9 +224,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 16;
+    pub const COUNT: usize = 17;
 
-    pub const ALL: [Field; 15] = [
+    pub const ALL: [Field; 16] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -205,6 +238,7 @@ impl Field {
         Field::TouchedDays,
         Field::Commits,
         Field::Headcount,
+        Field::RepoHeadcount,
         Field::Read,
         Field::Surprise,
         Field::Documented,
@@ -228,6 +262,20 @@ impl Field {
             | Field::Legible
             | Field::Trap => Some(Pop::Func),
             _ => None,
+        }
+    }
+
+    /// What this field is measured OVER, which is not the same question as which population
+    /// it can be asked of.
+    ///
+    /// **`pop` says which subjects a rule is about; this says how far a field reaches.** They
+    /// were the same thing while every field was a measurement of the subject in front of it.
+    /// `repo_headcount` is the first that is not — a fact about the whole tree, the same for
+    /// every subject — and everything that assumes a clause NARROWS has to be able to tell.
+    pub fn scope(self) -> Scope {
+        match self {
+            Field::RepoHeadcount => Scope::Repo,
+            _ => Scope::Subject,
         }
     }
 
@@ -388,7 +436,14 @@ impl Rule {
                 value: v.parse().map_err(|_| format!("`{v}` is not a number"))?,
             });
         }
-        if clauses.is_empty() || clauses.len() > 3 {
+        // **The cap counts SUBJECT clauses, because it is a cap on what a tile has to say.**
+        // A tile names the lenses that raised it and carries a sentence about them, and past
+        // some width that stops being a sentence — that is the whole argument for a limit. A
+        // repo-scope clause contributes no lens and no phrase: it decides whether the rule
+        // applies here, and then it is done. Counting it would spend a body's clause on a
+        // question about the repo. See `Field::scope`.
+        let body = clauses.iter().filter(|c| c.field.scope() == Scope::Subject).count();
+        if clauses.is_empty() || body > 3 {
             return Err("a rule is one to three clauses".into());
         }
         Ok(Rule {
@@ -577,6 +632,14 @@ impl Facts {
 pub struct Traced {
     pub git: bool,
     pub churned: bool,
+    /// How many people have lines standing in this repo — see `Field::RepoHeadcount`.
+    ///
+    /// **Carried here because it is repo-level context and this is the repo-level context
+    /// that reaches `subjects`.** It is a FACT rather than a lifecycle flag, unlike the three
+    /// beside it, and that difference matters where they are read: the flags say what has not
+    /// been done and `blocked` turns them into work; this says what the repo IS and no pass
+    /// changes it.
+    pub headcount: u32,
     /// Whether blame was read per LINE, which is `Depth::Lines` and not `Depth::Files`.
     ///
     /// **Its own flag because it gates a different question.** The log gives every file an
@@ -761,6 +824,9 @@ fn facts_of(node: &Node, key: &str, report: Option<&Report>, traced: Traced) -> 
     // and `headcount <= 1` would then be true of every function in an untraced repo. The
     // absence stays an absence; `blocked` is what says why.
     set(Field::Headcount, node.headcount.map(|x| x as f32));
+    // The same value on every subject, which is what a gate is. `None` rather than zero where
+    // blame has not run, so the clause cannot be quietly true of a repo nobody has measured.
+    set(Field::RepoHeadcount, (traced.headcount > 0).then_some(traced.headcount as f32));
     set(Field::Calls, node.calls.map(|x| x as f32));
     set(Field::CloneSize, node.clone_size.map(|x| x as f32));
     if let Some(s) = node.score.as_ref() {
@@ -896,6 +962,13 @@ pub fn pinned(archive: &[Decision]) -> HashMap<&str, HashMap<&str, (Verdict, &st
 /// honest answer being that no threshold on this clause gets you there.
 pub fn calibrate(rule: &Rule, facts: &[Facts], target: usize) -> Option<f32> {
     let c = *rule.clauses.get(rule.calibrated)?;
+    // **A gate cannot be calibrated, and failing loudly is not the answer either.** Every
+    // subject carries the same value for a repo-scope field, so the sort below would return
+    // that value and report it as a suggestion — a number that changes nothing, offered as
+    // though it were tuning. See `Field::scope`.
+    if c.field.scope() == Scope::Repo {
+        return None;
+    }
     let others: Rule = Rule {
         clauses: rule
             .clauses
@@ -982,6 +1055,10 @@ pub fn all_hits<'a>(rules: &[Rule], facts: &'a [Facts]) -> Vec<Vec<&'a Subject>>
 #[serde(rename_all = "camelCase")]
 pub struct FieldView {
     pub name: &'static str,
+    /// What it is measured over — see `Field::scope`. The picker groups on it: a fact about
+    /// this function and a fact about the repo it lives in are different KINDS of choice, and
+    /// a flat list of sixteen names says they are the same one.
+    pub scope: Scope,
     /// The lens that paints it, or null. `read` has none: an absence of readings is not a
     /// lens, and colouring it as one invents a picture that is not drawn anywhere.
     pub lens: Option<&'static str>,
@@ -1028,6 +1105,7 @@ pub fn grammar(facts: &[Facts]) -> Grammar {
             .iter()
             .map(|&f| FieldView {
                 name: f.name(),
+                scope: f.scope(),
                 lens: f.lens(),
                 pop: f.pop(),
                 needs_reading: f.needs_reading(),
@@ -1068,6 +1146,12 @@ impl Spreads {
         let mut by = HashMap::new();
         for r in rules {
             for c in &r.clauses {
+                // A repo-scope field has one value across every subject, so its median is that
+                // value and its spread is nothing. Left out rather than computed: the row
+                // shows a gate as a fact, not as a distribution somebody could tune against.
+                if c.field.scope() == Scope::Repo {
+                    continue;
+                }
                 by.entry((r.pop, c.field.name())).or_insert_with(|| spread(facts, r.pop, c.field));
             }
         }
@@ -1195,7 +1279,7 @@ pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Opti
         // Named rather than left to the catch-all below, which would say "nothing here has a
         // headcount to compare" — true, and no help. This one has a fix and the sentence is
         // where somebody finds out what it is.
-        if c.field == Field::Headcount && !traced.blamed {
+        if matches!(c.field, Field::Headcount | Field::RepoHeadcount) && !traced.blamed {
             return Some("git history has not been read per line".into());
         }
         // Whatever is left: the field exists for this population and nothing has one. On
@@ -1499,7 +1583,13 @@ pub fn apply_edit(live: &mut Vec<Rule>, edit: RuleEdit) -> Result<(), String> {
     if edit.title.trim().is_empty() {
         return Err("a rule needs a title — it is what a decision is filed under".into());
     }
-    if edit.clauses.is_empty() || edit.clauses.len() > 3 {
+    // Counted the way `Rule::parse` counts it: a gate is not one of the three — see there.
+    let body = edit
+        .clauses
+        .iter()
+        .filter(|c| Field::parse(&c.field).map(|f| f.scope()) == Some(Scope::Subject))
+        .count();
+    if edit.clauses.is_empty() || body > 3 {
         // **Three, and the cap is about precedence rather than about counting.** Conjunction
         // needs none at any width; it is OR that would, and there is no OR. Two was the number
         // while the size guard was a separate `floor` field — see `findings.md`, where making
@@ -1524,6 +1614,14 @@ pub fn apply_edit(live: &mut Vec<Rule>, edit: RuleEdit) -> Result<(), String> {
         // **A threshold no subject can fail is not a threshold.** `trap >= 1 and commits >= 0`
         // was real: the clause is true of everything, the rule quietly becomes single-lens,
         // and the tile goes on naming two.
+        // **A gate is true of every subject or of none, and that is the point of it.** The
+        // guard below exists because a clause that fails to narrow makes a rule quietly
+        // single-lens; a repo-scope clause is not failing to narrow, it is answering a
+        // question about the repo. See `Field::scope`.
+        if field.scope() == Scope::Repo {
+            clauses.push(Clause { field, op, value: c.value });
+            continue;
+        }
         if matches!(op, Op::Ge) && c.value <= 0.0 && field != Field::Read {
             return Err(format!("`{} {} {}` is true of everything", c.field, c.op, c.value));
         }
@@ -1830,20 +1928,31 @@ pub fn catalog() -> Vec<Rule> {
         // **Blocked without `sanity trace --lines`**, which is a rung most repos are not
         // traced to. That is stated rather than silent: `blocked` names the fix.
         rule(
-            "one-pair-of-hands",
-            "Load-bearing, and one pair of hands",
-            "Widely depended on, and only one person's lines are in it.",
-            "{{callers}} things call this, and every line of it was last touched by the same person. That is fine until they are unavailable.",
+            "sole-author",
+            "Load-bearing, and only one person has been in it",
+            "Widely depended on, and every line of it was last touched by the same person.",
+            "{{callers}} things call this, and every line of it was last touched by the same person — out of {{repo_headcount}} who have worked on this repo. That is fine until they are unavailable.",
             Pop::Func,
-            // **`callers` calibrates, not `headcount`.** Tightening a `<=` means lowering it,
-            // and below one is nothing — a clause that cannot be tightened is a clause
-            // calibration would give up on, leaving the rule at whatever the catalog shipped.
-            vec![le(Field::Headcount, 1.0), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
-            1,
+            // **The gate comes first because it is what makes the rest of the rule true.**
+            // "Only one person has been in it" is a finding in a repo of forty people and a
+            // tautology in a repo of one, and nothing about the FUNCTION can tell those apart
+            // — so the rule asks about the repo. Four is a judgement and it is meant to be
+            // edited: it is the number at which a body only one person has touched stops
+            // being what everything looks like. See `Field::scope`.
+            //
+            // `callers` calibrates, not `headcount` and not the gate: tightening a `<=` means
+            // lowering it and below one is nothing, and a gate cannot be calibrated at all.
+            vec![
+                ge(Field::RepoHeadcount, 4.0),
+                le(Field::Headcount, 1.0),
+                ge(Field::Callers, 10.0),
+                ge(Field::Loc, 10.0),
+            ],
+            2,
         ),
         rule(
-            "many-hands-knotty",
-            "Many hands, and knotty",
+            "crowded-and-knotty",
+            "Many have been in it, and it is knotty",
             "Several people have been in something more complicated than its length accounts for.",
             "{{headcount}} people's lines are standing in this, and for {{loc}} lines it branches more than almost anything else here. Everyone who touched it had to hold that shape in their head.",
             Pop::Func,
@@ -2528,6 +2637,56 @@ mod tests {
         root
     }
 
+    /// **A gate is what makes "only one person has been in it" true in one repo and vacuous
+    /// in another**, and the test has to show both halves — a rule that fired either way, or
+    /// neither, would not be gated, it would be broken.
+    #[test]
+    fn a_repo_scope_clause_gates_the_whole_rule() {
+        let tree = file_with(vec![func("a", 200), func("b", 200)]);
+        let rule = Rule::parse("func: repo_headcount >= 4 and loc >= 100").expect("parses");
+
+        // A repo with people in it: the gate is open and the body clause decides.
+        let many = subjects(
+            &tree,
+            &HashMap::new(),
+            Traced { git: true, churned: true, blamed: true, headcount: 9 },
+        );
+        assert_eq!(hits(&rule, &many).len(), 2);
+
+        // The same tree, the same bodies, one author: nothing, and nothing is the right
+        // answer rather than a missing one.
+        let solo = subjects(
+            &tree,
+            &HashMap::new(),
+            Traced { git: true, churned: true, blamed: true, headcount: 1 },
+        );
+        assert_eq!(hits(&rule, &solo).len(), 0);
+
+        // **Never true where blame has not run.** A zero would make `repo_headcount >= 4`
+        // false and `repo_headcount <= 1` TRUE of an unmeasured repo, which is a gate opening
+        // on an absence — so the field is absent and `blocked` says why instead.
+        let cold = subjects(
+            &tree,
+            &HashMap::new(),
+            Traced { git: true, churned: true, blamed: false, headcount: 0 },
+        );
+        assert_eq!(hits(&rule, &cold).len(), 0);
+        assert!(blocked(&rule, &cold, Traced::default(), false).is_some());
+    }
+
+    /// **A gate is not one of the three clauses a tile can carry.**
+    ///
+    /// The cap is on what a tile has to SAY — it names the lenses that raised a finding and
+    /// writes a sentence about them. A repo-scope clause contributes neither, so counting it
+    /// would spend a body's clause on a question about the repo.
+    #[test]
+    fn a_gate_does_not_count_against_the_clause_cap() {
+        let four = "func: repo_headcount >= 4 and headcount <= 1 and callers >= 10 and loc >= 10";
+        assert!(Rule::parse(four).is_ok(), "a gate plus three body clauses is a rule");
+        let five = "func: repo_headcount >= 4 and headcount <= 1 and callers >= 10 and loc >= 10 and calls >= 5";
+        assert!(Rule::parse(five).is_err(), "four body clauses is not");
+    }
+
     /// **`Facts` is indexed by discriminant, so the count has to cover every variant.**
     ///
     /// `ALL` is what a form offers and deliberately leaves `Trap` out; the array is what every
@@ -2589,7 +2748,7 @@ mod tests {
         let mut root = Node::dir("", "repo");
         root.children = files;
         let reports = HashMap::new();
-        let traced = Traced { git: true, churned: true, blamed: true };
+        let traced = Traced { git: true, churned: true, blamed: true, headcount: 0 };
 
         let t = Instant::now();
         let facts = subjects(&root, &reports, traced);
@@ -2693,8 +2852,11 @@ mod tests {
         let reports = HashMap::new();
 
         // No git read at all: an age clause cannot be answered, so it cannot fire.
-        let untraced =
-            subjects(&tree, &reports, Traced { git: false, churned: false, blamed: false });
+        let untraced = subjects(
+            &tree,
+            &reports,
+            Traced { git: false, churned: false, blamed: false, headcount: 0 },
+        );
         let old = Rule::parse("func: age >= 1").expect("parses");
         assert_eq!(hits(&old, &untraced).len(), 0);
 

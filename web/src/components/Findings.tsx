@@ -241,6 +241,21 @@ function fieldsFor(g: Grammar, pop: 'func' | 'file'): FieldView[] {
   return g.fields.filter((f) => f.pop === null || f.pop === pop)
 }
 
+/** The picker's sections: what this body is, and what the repo around it is.
+ *
+ *  **Two kinds of choice, and a flat list of sixteen names said they were one.** `loc` and
+ *  `callers` narrow a list; `repo_headcount` decides whether the rule applies to this repo at
+ *  all. Grouping them is not tidiness — it is the difference showing up where the choice is
+ *  made, so nobody reaches for a gate expecting a filter. */
+function sections(fields: FieldView[], pop: 'func' | 'file') {
+  const here = fields.filter((f) => f.scope === 'subject')
+  const repo = fields.filter((f) => f.scope === 'repo')
+  return [
+    { label: pop === 'file' ? 'this file' : 'this function', fields: here },
+    { label: 'this repo', fields: repo },
+  ].filter((g) => g.fields.length > 0)
+}
+
 function spreadFor(f: FieldView | undefined, pop: 'func' | 'file'): Spread | null {
   return !f ? null : pop === 'file' ? f.file : f.func
 }
@@ -364,10 +379,14 @@ function RuleForm({
                       set({ ...draft, clauses: next })
                     }}
                   >
-                    {fields.map((f) => (
-                      <option key={f.name} value={f.name}>
-                        {f.name}
-                      </option>
+                    {sections(fields, draft.pop).map((g) => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.fields.map((f) => (
+                          <option key={f.name} value={f.name}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                   <select

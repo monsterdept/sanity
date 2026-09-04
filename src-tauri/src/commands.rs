@@ -950,6 +950,7 @@ pub fn project_report(
         git: p.trace.depth != crate::trace::Depth::Untraced,
         churned: p.scan.stats.churned,
         blamed: p.trace.depth >= crate::trace::Depth::Lines,
+        headcount: p.scan.stats.headcount,
     };
     // **This repo's own thresholds, not the catalog's shipped ones.** A shipped constant is
     // wrong nearly everywhere — `loc >= 200` is eight findings on htop and 2,292 on kibana — so
@@ -1019,6 +1020,7 @@ fn finding_pin(
         git: p.trace.depth != crate::trace::Depth::Untraced,
         churned: p.scan.stats.churned,
         blamed: p.trace.depth >= crate::trace::Depth::Lines,
+        headcount: p.scan.stats.headcount,
     };
     let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
     // The repo's rules, not the shipped ones: a pin records the values the rule MEASURED, and
@@ -1102,6 +1104,7 @@ fn project_facts(
         git: p.trace.depth != crate::trace::Depth::Untraced,
         churned: p.scan.stats.churned,
         blamed: p.trace.depth >= crate::trace::Depth::Lines,
+        headcount: p.scan.stats.headcount,
     };
     Ok((p.repo.clone(), crate::findings::subjects(&p.scan.root, &p.reports, traced), traced))
 }

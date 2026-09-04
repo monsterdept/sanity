@@ -762,6 +762,7 @@ pub fn apply(
     }
     scan.stats.authors =
         history.authors().iter().take(crate::scan::AUTHOR_SLOTS).cloned().collect();
+    scan.stats.headcount = blame.headcount();
     scan.stats.without_history = history.is_empty();
     // **The repo's commit count comes out of the walk that just ran.** It used to be its own
     // `git rev-list --no-merges --count HEAD`, which is 1.14s on ceph and 7.1s on linux for a
