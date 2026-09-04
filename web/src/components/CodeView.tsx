@@ -404,10 +404,20 @@ export function CodeView({
     // height is what makes the position knowable without the element existing — see `ROW`,
     // where that constraint is stated — and the window effect follows the scroll it sets.
     //
-    // A third of the way down rather than at the very top: a function opened flush against
-    // the edge loses the signature and comment that precede it, which is most of what you
-    // came to read.
-    box.scrollTop = (fn.line - 1) * ROW - box.clientHeight / 3
+    // **As near the top as its own doc allows, and not a third of the way down.** The third
+    // was defending something real — a body opened flush against the edge loses the comment
+    // that explains it, which is most of what you came to read — but it spent the room whether
+    // there was a comment or not, so the usual result was fifteen lines of the PREVIOUS
+    // function's closing braces above the one you asked for.
+    //
+    // The node knows how long its own doc is, so the lead can be exactly that: the comment and
+    // the signature, and nothing else. Capped at half the pane, because a doc longer than that
+    // would put the signature back where it started — past the cap you get the tail of the
+    // doc, which is the half nearest the code anyway. Two rows where there is no doc, which is
+    // margin rather than lead.
+    const doc = fn.doc ? fn.doc.split('\n').length + 1 : 1
+    const lead = Math.min(doc, Math.floor(box.clientHeight / ROW / 2)) + 1
+    box.scrollTop = Math.max(0, (fn.line - lead) * ROW)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the note above
   }, [revealN, ready])
   const lines = useMemo(() => (src === null ? [] : src.split('\n')), [src])
