@@ -3119,8 +3119,20 @@ function SunburstView({
                   // moved to the rim (`DIR_RIM_PX`) — so the ink that used to be derived
                   // from the plate's own stop is the chrome's, which is what an unread
                   // plate already took. One case where there were two.
-                  fill={CHROME_INK}
-                  opacity={(isDir ? 0.9 : 0.62) * (at.clipped ? 0.72 : 1)}
+                  //
+                  // **A directory's name is set in the muted ink, not the full one.** It was
+                  // `--foreground` at 0.9, which is near-black on a light plate and near-white
+                  // on a dark one — the loudest thing available, spent on the label of a
+                  // container. It is a name, not a reading: the wedges under it carry the
+                  // measurement and the rim carries the distribution, and a heading printed
+                  // at full contrast over both competes with the picture it is heading.
+                  //
+                  // `--muted-foreground` is the same token the dial's words and the rim's
+                  // filenames take, so all three quiet things on this map are quiet in one
+                  // voice — slate on the light theme, silver on the dark one, both derived
+                  // from the ground rather than from the extremes of it.
+                  fill={isDir ? 'var(--muted-foreground)' : CHROME_INK}
+                  opacity={(isDir ? 1 : 0.62) * (at.clipped ? 0.72 : 1)}
                 />
               )
             })}
