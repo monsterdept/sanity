@@ -3,6 +3,21 @@ import { isAnalyzed, readSource, type Node } from '../lib/api'
 import { colorFor, type ColorMode, type Views } from '../lib/colorMode'
 import { tokenizeAll } from '../lib/tokens'
 
+/** One row's height, in pixels, and it is arithmetic rather than typography.
+ *
+ *  **The window below is computed from this**, so it cannot be a leading the browser rounds:
+ *  a row measuring 17.8px against arithmetic that assumed 18 drifts a line every hundred and
+ *  puts the gutter out of step with the code it is numbering. Set on both columns, in pixels,
+ *  and nothing in either can wrap — code is `whitespace-pre` and a line number has no spaces.
+ */
+const ROW = 18
+
+/** Rows kept in the DOM above and below the viewport.
+ *
+ *  Enough that a flick does not outrun the render, few enough that the layer stays small.
+ *  It is also what makes most scroll events cost nothing: they land inside this. */
+const OVER = 40
+
 /** The chunk covering each 1-indexed source line, so a line can report its own heat. */
 function ownerByLine(file: Node): Map<number, Node> {
   const m = new Map<number, Node>()
@@ -37,14 +52,11 @@ function Minimap({
   lines,
   owners,
   scroller,
-  scrollTick,
   insetTop,
 }: {
   lines: string[]
   owners: Map<number, Node>
   scroller: React.RefObject<HTMLDivElement | null>
-  /** Bumped on every scroll, purely to force a repaint. */
-  scrollTick: number
   /** Room left at the top for the window controls, which sit over this corner. Passed in
    *  rather than assumed, because the popped-out window has no controls to clear and
    *  would otherwise start its map with a strip of nothing. */
@@ -59,6 +71,19 @@ function Minimap({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    /** **Redrawn from a scroll LISTENER, with no React in the loop.**
+     *
+     *  This used to be triggered by a counter bumped in the pane's `onScroll`, with a comment
+     *  saying a counter was chosen over the offset because storing the offset "would re-render
+     *  the whole table on every scroll frame". A counter re-renders it too — any state change
+     *  here does — so the table reconciled 2,690 rows of tokenized spans sixty times a second,
+     *  and the pane went blank and filled in behind the scroll. What the comment describes is
+     *  exactly what it was doing.
+     *
+     *  The canvas was already drawn imperatively; the only thing React was contributing was
+     *  the re-render. Listening on the element that scrolls removes it, and `passive` says
+     *  this will never fight the scroll it is watching. */
+    const draw = () => {
     const r = canvas.getBoundingClientRect()
     const dpr = window.devicePixelRatio || 1
     canvas.width = Math.max(1, Math.round(r.width * dpr))
@@ -155,7 +180,12 @@ function Minimap({
     ctx.lineWidth = 1
     ctx.strokeRect(0.5, top + 0.5, r.width - 1, Math.max(hgt - 1, 2))
     ctx.globalAlpha = 1
-  }, [lines, owners, scroller, scrollTick, insetTop])
+    }
+
+    draw()
+    box.addEventListener('scroll', draw, { passive: true })
+    return () => box.removeEventListener('scroll', draw)
+  }, [lines, owners, scroller, insetTop])
 
   // Click or drag anywhere on it to go there, centered on the pointer like VS Code's.
   const seek = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -225,10 +255,16 @@ export function CodeView({
   const [src, setSrc] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement | null>(null)
-  // A counter rather than the scroll offset itself: the minimap only needs to know that
-  // something moved, and storing the offset would re-render the whole table on every
-  // scroll frame to repaint a strip 74px wide.
-  const [scrollTick, setScrollTick] = useState(0)
+  /** Which rows are in the DOM.
+   *
+   *  **The one piece of scroll state that is worth a re-render.** Everything else about a
+   *  scroll is handled imperatively — the minimap redraws from its own listener — but this
+   *  changes what is rendered, and it changes rarely: `OVER` rows of slack above and below
+   *  the viewport mean a run of small scrolls costs nothing, and a big one costs a render of
+   *  sixty rows rather than three thousand. */
+  const [win, setWin] = useState({ from: 0, to: 200 })
+  const from = win.from
+  const to = win.to
 
   useEffect(() => {
     let live = true
@@ -271,12 +307,16 @@ export function CodeView({
     if (!box || !ready || revealN === undefined) return
     const fn = fileRef.current.children.find((c) => c.id === reveal?.id)
     if (!fn || fn.line === null) return
-    const row = box.querySelector<HTMLElement>(`[data-line="${fn.line}"]`)
-    if (!row) return
-    // A third of the way down rather than at the very top: a function opened flush
-    // against the edge loses the signature and comment that precede it, which is most of
-    // what you came to read.
-    box.scrollTop = row.offsetTop - box.clientHeight / 3
+    // **Arithmetic, not a query.** It found the row by `data-line` and read its `offsetTop`,
+    // which stopped working the moment the view started rendering only what is on screen:
+    // the function being revealed is, by definition, usually not one of them. A fixed row
+    // height is what makes the position knowable without the element existing — see `ROW`,
+    // where that constraint is stated — and the window effect follows the scroll it sets.
+    //
+    // A third of the way down rather than at the very top: a function opened flush against
+    // the edge loses the signature and comment that precede it, which is most of what you
+    // came to read.
+    box.scrollTop = (fn.line - 1) * ROW - box.clientHeight / 3
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the note above
   }, [revealN, ready])
   const lines = useMemo(() => (src === null ? [] : src.split('\n')), [src])
@@ -285,6 +325,36 @@ export function CodeView({
   // inside English sentences, in every doc comment in this repo. See `tokenizeAll`. Memoised
   // on the source because it is a pass over the whole file and the view re-renders on scroll.
   const toks = useMemo(() => tokenizeAll(lines), [lines])
+
+  /** Keep the window over the viewport.
+   *
+   *  Listening on the element rather than through React's `onScroll`, and setting state only
+   *  when the range actually moves: a scroll fires dozens of events a second and all but a
+   *  few of them land inside the slack.
+   *
+   *  Re-run when the source changes, because a new file is a new length and the old window
+   *  may be past the end of it. */
+  useEffect(() => {
+    const box = scroller.current
+    if (!box) return
+    const measure = () => {
+      const first = Math.floor(box.scrollTop / ROW)
+      const rows = Math.ceil(box.clientHeight / ROW)
+      const next = {
+        from: Math.max(0, first - OVER),
+        to: Math.min(lines.length, first + rows + OVER),
+      }
+      setWin((was) => (was.from === next.from && was.to === next.to ? was : next))
+    }
+    measure()
+    box.addEventListener('scroll', measure, { passive: true })
+    const ro = new ResizeObserver(measure)
+    ro.observe(box)
+    return () => {
+      box.removeEventListener('scroll', measure)
+      ro.disconnect()
+    }
+  }, [lines.length])
 
   if (error) {
     return (
@@ -308,130 +378,118 @@ export function CodeView({
        instead — the code spilled out over the sidebar and the detail panel. `inset-0`
        makes both axes definite, so the overflow has somewhere to go.
 
-       `w-max min-w-full` on the table, not `w-full`: long lines have to be able to make
-       it wider than the pane so it scrolls sideways, while short files still fill the
-       width so row hovers span the pane. */
+       **Two columns in a flex row, and only the rows you can see.** The whole file was in
+       the DOM — six thousand elements and tens of thousands of spans on a 2,690-line file —
+       and WebKit rasterises a layer that big asynchronously, so blank ground scrolled in and
+       the code filled in behind it. Nothing about the markup fixes that; the fix is to not
+       have it. Every editor virtualises for this reason.
+
+       The gutter was also a `position: sticky` cell per row, which is three thousand separate
+       compositing decisions, and the numbers arrived in patches. One sticky element does the
+       same job.
+
+       **Rows are a fixed height and that is load-bearing.** `ROW` is set in pixels rather
+       than inherited from a leading, because the window is computed from it: a row that
+       measured 17.8px while the arithmetic assumed 18 would drift a line every hundred and
+       put the gutter out of step with the code. Nothing in either column can wrap — code is
+       `whitespace-pre` and a line number has no spaces — so a fixed height is honest.
+
+       `w-max min-w-full`: long lines make it wider than the pane so it scrolls sideways,
+       while short files still fill the width. */
     <div className="absolute inset-0">
-      <div
-        ref={scroller}
-        onScroll={() => setScrollTick((n) => n + 1)}
-        className="absolute inset-y-0 left-0 right-[74px] overflow-auto"
-      >
-        <table className="w-max min-w-full border-collapse font-mono text-[11.5px] leading-[1.55]">
-          <tbody>
-            {lines.map((_line, i) => {
+      <div ref={scroller} className="absolute inset-y-0 left-0 right-[74px] overflow-auto">
+        <div
+          className="flex w-max min-w-full font-mono text-[11.5px]"
+          style={{ lineHeight: `${ROW}px` }}
+        >
+          {/* **The gutter, in whatever lens the map is wearing.** It was hard-wired to
+              Surprise, so a reader who had switched the map to Complexity got a code view
+              still coloured by something else. `colorFor` is the same function the wedges are
+              painted by, so this column and the ring are two views of one answer.
+
+              The digits take `ink`, which `colorFor` returns for exactly this: which of paper
+              and ink reads on a fill is a fact about that fill, and a number that disappeared
+              on the hot end of a ramp would be the one part of this view with no fallback.
+
+              `--unanalyzed` where the lens has nothing to say about a body, which is not the
+              same as no body: bare between functions, grey inside one nobody has measured. */}
+          <div className="sticky left-0 z-10 shrink-0 select-none bg-[var(--code)] text-right tabular-nums">
+            <div style={{ height: from * ROW }} />
+            {lines.slice(from, to).map((_line, k) => {
+              const n = from + k + 1
+              const owner = owners.get(n)
+              const paint = owner ? colorFor(owner, mode, ranks, views) : null
+              const isSel = owner != null && selected?.id === owner.id
+              return (
+                <div
+                  key={n}
+                  onClick={() => owner && onSelect(owner)}
+                  className={`pl-2.5 pr-2 ${owner ? 'cursor-pointer' : ''}`}
+                  style={{
+                    height: ROW,
+                    ...(owner
+                      ? paint
+                        ? { background: paint.fill, color: paint.ink }
+                        : { background: 'var(--unanalyzed)', color: 'var(--foreground)' }
+                      : { color: 'var(--muted-foreground)', opacity: 0.5 }),
+                    // **The selection is marked here, in the foreground rather than the
+                    //  accent.** It was a rule on the row, which scrolled off with everything
+                    //  else; and the accent is a hue two lenses paint in, so on Surprise or
+                    //  Complexity a plum rule against a plum fill was the mark disappearing
+                    //  exactly where the reading was strongest.
+                    boxShadow: isSel ? 'inset 3px 0 0 var(--foreground)' : undefined,
+                  }}
+                >
+                  {n}
+                </div>
+              )
+            })}
+            <div style={{ height: (lines.length - to) * ROW }} />
+          </div>
+          {/* **Air after the gutter.** The number column is a solid bar of the lens colour and
+              the code used to start against its edge — a saturated block touching the first
+              character of every line. The padding is on the code so the colour still runs to
+              the gutter's own edge and reads as one continuous strip down the file. */}
+          <div className="whitespace-pre pl-3 pr-4">
+            <div style={{ height: from * ROW }} />
+            {lines.slice(from, to).map((_line, k) => {
+              const i = from + k
               const n = i + 1
               const owner = owners.get(n)
               const analyzed = owner ? isAnalyzed(owner) : false
-              const paint = owner ? colorFor(owner, mode, ranks, views) : null
-              const isSel = owner != null && selected?.id === owner.id
               const isFirst = owner != null && owner.line === n
               return (
-                <tr
+                <div
                   key={n}
                   data-line={n}
                   onClick={() => owner && onSelect(owner)}
                   className={owner ? 'cursor-pointer' : undefined}
-                  // **No wash behind the code. The reading lives in the gutter.**
-                  //
-                  // Every measured function used to carry a tinted background — the argument
-                  // was that background and text are different channels, so a wash does not
-                  // fight the syntax the way tinting the code would. It does something worse:
-                  // it paints two thirds of the file in one lens's colour, so a file reads as
-                  // a stack of coloured blocks and the code inside them is what you have to
-                  // look past. A code view is for reading code.
-                  //
-                  // The LINE NUMBERS carry it instead. They are a column that is already
-                  // there, already ignorable, and already the thing you scan down when you
-                  // are looking for a place — and nothing is written over them, so a colour
-                  // there costs no legibility at all. A separate three-pixel strip beside
-                  // them was tried in between and reads as an outline drawn around the code
-                  // rather than as a property of it.
-                  //
-                  // The SELECTION gets the only mark on the row, which is what a selection
-                  // should be: it was competing with a wash before, and lost.
-
+                  style={{ height: ROW }}
                 >
-                  {/* **The line numbers are the gutter, and they wear the lens the map is
-                    wearing.** It was hard-wired to Surprise, so a reader who had switched the
-                    map to Complexity got a code view still coloured by something else — two
-                    answers about one function, one of them unasked for. `colorFor` is the
-                    same function the wedges are painted by, so this column and the minimap
-                    and the ring are three views of one answer.
-
-                    The digits take `ink`, which `colorFor` returns for exactly this: which of
-                    paper and ink reads on a fill is a fact about that fill, and a number that
-                    disappeared on the hot end of a ramp would be the one part of this view
-                    with no fallback.
-
-                    `--unanalyzed` where this lens has nothing to say about a body, which is
-                    not the same as no body: the column is bare between functions and grey
-                    inside one nobody has measured. */}
-                  <td
-                    // **Stuck to the left edge, because a gutter that scrolls away is not a
-                    //  gutter.** The pane scrolls horizontally — code is `whitespace-pre` and
-                    //  a long line is wider than the pane — and the numbers went with it, so
-                    //  the one column that says where you are was the first thing off screen.
-                    //
-                    //  Sticky needs an OPAQUE ground of its own or the code slides underneath
-                    //  it: between functions there is no lens colour to use, so it takes the
-                    //  view's own background there. That is also why the padding sits on the
-                    //  code cell rather than here — this cell has to be filled edge to edge.
-                    className="sticky left-0 z-10 select-none pl-2.5 pr-2 text-right align-top tabular-nums"
-                    style={{
-                      ...(owner
-                        ? paint
-                          ? { background: paint.fill, color: paint.ink }
-                          : { background: 'var(--unanalyzed)', color: 'var(--foreground)' }
-                        : {
-                            background: 'var(--code)',
-                            color: 'var(--muted-foreground)',
-                            opacity: 0.5,
-                          }),
-                      // **The selection is marked HERE, and in the foreground rather than the
-                      //  accent.** It was a rule on the row, which scrolled off with
-                      //  everything else; and the accent is a hue two of the lenses paint in,
-                      //  so on Surprise or Complexity a plum rule against a plum fill was the
-                      //  mark disappearing exactly where the reading was strongest. Ink reads
-                      //  on every fill this column can take.
-                      boxShadow: isSel ? 'inset 3px 0 0 var(--foreground)' : undefined,
-                    }}
-                  >
-                    {n}
-                  </td>
-                  {/* **Air after the gutter.** The number column is a solid bar of the lens
-                      colour now, and the code used to start against its edge — a saturated
-                      block touching the first character of every line, with nothing between
-                      them to say they are different things. The padding is on the code rather
-                      than on the gutter so the colour still runs to the column's own edge and
-                      reads as one continuous strip down the file. */}
-                  <td className="w-full whitespace-pre pl-3 pr-4 align-top">
-                    {toks[i].map((t, j) => (
-                      <span key={j} className={t.cls}>
-                        {t.text}
-                      </span>
-                    ))}
-                    {/* Only the unmeasured case still says anything in words. A number on
-                      every function was noise once the wash carries it — but "nobody has
-                      looked at this" is not a temperature, and no shade of the ramp can
-                      state it. */}
-                    {isFirst && !analyzed && (
-                      <span className="ml-3 select-none text-[10px] italic text-[var(--muted-foreground)]">
-                        not measured
-                      </span>
-                    )}
-                  </td>
-                </tr>
+                  {toks[i].map((t, j) => (
+                    <span key={j} className={t.cls}>
+                      {t.text}
+                    </span>
+                  ))}
+                  {/* Only the unmeasured case still says anything in words. A number on every
+                      function was noise once the gutter carries it — but "nobody has looked at
+                      this" is not a temperature, and no shade of the ramp can state it. */}
+                  {isFirst && !analyzed && (
+                    <span className="ml-3 select-none text-[10px] italic text-[var(--muted-foreground)]">
+                      not measured
+                    </span>
+                  )}
+                </div>
               )
             })}
-          </tbody>
-        </table>
+            <div style={{ height: (lines.length - to) * ROW }} />
+          </div>
+        </div>
       </div>
       <Minimap
         lines={lines}
         owners={owners}
         scroller={scroller}
-        scrollTick={scrollTick}
         insetTop={onPopOut || onClose ? 30 : 0}
       />
 
