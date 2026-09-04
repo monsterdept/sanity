@@ -253,7 +253,7 @@ function sections(fields: FieldView[], pop: 'func' | 'file') {
     { label: pop === 'file' ? 'this file' : 'this function', fields: at('subject') },
     // Only on a function rule: on a file rule these ARE the subject, and `loc` and `funcs`
     // already say them.
-    { label: 'the file it is in', fields: at('file') },
+    { label: 'this file', fields: at('file') },
     { label: 'this repo', fields: at('repo') },
   ].filter((g) => g.fields.length > 0)
 }
