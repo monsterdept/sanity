@@ -3127,12 +3127,21 @@ function SunburstView({
                   // measurement and the rim carries the distribution, and a heading printed
                   // at full contrast over both competes with the picture it is heading.
                   //
-                  // `--muted-foreground` is the same token the dial's words and the rim's
-                  // filenames take, so all three quiet things on this map are quiet in one
-                  // voice — slate on the light theme, silver on the dark one, both derived
-                  // from the ground rather than from the extremes of it.
-                  fill={isDir ? 'var(--muted-foreground)' : CHROME_INK}
-                  opacity={(isDir ? 1 : 0.62) * (at.clipped ? 0.72 : 1)}
+                  // **The ink, let through at a fraction, rather than a quieter ink.**
+                  // `--muted-foreground` was tried and is the failure in the other direction:
+                  // it is `#8b8279` and the plate is `#d0c9bd`, two steps apart on one warm
+                  // grey ramp, so the name and its ground were nearly the same value.
+                  //
+                  // A fraction of the full ink composites INTO a slate instead of being one —
+                  // `#5f5c55` on the light plate, `#adaaa4` on the dark — so the colour comes
+                  // from the plate showing through and follows it wherever it goes, which a
+                  // chosen third colour cannot. It is the same thing the rim's filenames do
+                  // one alpha down, which is why the two read as one family.
+                  //
+                  // Directories sit a little above files because their ground is darker: the
+                  // same alpha over a mid-tone plate lands quieter than over the pane.
+                  fill={CHROME_INK}
+                  opacity={(isDir ? 0.68 : 0.62) * (at.clipped ? 0.72 : 1)}
                 />
               )
             })}
