@@ -2702,11 +2702,20 @@ export default function App() {
    *  list and the number on the creature — so three fetches were three chances for them to
    *  describe different states of the repo.
    *
-   *  **On the project and on the map's identity, not on every render.** A fresh `tree` is what
-   *  a landed scan or a landed reading produces, so this re-asks exactly when the answer could
-   *  have changed — and a rescan is the event that can add findings to a repo you are already
-   *  standing in. Answers are dropped if the project moved on while one was in flight, or the
-   *  dot on one repo would be reporting another's.
+   *  **Asked when the ANSWER could have changed, never on the tree's identity.** It was keyed
+   *  on `tree`, and the object behind that is rebuilt every time a ring arrives or a score
+   *  streams in — `treeRev`'s own doc says so: *a new object for the same repo several times a
+   *  minute*. One project sitting still produced eighty reports in a burst, each of them
+   *  taking the projects lock, cloning the whole answer and serialising it across the bridge
+   *  to say what the last one said.
+   *
+   *  So it asks on the three scalars that mean a different answer: the tree ARRIVING
+   *  (`treeRev`, which is a repo changing rather than a repo being decorated), how many
+   *  readings have landed (a tier 2 rule is dark until the first one and different after each),
+   *  and `archiveAt`, which the window bumps whenever it writes a rule or a decision.
+   *
+   *  Answers are dropped if the project moved on while one was in flight, or the dot on one
+   *  repo would be reporting another's.
    *
    *  Not asked at all during a replay: the panel refuses that state, and a badge over a frame
    *  would be pointing at findings about a repo that is not the one on screen. */
@@ -2734,7 +2743,7 @@ export default function App() {
     return () => {
       live = false
     }
-  }, [activeKey, tree, historyOn, archiveAt])
+  }, [activeKey, treeRev, activeProject?.assessed, historyOn, archiveAt])
 
   useEffect(() => {
     if (!activeKey) {
