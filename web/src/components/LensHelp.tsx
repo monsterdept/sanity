@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Tabs } from './Tabs'
 import { Overlay } from './Overlay'
 import { MODE_LABEL, type ColorMode } from '../lib/colorMode'
 import { languages, type LangSupport } from '../lib/api'
@@ -444,50 +445,17 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="shrink-0 border-b border-[var(--border)] px-5 pb-3 pt-4">
-          {/* **The control IS the title.** There was an `h2` above this reading `Lenses` and a
-              tab under it reading `Lenses`, which is the same word twice and left the second one
-              looking like a heading rather than a thing to press. Two references live here and
-              naming them once, in the control that switches them, says both what this is and
-              that there is another one.
-
-              In the recessed track every other segmented control in this app uses — see
-              `RingCount` and `AgeReading`. The first version set a background on the SELECTED
-              pill and nothing on the other, so the unselected tab was bare text on a panel: it
-              read as a label, and the sheet behind it went unfound. A track is what says "these
-              two are one control and it has another position". */}
-          {/* Centred, and only this — a control at the left margin reads as a caption for
-              whatever sits under it, which is how the second sheet got missed once already.
-              The prose below stays ragged-right where prose belongs: centring a paragraph
-              makes both edges soft and it stops looking like something to read. */}
-          <div
-            className="mx-auto flex w-fit items-center gap-0.5 rounded-full p-[3px]"
-            style={{
-              background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
-              boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
-            }}
-          >
-            {(['lenses', 'languages'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                role="tab"
-                aria-selected={tab === k}
-                onClick={() => setTab(k)}
-                className="rounded-full px-3 py-[3px] text-[12px] leading-none transition-colors"
-                style={
-                  tab === k
-                    ? {
-                        background: 'var(--accent)',
-                        color: 'var(--accent-foreground)',
-                        fontWeight: 600,
-                      }
-                    : { color: 'var(--muted-foreground)', fontWeight: 600 }
-                }
-              >
-                {k === 'lenses' ? 'Lenses' : 'Languages'}
-              </button>
-            ))}
-          </div>
+          {/* One control, shared with the findings panel — see `Tabs`, which carries the
+              argument for the track and for centring it. */}
+          <Tabs
+            className="mx-auto"
+            at={tab}
+            onPick={setTab}
+            tabs={[
+              { k: 'lenses', word: 'Lenses' },
+              { k: 'languages', word: 'Languages' },
+            ]}
+          />
           <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
             {tab === 'lenses' ? (
               <>

@@ -1641,10 +1641,29 @@ pub fn trace(path: &str, lines: bool) -> i32 {
     // Opened first: a trace lands on a scan, so a repo the backend has never heard of has
     // nothing to land on. `open` is idempotent and is what `sanity check` does for the same
     // reason.
-    if let Err(e) =
-        post(&ep, "/open", serde_json::json!({ "path": repo.to_string_lossy(), "project": key }))
-    {
-        eprintln!("sanity: {e}");
+    // **Read the answer, don't just check that the post went through.** `/open` refuses a
+    // path no human has added — that is the door readers are kept out of — and it says so
+    // in the body rather than by failing. Ignoring it here meant `sanity trace` in a repo
+    // that had never seen `sanity init` printed the agent-facing "no project is open",
+    // which tells a person at a terminal to call `sanity_report` again five times.
+    let opened = match post(
+        &ep,
+        "/open",
+        serde_json::json!({ "path": repo.to_string_lossy(), "project": key }),
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("sanity: {e}");
+            return 1;
+        }
+    };
+    if !opened.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        eprintln!("sanity: {}", text(&opened, "error"));
+        // The endpoint's own hint is written for a reader — "ask the human to add it" —
+        // and the human is who is standing here. Say the command instead.
+        eprintln!();
+        eprintln!("    sanity init");
+        eprintln!();
         return 1;
     }
     println!();
@@ -1753,7 +1772,7 @@ pub fn status(path: &str) -> i32 {
 /// three rules flagged is one thing to look at, not three. `just findings` prints the other
 /// view, per rule with its calibration and its marginal contribution; that is a question about
 /// the CATALOG and this is a question about the repo.
-pub fn findings(path: &str, limit: usize, edits: bool) -> i32 {
+pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
     let path = match std::fs::canonicalize(path) {
         Ok(p) => p,
         Err(e) => {
@@ -1775,7 +1794,17 @@ pub fn findings(path: &str, limit: usize, edits: bool) -> i32 {
         &std::sync::atomic::AtomicBool::new(false),
         crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
         crate::scan::Fidelity::Ordering,
-        if edits { crate::trace::Depth::Edits } else { crate::trace::Depth::Lines },
+        // **The log walk by default, not per-line blame.** Blame is what `budgets.md` measures
+        // at 206 seconds of a 214-second cold ceph scan, and worse on a repo with 59,000
+        // files; a verb whose first use is "what is worth looking at here" cannot open with
+        // that. The log gives every rule an answer at file resolution, which is what
+        // `score_dir` hands a function anyway wherever blame could not read it — and the two
+        // deeper rungs are there to be asked for.
+        match (edits, blame) {
+            (true, _) => crate::trace::Depth::Edits,
+            (_, true) => crate::trace::Depth::Lines,
+            _ => crate::trace::Depth::Files,
+        },
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -2223,6 +2252,10 @@ enum Verb {
         /// Read the timeline as well, so the churn rules can answer. Minutes on a large repo.
         #[arg(long)]
         edits: bool,
+        /// Per-line blame, so age resolves to the function rather than the file. Hours on a
+        /// huge repo — see `docs/notes/budgets.md`, where it is 206s of a 214s cold ceph scan.
+        #[arg(long)]
+        blame: bool,
     },
     /// Rewrite .sanity/ in the current format
     Refresh {
@@ -2272,7 +2305,7 @@ pub fn main(args: &[String]) -> i32 {
         }
         Verb::Status { path } => status(&path),
         Verb::Summary { path } => summary(&path),
-        Verb::Findings { path, limit, edits } => findings(&path, limit, edits),
+        Verb::Findings { path, limit, edits, blame } => findings(&path, limit, edits, blame),
         Verb::Refresh { path } => refresh(&path),
     }
 }

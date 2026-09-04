@@ -204,7 +204,11 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// answer is not wrong-looking, it is a confident zero under the Reach lens, and the only
 /// thing that can tell the caches it moved is this number. No reading expires — a body's
 /// text is untouched, so `reading_hash` does not move.
-pub const PARSE_VERSION: u32 = 7;
+/// 8 because a Rust `mod` is an owner now — see `OWNER_KINDS`. It changes `owner` for every
+/// function inside any module, which is exactly what this number exists to tell the caches.
+/// No reading expires: `reading_hash` covers the file header, the doc and the body, and
+/// `owner` is none of them.
+pub const PARSE_VERSION: u32 = 8;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -461,6 +465,13 @@ const OWNER_KINDS: &[&str] = &[
     // Rust. `impl_item` names itself through `type`, not `name` — see below.
     "impl_item",
     "trait_item",
+    // **`mod` is an owner too, and `mod tests` is why.** A Rust unit test lives inside the
+    // file it tests, so no path says it is a test — and `#[test]` is a SIBLING of the function
+    // rather than part of it, read off a real parse where `attribute_item` sits beside
+    // `function_item` in the `declaration_list`. The enclosing module is the one signal that
+    // reaches the tree. It is an improvement on its own terms as well: two same-named helpers
+    // in two modules of one file both used to report no owner at all.
+    "mod_item",
     // Swift (class, struct, enum and extension all parse to `class_declaration`), and the
     // JS/TS, Java, C#, Kotlin and PHP families.
     "class_declaration",
@@ -1280,13 +1291,9 @@ fn branch_kinds(lang: Lang) -> Option<&'static [&'static str]> {
             "repeat_statement",
         ],
         Lang::Zig => &["if_statement", "for_statement", "while_statement", "switch_expression"],
-        Lang::Shell | Lang::Zsh => &[
-            "if_statement",
-            "elif_clause",
-            "for_statement",
-            "while_statement",
-            "case_statement",
-        ],
+        Lang::Shell | Lang::Zsh => {
+            &["if_statement", "elif_clause", "for_statement", "while_statement", "case_statement"]
+        }
         Lang::Perl => &[
             "if_statement",
             "elsif_clause",
@@ -1305,20 +1312,12 @@ fn branch_kinds(lang: Lang) -> Option<&'static [&'static str]> {
             "catch_clause",
             "conditional_expression",
         ],
-        Lang::GdScript => &[
-            "if_statement",
-            "elif_clause",
-            "for_statement",
-            "while_statement",
-            "match_statement",
-        ],
-        Lang::Julia => &[
-            "if_statement",
-            "elseif_clause",
-            "for_statement",
-            "while_statement",
-            "catch_clause",
-        ],
+        Lang::GdScript => {
+            &["if_statement", "elif_clause", "for_statement", "while_statement", "match_statement"]
+        }
+        Lang::Julia => {
+            &["if_statement", "elseif_clause", "for_statement", "while_statement", "catch_clause"]
+        }
         Lang::Solidity => &[
             "if_statement",
             "for_statement",
@@ -2480,10 +2479,8 @@ mod kinds {
             Lang::TypeScript,
         );
         assert_eq!(many, 1, "one switch, whatever it dispatches on");
-        let nested = cog(
-            "function f(){ if (a) { switch(e){ case 1: break; } } }",
-            Lang::TypeScript,
-        );
+        let nested =
+            cog("function f(){ if (a) { switch(e){ case 1: break; } } }", Lang::TypeScript);
         assert_eq!(nested, 3, "the if is 1, the switch inside it is 1 + 1");
     }
 
@@ -2508,7 +2505,10 @@ mod kinds {
     #[test]
     fn a_chain_costs_one_per_question_in_every_spelling() {
         let cases: &[(Lang, &str)] = &[
-            (Lang::Python, "def f():\n  if a:\n    pass\n  elif b:\n    pass\n  elif c:\n    pass\n"),
+            (
+                Lang::Python,
+                "def f():\n  if a:\n    pass\n  elif b:\n    pass\n  elif c:\n    pass\n",
+            ),
             (Lang::Php, "<?php\nfunction f() { if ($a) { } elseif ($b) { } elseif ($c) { } }\n"),
             (Lang::Lua, "function f()\n if a then elseif b then elseif c then end\nend\n"),
             (Lang::Perl, "sub f { if ($a) { } elsif ($b) { } elsif ($c) { } }\n"),
@@ -2686,7 +2686,6 @@ fn f(a: u32, b: u32) -> u32 {
         // is carried rather than derived from `cost`.
         let chain = forks.iter().find(|f| f.kind == super::ForkKind::Chain).expect("the else if");
         assert_eq!((chain.cost, chain.depth), (1, 1), "a continuation is charged flat");
-
     }
 
     /// No table means no list, not an empty one — the same absence `cognitive` reports.
@@ -2699,7 +2698,8 @@ fn f(a: u32, b: u32) -> u32 {
     /// Most Groovy lives in a class, and only the top-level shape was listed.
     #[test]
     fn groovy_reads_class_methods_as_well_as_top_level_ones() {
-        let src = "def top() {\n  return 1\n}\n\nclass K {\n  int inner(int a) {\n    return a\n  }\n}\n";
+        let src =
+            "def top() {\n  return 1\n}\n\nclass K {\n  int inner(int a) {\n    return a\n  }\n}\n";
         let fs = parse_functions(Lang::Groovy, src);
         let names: Vec<&str> = fs.iter().map(|f| f.name.as_str()).collect();
         assert!(names.contains(&"inner"), "a class method: {names:?}");
@@ -2715,9 +2715,31 @@ fn f(a: u32, b: u32) -> u32 {
     #[ignore = "diagnostic"]
     fn shortlist() {
         let want = [
-            "if", "for", "while", "switch", "case", "when", "try", "catch", "rescue", "match",
-            "loop", "unless", "until", "guard", "cond", "select", "foreach", "repeat", "elif",
-            "elsif", "do", "except", "ternary", "conditional", "branch",
+            "if",
+            "for",
+            "while",
+            "switch",
+            "case",
+            "when",
+            "try",
+            "catch",
+            "rescue",
+            "match",
+            "loop",
+            "unless",
+            "until",
+            "guard",
+            "cond",
+            "select",
+            "foreach",
+            "repeat",
+            "elif",
+            "elsif",
+            "do",
+            "except",
+            "ternary",
+            "conditional",
+            "branch",
         ];
         let cases: &[(Lang, &str)] = &[
             (Lang::Swift, "func f() {\n if a { } else if b { }\n for x in y { }\n while c { }\n repeat { } while d\n switch e { case 1: break }\n guard g else { return }\n do { } catch { }\n let h = a ? b : c\n}\n"),
@@ -2783,8 +2805,18 @@ mod complexity {
     /// functions against a repo that has 293 — every one a minified bundle on a single line.
     fn walk(root: &std::path::Path) -> Vec<std::path::PathBuf> {
         const SKIP: &[&str] = &[
-            "node_modules", "target", "dist", "build", "out", "vendor", "vendored",
-            "third_party", "thirdparty", "venv", "site-packages", "__pycache__",
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            "out",
+            "vendor",
+            "vendored",
+            "third_party",
+            "thirdparty",
+            "venv",
+            "site-packages",
+            "__pycache__",
         ];
         let mut out = Vec::new();
         let mut stack = vec![root.to_path_buf()];
@@ -2797,7 +2829,11 @@ mod complexity {
                     continue;
                 }
                 let p = e.path();
-                if p.is_dir() { stack.push(p) } else { out.push(p) }
+                if p.is_dir() {
+                    stack.push(p)
+                } else {
+                    out.push(p)
+                }
             }
         }
         out
@@ -2838,7 +2874,11 @@ mod complexity {
             dx += a * a;
             dy += b * b;
         }
-        if dx == 0.0 || dy == 0.0 { 0.0 } else { num / (dx * dy).sqrt() }
+        if dx == 0.0 || dy == 0.0 {
+            0.0
+        } else {
+            num / (dx * dy).sqrt()
+        }
     }
 
     fn pct(v: &[u32], p: f64) -> u32 {
@@ -2906,17 +2946,18 @@ mod complexity {
         let steps: Vec<u32> = leads.iter().map(|(w, _)| w.saturating_sub(base)).collect();
         let unit = steps.iter().copied().filter(|d| *d > 0).fold(0u32, |a, b| {
             fn gcd(a: u32, b: u32) -> u32 {
-                if b == 0 { a } else { gcd(b, a % b) }
+                if b == 0 {
+                    a
+                } else {
+                    gcd(b, a % b)
+                }
             }
             gcd(a, b)
         });
         let unit = unit.max(1);
         let branches: u32 = leads.iter().map(|(_, f)| *f as u32).sum();
-        let cognitive: u32 = leads
-            .iter()
-            .zip(&steps)
-            .map(|((_, f), step)| *f as u32 * (1 + step / unit))
-            .sum();
+        let cognitive: u32 =
+            leads.iter().zip(&steps).map(|((_, f), step)| *f as u32 * (1 + step / unit)).sum();
         let lines = leads.len().max(1) as u32;
         (branches, cognitive, (cognitive * 100) / lines)
     }
@@ -2997,8 +3038,7 @@ mod complexity {
     fn is_complexity_line_count_wearing_a_hat() {
         let Ok(root) = std::env::var("CX_REPO") else { return };
         let root = std::path::Path::new(&root);
-        let (mut br, mut cog, mut den, mut locs) =
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut br, mut cog, mut den, mut locs) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let (mut nbr, mut nden, mut nlocs, mut ncog) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let stored = crate::assessment::read_all(&crate::assessment::dir(root));
@@ -3122,7 +3162,8 @@ mod complexity {
         // the same way, offering both is two controls producing one map — an inert choice,
         // which this bar refuses on the same grounds it refuses an inert lens.
         println!("  branches vs cognitive = {:.3}", sp(&br, &cog));
-        let flat = |v: &[u32]| 100.0 * v.iter().filter(|d| **d == 0).count() as f64 / v.len() as f64;
+        let flat =
+            |v: &[u32]| 100.0 * v.iter().filter(|d| **d == 0).count() as f64 / v.len() as f64;
         println!("  at zero:   branches {:.0}%   density {:.0}%", flat(&br), flat(&den));
         // **"Is it more complicated than its length suggests?" — the residual, not the rate.**
         // Density divides by length, which assumes complexity scales linearly with it. Real
@@ -3148,12 +3189,10 @@ mod complexity {
             for (c, l) in ncog.iter().zip(&nlocs) {
                 by[bucket(*l)].push(*c);
             }
-            let med: Vec<u32> = by.iter().map(|v| if v.is_empty() { 1 } else { pct(v, 0.5).max(1) }).collect();
-            let resid: Vec<u32> = ncog
-                .iter()
-                .zip(&nlocs)
-                .map(|(c, l)| (c * 100) / med[bucket(*l)])
-                .collect();
+            let med: Vec<u32> =
+                by.iter().map(|v| if v.is_empty() { 1 } else { pct(v, 0.5).max(1) }).collect();
+            let resid: Vec<u32> =
+                ncog.iter().zip(&nlocs).map(|(c, l)| (c * 100) / med[bucket(*l)]).collect();
             println!(
                 "  RESIDUAL (vs median of its size band): vs lines {:.2}   p50 {}  p90 {}  p99 {}",
                 sp(&resid, &nlocs),
@@ -3172,8 +3211,11 @@ mod complexity {
                     }
                 }
                 if !gres.is_empty() {
-                    println!("    surprise vs RESIDUAL {:.2}  ({} read fns >=10 lines)",
-                        sp(&gg, &gres), gres.len());
+                    println!(
+                        "    surprise vs RESIDUAL {:.2}  ({} read fns >=10 lines)",
+                        sp(&gg, &gres),
+                        gres.len()
+                    );
                 }
             }
         }

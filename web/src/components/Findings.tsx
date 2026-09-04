@@ -1,6 +1,20 @@
-import { useEffect, useState } from 'react'
-import type { Decision, Hit, Finding, FindingGroup, Say, Verdict } from '../lib/api'
+import { useEffect, useRef, useState } from 'react'
+import type {
+  Decision,
+  FieldView,
+  Grammar,
+  Hit,
+  Finding,
+  FindingGroup,
+  RuleEdit,
+  RuleView,
+  Say,
+  Spread,
+  Verdict,
+} from '../lib/api'
 import { MODE_LABEL, modeToken, type ColorMode } from '../lib/colorMode'
+import { middleTruncate, monoAdvance } from '../lib/label'
+import { Tabs } from './Tabs'
 
 /** The colour of one lens, for a swatch beside the finding it helped raise.
  *
@@ -8,6 +22,14 @@ import { MODE_LABEL, modeToken, type ColorMode } from '../lib/colorMode'
  *  paints — a private table here would be a second vocabulary for one set of colours, which
  *  is how the legend and the map came to disagree about a language's name. `size` is the one
  *  id that is not a lens: width is how the map draws lines, and it gets the neutral. */
+/** A threshold as a person reads it: whole where it is whole, two places where it is not.
+ *
+ *  A grade's bar is `0.7` and a line count's is `339`, and the same formatter has to carry
+ *  both without printing `339.00` or rounding a grade to `1`. */
+function trim(v: number): string {
+  return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)
+}
+
 /** What a lens is called, in the words the lens switcher uses.
  *
  *  `MODE_LABEL` rather than a table here, for the same reason `lensColor` defers to
@@ -35,6 +57,39 @@ function dirOf(path: string): string {
   const cut = path.lastIndexOf('/')
   return cut === -1 ? '' : path.slice(0, cut + 1)
 }
+
+/** The directory, shortened from the middle only when a line of its own cannot hold it.
+ *
+ *  **Two cases, because the address takes one line or two.** If the whole of it fits, nothing
+ *  is cut. If it does not, the file and its function wrap to a second line — so the directory
+ *  is then alone on the first, with the WHOLE line to spend, and is cut only if it overruns
+ *  that.
+ *
+ *  Subtracting the file and the function from the budget in every case was the first version
+ *  and it is wrong in exactly the case that matters: `qa/standalone/scrub/` came out as
+ *  `qa/st…rub/` on a line with four fifths of it empty, because the arithmetic was still
+ *  reserving room for a file that had already moved to the line below. The layout decides
+ *  which line things are on; this has to ask the same question the layout asks.
+ *
+ *  Where even a full line leaves too little to be worth reading, `middleTruncate` returns
+ *  nothing rather than a stub — `x…e/` narrows nothing and still costs a line.
+ *
+ *  Falls back to the untouched path before the column has been measured: one frame of an
+ *  overlong address beats a frame of nothing.
+ */
+function dirFor(hit: Hit, colW: number): string {
+  const dir = dirOf(hit.path)
+  if (colW <= 0) return dir
+  // The tile's own padding, which the measured element sits outside of.
+  const fits = Math.floor((colW - 32) / (ADDRESS_PX * monoAdvance()))
+  // One line for all three: nothing is cut.
+  if (dir.length + fileOf(hit).length + nameOf(hit).length <= fits) return dir
+  // Two lines, and this one is the directory's alone.
+  return dir.length <= fits ? dir : middleTruncate(dir, fits)
+}
+
+/** The size the address is set at, which the character count has to agree with. */
+const ADDRESS_PX = 15
 
 /** The file, with its `#` where a function follows. Never truncated.
  *
@@ -78,6 +133,21 @@ function lensRule(ids: string[]): string {
  *  paints — a private table would be a second vocabulary for one set of colours, which is how
  *  the legend and the map came to disagree about a language's name. `size` is the one id that
  *  is not a lens: width is how the map draws lines, and it gets the neutral. */
+/** The colour a field's pill wears in an expression.
+ *
+ *  **Coloured means a lens; neutral means not one, and there is only one neutral.** `size` and
+ *  `read` are both non-lenses — width is how the map draws lines rather than a colour, and an
+ *  absence of readings is not a lens either — but they reached the pill by two code paths and
+ *  came out slightly different shades. A difference that small reads as a distinction the
+ *  reader then goes looking for, and there is none to find.
+ *
+ *  `--structure` was tried for `read`, on the argument that it is what every reading lens
+ *  paints on an unread wedge. It is a pale warm grey meant to be a large quiet area on a map,
+ *  and at pill size tinted to 16% it vanished. */
+function fieldColor(id: string | null): string {
+  return id === null ? 'var(--muted-foreground)' : lensColor(id)
+}
+
 function lensColor(id: string): string {
   // **Membership checked, not assumed.** `modeToken` walks a `Record<ColorMode, …>`, so an id
   // the frontend has never heard of comes back as `--undefined-3` — a var that resolves to
@@ -85,6 +155,398 @@ function lensColor(id: string): string {
   // failure this whole app is written against, and the guard costs one lookup.
   if (id !== 'size' && id in MODE_LABEL) return `var(${modeToken(id as ColorMode)})`
   return 'var(--muted-foreground)'
+}
+
+/** A rule being written, before it is a rule.
+ *
+ *  **Values are strings, and stay strings until save.** A number input bound to a `number`
+ *  cannot hold "0." or an empty box, so a field typed through zero either snaps back or
+ *  becomes `NaN` — and `NaN` sent as a threshold is a rule that matches nothing, silently.
+ *  The parse happens once, at the edge, where a bad number can still be refused out loud. */
+interface Draft {
+  /** Empty for a rule being created — the backend mints the id from the title, once. */
+  id: string
+  title: string
+  soWhat: string
+  says: string
+  pop: 'func' | 'file'
+  clauses: { field: string; op: string; value: string }[]
+  calibrated: number
+  on: boolean
+  builtIn: boolean
+  /** The fields it was opened with. **The pin is built from the clause FIELDS**, so a rule
+   *  that gains, loses or swaps one writes pins of a different shape and every `fine-for-now`
+   *  filed under it stops matching. Kept so the form can say so before the save rather than
+   *  letting it be discovered as findings quietly reappearing. */
+  wasFields: string[]
+}
+
+function draftOf(r: RuleView): Draft {
+  return {
+    id: r.id,
+    title: r.title,
+    soWhat: r.soWhat,
+    says: r.says,
+    pop: r.pop,
+    clauses: r.clauses.map((c) => ({ field: c.field, op: c.op, value: String(c.value) })),
+    calibrated: r.calibrated,
+    on: r.on,
+    builtIn: r.builtIn,
+    wasFields: r.clauses.map((c) => c.field),
+  }
+}
+
+/** What a new rule starts as.
+ *
+ *  `loc >= 100` on functions, because it is the one clause every repo can answer and it puts
+ *  a number on screen that the spread line underneath immediately argues with — which is the
+ *  whole way this form is meant to be used. */
+function blankDraft(): Draft {
+  return {
+    id: '',
+    title: '',
+    soWhat: '',
+    says: '',
+    pop: 'func',
+    clauses: [{ field: 'loc', op: '>=', value: '100' }],
+    calibrated: 0,
+    on: true,
+    builtIn: false,
+    wasFields: [],
+  }
+}
+
+/** Which fields can be asked of this population.
+ *
+ *  A field with a `pop` says nothing about the other one — `funcs` is how many functions a
+ *  file holds, and there is no such number for a function. Filtered rather than disabled: an
+ *  option that cannot be chosen is a question about why, and the answer is uninteresting. */
+function fieldsFor(g: Grammar, pop: 'func' | 'file'): FieldView[] {
+  return g.fields.filter((f) => f.pop === null || f.pop === pop)
+}
+
+function spreadFor(f: FieldView | undefined, pop: 'func' | 'file'): Spread | null {
+  return !f ? null : pop === 'file' ? f.file : f.func
+}
+
+/** The rule form.
+ *
+ *  **It refuses nothing itself.** Every rule about what a rule may be — the clause count, a
+ *  threshold true of everything, a field that says nothing about this population, a `{{token}}`
+ *  the rule cannot fill — is enforced by `apply_edit`, which answers with a sentence. A second
+ *  copy of those rules here would be a second grammar, and the day they disagreed the form
+ *  would be refusing rules the backend accepts. What this does is offer only what is
+ *  offerable, and show what comes back.
+ */
+function RuleForm({
+  draft,
+  set,
+  grammar,
+  pinned,
+  error,
+  busy,
+  onSave,
+  onCancel,
+  onDelete,
+  onReset,
+}: {
+  draft: Draft
+  set: (d: Draft) => void
+  grammar: Grammar | null
+  /** How many `fine-for-now` decisions are filed under this rule — the ones a changed clause
+   *  brings back. */
+  pinned: number
+  error: string | null
+  busy: boolean
+  onSave: () => void
+  onCancel: () => void
+  onDelete: () => void
+  onReset: () => void
+}) {
+  const fields = grammar ? fieldsFor(grammar, draft.pop) : []
+  const ops = grammar?.ops ?? ['>=', '>', '<=', '<']
+  const changedFields =
+    draft.wasFields.length > 0 &&
+    (draft.clauses.length !== draft.wasFields.length ||
+      draft.clauses.some((c, i) => c.field !== draft.wasFields[i]))
+
+  const input =
+    'rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-[3px] text-[11px] text-[var(--foreground)]'
+  const label = 'text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]'
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1">
+        <span className={label}>title</span>
+        <input
+          className={`${input} font-semibold`}
+          value={draft.title}
+          autoFocus
+          placeholder="What this finds"
+          onChange={(e) => set({ ...draft, title: e.target.value })}
+        />
+      </div>
+
+      {/* **The expression, in the shape it is read in.** `func:` then clauses, left to right,
+          so the control layout and the `func: loc >= 257` the row shows when closed are the
+          same sentence — a form that stacked three labelled boxes per clause would be a
+          different language for the same thing. */}
+      <div className="flex flex-col gap-1">
+        <span className={label}>finds a</span>
+        {/* **The population is its own line, above the clauses.** It shared the first clause's
+            row, which pushed that clause right by the width of the word "function" and left
+            the three fields in a staircase — three questions of the same shape that did not
+            look like it. It is also not a clause: it says what the rule is ABOUT, and the
+            clauses say what it asks. */}
+        <select
+          className={`${input} mono w-[124px]`}
+          value={draft.pop}
+          disabled={busy}
+          onChange={(e) => {
+            const pop = e.target.value as 'func' | 'file'
+            // **Clauses the new population cannot answer are dropped, not carried.**
+            // `funcs >= 40` on a function rule is a clause the backend refuses, and keeping
+            // it would make the population switch look broken rather than the clause. One
+            // always survives, so the rule stays a rule.
+            const kept = grammar
+              ? draft.clauses.filter((k) => fieldsFor(grammar, pop).some((f) => f.name === k.field))
+              : draft.clauses
+            set({
+              ...draft,
+              pop,
+              clauses: kept.length ? kept : [{ field: 'loc', op: '>=', value: '100' }],
+            })
+          }}
+        >
+          <option value="func">function</option>
+          <option value="file">file</option>
+        </select>
+        <div className="flex flex-col gap-1.5 pt-0.5">
+          {draft.clauses.map((c, i) => {
+            const meta = fields.find((f) => f.name === c.field)
+            const sp = spreadFor(meta, draft.pop)
+            return (
+              <div key={i} className="flex flex-col gap-[3px]">
+                <div className="mono flex items-center gap-1 text-[11px]">
+                  {/* **The gutter says the sentence, rather than indenting for one.** It was
+                      blank on the first clause and `and` on the rest, which read as a list
+                      that happened to be joined; `where … and …` is the expression spoken,
+                      and it is the same sentence `func: loc >= 339 and cognitive >= 10`
+                      renders when the row is closed. Fixed width, right-aligned, so the three
+                      fields still start in one column. */}
+                  <span className="w-[40px] shrink-0 text-right text-[var(--muted-foreground)]">
+                    {i > 0 ? 'and' : 'where'}
+                  </span>
+                  <select
+                    className={`${input} w-[124px]`}
+                    style={{ color: fieldColor(meta?.lens ?? null) }}
+                    value={c.field}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = [...draft.clauses]
+                      next[i] = { ...c, field: e.target.value }
+                      set({ ...draft, clauses: next })
+                    }}
+                  >
+                    {fields.map((f) => (
+                      <option key={f.name} value={f.name}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className={`${input} w-[54px]`}
+                    value={c.op}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = [...draft.clauses]
+                      next[i] = { ...c, op: e.target.value }
+                      set({ ...draft, clauses: next })
+                    }}
+                  >
+                    {ops.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className={`${input} w-[72px]`}
+                    inputMode="decimal"
+                    value={c.value}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = [...draft.clauses]
+                      next[i] = { ...c, value: e.target.value }
+                      set({ ...draft, clauses: next })
+                    }}
+                  />
+                  {/* One clause is the floor: a rule with none asks nothing. */}
+                  {draft.clauses.length > 1 && (
+                    <button
+                      className="px-1 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      disabled={busy}
+                      title="drop this clause"
+                      onClick={() =>
+                        set({
+                          ...draft,
+                          clauses: draft.clauses.filter((_, k) => k !== i),
+                          calibrated: draft.calibrated > i ? draft.calibrated - 1 : draft.calibrated,
+                        })
+                      }
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                {/* **What normal is, under the number being typed.** A threshold means nothing
+                    without the distribution it sits in — 257 lines is an outlier in one repo
+                    and the median in another, which is the measurement that made calibration
+                    per-repo in the first place. Where a field has no values here it says so:
+                    a bar typed against nothing is a guess, and a silent empty hint would let
+                    somebody make one without noticing. */}
+                <div className="pl-[44px] text-[10px] text-[var(--muted-foreground)]">
+                  {sp ? (
+                    <>
+                      median <span className="mono">{trim(sp.median)}</span> · 95th{' '}
+                      <span className="mono">{trim(sp.p95)}</span> · most{' '}
+                      <span className="mono">{trim(sp.max)}</span> ·{' '}
+                      <span className="mono">{sp.n.toLocaleString()}</span>{' '}
+                      {draft.pop === 'file' ? 'files' : 'functions'}
+                    </>
+                  ) : meta?.needsReading ? (
+                    'nothing here has been read, so this asks nothing yet'
+                  ) : (
+                    'nothing in this repo has a value for this'
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {/* **The cap says so, rather than the control disappearing.** A button that is there
+            at two clauses and gone at three reads as a bug, and the first person to reach
+            three asked where it went. It says it is a choice because it is one: the note
+            retracts the precedence argument that used to justify it — conjunction is
+            associative and needs no precedence at any width — and what is left is a judgement
+            about a tile staying readable.
+
+            A new clause opens on its field's median rather than on zero: `>= 0` is true of
+            everything, which `apply_edit` refuses, so starting there would open every added
+            clause in a state the backend will not take. */}
+        {draft.clauses.length < 3 ? (
+          <button
+            className="self-start pl-[44px] text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            disabled={busy}
+            onClick={() => {
+              const f = fields[0]
+              const start = spreadFor(f, draft.pop)?.median
+              set({
+                ...draft,
+                clauses: [
+                  ...draft.clauses,
+                  { field: f?.name ?? 'loc', op: '>=', value: start === undefined ? '1' : trim(start) },
+                ],
+              })
+            }}
+          >
+            + and…
+          </button>
+        ) : (
+          <span className="self-start pl-[44px] text-[10px] text-[var(--muted-foreground)]">
+            three is as many clauses as this form offers — a choice, not a limit of the grammar
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className={label}>impact</span>
+        <input
+          className={input}
+          value={draft.soWhat}
+          placeholder="Why this is worth a look"
+          disabled={busy}
+          onChange={(e) => set({ ...draft, soWhat: e.target.value })}
+        />
+      </div>
+
+      {/* **Optional, and refused rather than ignored when it is wrong.** `render` falls back
+          to the so-what when it cannot fill a token, which is right at draw time and wrong
+          here: it would mean writing a sentence that never appears and never being told. */}
+      <div className="flex flex-col gap-1">
+        <span className={label}>report text (optional)</span>
+        <textarea
+          className={`${input} h-[52px] resize-none leading-snug`}
+          value={draft.says}
+          placeholder="A sentence about each one. {{name}} {{median}} and the fields this rule measures."
+          disabled={busy}
+          onChange={(e) => set({ ...draft, says: e.target.value })}
+        />
+      </div>
+
+      {/* **Said before the save, not discovered afterwards.** A changed threshold touches no
+          decision — the pin records the SUBJECT's values, not the rule's bar — but a changed
+          clause field writes pins of a different shape and every `fine-for-now` under this
+          rule stops matching. Everybody assumes the opposite of both. */}
+      {changedFields && pinned > 0 && (
+        <p className="text-[11px] text-[var(--accent)]">
+          This changes what the rule measures, so the{' '}
+          <span className="mono">{pinned.toLocaleString()}</span> finding
+          {pinned === 1 ? '' : 's'} set aside under it come back.
+        </p>
+      )}
+
+      {error && <p className="text-[11px] text-[var(--accent)]">{error}</p>}
+
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          className="rounded px-2 py-[3px] text-[11px] text-[var(--foreground)]"
+          style={{ background: 'color-mix(in oklch, var(--accent) 22%, transparent)' }}
+          disabled={busy}
+          onClick={onSave}
+        >
+          save
+        </button>
+        <button
+          className="text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+          disabled={busy}
+          onClick={onCancel}
+        >
+          cancel
+        </button>
+        <span className="ml-auto flex items-center gap-3">
+          {/* **A built-in is put back, never removed.** A later release ships it again, and
+              somebody who deleted it would find it returned with no record of their having
+              said otherwise — so the catalog's own rules silence, and only a rule of your own
+              can actually go. */}
+          {draft.builtIn && draft.id && (
+            <button
+              className="text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              disabled={busy}
+              title="back to the way sanity ships it, and re-suggest its threshold"
+              onClick={onReset}
+            >
+              reset
+            </button>
+          )}
+          {draft.id && (
+            <button
+              className="text-[11px] text-[var(--muted-foreground)] hover:text-[var(--accent)]"
+              disabled={busy}
+              title={
+                draft.builtIn
+                  ? 'stop asking this here — decisions filed under it are kept'
+                  : 'delete this rule — decisions filed under it are kept'
+              }
+              onClick={onDelete}
+            >
+              {draft.builtIn ? 'turn off' : 'delete'}
+            </button>
+          )}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -127,6 +589,11 @@ export function Findings({
   /** Every decision made here, newest first, or `null` while it is being fetched. Flags are
    *  in it too — see `ignored`, which is what the drawer shows. */
   archive,
+  rules,
+  grammar,
+  onSaveRule,
+  onDeleteRule,
+  onResetRule,
   onClose,
   onPick,
   onDecide,
@@ -137,12 +604,26 @@ export function Findings({
   groups: FindingGroup[] | null
   replaying: boolean
   archive: Decision[] | null
+  /** Every rule this repo runs, or `null` while it is being fetched. */
+  rules: RuleView[] | null
+  /** Every field and operator a clause may name, with this repo's distributions. */
+  grammar: Grammar | null
+  /** All three reject with the backend's own sentence rather than resolving quietly — the
+   *  form shows what comes back, and stays open on a save that did not happen. */
+  onSaveRule: (rule: RuleEdit) => Promise<void>
+  onDeleteRule: (id: string) => Promise<void>
+  onResetRule: (id: string) => Promise<void>
   onClose: () => void
   onPick: (hit: Hit) => void
   onDecide: (key: string, rule: string, verdict: Verdict, reason: string) => void
   onUndecide: (key: string, rule: string) => void
 }) {
-  const [showArchive, setShowArchive] = useState(false)
+  /** Which of the three the panel is showing.
+   *
+   *  **One switch, not two booleans.** Findings, what has been ignored, and the rules that
+   *  found them are three views of one thing; a pair of flags would have a fourth state that
+   *  means nothing and would eventually reach it. */
+  const [view, setView] = useState<'findings' | 'ignored' | 'rules'>('findings')
   /** Which row has its reason field open, and under which verdict.
    *
    *  **A reason is asked for, and not required.** The reasons people type are the most
@@ -151,6 +632,28 @@ export function Findings({
    *  recorded than not made. */
   const [saying, setSaying] = useState<{ at: string; verdict: Verdict } | null>(null)
   const [reason, setReason] = useState('')
+  /** The rule being edited, or null. **One at a time**: two open forms is two drafts of a
+   *  file that holds one, and the second save would be written against a rule set the first
+   *  had already moved. */
+  const [draft, setDraft] = useState<Draft | null>(null)
+  /** The backend's refusal, shown verbatim. It is written to be read. */
+  const [formError, setFormError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  /** How wide a tile's text column is, in pixels, or 0 before it has been measured.
+   *
+   *  **Measured once for the panel, not once per tile.** Every tile is the same width — the
+   *  panel is a fixed column — so an observer apiece would be fifty observers answering one
+   *  question. It feeds the middle-truncation of the directory, which CSS cannot do: `…` in
+   *  the MIDDLE means knowing how many characters fit, and only the layout knows that. */
+  const [colW, setColW] = useState(0)
+  const column = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = column.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setColW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [open, view])
 
   // Escape puts it down, on the window because this panel has no field to own the keyboard
   // with. Registered only while it is up, so it cannot swallow the key from anything else.
@@ -164,6 +667,63 @@ export function Findings({
   }, [open, onClose])
 
   if (!open) return null
+
+  /** Send a draft, and keep the form open if it comes back refused.
+   *
+   *  **The parse happens here and nowhere else.** Values are strings while they are being
+   *  typed, so this is the one place a half-typed number exists — and a `NaN` sent as a
+   *  threshold is a rule that matches nothing, silently, which is the failure this whole
+   *  surface is written against. */
+  const saveDraft = () => {
+    if (!draft) return
+    const bad = draft.clauses.find((c) => !Number.isFinite(Number(c.value)) || c.value.trim() === '')
+    if (bad) {
+      setFormError(`\`${bad.value}\` is not a number`)
+      return
+    }
+    setBusy(true)
+    setFormError(null)
+    void onSaveRule({
+      id: draft.id,
+      title: draft.title,
+      soWhat: draft.soWhat,
+      says: draft.says,
+      pop: draft.pop,
+      clauses: draft.clauses.map((c) => ({ field: c.field, op: c.op, value: Number(c.value) })),
+      calibrated: draft.calibrated,
+      on: draft.on,
+    })
+      .then(() => {
+        setDraft(null)
+        setFormError(null)
+      })
+      .catch((e: unknown) => setFormError(String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  const removeDraft = () => {
+    if (!draft?.id) return
+    setBusy(true)
+    void onDeleteRule(draft.id)
+      .then(() => {
+        setDraft(null)
+        setFormError(null)
+      })
+      .catch((e: unknown) => setFormError(String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  const resetDraft = () => {
+    if (!draft?.id) return
+    setBusy(true)
+    void onResetRule(draft.id)
+      .then(() => {
+        setDraft(null)
+        setFormError(null)
+      })
+      .catch((e: unknown) => setFormError(String(e)))
+      .finally(() => setBusy(false))
+  }
 
   const choose = (hit: Hit) => {
     onPick(hit)
@@ -243,27 +803,77 @@ export function Findings({
         className="absolute left-1/2 top-1/2 z-50 flex max-h-[calc(100%-9rem)] w-[min(38rem,calc(100%-3rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-baseline gap-2 border-b border-[var(--border)] px-4 py-2.5">
-          {/* **The count is part of the title**, not a figure parked at the other end of the
-              row: `Findings (62)` is one thing being named, where a title on the left and a
-              number on the right were two rows of chrome to read. */}
-          <span className="text-[13px] font-medium text-[var(--foreground)]">
-            Findings{groups && !replaying ? ` (${items.length}${capped ? '+' : ''})` : ''}
-          </span>
-          {/* The way into the drawer, and out of it, said as the sentence it is. Absent when
-              there is nothing in there: a link to an empty room is a thing to wonder about. */}
-          {groups && !replaying && (showArchive || ignored.length > 0) && (
-            <button
-              type="button"
-              onClick={() => setShowArchive((v) => !v)}
-              className="ml-auto text-[11px] text-[var(--muted-foreground)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--foreground)] hover:decoration-current"
-            >
-              {showArchive
-                ? 'back to findings'
-                : `${ignored.length} finding${ignored.length === 1 ? '' : 's'} ignored`}
-            </button>
-          )}
+        {/* **The control IS the title**, the way it is on the lens sheet — see `Tabs`. A
+            heading on the left and a link on the right was two pieces of chrome saying one
+            thing, and the link read as an action rather than as the other half of a switch:
+            `rules` looked like something that would happen to the list.
+
+            The count rides in the word. `Findings (54)` is one thing being named, and it names
+            what is ON SCREEN — it used to read `Findings (120+)` over a list of rules, which is
+            a count of something you are not looking at, with a `+` reporting that the row cap
+            had bitten in the view underneath. */}
+        <div className="flex items-center border-b border-[var(--border)] px-4 py-2.5">
+          <Tabs
+            className="mx-auto"
+            at={view === 'ignored' ? 'findings' : view}
+            onPick={setView}
+            tabs={
+              // The ignored drawer is not a third position: it is a place you arrive at from
+              // the findings list and go back to. A tab for it would be a room that is empty
+              // on most repos, sitting in the control forever.
+              [
+                {
+                  k: 'findings' as const,
+                  word: `Findings${groups && !replaying ? ` (${items.length}${capped ? '+' : ''})` : ''}`,
+                },
+                { k: 'rules' as const, word: `Rules${rules ? ` (${rules.length})` : ''}` },
+              ]
+            }
+          />
         </div>
+        {/* **A section header per view: what you are looking at, and what you can do to it.**
+            The tabs above say which of the three is showing and carry the counts; this says it
+            again at the head of the list, which is the line the eye lands on after pressing a
+            tab — and it gives the view's one ACTION somewhere to be. `add rule` floated at the
+            top of the rules list with nothing to sit against, and the way into the ignored
+            drawer had a bar of its own.
+
+            Absent while there is nothing to head: a title over an empty pane is furniture. */}
+        {groups && !replaying && (
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2">
+            <span className="text-[12px] font-medium text-[var(--foreground)]">
+              {view === 'rules' ? 'Rules' : view === 'ignored' ? 'Ignored' : 'Findings'}
+            </span>
+            {view === 'rules' ? (
+              // Only when the form is not already open — the open form IS the new rule, and a
+              // button that makes another one while one is being written would throw the first
+              // away without saying so.
+              (!draft || draft.id !== '') && (
+                <button
+                  type="button"
+                  disabled={!grammar}
+                  onClick={() => {
+                    setDraft(blankDraft())
+                    setFormError(null)
+                  }}
+                  className="rounded border border-[var(--border)] px-2 py-[3px] text-[11px] text-[var(--muted-foreground)] hover:border-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
+                >
+                  Add Rule
+                </button>
+              )
+            ) : ignored.length > 0 ? (
+              // The way into the drawer, and out of it, said as the sentence it is. Absent when
+              // there is nothing in there: a link to an empty room is a thing to wonder about.
+              <button
+                type="button"
+                onClick={() => setView(view === 'ignored' ? 'findings' : 'ignored')}
+                className="text-[11px] text-[var(--muted-foreground)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--foreground)] hover:decoration-current"
+              >
+                {view === 'ignored' ? 'back to findings' : `${ignored.length} ignored`}
+              </button>
+            ) : null}
+          </div>
+        )}
 
         {replaying ? (
           // A finding's verbs — read it, open it, go there — are all about the working tree, and
@@ -279,7 +889,215 @@ export function Findings({
           </p>
         ) : !groups ? (
           <p className="px-4 py-3 text-[11px] text-[var(--muted-foreground)]">Looking…</p>
-        ) : showArchive ? (
+        ) : view === 'rules' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {/* **The catalog, and what each rule is worth HERE.** `hits` is what it finds and
+                `only` is how much of that nothing else found — and the second is the number to
+                judge a rule by. "Long and undocumented" scored 3,455 on kibana and was
+                worthless, because 18 of its top 20 were already in "Giant function"; a grid
+                showing hit counts alone would have kept it.
+
+                Read-only for now: every number here is already computable, and it is worth
+                looking at before anything is editable. */}
+            {/* **A new rule opens at the top, under the button that made it.** A form that
+                opened at the bottom of a catalog of sixteen would open off screen, and the
+                first thing it did would be to scroll away from the thing just pressed. */}
+            {draft && draft.id === '' && (
+              <div className="mb-3 rounded-md border border-[var(--border)] px-3 py-2.5">
+                <RuleForm
+                  draft={draft}
+                  set={setDraft}
+                  grammar={grammar}
+                  pinned={0}
+                  error={formError}
+                  busy={busy}
+                  onSave={saveDraft}
+                  onCancel={() => {
+                    setDraft(null)
+                    setFormError(null)
+                  }}
+                  onDelete={removeDraft}
+                  onReset={resetDraft}
+                />
+              </div>
+            )}
+            {!rules ? (
+              <p className="text-[11px] text-[var(--muted-foreground)]">Looking…</p>
+            ) : (
+              rules.map((r) =>
+                draft && draft.id === r.id ? (
+                  <div
+                    key={r.id}
+                    className="mb-3 rounded-md border border-[var(--border)] px-3 py-2.5 last:mb-0"
+                  >
+                    <RuleForm
+                      draft={draft}
+                      set={setDraft}
+                      grammar={grammar}
+                      /* Only `fine-for-now` is pinned. `fine-always` is a statement about the
+                         subject rather than about a version of it, and never expires. */
+                      pinned={
+                        archive?.filter((d) => d.rule === r.id && d.verdict === 'fine-for-now')
+                          .length ?? 0
+                      }
+                      error={formError}
+                      busy={busy}
+                      onSave={saveDraft}
+                      onCancel={() => {
+                        setDraft(null)
+                        setFormError(null)
+                      }}
+                      onDelete={removeDraft}
+                      onReset={resetDraft}
+                    />
+                  </div>
+                ) : (
+                <div
+                  key={r.id}
+                  /* **The row is the way in.** A pencil in the corner of every row is twelve
+                     small targets for one action, and the whole card already reads as the
+                     rule — clicking the thing you want to change is the shorter sentence.
+                     Cancel costs nothing, so a misclick costs nothing. */
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setDraft(draftOf(r))
+                    setFormError(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setDraft(draftOf(r))
+                      setFormError(null)
+                    }
+                  }}
+                  className="group mb-3 cursor-pointer rounded-md border border-[var(--border)] px-3 py-2.5 last:mb-0 hover:border-[var(--muted-foreground)]"
+                  style={{
+                    background: 'color-mix(in oklch, var(--foreground) 3%, transparent)',
+                    // A silenced rule is listed and obviously not running, rather than absent:
+                    // one somebody has to go and find again is one they will not turn back on.
+                    opacity: r.on ? 1 : 0.45,
+                  }}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[12px] font-semibold text-[var(--foreground)]">
+                      {r.title}
+                    </span>
+                    {!r.builtIn && (
+                      <span
+                        className="rounded px-1.5 py-[1px] text-[9px] uppercase"
+                        style={{
+                          letterSpacing: '0.1em',
+                          background: 'color-mix(in oklch, var(--accent) 20%, transparent)',
+                          color: 'var(--foreground)',
+                        }}
+                      >
+                        yours
+                      </span>
+                    )}
+                    {!r.on && (
+                      <span className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                        off
+                      </span>
+                    )}
+                    {/* The count, and nothing beside it. A second figure — how many of these
+                        no other rule also finds — was here and is gone: it answers whether a
+                        rule earns its place in the CATALOG, which is a question somebody asks
+                        once, and it was sitting on every row forever. Still computed, and
+                        `just findings` prints it. */}
+                    <span className="ml-auto shrink-0 text-[11px] text-[var(--muted-foreground)]">
+                      {/* Named only on hover: it is true of every row, and twelve copies of
+                          the word is a column of noise beside the numbers that differ. */}
+                      <span className="pr-2 opacity-0 transition-opacity group-hover:opacity-100">
+                        edit
+                      </span>
+                      <span className="mono text-[var(--foreground)]">
+                        {r.hits.toLocaleString()}
+                      </span>{' '}
+                      finding{r.hits === 1 ? '' : 's'}
+                    </span>
+                  </div>
+
+                  {/* **The expression IS the legend.** A chip row beside it named the same
+                      lenses a second time, in a second vocabulary, and left the reader to map
+                      `callers` onto CALLERS by position. Colouring the field where it is
+                      written says which lens each clause asks about at the place the question
+                      is asked — and a field with no lens, like `read`, stays plain, which is
+                      the honest answer rather than a hue invented for it.
+
+                      Built from the clauses rather than from `expr`: the string is for showing
+                      whole, and splitting it back up here would be parsing our own output. */}
+                  <div className="mono flex flex-wrap items-baseline gap-x-1.5 pt-1.5 text-[11px] text-[var(--muted-foreground)]">
+                    <span>{r.pop}:</span>
+                    {r.clauses.map((c, i) => (
+                      <span key={`${c.field}-${i}`}>
+                        {i > 0 && <span> and </span>}
+                        {/* **A pill, so the field is a thing and not a word.** Coloured text
+                            alone left `callers` looking like the rest of the expression with
+                            a tint on it; the operator and the number are punctuation around a
+                            named quantity, and the pill says which part is which. Tinted from
+                            its own lens, so the colour still carries the meaning.
+
+                            A field with no lens — `read` — gets the neutral rather than a hue
+                            invented for it, and is still a pill: it is the same kind of thing,
+                            it simply is not a lens. */}
+                        <span
+                          className="rounded px-1 py-[1px]"
+                          style={{
+                            color: fieldColor(c.lens),
+                            background: `color-mix(in oklch, ${fieldColor(c.lens)} 16%, transparent)`,
+                          }}
+                          /* **Everything about this field, where the field is written.** The
+                             lens it belongs to, what normal looks like for it here, and — on
+                             the calibrated clause — the bar this repo would suggest instead.
+                             Every clause carries its own, which is why they sit on
+                             `ClauseView` rather than on the rule: the numbers are facts about
+                             a FIELD, and describing one of them in prose beside the expression
+                             left "median here is 1" with no way to say of what. */
+                          title={[
+                            c.lens ? lensName(c.lens) : 'not a lens',
+                            c.median !== null &&
+                              `median ${trim(c.median)} per ${
+                                r.pop === 'file' ? 'file' : 'function'
+                              } in this repo`,
+                            c.suggestion !== null &&
+                              `this repo would suggest ${trim(c.suggestion)}`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        >
+                          {c.field}
+                        </span>{' '}
+                        {c.op} {trim(c.value)}
+                      </span>
+                    ))}
+                    {/* **Said, not named.** `floor 10` is a word from a doc comment put on
+                        screen untranslated: it means nothing to somebody who has not read
+                        `Rule::floor`, and the first person to see it asked what it was.
+
+                        Not written as a clause either, though `loc >= 10` is what it does —
+                        the rule is capped at two clauses and a third clause-shaped thing
+                        beside them would make that cap look broken. It is a guard, so it
+                        reads as one. */}
+                  </div>
+
+                  <p className="pt-1 text-[11px] text-[var(--muted-foreground)]">
+                    {/* **The sentence, and the numbers on the pills that own them.** The
+                        median and the suggested bar were described here in prose — "Median
+                        here is 1", of what, and why that field rather than the other one. They
+                        are facts about a FIELD, so they hover on the field: every clause
+                        carries its own now, not just the calibrated one.
+
+                        Blocked replaces the sentence rather than joining it: a rule that
+                        cannot be asked has no so-what worth reading. */}
+                    {r.blocked ?? r.soWhat}
+                  </p>
+                  </div>
+                ),
+              )
+            )}
+          </div>
+        ) : view === 'ignored' ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             {!ignored.length ? (
               <p className="px-4 py-3 text-[11px] text-[var(--muted-foreground)]">
@@ -345,6 +1163,8 @@ export function Findings({
                same measurement, so nothing is closer to its neighbour than to the edge. */
             className="min-h-0 flex-1 overflow-y-auto p-4"
           >
+            {/* The one measured element: `p-4` inside, and a tile's own `px-4` inside that. */}
+            <div ref={column} className="h-0" />
             {items.length === 0 && (
               <p className="py-1 text-[11px] text-[var(--muted-foreground)]">
                 {setAside > 0
@@ -372,60 +1192,71 @@ export function Findings({
                           is the string somebody would type to go there. The glyphs it replaces
                           said the same thing in a symbol nobody had been taught.
 
-                          The directory is muted so the eye lands on the file and the function;
-                          it is truncated from the LEFT, because the end of a path is the half
-                          that identifies it. */}
+                          The directory is muted so the eye lands on the file and the function,
+                          and it is shortened from the MIDDLE — see `dirFor`. */}
                       <button
                         type="button"
                         onClick={() => choose(finding.hit)}
                         title={address(finding.hit)}
-                        className="mono flex w-full min-w-0 items-baseline text-left"
+                        className="mono flex w-full min-w-0 flex-wrap items-baseline text-left"
                       >
-                        {/* **Right-aligned and clipped, never `dir="rtl"`.** The bidi trick
-                            for left-truncating a path reorders it: a directory ending in `/`
-                            has that slash resolved as a neutral character and moved to the
-                            front, so `src-tauri/src/` rendered as `/src-tauri/src` and ran
-                            straight into the filename beside it. Aligning an overflowing line
-                            to the right spills it off the left edge instead — the same result,
-                            with nothing telling the text it is RTL.
+                        {/* **One line, shortened from the MIDDLE, and CSS cannot do it.**
+                            Both ends of a path carry something: the head says which corner of
+                            the repo this is, the tail says which of the forty `src/` folders.
+                            `text-overflow` only ever eats one end, and the two attempts before
+                            this both ate the wrong one — `dir="rtl"` reordered the slashes so
+                            `src-tauri/src/` rendered as `/src-tauri/src`, and `text-align:
+                            right` did nothing at all, because a nowrap line that outgrows its
+                            box overflows to the RIGHT whatever its alignment. That one carried
+                            a comment claiming it clipped from the left for months, while every
+                            screenshot of it showed the head surviving and the filename gone.
 
-                            Shrinks but never GROWS: with `flex-1` a short directory was pushed
-                            to the far side of its own box, leaving a gap between `/web/src/`
-                            and the file it belongs to. Content-sized until the row runs out of
-                            room is the behaviour wanted, and it is the flex default.
+                            An ellipsis in the MIDDLE means counting characters, and only the
+                            layout knows how many fit — hence the measured column and the
+                            monospace advance. Monospace is what makes it a division rather
+                            than a search: every glyph is the same width.
 
-                            Clipped rather than ellipsised, and silently: an ellipsis costs a
-                            character from the half worth reading, and a fade would draw on
-                            every short path too, since CSS cannot tell whether it overflowed.
-                            The whole address is on the row's `title`. */}
-                        {/* **One size, three weights.** The directory was set smaller to keep
-                            it out of the way, which it did by making the address look like two
-                            things joined. Now the rule underneath does the separating and the
-                            heading can be one line of type: the tiers are carried by weight and
-                            value, which is enough when nothing else is competing. */}
-                        <span className="min-w-0 overflow-hidden whitespace-nowrap text-right text-[15px] text-[var(--muted-foreground)]">
-                          {dirOf(finding.hit.path)}
+                            Shrink-0, so the line WRAPS before the path is cut: flex shrinks an
+                            item before it wraps, and a shrinkable directory would be shortened
+                            to keep the file beside it rather than giving the file its own
+                            roomy line. Everything on one line whenever everything fits. */}
+                        <span className="shrink-0 whitespace-nowrap text-[15px] text-[var(--muted-foreground)]">
+                          {dirFor(finding.hit, colW)}
                         </span>
                         {/* The file is still where-it-IS: same size as the name so they read
                             as one heading, lighter so the name is the thing being named. On a
                             file finding there is no name and this carries the full weight. */}
-                        <span
-                          className="shrink-0 text-[15px]"
-                          style={{
-                            fontWeight: finding.hit.kind === 'func' ? 400 : 600,
-                            color:
-                              finding.hit.kind === 'func'
-                                ? 'color-mix(in oklch, var(--foreground) 72%, transparent)'
-                                : 'var(--foreground)',
-                          }}
-                        >
-                          {fileOf(finding.hit)}
-                        </span>
-                        <span
-                          className="shrink-0 text-[15px] font-semibold"
-                          style={{ color: 'var(--foreground)' }}
-                        >
-                          {nameOf(finding.hit)}
+                        {/* **The file and the function are one item, and the FILE is what gives
+                            way inside it.** They were two items, and two items can be split:
+                            `run_cli.ts#` at the end of a line with `runHeapSnapshotAnalyzerCli`
+                            alone on the next puts a break through the middle of one identity.
+                            One item cannot be split, so the pair travels to the second line
+                            together.
+
+                            When even that line is too narrow, the file clips and the function
+                            does not — `shrink-0` on the name, `min-w-0` and hidden overflow on
+                            the file. A function is the most specific thing the address names
+                            and the last thing worth losing; the file it sits in is recoverable
+                            from the directory above it, and the whole address is on `title`. */}
+                        <span className="flex min-w-0 max-w-full items-baseline text-[15px]">
+                          <span
+                            className="min-w-0 overflow-hidden whitespace-nowrap"
+                            style={{
+                              fontWeight: finding.hit.kind === 'func' ? 400 : 600,
+                              color:
+                                finding.hit.kind === 'func'
+                                  ? 'color-mix(in oklch, var(--foreground) 72%, transparent)'
+                                  : 'var(--foreground)',
+                            }}
+                          >
+                            {fileOf(finding.hit)}
+                          </span>
+                          <span
+                            className="shrink-0 whitespace-nowrap font-semibold"
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            {nameOf(finding.hit)}
+                          </span>
                         </span>
                       </button>
                     </div>

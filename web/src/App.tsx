@@ -39,9 +39,14 @@ import {
   decideFinding,
   undecideFinding,
   projectDecisions,
+  projectReport,
+  saveRule,
+  deleteRule,
+  resetRule,
+  type RuleView,
+  type Grammar,
   type Hit,
   type FindingGroup,
-  projectFindings,
   type Node,
   type Progress,
   type AgentActivity,
@@ -406,6 +411,13 @@ export default function App() {
    *  is the failure this store is most careful about. One extra walk of a tree that is
    *  already in memory is the cheaper mistake. */
   const [archiveAt, setArchiveAt] = useState(0)
+  const [rules, setRules] = useState<RuleView[] | null>(null)
+  /** Every field and operator a clause may name, with this repo's numbers. Null until asked.
+   *
+   *  **Asked once per project, not on every scan.** The field LIST is a property of the
+   *  binary; only the distributions move, and a picker that re-fetched on every landed
+   *  reading would be re-fetching a constant to keep a tooltip current. */
+  const [grammar, setGrammar] = useState<Grammar | null>(null)
   /** Whether the lens help is up — see `LensHelp`. Session state: it is a thing you read
    *  once, not a preference. */
   const [helping, setHelping] = useState(false)
@@ -2674,28 +2686,43 @@ export default function App() {
     [tree, jumpTo],
   )
 
-  /** Ask the backend what is worth looking at here.
+  /** Ask the backend what is worth looking at here — findings, rules and grammar at once.
    *
-   *  **On the project and on the map's identity, not on every render.** A fresh `tree` is
-   *  what a landed scan or a landed reading produces, so this re-asks exactly when the
-   *  answer could have changed — and a rescan is the event that can add findings to a repo you
-   *  are already standing in. Answers are dropped if the project moved on while one was in
-   *  flight, or the dot on one repo would be reporting another's.
+   *  **One call, because it is one answer.** These were three effects on three commands, and
+   *  each command built the whole fact set for itself: three walks of the tree, under one
+   *  lock, which on kibana is 540,000 records to answer three questions about one repo. They
+   *  are also the same measurement seen three ways — the counts in the grid, the tiles in the
+   *  list and the number on the creature — so three fetches were three chances for them to
+   *  describe different states of the repo.
    *
-   *  Not asked at all during a replay: the panel refuses that state, and a badge over a
-   *  frame would be pointing at findings about a repo that is not the one on screen. */
+   *  **On the project and on the map's identity, not on every render.** A fresh `tree` is what
+   *  a landed scan or a landed reading produces, so this re-asks exactly when the answer could
+   *  have changed — and a rescan is the event that can add findings to a repo you are already
+   *  standing in. Answers are dropped if the project moved on while one was in flight, or the
+   *  dot on one repo would be reporting another's.
+   *
+   *  Not asked at all during a replay: the panel refuses that state, and a badge over a frame
+   *  would be pointing at findings about a repo that is not the one on screen. */
   useEffect(() => {
     if (!activeKey || historyOn) {
       setFindingGroups(null)
+      setRules(null)
+      setGrammar(null)
       return
     }
     let live = true
-    void projectFindings(activeKey)
-      .then((g) => {
-        if (live) setFindingGroups(g)
+    void projectReport(activeKey)
+      .then((r) => {
+        if (!live) return
+        setFindingGroups(r.groups)
+        setRules(r.rules)
+        setGrammar(r.grammar)
       })
       .catch(() => {
-        if (live) setFindingGroups(null)
+        if (!live) return
+        setFindingGroups(null)
+        setRules(null)
+        setGrammar(null)
       })
     return () => {
       live = false
@@ -2754,6 +2781,53 @@ export default function App() {
    *  counts anything, so this is what goes down when somebody deals with one. A blocked rule
    *  contributes nothing — it found nothing because it could not RUN, and counting that as
    *  zero is the same sentence as a clean bill. */
+  /** Write one rule back, then re-ask everything that depends on it.
+   *
+   *  **The refresh is inside the `then`, and the rejection is passed on rather than
+   *  swallowed.** `apply_edit` refuses a rule that is not a rule — a clause true of
+   *  everything, a token the rule cannot fill — with a sentence meant to be read; catching it
+   *  here would close the form on a save that never happened.
+   *
+   *  `archiveAt` is what both the rules grid and the findings list watch, so one bump is the
+   *  whole invalidation: a changed rule is a different answer on the next ask, by
+   *  construction rather than by anything remembering to expire. */
+  const writeRule = useCallback(
+    (rule: Parameters<typeof saveRule>[1]) => {
+      if (!activeKey) return Promise.reject(new Error('no project'))
+      return saveRule(activeKey, rule).then(() => {
+        setArchiveAt((n) => n + 1)
+      })
+    },
+    [activeKey],
+  )
+
+  const removeRule = useCallback(
+    (id: string) => {
+      if (!activeKey) return Promise.reject(new Error('no project'))
+      return deleteRule(activeKey, id).then(() => {
+        setArchiveAt((n) => n + 1)
+      })
+    },
+    [activeKey],
+  )
+
+  const restoreRule = useCallback(
+    (id: string) => {
+      if (!activeKey) return Promise.reject(new Error('no project'))
+      return resetRule(activeKey, id).then(() => {
+        setArchiveAt((n) => n + 1)
+      })
+    },
+    [activeKey],
+  )
+
+  /** How many rules are actually asking something here — the number at six o'clock on the
+   *  dial, and the denominator the count at twelve is missing without it.
+   *
+   *  Silenced rules are not counted: the grid lists them so they can be found again, but a
+   *  rule that has been turned off did not contribute to the number beside it. */
+  const liveRules = useMemo(() => rules?.filter((r) => r.on).length ?? 0, [rules])
+
   const findingTotal = findingGroups
     ? new Set(findingGroups.filter((g) => !g.blocked).flatMap((g) => g.hits.map((l) => l.key))).size
     : 0
@@ -2767,8 +2841,13 @@ export default function App() {
    *  would re-render the whole map on every render of this component, which is the exact cost
    *  that memo exists to avoid. Same discipline, one layer out. */
   const mascotForMap = useMemo(
-    () => ({ ...mascot, findings: findingTotal, onFindings: openFindings }),
-    [mascot, findingTotal, openFindings],
+    () => ({
+      ...mascot,
+      findings: findingTotal,
+      onFindings: openFindings,
+      rules: liveRules,
+    }),
+    [mascot, findingTotal, openFindings, liveRules],
   )
 
   return (
@@ -3015,6 +3094,11 @@ export default function App() {
               groups={findingGroups}
               replaying={historyOn}
               archive={archive}
+              rules={rules}
+              grammar={grammar}
+              onSaveRule={writeRule}
+              onDeleteRule={removeRule}
+              onResetRule={restoreRule}
               onDecide={decide}
               onUndecide={undecide}
               onClose={() => setFindingsOpen(false)}

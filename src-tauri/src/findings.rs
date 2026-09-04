@@ -1,4 +1,4 @@
-//! Findings — where two lenses disagree in a way somebody should look at.
+//! Findings — where what has been measured yields something needing inspection or work.
 //!
 //! **Read `docs/notes/findings.md` before changing anything here.** The design, the arguments
 //! and the measurements behind the default catalog are there; this file is the evaluator
@@ -32,7 +32,8 @@ use std::collections::{HashMap, HashSet};
 /// directory's distribution, and every directory rule anyone proposes is a sentence it
 /// draws better. See the note; the trigger for revisiting it is a clause about SPREAD,
 /// which is not this grammar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Pop {
     Func,
     File,
@@ -76,7 +77,14 @@ pub enum Field {
     Surprise,
     /// The reader's grade of the documentation, on the same terms.
     Documented,
-    /// What reading it was actually like, on the same terms.
+    /// How hard the reader found it going — **high is worse**, which is why it is not called
+    /// `legible`.
+    ///
+    /// The value is `Grade::surprise()`: `Full` is 0.08 and `None` is 0.92. Under the old name
+    /// a rule read `legible >= 0.6` and meant "hard to read", which is the name saying the
+    /// opposite of the number. Every other field here is honest about its direction —
+    /// `documented` high is well documented, `surprise` high is more surprising — so the fix
+    /// is the name rather than the scale.
     Legible,
     /// 1 where the reader marked something that will bite whoever edits this next.
     ///
@@ -92,7 +100,7 @@ impl Field {
             "funcs" => Field::Funcs,
             "callers" => Field::Callers,
             "calls" | "reach" => Field::Calls,
-            "clone_size" | "clones" => Field::CloneSize,
+            "clone_count" | "clone_size" | "clones" => Field::CloneSize,
             "cognitive" => Field::Cognitive,
             "tangle" | "complexity" => Field::Tangle,
             "age" | "age_days" => Field::AgeDays,
@@ -101,7 +109,9 @@ impl Field {
             "read" => Field::Read,
             "surprise" => Field::Surprise,
             "documented" | "docs" => Field::Documented,
-            "legible" => Field::Legible,
+            // `legible` is accepted and means the same thing: it is what this field was
+            // called in files written before the name was found to be backwards.
+            "illegible" | "legible" => Field::Legible,
             "trap" | "traps" => Field::Trap,
             _ => return None,
         })
@@ -113,7 +123,7 @@ impl Field {
             Field::Funcs => "funcs",
             Field::Callers => "callers",
             Field::Calls => "calls",
-            Field::CloneSize => "clone_size",
+            Field::CloneSize => "clone_count",
             Field::Cognitive => "cognitive",
             Field::Tangle => "tangle",
             Field::AgeDays => "age",
@@ -122,7 +132,7 @@ impl Field {
             Field::Read => "read",
             Field::Surprise => "surprise",
             Field::Documented => "documented",
-            Field::Legible => "legible",
+            Field::Legible => "illegible",
             Field::Trap => "trap",
         }
     }
@@ -152,6 +162,49 @@ impl Field {
         })
     }
 
+    /// Every field a clause may name, in the order a picker should offer them.
+    ///
+    /// **One list, and the compiler keeps its length honest.** A thirteenth field added to the
+    /// enum and forgotten here would be a question the evaluator can answer and the form
+    /// cannot ask — invisible, because nothing fails.
+    /// How many fields there are, including the one `ALL` leaves out.
+    ///
+    /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
+    /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
+    /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
+    pub const COUNT: usize = 15;
+
+    pub const ALL: [Field; 14] = [
+        Field::Loc,
+        Field::Funcs,
+        Field::Callers,
+        Field::Calls,
+        Field::CloneSize,
+        Field::Cognitive,
+        Field::Tangle,
+        Field::AgeDays,
+        Field::TouchedDays,
+        Field::Commits,
+        Field::Read,
+        Field::Surprise,
+        Field::Documented,
+        Field::Legible,
+    ];
+
+    /// Which population this field says anything about, or `None` for both.
+    ///
+    /// `funcs` counts what a FILE holds and means nothing on a function; everything a reader
+    /// graded is per function, because a reading is of a body.
+    pub fn pop(self) -> Option<Pop> {
+        match self {
+            Field::Funcs => Some(Pop::File),
+            Field::Read | Field::Surprise | Field::Documented | Field::Legible | Field::Trap => {
+                Some(Pop::Func)
+            }
+            _ => None,
+        }
+    }
+
     /// Whether this field needs a reading before it can answer.
     ///
     /// The tier the note describes, in one predicate: a tier 2 rule is one with any such
@@ -171,7 +224,10 @@ pub enum Op {
 }
 
 impl Op {
-    fn parse(s: &str) -> Option<Op> {
+    /// Every operator, in the order a picker should offer them.
+    pub const ALL: [Op; 4] = [Op::Ge, Op::Gt, Op::Le, Op::Lt];
+
+    pub fn parse(s: &str) -> Option<Op> {
         Some(match s {
             ">=" => Op::Ge,
             ">" => Op::Gt,
@@ -181,7 +237,7 @@ impl Op {
         })
     }
 
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Op::Ge => ">=",
             Op::Gt => ">",
@@ -222,12 +278,12 @@ pub struct Rule {
     /// somebody had filed under it — the finding would come back with no explanation and the
     /// archive row would point at a rule that no longer exists. Same rule as `key_of` versus
     /// a node id, one surface over, and that one cost a project its readings.
-    pub id: &'static str,
+    pub id: String,
     /// What it is called on screen. Free to change.
-    pub title: &'static str,
+    pub title: String,
     /// What to do about it, in one clause. The short form: a tag's tooltip, a CLI column, and
     /// the fallback when [`Rule::says`] cannot be filled.
-    pub so_what: &'static str,
+    pub so_what: String,
     /// What to say about ONE subject, with `{{token}}` holes for its own numbers.
     ///
     /// **A tile's paragraph is the thing somebody can act on without having read the
@@ -235,24 +291,11 @@ pub struct Rule {
     /// this branches more than almost anything else here" is a finding. The numbers have to
     /// come from the subject or the sentence is a template pretending to be a reading — see
     /// [`render`], which refuses rather than guessing.
-    pub says: &'static str,
+    pub says: String,
     pub pop: Pop,
     pub clauses: Vec<Clause>,
     /// Which clause [`calibrate`] suggests a threshold for. The others are held.
     pub calibrated: usize,
-    /// Lines below which this rule has nothing useful to say. `0` for no floor.
-    ///
-    /// **A floor, not a third clause.** It does not appear as a lens on the tile and it is not
-    /// a question the rule is asking — it is the size below which its question stops meaning
-    /// anything. Without one, "load-bearing and undocumented" returned eight rows of `len`,
-    /// `new`, `path` and `get` at three lines apiece: perfectly true, and documenting
-    /// `fn len(&self) -> usize` improves nothing. The same gap put a three-line accessor at
-    /// the top of the reading queue, where it would have spent reader budget to learn that an
-    /// accessor accesses something.
-    ///
-    /// Ten, because below about ten lines a claim about a body is mostly a claim about its
-    /// signature — which is the half the caller can already see.
-    pub floor: u32,
 }
 
 impl Rule {
@@ -319,20 +362,17 @@ impl Rule {
                 value: v.parse().map_err(|_| format!("`{v}` is not a number"))?,
             });
         }
-        if clauses.is_empty() || clauses.len() > 2 {
-            return Err("a rule is one or two clauses".into());
+        if clauses.is_empty() || clauses.len() > 3 {
+            return Err("a rule is one to three clauses".into());
         }
         Ok(Rule {
-            id: "ad-hoc",
-            title: "ad-hoc",
-            so_what: "matched an ad-hoc rule",
-            says: "",
+            id: "ad-hoc".to_string(),
+            title: "ad-hoc".to_string(),
+            so_what: "Matched an ad-hoc rule.".to_string(),
+            says: String::new(),
             pop,
             clauses,
             calibrated: 0,
-            // No floor on an ad-hoc rule: somebody asking a question by hand gets the answer
-            // to the question they asked.
-            floor: 0,
         })
     }
 }
@@ -359,26 +399,31 @@ fn trim_num(v: f32) -> String {
 /// else is a [`Field`] by its own name, plus `{{age_years}}`, the one unit nobody wants in
 /// days.
 pub fn render(rule: &Rule, f: &Facts, median: Option<f32>) -> Vec<Span> {
+    // **The short form, verbatim.** It was stored as a lowercase fragment and capitalised
+    // here, because several rules' sentences were once joined into one paragraph and a
+    // fragment joins better. That paragraph is gone — every rule has its own heading now — so
+    // the fragment form was a transformation with nothing left to justify it, and a store full
+    // of half-sentences to read in a diff.
     let plain = || {
-        let s = rule.so_what;
-        let mut c = s.chars();
-        match c.next() {
-            Some(first) => {
-                vec![Span {
-                    text: format!("{}{}.", first.to_uppercase(), c.as_str()),
-                    filled: false,
-                }]
-            }
-            None => Vec::new(),
+        if rule.so_what.is_empty() {
+            return Vec::new();
         }
+        vec![Span { text: rule.so_what.clone(), filled: false }]
     };
+    // **No template is the same as one that cannot be filled.** A rule somebody wrote may not
+    // have a tailored sentence — `says` is optional — and walking an empty one produces an
+    // empty sentence rather than the short form, so the tile drew a title with nothing under
+    // it. Every test passed; the output was useless.
+    if rule.says.is_empty() {
+        return plain();
+    }
     let mut out: Vec<Span> = Vec::new();
     let mut push = |text: &str, filled: bool| {
         if !text.is_empty() {
             out.push(Span { text: text.to_string(), filled });
         }
     };
-    let mut rest = rule.says;
+    let mut rest = rule.says.as_str();
     while let Some(at) = rest.find("{{") {
         push(&rest[..at], false);
         let Some(close) = rest[at..].find("}}") else { return plain() };
@@ -482,12 +527,17 @@ pub struct Subject {
 /// Everything a clause can ask about one subject, resolved once.
 pub struct Facts {
     pub subject: Subject,
-    values: HashMap<&'static str, f32>,
+    /// **A slot per field, not a map.** It was `HashMap<&'static str, f32>`, which is a
+    /// separate allocation and a hash per lookup for a record that has fifteen possible
+    /// fields and knows all of them at compile time — and there is one of these per subject,
+    /// so kibana carried 180,000 of them. `Field` is a fieldless enum, so its discriminant IS
+    /// the index; the array costs sixty bytes inline and answers without hashing.
+    values: [Option<f32>; Field::COUNT],
 }
 
 impl Facts {
     fn get(&self, f: Field) -> Option<f32> {
-        self.values.get(f.name()).copied()
+        self.values[f as usize]
     }
 }
 
@@ -501,6 +551,104 @@ impl Facts {
 pub struct Traced {
     pub git: bool,
     pub churned: bool,
+}
+
+/// What a finding is never about, and why.
+///
+/// **Excluding by path is not the same as a rule about paths.** The grammar refuses
+/// `path contains "/test/"` as a clause, and it should: a rule is a statement about what was
+/// MEASURED, and the moment names are measurable the catalog fills up with them. This is the
+/// other thing — deciding what the instrument is pointed at, which is what `.sanityignore`
+/// already does and what every scanner needs.
+///
+/// It was measured on kibana, where the top ten findings were a generated ANTLR parser, a
+/// `.gen.ts` client, three test suites and four data literals. Two of ten were worth reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotOurs {
+    /// `.sanityignore` matched it. `Node::excluded` is computed and was being ignored here.
+    Excluded,
+    /// Nobody wrote it, so nobody is going to split it up.
+    Generated,
+    /// **A test's job is different.** A long suite is normal, a surprising body is the point,
+    /// and an undocumented one is fine — so every rule in the catalog means something else
+    /// here. Findings about test code would be a different catalog, not a subset of this one.
+    Test,
+}
+
+/// Whether this file is somebody's own code, and if not, why not.
+///
+/// Conservative on purpose: a directory called `build` is as likely to be source as output,
+/// and a false exclusion is a finding nobody is ever told about.
+pub fn not_ours(path: &str, excluded: bool) -> Option<NotOurs> {
+    if excluded {
+        return Some(NotOurs::Excluded);
+    }
+    let (dirs, file) = match path.rsplit_once('/') {
+        Some((d, f)) => (d, f),
+        None => ("", path),
+    };
+    let segs: Vec<&str> = dirs.split('/').collect();
+    if segs
+        .iter()
+        .any(|s| matches!(*s, "generated" | "__generated__" | "antlr" | "vendor" | "node_modules"))
+        || file.contains(".gen.")
+        || file.contains(".pb.")
+        || file.contains("_pb2.")
+        || file.contains(".min.")
+    {
+        return Some(NotOurs::Generated);
+    }
+    if segs.iter().any(|s| matches!(*s, "test" | "tests" | "__tests__" | "spec" | "e2e"))
+        || file.contains(".test.")
+        || file.contains(".spec.")
+        || file.contains("_test.")
+        || file.contains("_spec.")
+        || file.starts_with("test_")
+    {
+        return Some(NotOurs::Test);
+    }
+    None
+}
+
+/// Whether an owner chain runs through a module that holds tests.
+///
+/// The chain is dotted — `tests.Foo` for an impl inside `mod tests` — so this asks about any
+/// link in it rather than the whole string.
+pub fn in_a_test_module(owner: &str) -> bool {
+    owner.split('.').any(|seg| matches!(seg, "tests" | "test"))
+}
+
+/// How many files each reason took out of the population.
+#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
+pub struct Skipped {
+    pub excluded: usize,
+    pub generated: usize,
+    pub tests: usize,
+}
+
+impl Skipped {
+    pub fn any(self) -> bool {
+        self.excluded + self.generated + self.tests > 0
+    }
+}
+
+/// What was left out, counted so it can be said rather than merely done.
+pub fn skipped(root: &Node) -> Skipped {
+    fn walk(n: &Node, out: &mut Skipped) {
+        match n.kind {
+            NodeKind::Dir => n.children.iter().for_each(|c| walk(c, out)),
+            NodeKind::File => match not_ours(&n.path, n.excluded) {
+                Some(NotOurs::Excluded) => out.excluded += 1,
+                Some(NotOurs::Generated) => out.generated += 1,
+                Some(NotOurs::Test) => out.tests += 1,
+                None => {}
+            },
+            NodeKind::Func => {}
+        }
+    }
+    let mut out = Skipped::default();
+    walk(root, &mut out);
+    out
 }
 
 /// Flatten a tree into the subjects a rule can be evaluated against.
@@ -522,6 +670,13 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
             }
         }
         NodeKind::File => {
+            // **Not a subject at all, rather than a subject every rule happens to miss.**
+            // Leaving them in would put them in the medians as well — kibana's median file
+            // "defines 1 function" partly because its generated clients define hundreds and
+            // its tests define none — so a sentence quoting normal would be quoting them.
+            if not_ours(&node.path, node.excluded).is_some() {
+                return;
+            }
             out.push(facts_of(node, &node.path, None, traced));
             let mut seen: HashMap<&str, usize> = HashMap::new();
             for c in &node.children {
@@ -531,6 +686,13 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
                 let ord = seen.entry(c.name.as_str()).or_insert(0);
                 let key = crate::assessment::key_of(&node.path, &c.name, *ord);
                 *ord += 1;
+                // **A Rust unit test is a function-level exclusion, not a file-level one.**
+                // It lives in the file it tests, so `not_ours` cannot see it from the path;
+                // what reaches the tree is the enclosing module, which is why `mod_item` is an
+                // owner. Everything else this catches is already gone by file.
+                if c.owner.as_deref().is_some_and(in_a_test_module) {
+                    continue;
+                }
                 let report = reports.get(&key).filter(|r| !r.stale);
                 out.push(facts_of(c, &key, report, traced));
             }
@@ -543,10 +705,10 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
 }
 
 fn facts_of(node: &Node, key: &str, report: Option<&Report>, traced: Traced) -> Facts {
-    let mut v: HashMap<&'static str, f32> = HashMap::new();
+    let mut v: [Option<f32>; Field::COUNT] = [None; Field::COUNT];
     let mut set = |f: Field, x: Option<f32>| {
         if let Some(x) = x {
-            v.insert(f.name(), x);
+            v[f as usize] = Some(x);
         }
     };
     set(Field::Loc, Some(node.loc as f32));
@@ -617,9 +779,6 @@ pub fn matches(rule: &Rule, f: &Facts) -> bool {
     if f.subject.kind != want {
         return false;
     }
-    if f.subject.loc < rule.floor {
-        return false;
-    }
     rule.clauses.iter().all(|c| value_of(f, c.field).is_some_and(|got| c.op.holds(got, c.value)))
 }
 
@@ -647,14 +806,15 @@ fn rank(v: &mut [&Subject]) {
 pub fn live_hits<'a>(
     rule: &Rule,
     facts: &'a [Facts],
-    decided: &HashMap<(String, String), (Verdict, String)>,
+    decided: &HashMap<&str, HashMap<&str, (Verdict, &str)>>,
 ) -> (Vec<&'a Subject>, usize) {
     let mut keep: Vec<(&Subject, bool)> = Vec::new();
     let mut settled = 0usize;
     for f in facts.iter().filter(|f| matches(rule, f)) {
-        let at = (f.subject.key.clone(), rule.id.to_string());
         let mut flagged = false;
-        if let Some((verdict, pin)) = decided.get(&at) {
+        if let Some((verdict, pin)) =
+            decided.get(f.subject.key.as_str()).and_then(|by_rule| by_rule.get(rule.id.as_str()))
+        {
             if verdict.hides(*pin == pin_of(rule, f)) {
                 settled += 1;
                 continue;
@@ -671,9 +831,18 @@ pub fn live_hits<'a>(
     (keep.into_iter().map(|(s, _)| s).collect(), settled)
 }
 
-/// The archive as the evaluator wants it: `(key, rule id) -> (verdict, pin)`.
-pub fn pinned(archive: &[Decision]) -> HashMap<(String, String), (Verdict, String)> {
-    archive.iter().map(|d| ((d.key.clone(), d.rule.clone()), (d.verdict, d.pin.clone()))).collect()
+/// The archive as the evaluator wants it: subject, then rule id.
+///
+/// **Nested rather than keyed on a `(String, String)` pair**, because a tuple key cannot be
+/// looked up without building one. Matching a subject against a rule happens once per subject
+/// per rule — 147,906 × 15 on kibana — and a pair key made two `String`s every time to ask a
+/// question whose answer is almost always "there is no decision".
+pub fn pinned(archive: &[Decision]) -> HashMap<&str, HashMap<&str, (Verdict, &str)>> {
+    let mut out: HashMap<&str, HashMap<&str, (Verdict, &str)>> = HashMap::new();
+    for d in archive {
+        out.entry(d.key.as_str()).or_default().insert(d.rule.as_str(), (d.verdict, d.pin.as_str()));
+    }
+    out
 }
 
 /// The threshold for the calibrated clause that would yield about `target` findings.
@@ -744,7 +913,74 @@ pub fn all_hits<'a>(rules: &[Rule], facts: &'a [Facts]) -> Vec<Vec<&'a Subject>>
     rules.iter().map(|r| hits(r, facts)).collect()
 }
 
+/// One field, as the form offers it, and what normal looks like for it here.
+///
+/// **The picker is built from `Field::ALL`, so a fifteenth field cannot be added without
+/// appearing in it.** The alternative — a list in the frontend — is the same list written
+/// twice, and the copy nobody compiles is the one that goes stale.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldView {
+    pub name: &'static str,
+    /// The lens that paints it, or null. `read` has none: an absence of readings is not a
+    /// lens, and colouring it as one invents a picture that is not drawn anywhere.
+    pub lens: Option<&'static str>,
+    /// The population it can only be asked of, or null for both. A form that offers `funcs`
+    /// on a function rule is offering a clause the backend will refuse.
+    pub pop: Option<Pop>,
+    /// Tier 2: this field is silent until somebody has run `sanity check` here.
+    pub needs_reading: bool,
+    /// What normal is, for each population the field applies to. Null where nothing in this
+    /// repo has a value — which is itself the answer, and the reason a number typed against
+    /// it would be a guess.
+    pub func: Option<Spread>,
+    pub file: Option<Spread>,
+}
+
+/// One walk's worth of answers — what the panel, the grid and the creature all read.
+///
+/// Named `ProjectReport` rather than `Report`, which in this file is a READER's report — the
+/// thing a model sends back about one function. Two Reports in one module is the kind of
+/// collision that gets resolved by whichever import is written last.
+///
+/// **Together because they are one answer about one repo.** They were three commands and
+/// three walks of the tree; the counts in the grid, the tiles in the list and the number on
+/// the mascot are the same measurement seen three ways, and issuing them separately was both
+/// three times the work and three chances to describe different states of the same repo.
+#[derive(serde::Serialize, Default)]
+pub struct ProjectReport {
+    pub groups: Vec<Group>,
+    pub rules: Vec<RuleView>,
+    pub grammar: Grammar,
+}
+
+/// Every field and every operator, with what this repo makes of them.
+#[derive(serde::Serialize, Default)]
+pub struct Grammar {
+    pub fields: Vec<FieldView>,
+    pub ops: Vec<&'static str>,
+}
+
+/// The grammar, measured against one repo.
+pub fn grammar(facts: &[Facts]) -> Grammar {
+    Grammar {
+        fields: Field::ALL
+            .iter()
+            .map(|&f| FieldView {
+                name: f.name(),
+                lens: f.lens(),
+                pop: f.pop(),
+                needs_reading: f.needs_reading(),
+                func: (f.pop() != Some(Pop::File)).then(|| spread(facts, Pop::Func, f)).flatten(),
+                file: (f.pop() != Some(Pop::Func)).then(|| spread(facts, Pop::File, f)).flatten(),
+            })
+            .collect(),
+        ops: Op::ALL.iter().map(|o| o.name()).collect(),
+    }
+}
+
 /// The distribution of one field, for the calibration hint beside a threshold box.
+#[derive(serde::Serialize)]
 pub struct Spread {
     pub n: usize,
     pub median: f32,
@@ -894,9 +1130,9 @@ pub fn report(
         .iter()
         .enumerate()
         .map(|(i, rule)| Group {
-            id: rule.id.to_string(),
-            title: rule.title.to_string(),
-            so_what: rule.so_what.to_string(),
+            id: rule.id.clone(),
+            title: rule.title.clone(),
+            so_what: rule.so_what.clone(),
             tier: rule.tier(),
             expr: rule.expr(),
             total: sets[i].len(),
@@ -914,7 +1150,8 @@ pub fn report(
                     let f = by_key.get(s.key.as_str());
                     let says = f.map(|f| render(rule, f, medians[i])).unwrap_or_default();
                     let flagged = pins
-                        .get(&(s.key.clone(), rule.id.to_string()))
+                        .get(s.key.as_str())
+                        .and_then(|by_rule| by_rule.get(rule.id.as_str()))
                         .is_some_and(|(v, _)| *v == Verdict::Flagged);
                     finding_of(s, says, flagged)
                 })
@@ -945,6 +1182,286 @@ fn hit_of(s: &Subject) -> crate::search::Hit {
     }
 }
 
+/// One rule as the editor sees it: what it asks, what it finds here, and what this repo
+/// would suggest instead.
+///
+/// **Structured clauses, not the rendered `expr`.** `func: loc >= 257` is the right thing to
+/// show and the wrong thing to populate three controls from — a form that parsed the string
+/// it had just been given back would be a second parser, disagreeing with the first the day
+/// somebody adds an operator.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleView {
+    pub id: String,
+    pub title: String,
+    pub so_what: String,
+    pub says: String,
+    pub pop: Pop,
+    pub clauses: Vec<ClauseView>,
+    pub calibrated: usize,
+    pub tier: u8,
+    pub expr: String,
+    pub lenses: Vec<String>,
+    /// False where this repo's file says `off`. The rule is still listed — a silenced rule
+    /// somebody has to go and find again is a rule they will not turn back on.
+    pub on: bool,
+    /// True where the catalog ships it. A rule of somebody's own can be deleted; a built-in
+    /// can only be silenced, because a later release would bring it back anyway.
+    pub built_in: bool,
+    /// What it finds here, now — and how much of that nothing else found.
+    pub hits: usize,
+    pub only: usize,
+    /// Why it cannot answer here, in words, or `None`.
+    pub blocked: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClauseView {
+    pub field: String,
+    pub op: String,
+    pub value: f32,
+    /// The lens this clause is painted by, if any — see [`Field::lens`].
+    ///
+    /// **Per clause, not per rule.** `RuleView::lenses` is the deduped set for a chip row; a
+    /// grid that colours the field NAMES inside the expression needs to know which colour goes
+    /// with which word, and `read` needs to come back with none: an absence of readings is not
+    /// a lens, and a word coloured as though it were would be inventing one.
+    ///
+    /// **Outbound only, hence the default.** This and the two below are what the backend
+    /// measured about a clause; a form sending a clause back has nothing to say about them
+    /// and must not have to invent nulls to be heard. Not a format change — the cached
+    /// record is the Markdown in `.sanity/rules/`, which never carried these.
+    #[serde(default)]
+    pub lens: Option<String>,
+    /// What this field's normal looks like across the rule's population.
+    ///
+    /// **On the clause, because it is a fact about the FIELD.** It sat on the rule, which
+    /// meant one arbitrary clause's median described in prose beside the expression — "median
+    /// here is 1", of what, and why that one. A number about `callers` belongs where `callers`
+    /// is written.
+    #[serde(default)]
+    pub median: Option<f32>,
+    /// The bar this repo would suggest for this clause, where that is not the bar it has.
+    /// Only ever on the clause [`Rule::calibrated`] names.
+    #[serde(default)]
+    pub suggestion: Option<f32>,
+}
+
+/// Every rule this repo runs, plus the ones its file has silenced.
+///
+/// **Silenced rules are included and marked, not omitted.** The editor is where somebody goes
+/// to turn one back on, and a list that dropped them would make that impossible from the one
+/// screen built for it.
+pub fn rules_view(
+    repo: &std::path::Path,
+    facts: &[Facts],
+    traced: Traced,
+    read: bool,
+) -> Vec<RuleView> {
+    let saved = saved_rules(repo);
+    let live = merge(catalog(), &saved);
+    let sets = all_hits(&live, facts);
+    let known = catalog();
+
+    let mut out: Vec<RuleView> = live
+        .iter()
+        .enumerate()
+        .map(|(i, r)| view_of(r, true, Some((&sets, i)), facts, traced, read, &known))
+        .collect();
+
+    // The silenced ones, from the catalog and from the file, in the order they would run.
+    for k in known.iter() {
+        if saved.iter().any(|l| l.id == k.id && l.off) {
+            out.push(view_of(k, false, None, facts, traced, read, &known));
+        }
+    }
+    out
+}
+
+fn view_of(
+    r: &Rule,
+    on: bool,
+    found: Option<(&[Vec<&Subject>], usize)>,
+    facts: &[Facts],
+    traced: Traced,
+    read: bool,
+    known: &[Rule],
+) -> RuleView {
+    RuleView {
+        id: r.id.clone(),
+        title: r.title.clone(),
+        so_what: r.so_what.clone(),
+        says: r.says.clone(),
+        pop: r.pop,
+        clauses: r
+            .clauses
+            .iter()
+            .enumerate()
+            .map(|(i, c)| ClauseView {
+                field: c.field.name().to_string(),
+                op: c.op.name().to_string(),
+                value: c.value,
+                lens: c.field.lens().map(str::to_string),
+                median: spread(facts, r.pop, c.field).map(|s| s.median),
+                // Only where it would actually be taken: `calibrated` refuses to loosen a
+                // rule, so a looser number is one this program would never apply, and
+                // offering it invites widening a rule on advice that was never given.
+                suggestion: (i == r.calibrated && on)
+                    .then(|| calibrate(r, facts, TARGET))
+                    .flatten()
+                    .filter(|v| match c.op {
+                        Op::Ge | Op::Gt => *v > c.value,
+                        Op::Le | Op::Lt => *v < c.value,
+                    }),
+            })
+            .collect(),
+        calibrated: r.calibrated,
+        tier: r.tier(),
+        expr: r.expr(),
+        lenses: r.lenses(),
+        on,
+        built_in: known.iter().any(|k| k.id == r.id),
+        hits: found.map(|(sets, i)| sets[i].len()).unwrap_or(0),
+        only: found.map(|(sets, i)| marginal(i, sets)).unwrap_or(0),
+        blocked: blocked(r, facts, traced, read),
+    }
+}
+
+/// A rule as the form hands it back.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleEdit {
+    /// Empty for a rule being created — [`apply_edit`] mints one from the title.
+    #[serde(default)]
+    pub id: String,
+    pub title: String,
+    pub so_what: String,
+    #[serde(default)]
+    pub says: String,
+    pub pop: Pop,
+    pub clauses: Vec<ClauseView>,
+    #[serde(default)]
+    pub calibrated: usize,
+    #[serde(default = "yes")]
+    pub on: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// Fold one edit into the rules this repo runs, or say why it is not a rule.
+///
+/// **Every refusal here is argued in `findings.md`**, and each refuses with a sentence rather
+/// than a silent correction: a form that quietly fixed what somebody typed would be teaching
+/// them a grammar that is not the one they are writing in.
+pub fn apply_edit(live: &mut Vec<Rule>, edit: RuleEdit) -> Result<(), String> {
+    if edit.title.trim().is_empty() {
+        return Err("a rule needs a title — it is what a decision is filed under".into());
+    }
+    if edit.clauses.is_empty() || edit.clauses.len() > 3 {
+        // **Three, and the cap is about precedence rather than about counting.** Conjunction
+        // needs none at any width; it is OR that would, and there is no OR. Two was the number
+        // while the size guard was a separate `floor` field — see `findings.md`, where making
+        // it a clause is argued: a rule that gates on size is asking a size question, and size
+        // is a lens like any other.
+        return Err("a rule is one to three clauses".into());
+    }
+
+    let mut clauses = Vec::new();
+    for c in &edit.clauses {
+        let field = Field::parse(&c.field).ok_or(format!("`{}` is not a field", c.field))?;
+        let op = Op::parse(&c.op).ok_or(format!("`{}` is not an operator", c.op))?;
+        if let Some(only) = field.pop() {
+            if only != edit.pop {
+                return Err(format!(
+                    "`{}` says nothing about a {}",
+                    c.field,
+                    if edit.pop == Pop::File { "file" } else { "function" }
+                ));
+            }
+        }
+        // **A threshold no subject can fail is not a threshold.** `trap >= 1 and commits >= 0`
+        // was real: the clause is true of everything, the rule quietly becomes single-lens,
+        // and the tile goes on naming two.
+        if matches!(op, Op::Ge) && c.value <= 0.0 && field != Field::Read {
+            return Err(format!("`{} {} {}` is true of everything", c.field, c.op, c.value));
+        }
+        clauses.push(Clause { field, op, value: c.value });
+    }
+
+    // **A template may only name what the rule guarantees.** `render` falls back silently when
+    // it cannot fill a token, which is right at draw time and wrong here: somebody would write
+    // a sentence that never appears and never be told why.
+    check_template(&edit.says, &clauses)?;
+
+    let id = if edit.id.is_empty() { mint_id(&edit.title, live) } else { edit.id.clone() };
+    let rule = Rule {
+        id: id.clone(),
+        title: edit.title.trim().to_string(),
+        so_what: edit.so_what.trim().to_string(),
+        says: edit.says.trim().to_string(),
+        pop: edit.pop,
+        calibrated: edit.calibrated.min(clauses.len() - 1),
+        clauses,
+    };
+    match live.iter().position(|r| r.id == id) {
+        Some(at) if edit.on => live[at] = rule,
+        Some(at) => {
+            live.remove(at);
+        }
+        None if edit.on => live.push(rule),
+        None => {}
+    }
+    Ok(())
+}
+
+/// Refuse a template that names something the rule cannot answer.
+fn check_template(says: &str, clauses: &[Clause]) -> Result<(), String> {
+    let mut rest = says;
+    while let Some(at) = rest.find("{{") {
+        let close = rest[at..].find("}}").ok_or("a `{{` with no `}}`")?;
+        let token = &rest[at + 2..at + close];
+        rest = &rest[at + close + 2..];
+        if matches!(token, "name" | "path" | "threshold" | "median" | "age_years") {
+            continue;
+        }
+        let field = Field::parse(token).ok_or(format!("`{token}` is not a field"))?;
+        // `loc` and `funcs` are set on every subject; everything else has to be earned by a
+        // clause, or the sentence silently falls back and nobody finds out.
+        let always = field == Field::Loc || field == Field::Funcs;
+        if !always && !clauses.iter().any(|c| c.field == field) {
+            return Err(format!("`{token}` is not something this rule measures"));
+        }
+    }
+    Ok(())
+}
+
+/// An id from a title, unique against what is already here.
+///
+/// **Minted once and never regenerated.** The id is what a decision is filed under, so a rule
+/// that re-slugged itself when it was retitled would orphan every decision made with it — the
+/// failure `Rule::id` exists to prevent, arriving by another door. Built-in ids are reserved
+/// too: a later release adding a rule by this name would merge two different questions and
+/// the decisions filed under both.
+fn mint_id(title: &str, live: &[Rule]) -> String {
+    let base: String =
+        title.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
+    let mut base = base.trim_matches('-').to_string();
+    while base.contains("--") {
+        base = base.replace("--", "-");
+    }
+    if base.is_empty() {
+        base = "rule".to_string();
+    }
+    let taken = |id: &str| live.iter().any(|r| r.id == id) || catalog().iter().any(|r| r.id == id);
+    if !taken(&base) {
+        return base;
+    }
+    (2..).map(|n| format!("{base}-{n}")).find(|id| !taken(id)).unwrap_or(base)
+}
+
 /// The batteries-included catalog.
 ///
 /// **Every threshold here is a placeholder and is meant to be.** The note's bench showed a
@@ -961,19 +1478,14 @@ fn hit_of(s: &Subject) -> crate::search::Hit {
 pub fn catalog() -> Vec<Rule> {
     let ge = |field, value| Clause { field, op: Op::Ge, value };
     let lt = |field, value| Clause { field, op: Op::Lt, value };
-    /// Ten lines, on every rule whose question needs a body to be about — see [`Rule::floor`].
-    /// Rules that already gate on `loc` set their own and do not need it; `Crowded file` is
-    /// about a count rather than a body and does not either.
-    const FLOOR: u32 = 10;
-    let rule = |id, title, so_what, says, pop, clauses: Vec<Clause>, calibrated, floor| Rule {
-        id,
-        title,
-        so_what,
-        says,
+    let rule = |id: &str, title: &str, so_what: &str, says: &str, pop, clauses, calibrated| Rule {
+        id: id.to_string(),
+        title: title.to_string(),
+        so_what: so_what.to_string(),
+        says: says.to_string(),
         pop,
         clauses,
         calibrated,
-        floor,
     };
     vec![
         // **The two single-clause rules, and they are the on-ramp rather than the point.**
@@ -985,21 +1497,31 @@ pub fn catalog() -> Vec<Rule> {
         rule(
             "giant-function",
             "Giant function",
-            "unusually long for this repo",
-            "This is {{loc}} lines, where the median function here is {{median}}. Length on its own is not a defect and does not mean this is several functions — it means anything reading it has to take all of it at once, and breaking it up is the usual thing to try.",
+            "Unusually long, and not just a lot of data.",
+            "This is {{loc}} lines with {{cognitive}} branch points, where the median function \
+             here is {{median}} lines. Length on its own is not a defect and does not mean this \
+             is several functions — it means anything reading it has to take all of it at once, \
+             and breaking it up is the usual thing to try.",
             Pop::Func,
-            vec![ge(Field::Loc, 200.0)],
-            0,
+            // **A giant body with no branching is DATA, and this is what stops the rule
+            // finding it.** On kibana the top of this list was an index-mapping literal, a
+            // table of saved-object types and an i18n string map — 5,337, 1,920 and 1,879
+            // lines apiece, every one of them a single object with nothing to follow. They are
+            // long and they are not complicated, and nobody is going to split them up.
+            //
+            // Ten branch points is a low bar on purpose: this is not "tangled", which is its
+            // own rule and asks whether the complexity is explained by the length. It is only
+            // "there is control flow here at all".
+            vec![ge(Field::Loc, 200.0), ge(Field::Cognitive, 10.0)],
             0,
         ),
         rule(
             "crowded-file",
             "Crowded file",
-            "unusually many functions in one file",
+            "Unusually many functions in one file.",
             "This file defines {{funcs}} functions, where the median file here defines {{median}}. That is a count rather than a verdict: whether they belong together is a judgement about what they do, which nothing here has made.",
             Pop::File,
             vec![ge(Field::Funcs, 40.0)],
-            0,
             0,
         ),
         // ── Everything below is a genuine pair: two lenses, and no wedge shows both. ──
@@ -1011,32 +1533,29 @@ pub fn catalog() -> Vec<Rule> {
         rule(
             "load-bearing-unread",
             "Load-bearing and unread",
-            "read this one next",
+            "Read this one next.",
             "{{callers}} call sites depend on this and no reader has assessed it. It is the cheapest assessment available here, in the sense that what it turns out to be matters to every one of them.",
             Pop::Func,
-            vec![ge(Field::Callers, 20.0), lt(Field::Read, 1.0)],
+            vec![ge(Field::Callers, 20.0), lt(Field::Read, 1.0), ge(Field::Loc, 10.0)],
             0,
-            FLOOR,
         ),
         rule(
             "knotty-load-bearing",
             "Knotty and load-bearing",
-            "branches a lot, and widely depended on",
+            "Branches a lot, and widely depended on.",
             "{{callers}} call sites depend on this, and for {{loc}} lines it branches more than its length accounts for. A change here has to be checked against all {{callers}}.",
             Pop::Func,
-            vec![ge(Field::Tangle, 0.8), ge(Field::Callers, 10.0)],
+            vec![ge(Field::Tangle, 0.8), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         rule(
             "load-bearing-illegible",
             "Load-bearing and hard to read",
-            "hard to follow, and widely depended on",
+            "Hard to follow, and widely depended on.",
             "A reader assessed this as hard to follow, and {{callers}} call sites depend on it. Every later edit pays that reading cost again.",
             Pop::Func,
-            vec![ge(Field::Legible, 0.6), ge(Field::Callers, 10.0)],
+            vec![ge(Field::Legible, 0.6), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         // **`documented` runs HIGH for well documented**, so this clause is `lt` — written as
         // `ge` first, which quietly asked for load-bearing code somebody had already
@@ -1046,12 +1565,11 @@ pub fn catalog() -> Vec<Rule> {
         rule(
             "load-bearing-undocumented",
             "Load-bearing and undocumented",
-            "widely depended on, with nothing written about it",
+            "Widely depended on, with nothing written about it.",
             "{{callers}} call sites depend on this and there is no documentation on it. It is among the most used code here that nothing explains.",
             Pop::Func,
-            vec![lt(Field::Documented, 0.35), ge(Field::Callers, 10.0)],
+            vec![lt(Field::Documented, 0.35), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         // **Surprise against churn — designed in the note, never built until now.** The pair
         // the whole metric was argued for: code nobody predicted, that is also moving. Neither
@@ -1065,32 +1583,38 @@ pub fn catalog() -> Vec<Rule> {
         rule(
             "surprising-changing",
             "Surprising and changing",
-            "changing often, and nobody predicted it",
+            "Changing often, and nobody predicted it.",
             "A reader could not predict this body, and it changed in {{commits}} commits recently. Either on its own is ordinary; both at once is worth knowing before the next edit.",
             Pop::Func,
-            vec![ge(Field::Surprise, 0.6), ge(Field::Commits, 4.0)],
+            vec![ge(Field::Surprise, 0.6), ge(Field::Commits, 4.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         rule(
             "surprising-far-reaching",
             "Surprising and far-reaching",
-            "it calls a great deal and nobody predicted it",
+            "It calls a great deal and nobody predicted it.",
             "This calls {{calls}} other functions and a reader still could not predict what it does. It coordinates work that is not apparent from its own body.",
             Pop::Func,
-            vec![ge(Field::Surprise, 0.6), ge(Field::Calls, 10.0)],
+            vec![ge(Field::Surprise, 0.6), ge(Field::Calls, 10.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         rule(
             "stale-doc",
             "Stale doc",
-            "documented, and a reader still could not predict it",
+            "Documented, and a reader still could not predict it.",
             "This has documentation and a reader still could not predict the body. Either the documentation describes behaviour the code no longer has, or it describes it in terms that do not help.",
             Pop::Func,
-            vec![ge(Field::Documented, 0.7), ge(Field::Surprise, 0.6)],
-            0,
-            FLOOR,
+            // **`Some` is not a stale doc, and 0.6 was catching it.** The grades are words
+            // before they are numbers: `Grade::Some` is "recognizable, but the body does real
+            // work the prediction did not cover" — an incomplete doc, which is most docs.
+            // `Grade::None` at 0.92 is "the prediction did not describe this code", which is
+            // what the rule is named for. At 0.6 it returned 58 findings on this repo and
+            // owned the list; the number was not the problem, the reading of it was.
+            vec![ge(Field::Documented, 0.7), ge(Field::Surprise, 0.9), ge(Field::Loc, 10.0)],
+            // Calibrated on the surprise rather than the doc grade: neither is continuous, so
+            // neither hits a target exactly, but `documented`'s useful value is its top one,
+            // which leaves nothing between "everything" and "almost nothing".
+            1,
         ),
         // **Traps, finally used.** A trap is a mark a reader leaves on a body that will bite
         // whoever edits it next — which is a prediction about an edit, and worth nothing until
@@ -1099,22 +1623,20 @@ pub fn catalog() -> Vec<Rule> {
         rule(
             "trap-being-edited",
             "Trap in code people are editing",
-            "easy to break when edited, and being edited",
+            "Easy to break when edited, and being edited.",
             "A reader flagged this as easy to break when edited, and it changed in {{commits}} commits recently.",
             Pop::Func,
-            vec![ge(Field::Trap, 1.0), ge(Field::Commits, 3.0)],
+            vec![ge(Field::Trap, 1.0), ge(Field::Commits, 3.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         rule(
             "fossil-trap",
             "Fossil trap",
-            "easy to break when edited, and years since anyone did",
+            "Easy to break when edited, and years since anyone did.",
             "A reader flagged this as easy to break when edited, and no commit has changed it in {{age_years}} years.",
             Pop::Func,
-            vec![ge(Field::Trap, 1.0), ge(Field::AgeDays, 1095.0)],
+            vec![ge(Field::Trap, 1.0), ge(Field::AgeDays, 1095.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         // **Clones against churn rather than against size.** A clone group is only a problem
         // once somebody starts editing it: that is the moment one copy gets the fix and the
@@ -1122,42 +1644,38 @@ pub fn catalog() -> Vec<Rule> {
         rule(
             "clone-being-edited",
             "Clone being edited",
-            "one copy changed and the others did not",
-            "This body appears {{clone_size}} times in the repo, and this copy changed in {{commits}} commits. Changes made here are not applied to the other copies.",
+            "One copy changed and the others did not.",
+            "This body appears {{clone_count}} times in the repo, and this copy changed in {{commits}} commits. Changes made here are not applied to the other copies.",
             Pop::Func,
-            vec![ge(Field::CloneSize, 3.0), ge(Field::Commits, 2.0)],
+            vec![ge(Field::CloneSize, 3.0), ge(Field::Commits, 2.0), ge(Field::Loc, 10.0)],
             1,
-            FLOOR,
         ),
         rule(
             "widely-cloned",
             "Widely cloned",
-            "the same body, in several places",
-            "The same {{loc}} lines appear {{clone_size}} times in this repo.",
+            "The same body, in several places.",
+            "The same {{loc}} lines appear {{clone_count}} times in this repo.",
             Pop::Func,
             vec![ge(Field::CloneSize, 4.0), ge(Field::Loc, 30.0)],
             1,
-            0,
         ),
         rule(
             "fossil",
             "Fossil",
-            "no commit has changed it in years",
+            "No commit has changed it in years.",
             "{{loc}} lines that no commit has changed in {{age_years}} years.",
             Pop::Func,
             vec![ge(Field::AgeDays, 1825.0), ge(Field::Loc, 100.0)],
             1,
-            0,
         ),
         rule(
             "tangled-for-size",
             "Tangled for its size",
-            "more complicated than its length accounts for",
+            "More complicated than its length accounts for.",
             "For {{loc}} lines this branches more than almost anything else in the repo. Its complexity is not explained by its length.",
             Pop::Func,
             vec![ge(Field::Tangle, 0.8), ge(Field::Loc, 40.0)],
             1,
-            0,
         ),
     ]
 }
@@ -1244,42 +1762,130 @@ fn rules_path(repo: &std::path::Path) -> std::path::PathBuf {
     rules_dir(repo).join("catalog.md")
 }
 
-/// This repo's saved thresholds, as `title -> value`. Empty where nobody has tuned it yet.
-pub fn saved_rules(repo: &std::path::Path) -> HashMap<String, f32> {
-    let Ok(text) = std::fs::read_to_string(rules_path(repo)) else { return HashMap::new() };
-    let mut out = HashMap::new();
-    for line in text.lines() {
-        let Some(rest) = line.strip_prefix("- ") else { continue };
-        // "- `Giant function`; loc >= 257"
-        let Some((title, clause)) = rest.split_once("; ") else { continue };
-        let title = title.trim().trim_matches('`');
-        if let Some(v) = clause.split_whitespace().last().and_then(|n| n.parse().ok()) {
-            out.insert(title.to_string(), v);
-        }
-    }
-    out
+/// One line of `catalog.md`: what this repo says about one rule.
+///
+/// **Three cases, told apart without a flag saying which.** A built-in carries an id the
+/// catalog knows and overrides only what it names, so a shipped improvement to a rule's prose
+/// still reaches a repo that has tuned its number. A disabled rule carries `off`. A user rule
+/// carries an id the catalog has never heard of and must therefore carry everything, because
+/// there is nothing to fall back to.
+#[derive(Debug, Default, Clone)]
+pub struct Line {
+    pub id: String,
+    pub off: bool,
+    pub pop: Option<Pop>,
+    pub clauses: Option<Vec<Clause>>,
+    pub floor: Option<u32>,
+    pub title: Option<String>,
+    pub so_what: Option<String>,
+    pub says: Option<String>,
+    /// A threshold on its own, from the format that predates the grammar — see `parse_line`.
+    pub bare: Option<Clause>,
 }
 
-/// Write the thresholds this repo is using, so they stop moving.
+/// What this repo has said about its rules, in the order the file says it.
+///
+/// **A line this cannot read is dropped, and dropping is the safe direction.** Of the three
+/// things a malformed line could do, two hide work: a half-read expression could silence a
+/// rule or narrow it without saying so. A dropped line means the catalog's own version runs,
+/// which is the same outcome as never having edited it.
+pub fn saved_rules(repo: &std::path::Path) -> Vec<Line> {
+    let Ok(text) = std::fs::read_to_string(rules_path(repo)) else { return Vec::new() };
+    text.lines().filter_map(parse_line).collect()
+}
+
+/// `loc >= 339` — a clause with no population, which is what a line used to carry.
+fn bare_clause(seg: &str) -> Option<Clause> {
+    let [f, o, v] = seg.split_whitespace().collect::<Vec<_>>()[..] else { return None };
+    Some(Clause { field: Field::parse(f)?, op: Op::parse(o)?, value: v.parse().ok()? })
+}
+
+fn parse_line(line: &str) -> Option<Line> {
+    let rest = line.trim().strip_prefix("- ")?;
+    let mut segs = rest.split("; ").map(str::trim);
+    let mut out = Line { id: segs.next()?.trim_matches('`').to_string(), ..Line::default() };
+    if out.id.is_empty() {
+        return None;
+    }
+    for seg in segs {
+        if seg == "off" {
+            out.off = true;
+        } else if let Some(v) = seg.strip_prefix("floor ") {
+            out.floor = Some(v.trim().parse().ok()?);
+        } else if let Some(v) = seg.strip_prefix("title: ") {
+            out.title = Some(v.to_string());
+        } else if let Some(v) = seg.strip_prefix("so what: ") {
+            out.so_what = Some(v.to_string());
+        } else if let Some(v) = seg.strip_prefix("says: ") {
+            out.says = Some(v.to_string());
+        } else if let Some(c) = bare_clause(seg) {
+            // **The format this file had before it could hold a whole rule**, where a line was
+            // an id and one threshold for the clause `calibrated` names. Read rather than
+            // dropped: dropping is the right default for a line nobody can parse, and it is
+            // the wrong one for a line an earlier version of this program WROTE. Every repo
+            // tuned before today would have quietly gone back to shipped defaults, which on
+            // this one meant 120 findings where there had been 43.
+            out.bare = Some(c);
+        } else if seg.starts_with("func:") || seg.starts_with("file:") {
+            // The expression, in the grammar `Rule::parse` already speaks — the same string a
+            // person could have typed at `just findings --rule`, and the same one `expr()`
+            // renders. One parser, so a rule the file can hold is a rule the bench can run.
+            let parsed = Rule::parse(seg).ok()?;
+            out.pop = Some(parsed.pop);
+            out.clauses = Some(parsed.clauses);
+        }
+        // Anything else is a segment written by a version that knows something this one does
+        // not. Skipped rather than fatal: the prefixes name themselves, so an unknown one
+        // cannot shift the meaning of the ones around it.
+    }
+    Some(out)
+}
+
+/// Write the rules this repo is using, so they stop moving.
+///
+/// **Every rule, whole, whether or not it differs from the catalog.** The file is then a
+/// complete statement of what ran, which is what makes it worth reviewing in a diff — and the
+/// alternative, writing only what deviates, means the file changes shape when a shipped
+/// default changes, which reads as somebody's edit.
+///
+/// A rule the catalog does not have gets its prose as well, because nothing would supply it.
 pub fn save_rules(repo: &std::path::Path, rules: &[Rule]) -> std::io::Result<()> {
     std::fs::create_dir_all(rules_dir(repo))?;
+    let known = catalog();
     let mut out = String::new();
     out.push_str("# Finding rules\n\n");
-    out.push_str("The thresholds this repo's findings are found with. Calibrated once, against\n");
-    out.push_str("this repo, to produce a list somebody would read to the bottom — and then\n");
-    out.push_str("LEFT ALONE, so that dealing with a finding makes the list shorter instead of\n");
-    out.push_str("lowering the bar for the next one.\n\n");
-    out.push_str("Edit a number and it is used as written. Delete the file and it is\n");
-    out.push_str("calibrated again.\n\n");
+    out.push_str("What this repo looks for, and how hard. Calibrated once against this repo to\n");
+    out.push_str(
+        "produce a list somebody would read to the bottom — and then LEFT ALONE, so that\n",
+    );
+    out.push_str("dealing with a finding makes the list shorter instead of lowering the bar for\n");
+    out.push_str("the next one.\n\n");
+    out.push_str(
+        "Edit a number and it is used as written. Add `; off` to silence a rule. Delete\n",
+    );
+    out.push_str(
+        "the file and it is calibrated again. A rule whose id is not one of sanity's own\n",
+    );
+    out.push_str(
+        "carries its own title and sentence, because there is nothing to fall back to.\n\n",
+    );
     for r in rules {
-        let c = r.clauses[r.calibrated];
-        out.push_str(&format!(
-            "- `{}`; {} {} {}\n",
-            r.id,
-            c.field.name(),
-            c.op.name(),
-            trim_num(c.value)
-        ));
+        out.push_str(&format!("- `{}`; {}", r.id, r.expr()));
+        if !known.iter().any(|k| k.id == r.id) {
+            out.push_str(&format!("; title: {}", one_line(&r.title)));
+            out.push_str(&format!("; so what: {}", one_line(&r.so_what)));
+            if !r.says.is_empty() {
+                out.push_str(&format!("; says: {}", one_line(&r.says)));
+            }
+        }
+        out.push('\n');
+    }
+    // Rules silenced here rather than deleted: an id with no line is a rule that RUNS, so a
+    // catalog that simply omitted them would turn every `off` back on at the next release.
+    for k in &known {
+        if !rules.iter().any(|r| r.id == k.id) {
+            out.push_str(&format!("- `{}`; off\n", k.id));
+        }
     }
     let path = rules_path(repo);
     std::fs::write(&path, &out)?;
@@ -1291,6 +1897,12 @@ pub fn save_rules(repo: &std::path::Path, rules: &[Rule]) -> std::io::Result<()>
     Ok(())
 }
 
+/// Prose, flattened onto the one line a record gets — see `escape`, which does the same for a
+/// decision's reason and for the same reason.
+fn one_line(s: &str) -> String {
+    s.replace(['\n', '\r'], " ").replace("; ", ", ")
+}
+
 /// The catalog this repo actually runs: saved where it has been tuned, calibrated and saved
 /// where it has not.
 ///
@@ -1298,10 +1910,9 @@ pub fn save_rules(repo: &std::path::Path, rules: &[Rule]) -> std::io::Result<()>
 /// and the number is what gets kept. Doing it without keeping it would make every rule a
 /// percentile.
 pub fn rules_for(repo: &std::path::Path, facts: &[Facts]) -> Vec<Rule> {
-    let base = catalog();
     let saved = saved_rules(repo);
     if saved.is_empty() {
-        let tuned = calibrated(&base, facts);
+        let tuned = calibrated(&catalog(), facts);
         // **Nothing is created for a repo with nothing in it.** `assessments.md` states this
         // for readings — "an open is a look, and a look that leaves a directory behind is a
         // surprise where people run `git status`" — and it holds here for the same reason. It
@@ -1316,14 +1927,104 @@ pub fn rules_for(repo: &std::path::Path, facts: &[Facts]) -> Vec<Rule> {
         let _ = save_rules(repo, &tuned);
         return tuned;
     }
-    base.into_iter()
-        .map(|mut r| {
-            if let Some(v) = saved.get(r.id) {
-                r.clauses[r.calibrated].value = *v;
+    merge(catalog(), &saved)
+}
+
+/// The catalog this repo runs: the shipped rules as its file amends them, then the rules only
+/// its file knows about.
+///
+/// **Catalog order first, then user rules in file order.** A person who turns a rule off and
+/// back on should find it where it was; a list that reordered itself as it was edited would
+/// make the marginal-contribution column jump around for reasons nothing on screen explains.
+pub fn merge(base: Vec<Rule>, saved: &[Line]) -> Vec<Rule> {
+    let mut out: Vec<Rule> = Vec::new();
+    for mut r in base {
+        let Some(line) = saved.iter().find(|l| l.id == r.id) else {
+            // **A built-in the file does not mention still runs.** The file is a list of
+            // amendments, not a whitelist: a rule added by a later release reaches every repo,
+            // including ones tuned before it existed. Silencing is what `off` is for and it
+            // has to be said.
+            out.push(r);
+            continue;
+        };
+        if line.off {
+            continue;
+        }
+        amend(&mut r, line);
+        out.push(r);
+    }
+    for line in saved {
+        if line.off || out.iter().any(|r| r.id == line.id) {
+            continue;
+        }
+        // An id the catalog has never heard of is a rule somebody wrote. It has to carry
+        // everything, because there is nothing to fall back on — a user line without an
+        // expression or a title is not a rule, and is dropped rather than half-built.
+        let (Some(pop), Some(mut clauses), Some(title)) =
+            (line.pop, line.clauses.clone(), line.title.clone())
+        else {
+            continue;
+        };
+        if let Some(floor) = line.floor {
+            if !clauses.iter().any(|c| c.field == Field::Loc) {
+                clauses.push(Clause { field: Field::Loc, op: Op::Ge, value: floor as f32 });
             }
-            r
-        })
-        .collect()
+        }
+        out.push(Rule {
+            id: line.id.clone(),
+            title,
+            so_what: line.so_what.clone().unwrap_or_else(|| "Matched a rule of yours.".into()),
+            says: line.says.clone().unwrap_or_default(),
+            pop,
+            clauses,
+            calibrated: 0,
+        });
+    }
+    out
+}
+
+/// Apply one line's amendments to the rule it names, leaving everything it does not name.
+fn amend(r: &mut Rule, line: &Line) {
+    if let Some(pop) = line.pop {
+        r.pop = pop;
+    }
+    // A bare threshold names the clause `calibrated` points at, which is what it meant when
+    // that was the only thing a line could say.
+    if let Some(bare) = line.bare {
+        if let Some(c) = r.clauses.iter_mut().find(|c| c.field == bare.field) {
+            c.op = bare.op;
+            c.value = bare.value;
+        }
+    }
+    if let Some(clauses) = &line.clauses {
+        // **The calibrated clause follows its FIELD, not its index.** An edit that reorders a
+        // rule's clauses would otherwise point `calibrated` at the other one, and the next
+        // suggestion would offer a threshold for a question nobody asked.
+        let was = r.clauses.get(r.calibrated).map(|c| c.field);
+        r.clauses = clauses.clone();
+        r.calibrated = was
+            .and_then(|f| r.clauses.iter().position(|c| c.field == f))
+            .unwrap_or(0)
+            .min(r.clauses.len().saturating_sub(1));
+    }
+    // **`floor N` was a field and is a clause now** — see `findings.md`: a rule that gates on
+    // size is asking a size question, and size is a lens like any other. A file written before
+    // that still says `floor 10`, and it still means the same thing, so it is read as the
+    // clause it always was rather than dropped.
+    if let Some(floor) = line.floor {
+        if !r.clauses.iter().any(|c| c.field == Field::Loc) {
+            r.clauses.push(Clause { field: Field::Loc, op: Op::Ge, value: floor as f32 });
+        }
+    }
+    if let Some(title) = &line.title {
+        r.title = title.clone();
+    }
+    if let Some(so_what) = &line.so_what {
+        r.so_what = so_what.clone();
+    }
+    if let Some(says) = &line.says {
+        r.says = says.clone();
+    }
 }
 
 // ── The archive ────────────────────────────────────────────────────────────────
@@ -1589,6 +2290,40 @@ pub fn undecide(repo: &std::path::Path, key: &str, rule: &str) -> std::io::Resul
 
 #[cfg(test)]
 mod tests {
+    /// **Everything the picker offers, the parser accepts.** The form's field list comes from
+    /// `Field::ALL` via `grammar`, and the evaluator reads clauses through `Field::parse`; if
+    /// those two ever disagree the form offers a field that saving refuses, which looks like
+    /// the save being broken rather than the name being wrong. `legible` became `illegible`
+    /// with `name()` and `parse` in one edit — this is what makes the next such rename fail
+    /// loudly instead of shipping a picker full of options nobody can save.
+    #[test]
+    fn grammar_offers_only_fields_the_parser_knows() {
+        let g = super::grammar(&[]);
+        assert_eq!(g.fields.len(), super::Field::ALL.len());
+        for f in &g.fields {
+            let back = super::Field::parse(f.name)
+                .unwrap_or_else(|| panic!("`{}` is offered and does not parse", f.name));
+            assert_eq!(back.name(), f.name, "`{}` does not round-trip", f.name);
+        }
+        for op in &g.ops {
+            let back = super::Op::parse(op).unwrap_or_else(|| panic!("`{op}` is offered and does not parse"));
+            assert_eq!(back.name(), *op);
+        }
+    }
+
+    /// **A form sends what it typed, not what the backend measured.** `lens`, `median` and
+    /// `suggestion` are outbound annotations; a clause coming back has nothing to say about
+    /// them, and requiring them would make the frontend invent three nulls per clause to be
+    /// heard — the kind of shape that gets one field wrong and fails at the wire.
+    #[test]
+    fn a_clause_needs_only_what_somebody_typed() {
+        let c: super::ClauseView =
+            serde_json::from_str(r#"{"field":"loc","op":">=","value":100}"#).unwrap();
+        assert_eq!(c.field, "loc");
+        assert_eq!(c.value, 100.0);
+        assert!(c.lens.is_none() && c.median.is_none() && c.suggestion.is_none());
+    }
+
     use super::*;
 
     fn func(name: &str, loc: u32) -> Node {
@@ -1612,6 +2347,84 @@ mod tests {
         root
     }
 
+    /// **`Facts` is indexed by discriminant, so the count has to cover every variant.**
+    ///
+    /// `ALL` is what a form offers and deliberately leaves `Trap` out; the array is what every
+    /// subject carries. Taking the size from `ALL.len()` would index out of bounds the first
+    /// time a reader reported a trap — on a repo that had been read, months after the change.
+    #[test]
+    fn every_field_has_a_slot() {
+        for f in super::Field::ALL {
+            assert!((f as usize) < super::Field::COUNT, "`{}` is past the end", f.name());
+        }
+        assert!((super::Field::Trap as usize) < super::Field::COUNT, "trap is past the end");
+        // And nothing is wasted: the last variant is the last slot.
+        assert_eq!(super::Field::Trap as usize, super::Field::COUNT - 1);
+    }
+
+    /// **Not a correctness test — a measurement, kept out of the default run.**
+    ///
+    /// It exists because "opening kibana got slower" is a question a proxy cannot answer, and
+    /// this file gained a third caller of [`subjects`] the day it did: `project_findings`,
+    /// `project_rules` and `rule_grammar` each build the whole fact set for themselves.
+    ///
+    /// At 180,000 subjects, which is kibana's order:
+    ///
+    /// | | release | dev |
+    /// |---|---|---|
+    /// | `subjects()` | 41ms | 221ms |
+    /// | `grammar()` | 29ms | 430ms |
+    /// | `all_hits()` | 23ms | 366ms |
+    ///
+    /// So the three commands together are about 90ms in a shipped build and about 1.8s under
+    /// `just dev`, which is where it was noticed — and they hold the projects lock while they
+    /// run, so they serialise. The cost is dominated by the fact set being built three times
+    /// rather than by anything the grammar does; `Facts::values` is a `HashMap` per subject,
+    /// so that is 540,000 small maps to answer three questions about one repo.
+    #[test]
+    #[ignore]
+    fn bench_grammar_at_kibana_scale() {
+        use std::time::Instant;
+        let mut files = Vec::new();
+        for i in 0..20_000u32 {
+            let mut kids = Vec::new();
+            for j in 0..8u32 {
+                kids.push(func(&format!("f{i}_{j}"), 10 + (j % 40)));
+            }
+            let mut f = Node::dir(&format!("d{}/f{i}.rs", i % 400), &format!("f{i}.rs"));
+            f.kind = NodeKind::File;
+            f.loc = kids.iter().map(|c| c.loc).sum();
+            f.funcs = kids.len() as u32;
+            f.children = kids;
+            files.push(f);
+        }
+        let mut root = Node::dir("", "repo");
+        root.children = files;
+        let reports = HashMap::new();
+        let traced = Traced { git: true, churned: true };
+
+        let t = Instant::now();
+        let facts = subjects(&root, &reports, traced);
+        let built = t.elapsed();
+
+        let t = Instant::now();
+        let g = grammar(&facts);
+        let grammared = t.elapsed();
+        assert_eq!(g.fields.len(), Field::ALL.len());
+
+        let t = Instant::now();
+        let cat = catalog();
+        let _ = all_hits(&cat, &facts);
+        let hit = t.elapsed();
+        // What one `project_report` costs: the walk, plus everything read off it.
+        let whole = built + grammared + hit;
+
+        println!(
+            "{} subjects — subjects() {built:?}, grammar() {grammared:?}, all_hits() {hit:?}, one report {whole:?}",
+            facts.len(),
+        );
+    }
+
     /// The rule text is the settings page's own vocabulary, so it has to round-trip.
     #[test]
     fn a_rule_survives_being_written_down() {
@@ -1620,7 +2433,10 @@ mod tests {
         assert_eq!(r.clauses.len(), 2);
         assert_eq!(r.expr(), "func: loc >= 200 and callers >= 20");
         assert!(Rule::parse("dir: loc >= 10").is_err());
-        assert!(Rule::parse("func: loc >= 1 and calls >= 1 and age >= 1").is_err());
+        // Three is the cap, and it is about precedence rather than counting: conjunction
+        // needs none at any width, and there is no OR.
+        assert!(Rule::parse("func: loc >= 1 and calls >= 1 and age >= 1").is_ok());
+        assert!(Rule::parse("func: loc >= 1 and calls >= 1 and age >= 1 and read < 1").is_err());
     }
 
     /// **The rule this file exists to keep.** An unanswerable clause fails; it does not
@@ -1775,7 +2591,7 @@ would hide the shape"
         let rule = Rule::parse("func: loc >= 100").expect("parses");
         // Filed under the ID, not the title — renaming a rule must not orphan the decisions
         // somebody made with it.
-        let rule = Rule { id: "giant-function", title: "Giant function", ..rule };
+        let rule = Rule { id: "giant-function".into(), title: "Giant function".into(), ..rule };
         let tree = file_with(vec![func("run", 300)]);
         let facts = subjects(&tree, &HashMap::new(), Traced::default());
         let at = facts.iter().find(|f| f.subject.kind == NodeKind::Func).expect("a function");
@@ -1794,7 +2610,7 @@ would hide the shape"
         assert_eq!((live.len(), aside), (0, 1), "dismissed while the code is as it was");
 
         // The title moves and the decision stands, which is the whole reason the key is an id.
-        let renamed = Rule { title: "Something else entirely", ..rule.clone() };
+        let renamed = Rule { title: "Something else entirely".into(), ..rule.clone() };
         let (live, aside) = live_hits(&renamed, &facts, &pinned(std::slice::from_ref(&d)));
         assert_eq!((live.len(), aside), (0, 1), "a rename is not a new rule");
 
@@ -1829,9 +2645,10 @@ would hide the shape"
         let at = facts.iter().find(|f| f.subject.kind == NodeKind::Func).expect("a function");
 
         let filled = Rule {
-            title: "t",
-            so_what: "it is long",
-            says: "{{name}} is {{loc}} lines, past the {{threshold}} that counts as long.",
+            title: "t".to_string(),
+            so_what: "It is long.".to_string(),
+            says: "{{name}} is {{loc}} lines, past the {{threshold}} that counts as long."
+                .to_string(),
             ..Rule::parse("func: loc >= 100").expect("parses")
         };
         assert_eq!(
@@ -1841,12 +2658,18 @@ would hide the shape"
 
         // `age` needs git, and nothing here has been traced. The sentence is abandoned whole
         // rather than printed with a gap where the number should be.
-        let cannot = Rule { says: "untouched for {{age_years}} years.", ..filled.clone() };
+        let cannot =
+            Rule { says: "untouched for {{age_years}} years.".to_string(), ..filled.clone() };
         assert_eq!(flat(&render(&cannot, at, None)), "It is long.");
+
+        // A rule with no template at all falls back too — `says` is optional on a rule
+        // somebody wrote, and an empty sentence under a title is worse than a short one.
+        let none = Rule { says: String::new(), ..filled.clone() };
+        assert_eq!(flat(&render(&none, at, None)), "It is long.");
 
         // So is a token that is not a field at all — a typo in a template must not ship as a
         // literal `{{callerz}}` in front of somebody.
-        let typo = Rule { says: "{{callerz}} things call it.", ..filled.clone() };
+        let typo = Rule { says: "{{callerz}} things call it.".to_string(), ..filled.clone() };
         assert_eq!(flat(&render(&typo, at, None)), "It is long.");
 
         // Thousands are grouped: a raw `147906` in a sentence reads as a typo.
@@ -1870,7 +2693,7 @@ would hide the shape"
     #[test]
     fn every_catalog_sentence_names_only_what_its_rule_guarantees() {
         for r in catalog() {
-            let mut rest = r.says;
+            let mut rest = r.says.as_str();
             while let Some(at) = rest.find("{{") {
                 let close = rest[at..].find("}}").expect("a token closes");
                 let token = &rest[at + 2..at + close];
@@ -1904,9 +2727,9 @@ would hide the shape"
         let tree = file_with(vec![func("a", 300), func("b", 200), func("c", 100)]);
         let facts = subjects(&tree, &HashMap::new(), Traced::default());
         let rule = Rule {
-            title: "t",
-            so_what: "x",
-            says: "",
+            title: "t".to_string(),
+            so_what: "x".to_string(),
+            says: String::new(),
             ..Rule::parse("func: loc >= 50 and calls >= 5").expect("parses")
         };
         let rule = Rule { calibrated: 1, ..rule };
@@ -1920,7 +2743,7 @@ would hide the shape"
         let many = file_with((1..=40).map(|i| func(&format!("f{i}"), i * 10)).collect());
         let facts = subjects(&many, &HashMap::new(), Traced::default());
         let wide = Rule { calibrated: 0, ..Rule::parse("func: loc >= 50").expect("parses") };
-        let wide = Rule { title: "t", so_what: "x", says: "", ..wide };
+        let wide = Rule { title: "t".into(), so_what: "x".into(), says: String::new(), ..wide };
         let tuned = calibrated(&[wide], &facts);
         assert!(
             tuned[0].clauses[0].value > 50.0,
@@ -1928,30 +2751,32 @@ would hide the shape"
         );
     }
 
-    /// **A three-line accessor called thirty times is not a finding.** Without a floor,
+    /// **A three-line accessor called thirty times is not a finding.** Without a size clause,
     /// "load-bearing and undocumented" returned eight rows of `len`, `new` and `path` — all
     /// true, and all of them work nobody should do. The same gap put a three-line accessor at
     /// the top of the reading queue, where it would have spent budget to learn that an
     /// accessor accesses something.
+    ///
+    /// It was a `floor` field first, on the argument that it was about the instrument's
+    /// resolution rather than about the repo. It is a clause now: a rule that gates on size is
+    /// asking a size question, and size is a lens like any other.
     #[test]
     fn a_rule_about_a_body_says_nothing_about_a_trivial_one() {
         let tree = file_with(vec![func("len", 3), func("parse_shard", 133)]);
         let facts = subjects(&tree, &HashMap::new(), Traced::default());
-        let base = Rule::parse("func: loc >= 1").expect("parses");
 
-        let unfloored = Rule { floor: 0, ..base.clone() };
+        let unfloored = Rule::parse("func: loc >= 1").expect("parses");
         assert_eq!(hits(&unfloored, &facts).len(), 2);
 
-        let floored = Rule { floor: 10, ..base };
+        let floored = Rule::parse("func: loc >= 10").expect("parses");
         let kept = hits(&floored, &facts);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].name, "parse_shard");
 
-        // And every shipped rule whose question is about a BODY has one, so the catalog
-        // cannot regain the gap by adding a rule that forgets it.
+        // And every shipped rule whose question is about a BODY gates on size, so the catalog
+        // cannot regain the gap by adding a rule that forgets to.
         for r in catalog() {
             let about_a_body = r.pop == Pop::Func
-                && !r.clauses.iter().any(|c| c.field == Field::Loc)
                 && r.clauses.iter().any(|c| {
                     matches!(
                         c.field,
@@ -1965,101 +2790,215 @@ would hide the shape"
                     )
                 });
             if about_a_body {
-                assert!(r.floor > 0, "{} asks about a body and has no floor", r.title);
+                assert!(
+                    r.clauses.iter().any(|c| c.field == Field::Loc),
+                    "{} asks about a body and does not gate on its size",
+                    r.title
+                );
             }
         }
     }
 
-    /// **The store is a pure function of its contents, because `git blame` is the record.**
-    ///
-    /// A decision carries no commit: which tree it was made against is the commit its line
-    /// arrived in, and git already keeps that. The price of not storing it is that an
-    /// untouched decision has to keep identical bytes — and it did not. Subjects were stable
-    /// through a `BTreeMap`; the decisions inside one were in insertion order, so re-deciding
-    /// one rule moved a sibling's line, rewrote it, and blamed it on the newer commit.
+    /// **A line an earlier version wrote is still read.** The first format was an id and one
+    /// threshold for the clause `calibrated` names; dropping it — right for a line nobody can
+    /// parse — would have taken every repo tuned before the grammar existed back to shipped
+    /// defaults, silently. On this repo that was 120 findings where there had been 43.
     #[test]
-    fn the_same_decisions_write_the_same_bytes_whatever_order_they_arrived_in() {
-        let dir = std::env::temp_dir().join(format!("sanity-order-{}", std::process::id()));
-        let mut one = None;
-        // The same three decisions on one subject, filed in two different orders. Two of them
-        // share a subject, which is the case that was broken.
-        for order in [[0usize, 1, 2], [2, 1, 0]] {
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).expect("temp repo");
-            let all = [
-                ("src/a.rs#run", "giant-function", "Giant function"),
-                ("src/a.rs#run", "tangled-for-size", "Tangled for its size"),
-                ("src/b.rs#go", "fossil", "Fossil"),
-            ];
-            for i in order {
-                let (key, rule, title) = all[i];
-                decide(
-                    &dir,
-                    Decision {
-                        key: key.into(),
-                        rule: rule.into(),
-                        title: title.into(),
-                        verdict: Verdict::FineForNow,
-                        pin: "abc loc=300".into(),
-                        reason: "fine".into(),
-                        // Deliberately identical: `when` is the one field that legitimately
-                        // differs between two filings, and it is not what this is about.
-                        when: "2026-09-03T00:00:00Z".into(),
-                        by: "ross".into(),
-                    },
-                )
-                .expect("writes");
-            }
-            let text =
-                std::fs::read_to_string(dir.join(".sanity").join("findings").join("decisions.md"))
-                    .expect("reads");
-            match &one {
-                None => one = Some(text),
-                Some(first) => assert_eq!(*first, text, "insertion order reached the file"),
-            }
-        }
+    fn a_line_from_the_first_format_still_tunes_its_rule() {
+        let base = catalog();
+        let giant = base.iter().find(|r| r.id == "giant-function").expect("shipped");
+        let was = giant.clauses[giant.calibrated].value;
 
-        // And re-deciding one rule leaves its sibling's line exactly where it was — the line
-        // git would otherwise re-blame.
-        let before =
-            std::fs::read_to_string(dir.join(".sanity").join("findings").join("decisions.md"))
-                .expect("reads");
-        decide(
-            &dir,
-            Decision {
-                key: "src/a.rs#run".into(),
-                rule: "giant-function".into(),
-                title: "Giant function".into(),
-                verdict: Verdict::FineAlways,
-                pin: "abc loc=300".into(),
-                reason: "second thoughts".into(),
-                when: "2026-09-03T00:00:00Z".into(),
-                by: "ross".into(),
-            },
-        )
-        .expect("writes");
-        let after =
-            std::fs::read_to_string(dir.join(".sanity").join("findings").join("decisions.md"))
-                .expect("reads");
-        let moved: Vec<&str> = before
-            .lines()
-            .filter(|l| l.starts_with("- ") && !after.lines().any(|a| a == *l))
-            .collect();
-        assert_eq!(
-            moved,
-            vec![
-                "- rule `giant-function`; called `Giant function`; verdict `fine-for-now`; \
-pin `abc loc=300`; when 2026-09-03T00:00:00Z; by ross; reason: fine"
-            ],
-            "only the decision that changed may change",
+        let tuned = merge(base.clone(), &[parse_line("- `giant-function`; loc >= 339").unwrap()]);
+        let now = tuned.iter().find(|r| r.id == "giant-function").expect("still here");
+        assert_ne!(was, 339.0, "the shipped default is not the number under test");
+        assert_eq!(now.clauses[now.calibrated].value, 339.0);
+        // And the rest of the rule is untouched — the old format named one threshold and knew
+        // nothing about the clause beside it.
+        assert_eq!(now.clauses.len(), giant.clauses.len());
+        assert_eq!(now.expr(), "func: loc >= 339 and cognitive >= 10");
+    }
+
+    /// The three things a line can be, and the fourth that it cannot.
+    #[test]
+    fn a_file_can_silence_a_rule_define_one_and_be_wrong() {
+        let base = catalog();
+        let first = base[0].id.clone();
+
+        // Off: gone from the catalog this repo runs, and it is the only way to lose a rule —
+        // a rule the file does not mention still runs, so a later release reaches every repo.
+        let off = merge(base.clone(), &[parse_line(&format!("- `{first}`; off")).unwrap()]);
+        assert_eq!(off.len(), base.len() - 1);
+        assert!(!off.iter().any(|r| r.id == first));
+        assert_eq!(merge(base.clone(), &[]).len(), base.len(), "silence is not absence");
+
+        // A threshold, amended, with the rest of the rule inherited.
+        let tuned =
+            merge(base.clone(), &[parse_line(&format!("- `{first}`; func: loc >= 999")).unwrap()]);
+        assert_eq!(tuned[0].expr(), "func: loc >= 999");
+        assert_eq!(tuned[0].title, base[0].title, "prose still the catalog's");
+
+        // A rule of somebody's own, which has to carry everything.
+        let mine = merge(
+            base.clone(),
+            &[parse_line(
+                "- `mine`; func: callers >= 20 and commits >= 4; floor 10; \
+                 title: Hot paths; so what: widely depended on, and moving",
+            )
+            .unwrap()],
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        let last = mine.last().expect("a rule");
+        assert_eq!(last.id, "mine");
+        assert_eq!(last.title, "Hot paths");
+        // The `floor 10` segment is read as the size clause it always meant.
+        assert_eq!(last.expr(), "func: callers >= 20 and commits >= 4 and loc >= 10");
+
+        // And the ways a line is not a rule. Each drops to the catalog's own answer rather
+        // than half-building one: of the things a malformed line could do, two hide work.
+        assert!(parse_line("not a bullet").is_none());
+        assert!(
+            parse_line("- `x`; func: loc >>> 3").is_none(),
+            "an expression that will not parse"
+        );
+        assert!(parse_line("- `x`; floor twelve").is_none(), "a floor that is not a number");
+        let no_title = merge(base.clone(), &[parse_line("- `x`; func: loc >= 5").unwrap()]);
+        assert_eq!(no_title.len(), base.len(), "an unknown id with no title is not a rule");
+    }
+
+    /// **The field list and the parser agree, in both directions.** A field the evaluator can
+    /// answer and the form cannot offer is invisible: nothing fails, the question simply
+    /// cannot be asked.
+    #[test]
+    fn every_field_is_offered_and_every_name_parses() {
+        for f in Field::ALL {
+            assert_eq!(Field::parse(f.name()), Some(f), "`{}` does not parse back", f.name());
+        }
+        // `trap` is answerable and deliberately NOT offered: it is a mark rather than a
+        // measurement, and a picker would have to present `trap >= 1` as though the number
+        // meant something. The catalog uses it; a person reaches it by choosing the rule.
+        assert!(!Field::ALL.contains(&Field::Trap));
+        assert_eq!(Field::parse("trap"), Some(Field::Trap));
+
+        for op in Op::ALL {
+            assert_eq!(Op::parse(op.name()), Some(op));
+        }
+    }
+
+    /// **What the form refuses, and refuses out loud.** Every one of these is a rule the
+    /// evaluator would happily run and a person would be worse off for having: a silent
+    /// correction teaches a grammar that is not the one they are writing in.
+    #[test]
+    fn a_rule_that_is_not_one_is_refused_with_a_reason() {
+        let edit = |clauses: Vec<(&str, &str, f32)>, pop| RuleEdit {
+            id: String::new(),
+            title: "Mine".into(),
+            so_what: "x".into(),
+            says: String::new(),
+            pop,
+            clauses: clauses
+                .into_iter()
+                .map(|(f, o, v)| ClauseView {
+                    field: f.into(),
+                    op: o.into(),
+                    value: v,
+                    lens: None,
+                    median: None,
+                    suggestion: None,
+                })
+                .collect(),
+            calibrated: 0,
+            on: true,
+        };
+        let mut live = catalog();
+        let err = |e: Result<(), String>| e.unwrap_err();
+
+        assert!(err(apply_edit(
+            &mut live,
+            RuleEdit { title: "  ".into(), ..edit(vec![("loc", ">=", 5.0)], Pop::Func) }
+        ))
+        .contains("title"));
+        assert!(err(apply_edit(&mut live, edit(vec![], Pop::Func))).contains("one to three"));
+        assert!(err(apply_edit(
+            &mut live,
+            edit(
+                vec![
+                    ("loc", ">=", 5.0),
+                    ("callers", ">=", 5.0),
+                    ("calls", ">=", 5.0),
+                    ("commits", ">=", 5.0),
+                ],
+                Pop::Func
+            )
+        ))
+        .contains("one to three"));
+        assert!(err(apply_edit(&mut live, edit(vec![("nope", ">=", 5.0)], Pop::Func)))
+            .contains("not a field"));
+        // A grade on a file, which is a reading of a body.
+        assert!(err(apply_edit(&mut live, edit(vec![("surprise", ">=", 0.6)], Pop::File)))
+            .contains("says nothing about a file"));
+        // The vacuity guard — `trap >= 1 and commits >= 0` shipped once and turned a two-lens
+        // rule into a one-lens rule that went on naming two.
+        assert!(err(apply_edit(&mut live, edit(vec![("commits", ">=", 0.0)], Pop::Func)))
+            .contains("true of everything"));
+        // A template naming what the rule does not measure — `render` would fall back and
+        // nobody would find out.
+        let mut bad = edit(vec![("callers", ">=", 10.0)], Pop::Func);
+        bad.says = "changed in {{commits}} commits".into();
+        assert!(err(apply_edit(&mut live, bad)).contains("not something this rule measures"));
+
+        // And one that IS a rule: it lands, keeps its own id, and takes nothing from a
+        // built-in.
+        let before = live.len();
+        apply_edit(&mut live, edit(vec![("callers", ">=", 10.0)], Pop::Func)).expect("a rule");
+        assert_eq!(live.len(), before + 1);
+        assert_eq!(live.last().unwrap().id, "mine");
+        assert!(catalog().iter().all(|r| r.id != "mine"));
+    }
+
+    /// **An id is minted once and reserved against the catalog.** A rule that re-slugged
+    /// itself on a retitle would orphan every decision filed with it, and one that took a
+    /// built-in's id would merge two different questions the next time a release shipped one.
+    #[test]
+    fn a_minted_id_never_collides_with_a_shipped_one() {
+        let mut live = catalog();
+        let first = live[0].title.clone();
+        // A user rule titled exactly like a built-in cannot take its id.
+        let taken = mint_id(&first, &live);
+        assert_ne!(taken, live[0].id);
+        assert!(taken.starts_with(&live[0].id));
+
+        // Punctuation and spacing collapse; an empty title still yields something.
+        assert_eq!(mint_id("Hot   paths!!", &live), "hot-paths");
+        assert_eq!(mint_id("!!!", &live), "rule");
+
+        // And the id survives a retitle, because it is only minted when there is not one.
+        live.push(Rule { id: "mine".into(), title: "Mine".into(), ..live[0].clone() });
+        let edit = RuleEdit {
+            id: "mine".into(),
+            title: "Something else".into(),
+            so_what: "x".into(),
+            says: String::new(),
+            pop: Pop::Func,
+            clauses: vec![ClauseView {
+                field: "loc".into(),
+                op: ">=".into(),
+                value: 5.0,
+                lens: None,
+                median: None,
+                suggestion: None,
+            }],
+            calibrated: 0,
+            on: true,
+        };
+        apply_edit(&mut live, edit).expect("a rule");
+        let mine = live.iter().find(|r| r.id == "mine").expect("still there");
+        assert_eq!(mine.title, "Something else");
     }
 
     /// Keys are `key_of`, never node ids — a dismissal has to survive the body moving down
     /// the file, and node ids embed `@line`.
     #[test]
-    fn a_lead_is_keyed_the_way_a_reading_is() {
+    fn a_finding_is_keyed_the_way_a_reading_is() {
         let tree = file_with(vec![func("dup", 10), func("dup", 20), func("other", 30)]);
         let facts = subjects(&tree, &HashMap::new(), Traced::default());
         let keys: Vec<&str> = facts

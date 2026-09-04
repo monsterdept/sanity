@@ -902,13 +902,28 @@ pub fn search_project(
 /// Empty for a project that has never been scanned. Every OTHER absence is reported inside
 /// the group as [`crate::findings::Group::blocked`], because a rule that cannot answer must not
 /// be drawn as a rule that found nothing.
+/// Everything the findings panel and the mascot need, from ONE walk of the tree.
+///
+/// **It was three commands and it is one because they are one answer.** `project_findings`,
+/// `project_rules` and `rule_grammar` each built the whole fact set for themselves — three
+/// walks, three sets of one record per function, all three under the projects lock so they
+/// serialised. On kibana that is 540,000 records to answer three questions about one repo,
+/// and it is what made opening it slow.
+///
+/// Nothing is cached to fix that, and nothing should be: a cache here needs a key that moves
+/// whenever the tree or the readings do, and the failure mode of getting that key wrong is a
+/// panel confidently describing a repo as it was. Asking once is the version with no key.
+///
+/// It also removes a way for the three to disagree. The counts in the grid, the tiles in the
+/// list and the number on the creature now come from one set of facts by construction rather
+/// than from three fetches that happen to be issued together.
 #[tauri::command]
-pub fn project_findings(
+pub fn project_report(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
-) -> Vec<crate::findings::Group> {
+) -> crate::findings::ProjectReport {
     let st = crate::agentapi::lock(&state);
-    let Some(p) = st.projects.get(&key) else { return Vec::new() };
+    let Some(p) = st.projects.get(&key) else { return Default::default() };
     let traced = crate::findings::Traced {
         // What the map itself knows: whether anybody has read the log yet. NOT
         // `stats::without_history`, which is true for an untraced repo as well as for one
@@ -923,17 +938,21 @@ pub fn project_findings(
     // and left alone. Saved is what makes the list drainable; see `findings::rules_for`.
     let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
     let rules = crate::findings::rules_for(&p.repo, &facts);
-    crate::findings::report(
-        &p.scan.root,
-        &p.reports,
-        traced,
-        &rules,
-        // Read from the repo on every ask rather than held in state. The archive is small, it
-        // is a file somebody may well have edited by hand or merged from a branch, and a
-        // cached copy is how the panel comes to disagree with `.sanity/` about what has been
-        // dismissed — which is the one thing this store must never do.
-        &crate::findings::archive(&p.repo),
-    )
+    crate::findings::ProjectReport {
+        groups: crate::findings::report(
+            &p.scan.root,
+            &p.reports,
+            traced,
+            &rules,
+            // Read from the repo on every ask rather than held in state. The archive is small,
+            // it is a file somebody may well have edited by hand or merged from a branch, and a
+            // cached copy is how the panel comes to disagree with `.sanity/` about what has
+            // been dismissed — which is the one thing this store must never do.
+            &crate::findings::archive(&p.repo),
+        ),
+        rules: crate::findings::rules_view(&p.repo, &facts, traced, !p.reports.is_empty()),
+        grammar: crate::findings::grammar(&facts),
+    }
 }
 
 /// The pin for one finding, as the code stands right now — see [`crate::findings::pin_of`].
@@ -961,6 +980,80 @@ fn finding_pin(
     let r = rules.iter().find(|r| r.id == rule).ok_or("no rule by that id")?;
     let f = facts.iter().find(|f| f.subject.key == key).ok_or("that finding is not on the map")?;
     Ok((p.repo.clone(), crate::findings::pin_of(r, f), r.title.to_string()))
+}
+
+/// Write one rule back, by id: a changed threshold, a floor, a silence, or a rule of
+/// somebody's own.
+///
+/// **The whole catalog is rewritten, because the file is a complete statement of what runs.**
+/// Editing one line in place would mean a second writer that has to agree with `save_rules`
+/// about the format, and the two would drift the first time a field was added.
+///
+/// A rule the file does not mention still runs, so silencing has to be said: `on: false`
+/// writes `off` rather than dropping the line.
+#[tauri::command]
+pub fn save_rule(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    rule: crate::findings::RuleEdit,
+) -> Result<(), String> {
+    let (repo, facts, traced) = project_facts(&state, &project)?;
+    let mut live = crate::findings::rules_for(&repo, &facts);
+    let _ = traced;
+    crate::findings::apply_edit(&mut live, rule)?;
+    crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// Take a rule out: a rule of somebody's own is deleted, a built-in is silenced.
+///
+/// **A built-in cannot be deleted**, because a later release would ship it again and the
+/// person who removed it would find it back with no record of their having said otherwise.
+#[tauri::command]
+pub fn delete_rule(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    id: String,
+) -> Result<(), String> {
+    let (repo, facts, _) = project_facts(&state, &project)?;
+    let mut live = crate::findings::rules_for(&repo, &facts);
+    live.retain(|r| r.id != id);
+    crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// Put a rule back the way the catalog ships it, and re-suggest its threshold.
+#[tauri::command]
+pub fn reset_rule(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    id: String,
+) -> Result<(), String> {
+    let (repo, facts, _) = project_facts(&state, &project)?;
+    let mut live = crate::findings::rules_for(&repo, &facts);
+    let shipped = crate::findings::catalog();
+    let Some(fresh) = shipped.iter().find(|r| r.id == id) else {
+        return Err("that rule is not one of sanity's own".into());
+    };
+    let tuned = crate::findings::calibrated(std::slice::from_ref(fresh), &facts);
+    match live.iter().position(|r| r.id == id) {
+        Some(at) => live[at] = tuned[0].clone(),
+        // Silenced, and being reset — which is how a rule comes back on.
+        None => live.push(tuned[0].clone()),
+    }
+    crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// The three things every rule write needs, read under one lock.
+fn project_facts(
+    state: &tauri::State<'_, crate::agentapi::Shared>,
+    project: &str,
+) -> Result<(std::path::PathBuf, Vec<crate::findings::Facts>, crate::findings::Traced), String> {
+    let st = crate::agentapi::lock(state);
+    let p = st.projects.get(project).ok_or("that project is not open")?;
+    let traced = crate::findings::Traced {
+        git: p.trace.depth != crate::trace::Depth::Untraced,
+        churned: p.scan.stats.churned,
+    };
+    Ok((p.repo.clone(), crate::findings::subjects(&p.scan.root, &p.reports, traced), traced))
 }
 
 /// Record what somebody decided about a finding.

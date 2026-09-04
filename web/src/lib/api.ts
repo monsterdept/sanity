@@ -1291,14 +1291,6 @@ export interface Say {
   filled: boolean
 }
 
-/** The finding catalog for a project — see `commands::project_findings`.
- *
- *  Asked of the backend rather than computed here, for the reason `searchProject` is: the
- *  window's tree is slimmed on a large repo and holds neither the function names nor the call
- *  counts every interesting rule is made of. */
-export function projectFindings(key: string): Promise<FindingGroup[]> {
-  return invoke<FindingGroup[]>('project_findings', { key })
-}
 
 /** What somebody decided about a finding. Mirrors `findings::Verdict`.
  *
@@ -1321,6 +1313,141 @@ export interface Decision {
   reason: string
   when: string
   by: string
+}
+
+/** One clause of a rule. Mirrors `findings::ClauseView`. */
+export interface Clause {
+  field: string
+  op: string
+  value: number
+  /** The lens this clause is painted by, or null where there is none. `read` has none: an
+   *  absence of readings is not a lens, and colouring the word as though it were invents one. */
+  lens: string | null
+  /** What normal looks like for this field across the rule's population — a fact about the
+   *  FIELD, so it travels with the clause rather than being described in prose beside it. */
+  median: number | null
+  /** The bar this repo would suggest, where that is not the bar it has. Only on the
+   *  calibrated clause. */
+  suggestion: number | null
+}
+
+/** One rule as the editor sees it. Mirrors `findings::RuleView`.
+ *
+ *  **Clauses come structured, not as the rendered `expr`.** `func: loc >= 257` is the right
+ *  thing to show and the wrong thing to populate controls from — parsing back a string the
+ *  backend just rendered would be a second parser, disagreeing with the first the day somebody
+ *  adds an operator. */
+export interface RuleView {
+  id: string
+  title: string
+  soWhat: string
+  says: string
+  pop: 'func' | 'file'
+  clauses: Clause[]
+  calibrated: number
+  tier: number
+  expr: string
+  lenses: string[]
+  /** False where this repo's file says `off`. Silenced rules are still listed — one somebody
+   *  has to go and find again is one they will not turn back on. */
+  on: boolean
+  /** Shipped by sanity. A rule of your own can be deleted; a built-in can only be silenced,
+   *  because a later release would bring it back regardless. */
+  builtIn: boolean
+  /** What it finds here now, and how much of that nothing else found. */
+  hits: number
+  only: number
+  /** Why it cannot answer here, in words, or null. */
+  blocked: string | null
+}
+
+/** What normal looks like for one field, over one population. */
+export interface Spread {
+  n: number
+  median: number
+  p95: number
+  max: number
+}
+
+/** One field a clause may name. Mirrors `findings::FieldView`.
+ *
+ *  **The picker is built from this, never from a list kept here.** Two lists of fields is one
+ *  list plus a stale copy, and the stale one is the one still offering a field that was
+ *  renamed — which is not hypothetical: `legible` became `illegible` this week. */
+export interface FieldView {
+  name: string
+  lens: string | null
+  /** The population this field can only be asked of, or null for both. */
+  pop: 'func' | 'file' | null
+  /** Tier 2 — silent until somebody has run a reading pass here. */
+  needsReading: boolean
+  /** This repo's distribution, per population. Null where nothing here has a value, which is
+   *  itself worth showing: a threshold typed against no data is a guess. */
+  func: Spread | null
+  file: Spread | null
+}
+
+/** Every field and operator a clause may name, measured against this repo. */
+export interface Grammar {
+  fields: FieldView[]
+  ops: string[]
+}
+
+/** One walk's worth of answers. Mirrors `findings::ProjectReport`.
+ *
+ *  **One call, because it is one answer.** The findings, the rules and the grammar were three
+ *  commands, and each built the whole fact set for itself — three walks of the tree under one
+ *  lock, which on kibana is 540,000 records to answer three questions about one repo. They
+ *  are also the same measurement seen three ways, so fetching them separately was three
+ *  chances for the grid, the list and the creature to describe different states of it. */
+export interface ProjectReport {
+  groups: FindingGroup[]
+  rules: RuleView[]
+  grammar: Grammar
+}
+
+export function projectReport(key: string): Promise<ProjectReport> {
+  return invoke<ProjectReport>('project_report', { key })
+}
+
+/** A rule on its way back. Mirrors `findings::RuleEdit`.
+ *
+ *  **Not a `RuleView` with fields omitted.** What comes out carries what the backend
+ *  MEASURED — the lens on each clause, the median, the suggested bar, the hit counts, why it
+ *  is blocked — and none of that is something a form has an opinion about. Writing this as
+ *  `Omit<RuleView, …>` said the two shapes are one shape with holes in it, and they are not:
+ *  they travel in opposite directions and only overlap. */
+export interface RuleEdit {
+  /** Empty for a rule being created — the backend mints the id from the title, once, and
+   *  never regenerates it: it is what a decision is filed under. */
+  id: string
+  title: string
+  soWhat: string
+  says: string
+  pop: 'func' | 'file'
+  clauses: Pick<Clause, 'field' | 'op' | 'value'>[]
+  calibrated: number
+  /** False silences it. A built-in is silenced rather than deleted, because a later release
+   *  would ship it again. */
+  on: boolean
+}
+
+/** Write one rule back — a changed threshold, a floor, a silence, or a rule of your own.
+ *
+ *  Rejects with the reason when what was sent is not a rule: the backend refuses rather than
+ *  silently correcting, so the message is meant to be shown. */
+export function saveRule(project: string, rule: RuleEdit): Promise<void> {
+  return invoke<void>('save_rule', { project, rule })
+}
+
+/** Delete a rule of your own; silence a built-in. */
+export function deleteRule(project: string, id: string): Promise<void> {
+  return invoke<void>('delete_rule', { project, id })
+}
+
+/** Put a built-in back the way it ships, and re-suggest its threshold. */
+export function resetRule(project: string, id: string): Promise<void> {
+  return invoke<void>('reset_rule', { project, id })
 }
 
 /** Record what somebody decided about a finding.

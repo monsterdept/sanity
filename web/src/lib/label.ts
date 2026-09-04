@@ -186,6 +186,28 @@ export function middleTruncate(name: string, keep: number): string {
   return name.slice(0, head) + '…' + (tail > 0 ? name.slice(name.length - tail) : '')
 }
 
+/** How wide one monospace glyph is, as a multiple of the type size.
+ *
+ *  **Measured against the same stack `.mono` declares**, once, and cached — a constant would
+ *  be right on whichever machine it was written on and wrong wherever the first family in
+ *  that list is missing. Monospace is what makes this one number useful at all: every glyph
+ *  is this wide, so "how many characters fit" is a division rather than a search.
+ *
+ *  Falls back to 0.6, which is what most terminal faces measure, when there is no canvas to
+ *  ask — a headless render is better off with a slightly wrong truncation than with none. */
+export function monoAdvance(): number {
+  if (mono !== null) return mono
+  if (ctx === null) {
+    const canvas = typeof document === 'undefined' ? null : document.createElement('canvas')
+    ctx = canvas ? canvas.getContext('2d') : null
+  }
+  if (!ctx) return 0.6
+  ctx.font = `${REF}px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace`
+  mono = ctx.measureText('0').width / REF
+  return mono
+}
+let mono: number | null = null
+
 export interface Cell {
   a0: number
   a1: number
