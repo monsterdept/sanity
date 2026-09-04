@@ -1,10 +1,11 @@
 # Findings: what the map is telling you to do
 
-**Most of this is built.** `findings.rs` is the evaluator, `just findings` is the bench, and
-the panel, the badge and the decision store are in the window; the per-rule settings rows are
-still a design. Everything from *What the evaluator found* onwards is a record like any other
-note here, and everything before it is the proposal those measurements were taken against —
-kept in that order because the arguments came first and several of them were wrong.
+**All three surfaces are built.** `findings.rs` is the evaluator, `just findings` and
+`sanity findings` are the bench and the user-facing verb, and the panel, the badge, the
+decision store and the rules editor are in the window. What is left is relevance — see *Where
+it lives*. Everything from *What the evaluator found* onwards is a record like any other note
+here, and everything before it is the proposal those measurements were taken against — kept in
+that order because the arguments came first and several of them were wrong.
 
 **They were called leads until the panel had been looked at.** Nothing durable moved with the
 rename: `.sanity/rules/catalog.md` and `.sanity/findings/decisions.md` key on rule ids,
@@ -594,9 +595,10 @@ with it.** Not before, and not by widening a band clause to cover a case it does
 
 ## The rules editor
 
-**Built as far as the grid; the form is not.** The store speaks the grammar, `Field` and `Op`
-are enumerable, the commands exist, and the rules are a third view in the panel — read-only.
-What is left is the form, which is the only step whose shape the data does not already decide.
+**Built.** The store speaks the grammar, `Field` and `Op` are enumerable, the commands exist,
+the rules are a third view in the panel, and a row opens into a form that writes back. What is
+left is one piece of *Three surfaces* — relevance, which is described under *Where it lives*
+and is a sentence about a repo rather than a control.
 
 The four blockers below were the point of writing this up before starting: the dropdowns are
 an afternoon and none of the afternoon is the hard part. They are kept as a record of what had
@@ -955,33 +957,57 @@ the list they change, and a person tuning a threshold wants to press back and lo
 already carries a two-view toggle and a header that names the count; this is a third entry in
 both.
 
+Built as: the tabs name the three views and carry their counts, a header under them names the
+one on screen and holds its single action — `Add Rule` on the rules view, the way into the
+ignored drawer on the other two — and a rule row opens into the form in place. In place rather
+than in a sheet, because the numbers a threshold is being judged against are the rows above
+and below it.
+
 Relevance surfaces here too, and it is the last piece of *Three surfaces* still unbuilt: a rule
 this repo cannot vary shows as off with the reason in words — *this repo has 2 contributors* —
 rather than as a rule that found nothing. "Last hand alone" fired on 40% of sanity's files and
 30% of VectorLand's, correctly and uselessly.
 
-### Build order
+### Build order, and what each step actually cost
+
+All seven are done. Kept because the order was the plan and the plan was right about where the
+care went — and because two of them cost something the plan did not predict.
 
 1. **`Rule` owns its strings, and `catalog()` becomes one source among two.** Nothing visible
-   changes; everything below needs it.
-2. **The store grows into the grammar** — parse and write the full line shape, with the
-   dropping discipline for a line that cannot be read. Round-trip test first: the shipped
-   catalog written out and parsed back is the shipped catalog.
+   changed; everything below needed it.
+2. **The store grows into the grammar** — the full line shape, with the dropping discipline for
+   a line that cannot be read, and a round-trip test: the shipped catalog written out and
+   parsed back is the shipped catalog.
 3. **`Field` and `Op` become enumerable and public**, with the population and reading-tier
-   metadata a form needs. One list, so a thirteenth field cannot be added without appearing.
-4. **A `project_rules` command** returning structured clauses, hits, only, blocked and the
-   calibration suggestion per rule; `save_rule` / `delete_rule` / `reset_rule` writing back
-   through `save_rules`, which already reads its own write back. Each of them bumps the
-   counter the window re-asks on, so an edit and its consequences land together.
-5. **A stable order inside `save_archive`** — sort each subject's decisions by rule id.
-   Independent of the rest and worth doing first if the editor slips: without it a decision
-   nobody touched can be rewritten by an unrelated one, and `git blame` is the whole
-   multi-user story.
-6. **The grid**, read-only first — every number in it is already computable, and it is worth
-   looking at before anything is editable.
+   metadata a form needs. One list, so a fifteenth field cannot be added without appearing in
+   the picker.
+4. **The commands.** `save_rule` / `delete_rule` / `reset_rule` write back through
+   `save_rules`, which reads its own write back, and each bumps the counter the window re-asks
+   on so an edit and its consequences land together.
+5. **A stable order inside `save_archive`** — each subject's decisions sorted by rule id.
+   Without it a decision nobody touched can be rewritten by an unrelated one, and `git blame`
+   is the whole multi-user story.
+6. **The grid**, read-only first.
 7. **The form.**
 
-Steps 1–3 are where the care goes. Step 6 is the one that will change the design.
+**Step 3 had a bill nobody costed: a second list of fields.** The picker cannot read `Field`
+directly, so `rule_grammar` sends it — and the moment there are two lists, the copy nobody
+compiles is the one still offering a field that has been renamed. That is not hypothetical:
+`legible` became `illegible` the same week, because its value is `Grade::surprise()` and high
+means *harder to read*, so the name said the opposite of the number. The guard is a test that
+every name the picker offers, `Field::parse` accepts.
+
+**Step 4 had a bigger one, and it was measured rather than guessed.** Three commands each
+built the whole fact set for themselves, under the projects lock, so they serialised: on
+kibana that is 540,000 records to answer three questions about one repo, and opening it went
+from fast to noticeably not. They are one answer anyway — the counts in the grid, the tiles in
+the list and the number on the creature are one measurement seen three ways — so they are one
+command, `project_report`, and one walk. See the bench in `findings.rs`, which is kept
+`#[ignore]`d with the numbers in its doc comment.
+
+Step 6 was the one predicted to change the design, and it did, twice: the grid's `only` column
+went (it answers a question somebody asks once about the CATALOG and was sitting on every row
+forever), and `floor` stopped being a field and became a clause.
 
 ### Open, and worth arguing before the build
 
@@ -997,3 +1023,23 @@ Steps 1–3 are where the care goes. Step 6 is the one that will change the desi
   unreadable line is skipped, which for a rule means it silently reverts to the catalog's
   version — safe, and invisible. A count of what was dropped, said once at the top of the
   grid, is probably the answer.
+
+### What the form refuses to enforce
+
+**Every rule about what a rule may be lives in `apply_edit`, and the form enforces none of
+them.** The clause cap, a threshold true of everything, a field that says nothing about this
+population, a `{{token}}` the rule cannot fill: the backend answers each with a sentence, and
+the form shows it verbatim and stays open.
+
+A second copy of those checks in the frontend is the obvious version and it is a second
+grammar. The day the two disagree, the form is refusing rules the backend accepts — which
+reads as the save being broken, and is the harder of the two failures to find. What the form
+does instead is offer only what is offerable: the population picker filters the fields to the
+ones that population can be asked about, and a new clause opens on its field's median rather
+than on `0`, which `apply_edit` refuses as true of everything.
+
+The one thing it checks itself is the parse. Clause values are strings while they are being
+typed — a number input bound to a `number` cannot hold an empty box, so a field typed through
+zero either snaps back or becomes `NaN` — and `NaN` sent as a threshold is a rule that matches
+nothing, silently, which is the failure this whole surface exists against. One parse, at the
+edge, where a bad number can still be refused out loud.
