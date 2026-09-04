@@ -3,6 +3,7 @@ import { isAnalyzed, readSource, type Node } from '../lib/api'
 import { colorFor, type ColorMode, type Views } from '../lib/colorMode'
 import { tokenizeAll, type Tok } from '../lib/tokens'
 import { CELL_H, CELL_W, cellOf, glyphSheet } from '../lib/glyphs'
+import { monoAdvance } from '../lib/label'
 
 /** One row's height, in pixels, and it is arithmetic rather than typography.
  *
@@ -12,6 +13,10 @@ import { CELL_H, CELL_W, cellOf, glyphSheet } from '../lib/glyphs'
  *  and nothing in either can wrap — code is `whitespace-pre` and a line number has no spaces.
  */
 const ROW = 18
+
+/** The size the code is set at. Named because three things agree with it: the rows, the
+ *  gutter's width and the minimap's. */
+const CODE_PX = 11.5
 
 /** Rows kept in the DOM above and below the viewport.
  *
@@ -54,6 +59,7 @@ function Minimap({
   toks,
   owners,
   scroller,
+  width,
   insetTop,
 }: {
   lines: string[]
@@ -62,6 +68,9 @@ function Minimap({
   toks: Tok[][]
   owners: Map<number, Node>
   scroller: React.RefObject<HTMLDivElement | null>
+  /** How wide the map is, in CSS pixels — see `mapWidth`, which is where the number comes
+   *  from and why it is not a constant. */
+  width: number
   /** Room left at the top for the window controls, which sit over this corner. Passed in
    *  rather than assumed, because the popped-out window has no controls to clear and
    *  would otherwise start its map with a strip of nothing. */
@@ -223,7 +232,7 @@ function Minimap({
       box.removeEventListener('scroll', draw)
       ro.disconnect()
     }
-  }, [lines, toks, owners, scroller, insetTop])
+  }, [lines, toks, owners, scroller, width, insetTop])
 
   /** **A click jumps and a drag tracks, and they are different gestures.**
    *
@@ -284,8 +293,8 @@ function Minimap({
   return (
     <canvas
       ref={ref}
-      style={{ top: insetTop, height: `calc(100% - ${insetTop}px)` }}
-      className="absolute right-0 w-[74px] cursor-pointer border-l border-[var(--border)] bg-[var(--background)] text-[var(--foreground)]"
+      style={{ top: insetTop, height: `calc(100% - ${insetTop}px)`, width }}
+      className="absolute right-0 cursor-pointer border-l border-[var(--border)] bg-[var(--background)] text-[var(--foreground)]"
       onPointerDown={down}
       onPointerMove={move}
       onPointerUp={up}
@@ -408,6 +417,39 @@ export function CodeView({
   // on the source because it is a pass over the whole file and the view re-renders on scroll.
   const toks = useMemo(() => tokenizeAll(lines), [lines])
 
+  /** How wide the minimap has to be to hold a line that fits the code pane.
+   *
+   *  **The map should say what the viewer says, at a character apiece.** It was a constant
+   *  74px, which is 74 columns at two device pixels a glyph however wide the pane is — so on
+   *  a wide window a line that fitted the code ran off the end of its own map, and the shape
+   *  the map exists to show was cut. VS Code sizes its minimap from `minimap.maxColumn` for
+   *  the same reason: the map is a picture of the text, and a picture that crops is a picture
+   *  of something else.
+   *
+   *  Bounded at both ends. Under about fifty columns the map stops being recognisable and
+   *  becomes a texture; past a fifth of the pane it stops being a margin and becomes a second
+   *  document. Between those it follows the code.
+   */
+  const [mapW, setMapW] = useState(74)
+  useEffect(() => {
+    const box = scroller.current
+    if (!box) return
+    const measure = () => {
+      const dpr = window.devicePixelRatio || 1
+      // The code's own advance, from the same measurement the rim's labels are laid out with
+      // — a constant here would be right on whichever machine it was written on.
+      const charW = CODE_PX * monoAdvance()
+      const gutter = String(Math.max(lines.length, 1)).length * charW + 18
+      const cols = Math.max(1, (box.clientWidth - gutter) / charW)
+      const want = Math.round((cols * CELL_W) / dpr)
+      setMapW(Math.max(56, Math.min(want, Math.round(box.parentElement!.clientWidth * 0.2))))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(box)
+    return () => ro.disconnect()
+  }, [lines.length])
+
   /** Keep the window over the viewport.
    *
    *  Listening on the element rather than through React's `onScroll`, and setting state only
@@ -479,10 +521,14 @@ export function CodeView({
        `w-max min-w-full`: long lines make it wider than the pane so it scrolls sideways,
        while short files still fill the width. */
     <div className="absolute inset-0">
-      <div ref={scroller} className="absolute inset-y-0 left-0 right-[74px] overflow-auto">
+      <div
+        ref={scroller}
+        className="absolute inset-y-0 left-0 overflow-auto"
+        style={{ right: mapW }}
+      >
         <div
-          className="flex w-max min-w-full font-mono text-[11.5px]"
-          style={{ lineHeight: `${ROW}px` }}
+          className="flex w-max min-w-full font-mono"
+          style={{ fontSize: CODE_PX, lineHeight: `${ROW}px` }}
         >
           {/* **The gutter, in whatever lens the map is wearing.** It was hard-wired to
               Surprise, so a reader who had switched the map to Complexity got a code view
@@ -578,6 +624,7 @@ export function CodeView({
         </div>
       </div>
       <Minimap
+        width={mapW}
         lines={lines}
         toks={toks}
         owners={owners}
