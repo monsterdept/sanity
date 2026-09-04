@@ -468,8 +468,15 @@ export default function App() {
   const [badgeColor, setBadgeColor] = useState(
     () => localStorage.getItem('badge-color') ?? DIAL_COLOR,
   )
-  const [badgeCorner, setBadgeCorner] = useState(() => num('badge-corner', 1, 0, 1))
-  const [badgeRotation, setBadgeRotation] = useState(() => num('badge-rotation', 0, 0, 359))
+  /** Degrees clockwise off the vertical, or null for centred — which is the default and is
+   *  stored as the word rather than as `0`, so "put it back" and "somebody dragged it to
+   *  zero" stay different things. */
+  const [badgeRotation, setBadgeRotation] = useState<number | null>(() =>
+    localStorage.getItem('badge-rotation') === null ||
+    localStorage.getItem('badge-rotation') === 'centred'
+      ? null
+      : num('badge-rotation', 0, 0, 359),
+  )
   /** How much of each ring a directory's own band takes — see `Sunburst`'s `rimShare`, which
    *  carries the argument. Session state, not stored.
    *
@@ -2900,10 +2907,9 @@ export default function App() {
       onFindings: openFindings,
       rules: liveRules,
       color: badgeColor,
-      corner: badgeCorner,
-      rotation: badgeRotation,
+      rotation: badgeRotation ?? 0,
     }),
-    [mascot, findingTotal, openFindings, liveRules, badgeColor, badgeCorner, badgeRotation],
+    [mascot, findingTotal, openFindings, liveRules, badgeColor, badgeRotation],
   )
 
   return (
@@ -3120,19 +3126,14 @@ export default function App() {
                 {!historyOn && findingTotal > 0 && (
                   <BadgeDial
                     color={badgeColor}
-                    corner={badgeCorner}
                     rotation={badgeRotation}
                     onColor={(c) => {
                       setBadgeColor(c)
                       localStorage.setItem('badge-color', c)
                     }}
-                    onCorner={(c) => {
-                      setBadgeCorner(c)
-                      localStorage.setItem('badge-corner', String(c))
-                    }}
                     onRotation={(c) => {
                       setBadgeRotation(c)
-                      localStorage.setItem('badge-rotation', String(c))
+                      localStorage.setItem('badge-rotation', c === null ? 'centred' : String(c))
                     }}
                   />
                 )}

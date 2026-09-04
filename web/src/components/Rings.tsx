@@ -743,26 +743,23 @@ export function TangleReading({
  *
  * **Continuous, not a list of named choices.** Four colours, three corner steps and four
  * rotations were offered first, and every one of those lists is somebody's guess at which
- * answers are worth having. A picker and two sliders make no such guess, and the cost of
- * being able to choose badly here is a badge somebody can see is wrong.
+ * answers are worth having. A picker and a slider make no such guess, and the cost of being
+ * able to choose badly here is a badge somebody can see is wrong.
+ *
+ * The corner radius is not here any more: it was chosen, and `DIAL_CORNER` is where it went.
  */
 export function BadgeDial({
   color,
-  corner,
   rotation,
   onColor,
-  onCorner,
   onRotation,
 }: {
   /** Six-digit hex. The ink on it is decided by `inkOnHex`, never chosen. */
   color: string
-  /** 0 is a plain sector, 1 is a stadium — a fraction of half the bar's thickness. */
-  corner: number
-  /** Degrees clockwise off the vertical axis. */
-  rotation: number
+  /** Degrees clockwise off the vertical axis, or null for centred — see the checkbox. */
+  rotation: number | null
   onColor: (v: string) => void
-  onCorner: (v: number) => void
-  onRotation: (v: number) => void
+  onRotation: (v: number | null) => void
 }) {
   const [open, setOpen] = useState(false)
   const row = 'flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--muted-foreground)]'
@@ -805,31 +802,33 @@ export function BadgeDial({
                 className="h-[18px] w-full cursor-pointer rounded border border-[var(--border)] bg-transparent"
               />
             </label>
-            <label className={row}>
-              <span className="w-[52px] shrink-0">corners</span>
+            {/* **Centred is a state, not a slider position.** Zero degrees IS the vertical
+                axis, so a slider alone can express it — but only by being dragged back to a
+                number, and a value you have to hit exactly is one you will end up a degree
+                off. The checkbox says which of the two things is wanted; the slider says how
+                far, and is dead while nothing is asking it. */}
+            <label className={`${row} cursor-pointer`}>
+              <span className="w-[52px] shrink-0">centred</span>
               <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={corner}
-                onChange={(e) => onCorner(Number(e.target.value))}
-                className="w-full accent-[var(--accent)]"
+                type="checkbox"
+                checked={rotation === null}
+                onChange={(e) => onRotation(e.target.checked ? null : 0)}
+                className="accent-[var(--accent)]"
               />
-              <span className="mono w-[30px] shrink-0 text-right">{Math.round(corner * 100)}</span>
             </label>
-            <label className={row}>
+            <label className={row} style={{ opacity: rotation === null ? 0.4 : 1 }}>
               <span className="w-[52px] shrink-0">rotation</span>
               <input
                 type="range"
                 min={0}
                 max={359}
                 step={1}
-                value={rotation}
+                value={rotation ?? 0}
+                disabled={rotation === null}
                 onChange={(e) => onRotation(Number(e.target.value))}
                 className="w-full accent-[var(--accent)]"
               />
-              <span className="mono w-[30px] shrink-0 text-right">{rotation}°</span>
+              <span className="mono w-[30px] shrink-0 text-right">{rotation ?? 0}°</span>
             </label>
           </div>
         </>

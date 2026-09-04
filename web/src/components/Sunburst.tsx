@@ -478,6 +478,16 @@ const DIR_RIM_INSET_PX = 3
  *  not come back out of the picker it is set in. */
 export const DIAL_COLOR = '#d0554a'
 
+/** How square the dial's bars are: a fraction of half their thickness, where 1 is a stadium
+ *  and 0 a plain sector.
+ *
+ *  **A slider while it was being chosen, a constant now.** Fully round read as two lozenges
+ *  stuck on the dial and fully square as two cuts out of it; a third of the way is where the
+ *  bar stops being either and starts being a marking. The control is gone the way the badge's
+ *  shape and the spacing menu went — a bar that keeps offering a settled question costs every
+ *  reader a decision they have no basis to make. */
+const DIAL_CORNER = 0.35
+
 const ON_CURVE = 0.34
 
 /** A sector of an annulus with rounded corners.
@@ -560,7 +570,6 @@ function FindingBadge({
   count,
   rules,
   color,
-  corner,
   rotation,
 }: {
   /** Which side of the creature this sits on. */
@@ -578,8 +587,6 @@ function FindingBadge({
    *  the colour, and offering it as a second setting would be offering somebody the chance to
    *  make the number unreadable. */
   color: string
-  /** How square the bars' corners are: 0 is a plain sector, 1 a stadium. */
-  corner: number
   /** Degrees clockwise off the vertical axis — see `BADGE_ROTATIONS`. */
   rotation: number
 }) {
@@ -706,7 +713,7 @@ function FindingBadge({
      *  off whatever the hub is sitting on in both themes, and the two thirds of a token that
      *  would be spent saying "a bit lighter than the ground" is what the mix already says. */
     const plate = 'color-mix(in oklch, var(--foreground) 20%, transparent)'
-    const k = (corner * thick) / 2
+    const k = (DIAL_CORNER * thick) / 2
     const bar = (mid: number, half: number, fill: string) => (
       <path d={sectorPath(cx, cy, mid - half, mid + half, r - thick / 2, r + thick / 2, k)} fill={fill} />
     )
@@ -850,7 +857,6 @@ function SunburstView({
      *  It is decided, so the winner is the only shape in the code and these two are what is
      *  left to set once. */
     color?: string
-    corner?: number
     /** Degrees clockwise the pair is turned from the vertical axis. */
     rotation?: number
     /** How many rules are running here — the second number on the `label` badge. */
@@ -3307,7 +3313,6 @@ function SunburstView({
                   box={HUB_MASCOT * hubK}
                   rules={mascot.rules ?? 0}
                   color={mascot.color ?? DIAL_COLOR}
-                  corner={mascot.corner ?? 1}
                   rotation={mascot.rotation ?? 0}
                   count={mascot.findings}
                 />
