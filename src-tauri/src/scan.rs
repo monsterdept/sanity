@@ -304,6 +304,18 @@ pub struct ScanStats {
     /// states.
     #[serde(default)]
     pub headcount: u32,
+    /// How old this repo is, in days — see `edits::span_days`, which reads its oldest root
+    /// commit.
+    ///
+    /// **The denominator every age rule is missing.** "No commit has changed it in five
+    /// years" is a finding in a decade-old repo and an impossibility in an eighteen-month-old
+    /// one, where it does not fire and the silence reads as a clean bill. A rule that means
+    /// "old for THIS project" has to be able to ask how long the project has been going.
+    ///
+    /// From the log rather than from blame, so it answers wherever `age` does. Zero for a
+    /// repo with no history, which is the same absence `without_history` states.
+    #[serde(default)]
+    pub age_days: u32,
     pub model: String,
     /// Call sites that reached a definition in this repo, and ones that did not.
     ///
@@ -1281,13 +1293,18 @@ fn score_dir(
                     name,
                     kind: NodeKind::File,
                     excluded: file.excluded,
-                    // **A file has a last author and deliberately not the other two.** Both
-                    // are counts over LINES, and a file's lines are its functions' lines
-                    // pooled — so a file-level headcount would say every function in `App.tsx`
-                    // was written by the same four people. `apply` fills `last_author` from
-                    // the commit log, which is a claim the log can actually make.
+                    // **A file has a headcount of its own; it does not have a main author.**
+                    // Its headcount is everyone with a line still standing anywhere in it,
+                    // which is a real measurement and a different one from its functions'
+                    // — that difference is what `file_headcount` is for. A "main author"
+                    // over a whole file is the claim this refuses: the biggest pile of lines
+                    // in a 2,000-line file says nothing about the body you are looking at.
+                    //
+                    // From blame, alongside `last_author`, in both the paths that build a
+                    // file node: here and in `apply`, which lands a trace on a tree folded
+                    // without one.
                     main_author: None,
-                    headcount: None,
+                    headcount: file_trace.headcount(),
                     // The module's banner, and the second half of the comment stack a
                     // reader is handed — `collect_tasks` reads it straight off this field
                     // and appends it under the function's own doc. See `parse::file_doc`.
@@ -1924,6 +1941,7 @@ pub fn scan(
             // Capped where the palette stops meaning anything — see `ScanStats::authors`.
             authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
             headcount: blame.headcount(),
+            age_days: crate::edits::span_days(root),
             // Out of the walk that just ran rather than a `git rev-list` of its own — see
             // `trace::apply`, which fills this the same way when the trace arrives later.
             // Zero means "print no count" rather than "a repo with none".

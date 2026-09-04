@@ -126,6 +126,17 @@ pub struct RangeHistory {
 }
 
 impl FileBlame {
+    /// How many people have lines standing in this file.
+    ///
+    /// **A file's own count, not its functions' pooled**, and the two differ in a way that is
+    /// the whole point: a body one person has touched, inside a file six people work in, is a
+    /// pocket somebody owns alone in shared territory — which neither number says by itself.
+    /// It counts the space between functions too, which is where a file's imports and its
+    /// module-level wiring live.
+    pub fn headcount(&self) -> u32 {
+        self.authors.iter().filter(|a| !a.is_empty()).count() as u32
+    }
+
     /// Collapse the lines of one function into the six facts the map needs.
     ///
     /// **Three of them are reductions of one list and it is worth naming which.** Every line
@@ -210,6 +221,18 @@ impl Blame {
             self.now = other.now;
         }
         self.files.extend(other.files);
+    }
+
+    /// How many people have lines standing in ONE file.
+    ///
+    /// **A file's own count, not its functions' pooled.** The two differ and the difference is
+    /// the finding: a body one person has touched, inside a file six people work in, is a
+    /// pocket somebody owns alone in shared territory — which neither count says by itself.
+    ///
+    /// The cast is interned per file, so this is its length: everyone with a line still
+    /// standing anywhere in the file, including in the space between functions.
+    pub fn file_headcount(&self, path: &str) -> Option<u32> {
+        self.files.get(path).map(FileBlame::headcount)
     }
 
     /// How many people have lines standing anywhere in this repo.

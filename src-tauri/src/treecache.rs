@@ -122,7 +122,13 @@ use std::path::{Path, PathBuf};
 ///    therefore indistinguishable from it. That is the whole reason this is a bump rather than
 ///    a silent addition: a rule reading `headcount <= 1` would find nothing on a cached tree
 ///    and report it as a clean bill, which is the failure this surface is written against.
-const VERSION: u32 = 16;
+/// 17: `ScanStats` gained `headcount` and `age_days` — how many people have lines standing in
+///    this repo and how long it has existed. **Both are `#[serde(default)]`, which is exactly
+///    why this is a bump**: a version-16 record loads with them at zero, and zero is a repo
+///    with no contributors and no history, which is a confident answer nobody computed. The
+///    rules that gate on them would then be false everywhere and find nothing, silently, on
+///    every repo whose tree happened to be cached before this landed.
+const VERSION: u32 = 17;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
@@ -621,6 +627,7 @@ mod tests {
             stats: crate::scan::ScanStats {
                 commits: 0,
                 headcount: 0,
+                age_days: 0,
                 churn_windows: [30, 60, 90, 180],
                 churned: false,
                 tangle_bands: Default::default(),

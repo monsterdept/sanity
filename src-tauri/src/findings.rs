@@ -134,6 +134,13 @@ pub enum Field {
     /// say this, and two names for one number is where a grammar starts lying.
     FileLoc,
     FileFuncs,
+    /// How many people have lines standing in the file this function lives in.
+    ///
+    /// **The pairing is the finding.** `headcount <= 1 and file_headcount >= 6` is a body one
+    /// person has touched inside a file six people work in — a pocket somebody owns alone in
+    /// shared territory, which neither number says on its own and which the repo-wide count
+    /// cannot see either.
+    FileHeadcount,
     /// How many people have lines standing anywhere in THIS REPO — see `ScanStats::headcount`.
     ///
     /// **The first field that is not about the subject, and the grammar had to learn the
@@ -151,6 +158,14 @@ pub enum Field {
     /// two contributors* is not that: no pass changes it. Keeping the two lists apart is what
     /// stops the actionable one from stopping being actionable.
     RepoHeadcount,
+    /// How many days this repo has existed — see `ScanStats::age_days`.
+    ///
+    /// **The denominator every age rule is missing.** `age >= 1825` means "no commit has
+    /// changed this in five years", which is a finding in a decade-old repo and an
+    /// impossibility in an eighteen-month-old one — where it does not fire, and the silence
+    /// reads as a clean bill. `repo_age >= 1095 and age >= 1825` is the rule saying which
+    /// repos it is for.
+    RepoAge,
     /// 1 where the reader marked something that will bite whoever edits this next.
     ///
     /// A MARK rather than a grade — a body either carries one or it does not — which is why
@@ -180,7 +195,9 @@ impl Field {
             "headcount" | "hands" => Field::Headcount,
             "file_loc" | "file_lines" => Field::FileLoc,
             "file_funcs" => Field::FileFuncs,
+            "file_headcount" => Field::FileHeadcount,
             "repo_headcount" => Field::RepoHeadcount,
+            "repo_age" => Field::RepoAge,
             "trap" | "traps" => Field::Trap,
             _ => return None,
         })
@@ -205,7 +222,9 @@ impl Field {
             Field::Headcount => "headcount",
             Field::FileLoc => "file_loc",
             Field::FileFuncs => "file_funcs",
+            Field::FileHeadcount => "file_headcount",
             Field::RepoHeadcount => "repo_headcount",
+            Field::RepoAge => "repo_age",
             Field::Trap => "trap",
         }
     }
@@ -236,7 +255,10 @@ impl Field {
             // `file_loc` and `file_funcs` ARE the size lens, one scope out: the wedge a
             // function sits in is the file, and that is the thing being asked about.
             Field::FileLoc | Field::FileFuncs => "size",
-            Field::Headcount | Field::RepoHeadcount | Field::Read => return None,
+            Field::RepoAge => "age",
+            Field::Headcount | Field::FileHeadcount | Field::RepoHeadcount | Field::Read => {
+                return None
+            }
         })
     }
 
@@ -250,9 +272,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 19;
+    pub const COUNT: usize = 21;
 
-    pub const ALL: [Field; 18] = [
+    pub const ALL: [Field; 20] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -266,7 +288,9 @@ impl Field {
         Field::Headcount,
         Field::FileLoc,
         Field::FileFuncs,
+        Field::FileHeadcount,
         Field::RepoHeadcount,
+        Field::RepoAge,
         Field::Read,
         Field::Surprise,
         Field::Documented,
@@ -285,6 +309,7 @@ impl Field {
             // ranges; this is a question about a range.
             Field::FileLoc
             | Field::FileFuncs
+            | Field::FileHeadcount
             | Field::Headcount
             | Field::Read
             | Field::Surprise
@@ -304,8 +329,8 @@ impl Field {
     /// every subject — and everything that assumes a clause NARROWS has to be able to tell.
     pub fn scope(self) -> Scope {
         match self {
-            Field::RepoHeadcount => Scope::Repo,
-            Field::FileLoc | Field::FileFuncs => Scope::File,
+            Field::RepoHeadcount | Field::RepoAge => Scope::Repo,
+            Field::FileLoc | Field::FileFuncs | Field::FileHeadcount => Scope::File,
             _ => Scope::Subject,
         }
     }
@@ -671,6 +696,9 @@ pub struct Traced {
     /// been done and `blocked` turns them into work; this says what the repo IS and no pass
     /// changes it.
     pub headcount: u32,
+    /// How many days this repo has existed — see `Field::RepoAge`. A fact like `headcount`
+    /// beside it, not a lifecycle flag.
+    pub age_days: u32,
     /// Whether blame was read per LINE, which is `Depth::Lines` and not `Depth::Files`.
     ///
     /// **Its own flag because it gates a different question.** The log gives every file an
@@ -810,7 +838,7 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
             // rather than read off `Node::funcs`, which is zero on a full tree — the same
             // trap `Field::Funcs` records, one caller over.
             let held = node.children.iter().filter(|c| c.kind == NodeKind::Func).count() as u32;
-            let within = Some((node.loc, held.max(node.funcs)));
+            let within = Some((node.loc, held.max(node.funcs), node.headcount));
             let mut seen: HashMap<&str, usize> = HashMap::new();
             for c in &node.children {
                 if c.kind != NodeKind::Func {
@@ -845,7 +873,7 @@ fn facts_of(
     // The file this body lives in — its lines and how many functions it holds. `None` for a
     // file, which IS that file: `loc` and `funcs` already say it, and a second name for one
     // number is where a grammar starts lying.
-    within: Option<(u32, u32)>,
+    within: Option<(u32, u32, Option<u32>)>,
 ) -> Facts {
     let mut v: [Option<f32>; Field::COUNT] = [None; Field::COUNT];
     let mut set = |f: Field, x: Option<f32>| {
@@ -863,9 +891,10 @@ fn facts_of(
         let held = node.children.iter().filter(|c| c.kind == NodeKind::Func).count() as u32;
         set(Field::Funcs, Some(held.max(node.funcs) as f32));
     }
-    if let Some((loc, funcs)) = within {
+    if let Some((loc, funcs, hands)) = within {
         set(Field::FileLoc, Some(loc as f32));
         set(Field::FileFuncs, Some(funcs as f32));
+        set(Field::FileHeadcount, hands.map(|h| h as f32));
     }
     set(Field::Callers, node.callers.map(|x| x as f32));
     // **`None` and never zero where blame has not read this range.** A zero would be a claim
@@ -876,6 +905,7 @@ fn facts_of(
     // The same value on every subject, which is what a gate is. `None` rather than zero where
     // blame has not run, so the clause cannot be quietly true of a repo nobody has measured.
     set(Field::RepoHeadcount, (traced.headcount > 0).then_some(traced.headcount as f32));
+    set(Field::RepoAge, (traced.age_days > 0).then_some(traced.age_days as f32));
     set(Field::Calls, node.calls.map(|x| x as f32));
     set(Field::CloneSize, node.clone_size.map(|x| x as f32));
     if let Some(s) = node.score.as_ref() {
@@ -1318,7 +1348,10 @@ pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Opti
         if c.field.needs_reading() && !read {
             return Some("nobody has read this repo yet".into());
         }
-        let git = matches!(c.field, Field::AgeDays | Field::TouchedDays | Field::Commits);
+        let git = matches!(
+            c.field,
+            Field::AgeDays | Field::TouchedDays | Field::Commits | Field::RepoAge
+        );
         if git && !traced.git {
             return Some("no git history has been read".into());
         }
@@ -1328,7 +1361,9 @@ pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Opti
         // Named rather than left to the catch-all below, which would say "nothing here has a
         // headcount to compare" — true, and no help. This one has a fix and the sentence is
         // where somebody finds out what it is.
-        if matches!(c.field, Field::Headcount | Field::RepoHeadcount) && !traced.blamed {
+        if matches!(c.field, Field::Headcount | Field::FileHeadcount | Field::RepoHeadcount)
+            && !traced.blamed
+        {
             return Some("git history has not been read per line".into());
         }
         // Whatever is left: the field exists for this population and nothing has one. On
@@ -1925,7 +1960,15 @@ pub fn catalog() -> Vec<Rule> {
             "Easy to break when edited, and years since anyone did.",
             "A reader flagged this as easy to break when edited, and no commit has changed it in {{age_years}} years.",
             Pop::Func,
-            vec![ge(Field::Trap, 1.0), ge(Field::AgeDays, 1095.0), ge(Field::Loc, 10.0)],
+            // Gated the same way `fossil` is, and for the same reason one rung down: a trap
+            // nobody has touched in three years is a different statement in a repo that is
+            // two years old, where it cannot be made at all.
+            vec![
+                ge(Field::RepoAge, 730.0),
+                ge(Field::Trap, 1.0),
+                ge(Field::AgeDays, 1095.0),
+                ge(Field::Loc, 10.0),
+            ],
             1,
         ),
         // **Clones against churn rather than against size.** A clone group is only a problem
@@ -1955,7 +1998,15 @@ pub fn catalog() -> Vec<Rule> {
             "No commit has changed it in years.",
             "{{loc}} lines that no commit has changed in {{age_years}} years.",
             Pop::Func,
-            vec![ge(Field::AgeDays, 1825.0), ge(Field::Loc, 100.0)],
+            // **Gated on the repo's own age, because "years" is relative to it.** Five years
+            // untouched is a finding in a decade-old codebase and an impossibility in an
+            // eighteen-month-old one — where the rule simply finds nothing, and nothing reads
+            // as a clean bill. Three years is the judgement: below it, a repo has not been
+            // going long enough for "nobody has touched this in ages" to mean ages.
+            //
+            // Calibration still moves `age`, so a repo old enough to be asked gets its own
+            // bar. What the gate decides is whether asking is meaningful at all.
+            vec![ge(Field::RepoAge, 1095.0), ge(Field::AgeDays, 1825.0), ge(Field::Loc, 100.0)],
             1,
         ),
         rule(
@@ -2698,7 +2749,7 @@ mod tests {
         let many = subjects(
             &tree,
             &HashMap::new(),
-            Traced { git: true, churned: true, blamed: true, headcount: 9 },
+            Traced { git: true, churned: true, blamed: true, headcount: 9, age_days: 900 },
         );
         assert_eq!(hits(&rule, &many).len(), 2);
 
@@ -2707,7 +2758,7 @@ mod tests {
         let solo = subjects(
             &tree,
             &HashMap::new(),
-            Traced { git: true, churned: true, blamed: true, headcount: 1 },
+            Traced { git: true, churned: true, blamed: true, headcount: 1, age_days: 900 },
         );
         assert_eq!(hits(&rule, &solo).len(), 0);
 
@@ -2717,7 +2768,7 @@ mod tests {
         let cold = subjects(
             &tree,
             &HashMap::new(),
-            Traced { git: true, churned: true, blamed: false, headcount: 0 },
+            Traced { git: true, churned: true, blamed: false, headcount: 0, age_days: 0 },
         );
         assert_eq!(hits(&rule, &cold).len(), 0);
         assert!(blocked(&rule, &cold, Traced::default(), false).is_some());
@@ -2797,7 +2848,7 @@ mod tests {
         let mut root = Node::dir("", "repo");
         root.children = files;
         let reports = HashMap::new();
-        let traced = Traced { git: true, churned: true, blamed: true, headcount: 0 };
+        let traced = Traced { git: true, churned: true, blamed: true, headcount: 0, age_days: 0 };
 
         let t = Instant::now();
         let facts = subjects(&root, &reports, traced);
@@ -2904,7 +2955,7 @@ mod tests {
         let untraced = subjects(
             &tree,
             &reports,
-            Traced { git: false, churned: false, blamed: false, headcount: 0 },
+            Traced { git: false, churned: false, blamed: false, headcount: 0, age_days: 0 },
         );
         let old = Rule::parse("func: age >= 1").expect("parses");
         assert_eq!(hits(&old, &untraced).len(), 0);

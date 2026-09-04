@@ -144,6 +144,7 @@ fn main() {
         churned: scan.stats.churned,
         blamed: depth >= sanity_lib::trace::Depth::Lines,
         headcount: scan.stats.headcount,
+        age_days: scan.stats.age_days,
     };
     let facts = findings::subjects(&scan.root, &reports, traced);
 

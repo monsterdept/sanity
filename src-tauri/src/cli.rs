@@ -1821,6 +1821,7 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         churned: scan.stats.churned,
         blamed: want >= crate::trace::Depth::Lines,
         headcount: scan.stats.headcount,
+        age_days: scan.stats.age_days,
     };
     let facts = crate::findings::subjects(&scan.root, &reports, traced);
     let rules = crate::findings::rules_for(&path, &facts);

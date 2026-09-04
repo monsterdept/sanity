@@ -681,6 +681,13 @@ impl<'a> FileTrace<'a> {
         self.last_author.clone()
     }
 
+    /// How many people have lines standing in this file — see [`FileBlame::headcount`].
+    /// `None` without per-line blame, which is the same absence every blame-derived number
+    /// states, and never zero: zero is a file nobody wrote.
+    pub(crate) fn headcount(&self) -> Option<u32> {
+        self.blame.map(FileBlame::headcount)
+    }
+
     /// This function's own history where blame could read it, the file's otherwise — an
     /// untracked file, a repo without git, a range the blame no longer covers, or a repo
     /// traced only to depth 1 should cost RESOLUTION, not the axis.
@@ -783,6 +790,9 @@ fn apply_to(
     if node.kind == NodeKind::File {
         let file = FileTrace::of(&node.path, Histories { history, blame, edits });
         node.last_author = file.last_author();
+        // A file's own headcount, which is not its functions' pooled — see
+        // `Blame::file_headcount`, where the difference is the point.
+        node.headcount = file.headcount();
         // **The same ordinal the scan assigns, from the same rule.** A reading is keyed on
         // `(path, name, ord)` and ord is a function's position among its file's same-named
         // twins — so it has to be counted over the file's functions in file order, exactly as
