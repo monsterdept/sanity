@@ -30,6 +30,22 @@ function trim(v: number): string {
   return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)
 }
 
+/** One count as a share of another, at the precision the number deserves.
+ *
+ *  **Never `0%`.** A rule with two hits out of four thousand is at 0.05%, and rounding that to
+ *  a whole number prints a share of nothing over a count of two — two numbers on one row
+ *  contradicting each other. Under a tenth it says `<0.1%` instead, which is the honest
+ *  version of a number too small to write.
+ *
+ *  No decimals above ten, where they are noise: `40%` is the fact and `39.7%` is a claim
+ *  about a precision this does not have, since which functions count as subjects is itself a
+ *  judgement (see `not_ours`). */
+function share(n: number, of: number): string {
+  const pct = (n / of) * 100
+  if (n > 0 && pct < 0.1) return '<0.1%'
+  return `${pct >= 10 ? Math.round(pct) : Math.round(pct * 10) / 10}%`
+}
+
 /** What a lens is called, in the words the lens switcher uses.
  *
  *  `MODE_LABEL` rather than a table here, for the same reason `lensColor` defers to
@@ -1000,21 +1016,43 @@ export function Findings({
                         off
                       </span>
                     )}
-                    {/* The count, and nothing beside it. A second figure — how many of these
-                        no other rule also finds — was here and is gone: it answers whether a
-                        rule earns its place in the CATALOG, which is a question somebody asks
-                        once, and it was sitting on every row forever. Still computed, and
-                        `just findings` prints it. */}
-                    <span className="ml-auto shrink-0 text-[11px] text-[var(--muted-foreground)]">
-                      {/* Named only on hover: it is true of every row, and twelve copies of
-                          the word is a column of noise beside the numbers that differ. */}
-                      <span className="pr-2 opacity-0 transition-opacity group-hover:opacity-100">
-                        edit
+                    {/* **The count, and what share of the repo it is.**
+                        
+                        A count alone is half a fact: 1,600 findings is a rule working on
+                        kibana and a rule that has stopped discriminating on a repo with four
+                        thousand functions, and the number is the same both times. The share is
+                        the half that tells them apart — a rule firing on 40% of your files is
+                        not narrowing anything, whatever its threshold, and no threshold fixes
+                        it either. What fixes it is turning the rule off, which is one click
+                        away on this row.
+
+                        On EVERY row, not only the loud ones. "Show it when it is above N" is
+                        an invented threshold doing the reader's judging for them, which is the
+                        thing this grid exists to hand over; every row carrying it singles out
+                        nothing and lets 40% be compared against 0.7% by eye.
+
+                        A second figure was here once and is gone — how many of these no other
+                        rule also finds. It answers whether a rule earns its place in the
+                        CATALOG, which is asked once ever and was sitting on every row forever.
+                        This one is about THIS repo and changes with every project opened,
+                        which is the difference. Still computed; `just findings` prints it. */}
+                    <span className="ml-auto shrink-0 text-right text-[11px] text-[var(--muted-foreground)]">
+                      <span className="block">
+                        {/* Named only on hover: it is true of every row, and sixteen copies of
+                            the word is a column of noise beside the numbers that differ. */}
+                        <span className="pr-2 opacity-0 transition-opacity group-hover:opacity-100">
+                          edit
+                        </span>
+                        <span className="mono text-[var(--foreground)]">
+                          {r.hits.toLocaleString()}
+                        </span>{' '}
+                        finding{r.hits === 1 ? '' : 's'}
                       </span>
-                      <span className="mono text-[var(--foreground)]">
-                        {r.hits.toLocaleString()}
-                      </span>{' '}
-                      finding{r.hits === 1 ? '' : 's'}
+                      {r.population > 0 && (
+                        <em className="block text-[10px] not-italic opacity-70">
+                          {share(r.hits, r.population)} of {r.pop === 'file' ? 'files' : 'functions'}
+                        </em>
+                      )}
                     </span>
                   </div>
 

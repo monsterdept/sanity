@@ -1210,6 +1210,13 @@ pub struct RuleView {
     pub built_in: bool,
     /// What it finds here, now — and how much of that nothing else found.
     pub hits: usize,
+    /// How many subjects this rule's population HAS here.
+    ///
+    /// **The denominator, because a count with no share is half a fact.** Sixteen hundred
+    /// findings is a rule working on kibana and a rule that has stopped discriminating on a
+    /// repo with four thousand functions — the number is the same and the two are opposite.
+    /// Sent rather than derived in the window, which cannot see the population at all.
+    pub population: usize,
     pub only: usize,
     /// Why it cannot answer here, in words, or `None`.
     pub blocked: Option<String>,
@@ -1290,6 +1297,13 @@ fn view_of(
 ) -> RuleView {
     RuleView {
         id: r.id.clone(),
+        population: facts
+            .iter()
+            .filter(|f| {
+                f.subject.kind
+                    == if r.pop == Pop::File { NodeKind::File } else { NodeKind::Func }
+            })
+            .count(),
         title: r.title.clone(),
         so_what: r.so_what.clone(),
         says: r.says.clone(),

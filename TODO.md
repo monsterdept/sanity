@@ -59,6 +59,63 @@ hold:
   module. The honest pair is "last touched by" and "most lines here": a timestamp and a
   headcount, neither of them authorship.
 
+**Three reductions, not two, and the `max` is not the one it sounds like.** The input is one
+list: every line in the range, with the name of whoever last touched that line. What differs
+is only what is taken from the pile.
+
+| taken | reading | the question |
+|---|---|---|
+| the newest line's name | last touched | who edited this most recently |
+| the biggest pile of names | most lines | whose code is standing in it |
+| the count of distinct names | headcount | how many people's lines are standing here |
+
+So today's blame is `argmax by RECENCY`, not by count, and the two can disagree completely: a
+typo fix in a four-hundred-line body makes somebody its last toucher while they hold one line
+of it. That is the distinction the hold was taken without, and having it is most of the answer.
+
+**They are three readings of one lens, not a second metric — which is what the hold was
+actually objecting to.** "A tool with both blame and this new metric" is a fair objection to a
+second metric and not one to a second reading, and this app has already made that argument and
+won it twice: Age paints one of two dates and a switch says which, Tangle measures against the
+repo or against a published bar. So it is a pulldown beside the lens, left of the spacer with
+the other three, on the same rule — what it changes is what the COLOUR MEANS.
+
+**Blame keeps its name, and the readings need no nouns.** Not Author: blame cannot see who
+wrote anything, so that is Ownership again one step along. "Blame" is git's word and it names
+the mechanism rather than making a claim, which is the honest thing for it to do. Underneath
+it the readings are phrases and nothing is coined —
+
+```
+Blame ▾    last touched · most lines · headcount
+```
+
+**And the RULES want none of this vocabulary, because they must not name a person.** The
+findings grammar already refuses paths, names and globs — rules about what a thing is CALLED
+rather than about what was measured — and "who wrote this" is exactly that. What the two held
+rules need is counts:
+
+```
+func: headcount <= 1 and callers >= 20    — load-bearing, and only one person has been in it
+func: headcount >= 5 and surprise >= 0.7  — several people editing something nobody can predict
+```
+
+That is "Last hand alone" and "Many hands" with neither name, and it is the better shape: the
+clause is a number, and the "who" stays in the panel where it is a fact rather than a
+criterion. A concentration — what share the largest pile holds — is the other field worth
+having, and it is a share rather than a name for the same reason.
+
+**`headcount` and not `author count`**, which is Author wearing a number: it asserts these
+people wrote the code, and blame cannot see that. Not "how many" either — the other two
+readings are things you TAKE from the pile and that one was a question, which is a different
+part of speech doing a different job. Headcount is this note's own word for it already, four
+paragraphs up: *a timestamp and a headcount, neither of them authorship*. One word in the
+pulldown and in the clause, because two names for one number is where drift starts.
+
+Their value is as clauses rather than as a lens, which is the last piece of the product
+answer: `headcount >= 5` alone is a number of people, and `headcount >= 5 and surprise >= 0.7`
+is *several people are editing something nobody could predict*, which neither half says. See
+`docs/notes/findings.md`, where the rules are recorded as absent and this is why.
+
 **The panel's rows printed one number and were sorted by another — fixed.** `sortBuckets`
 orders blame by `b.lines` while the row printed `b.count`, which is why the column read
 1,819 · 1,019 · 985 · 216 · 86 · 309. It shows lines now; the count moved to the row's tooltip.

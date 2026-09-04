@@ -1356,6 +1356,8 @@ export interface RuleView {
   builtIn: boolean
   /** What it finds here now, and how much of that nothing else found. */
   hits: number
+  /** How many subjects this rule's population has here — the denominator for `hits`. */
+  population: number
   only: number
   /** Why it cannot answer here, in words, or null. */
   blocked: string | null

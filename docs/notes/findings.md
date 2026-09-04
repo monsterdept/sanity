@@ -2,10 +2,10 @@
 
 **All three surfaces are built.** `findings.rs` is the evaluator, `just findings` and
 `sanity findings` are the bench and the user-facing verb, and the panel, the badge, the
-decision store and the rules editor are in the window. What is left is relevance — see *Where
-it lives*. Everything from *What the evaluator found* onwards is a record like any other note
-here, and everything before it is the proposal those measurements were taken against — kept in
-that order because the arguments came first and several of them were wrong.
+decision store and the rules editor are in the window. Everything from *What the evaluator
+found* onwards is a record like any other note here, and everything before it is the proposal
+those measurements were taken against — kept in that order because the arguments came first
+and several of them were wrong.
 
 **They were called leads until the panel had been looked at.** Nothing durable moved with the
 rename: `.sanity/rules/catalog.md` and `.sanity/findings/decisions.md` key on rule ids,
@@ -284,14 +284,37 @@ correct and useless: VectorLand has one author and sanity has two, so of course 
 holds everything. On ceph the same rule is 6% and on kibana 0.66%, where it means something.
 Symmetrically, "Fossil" is empty on both young repos and finds 307 functions on ceph.
 
-Both are the same shape: **a rule whose clause the repo cannot vary**. The fix is not a
-threshold, it is relevance — decided once, at calibration, from the same distribution that
-suggests the numbers, and SAID rather than hidden:
+Both are the same shape: **a rule whose clause the repo cannot vary**. No threshold fixes
+that — there is no number that makes "everything here has one author" discriminating.
 
-> Last hand alone — off. This repo has 2 contributors.
+The first answer written here was relevance: decide it at calibration, from the same
+distribution that suggests the numbers, and turn the rule off with its reason showing —
+*Last hand alone — off. This repo has 2 contributors.* **That is not what was built, and the
+reason it is not is worth keeping.**
 
-Off with its reason showing is honest and switchable. Silently matching everything is the
-crying-wolf failure one rule earlier than the badge.
+**An automatic switch-off manufactures silence, which is the one thing this surface may not
+do.** A rule the program turns off by itself is a question that stops being asked, and nothing
+distinguishes that from a question with no answer — the same failure a blocked rule avoids by
+saying *nobody has read this repo yet*. It also needs a threshold of its own (under how many
+contributors?), which can be wrong, and being wrong means a rule that mattered goes quiet
+invisibly. A rule firing on 40% of your files is the opposite failure: loud, obvious, and one
+click from fixed.
+
+**So the grid says the share and the person decides.** Every row carries `1,247 findings` and,
+under it, `40% of files` — on every row rather than on the loud ones, because "show it above
+N" is an invented threshold doing the reader's judging for them, and 40% against 0.7% is a
+comparison the eye makes for free. `; off` in `catalog.md` already silences a rule, and the
+row already has the button that writes it; what was missing was never the switch, it was the
+fact that makes somebody press it. Turned off by hand, the decision is a committed line with a
+human reason in the commit message and `git blame` pointing at who made it — better provenance
+than a generated sentence.
+
+**And the measurements above are from a harness, not from anything shipping.** Neither rule
+they describe is in the catalog — see *Two rules the bench measured cannot be expressed*. None
+of the sixteen that ship has a clause a repo cannot vary: every one is a distribution with a
+spread, which is what calibration works on, and it is why sanity's whole catalog produces
+forty-nine findings rather than 40% of anything. The share is built for a case that does not
+occur yet, on the argument that it is one number and it will.
 
 ### Doc presence is not a clause, and the numbers are why
 
@@ -465,10 +488,28 @@ repo has been read.
 ### Two rules the bench measured cannot be expressed, and are not in the catalog
 
 "Last hand alone" and "Many hands" were in the throwaway harness because it read blame
-directly. They are absent from `catalog()` and will stay absent until the tree carries what
-they need: per-range contributor counts, which `blame.rs` computes into
-`RangeDetail::authors` and never puts on a node. `Node::last_author` is not a substitute —
-building either rule on it would make exactly the ownership claim `TODO.md` refuses to make.
+directly. They are absent from `catalog()`, and the reason is worth being exact about because
+it is not the one it looks like.
+
+**The data exists per line and is thrown away on the way to a node.** `FileBlame` holds every
+line of a file with the index of whoever last touched it, and `FileBlame::range` already
+slices a function's lines — but it MAXES that slice, taking the newest line's author, where
+these rules need it COUNTED. So a `Node` carries one name and no headcount. `TODO.md` puts it
+exactly: not a second measurement, a second reduction, the same slice counted instead of
+maxed. It needs no new pass and it must not use `range_detail`, which shells out per function
+and is for one function at a time in the panel, not for a hundred and fifty thousand.
+
+**It is held on a product question rather than a cost** — *"I am not sure why someone would
+want a tool that has both blame and this new metric. Better be sure before we build it."* That
+is the whole blocker, and it is upstream of the catalog: these two rules arrive when that
+question is answered, and not before.
+
+**`Node::last_author` is not a substitute, and the reason is sharper than it first looks.**
+Blame records who touched each line LAST, so a function rewritten wholesale reads as new and
+everyone whose lines were replaced is gone — not diminished, gone. A rule built on it would
+say "one person owns this" while measuring "one person edited the newest line". `TODO.md`
+refuses the word Ownership for the same reason; the honest pair is "last touched by" and "most
+lines here", a timestamp and a headcount, neither of them authorship.
 
 ### Two defects the tests caught, both of the kind this surface specialises in
 
@@ -963,10 +1004,9 @@ ignored drawer on the other two — and a rule row opens into the form in place.
 than in a sheet, because the numbers a threshold is being judged against are the rows above
 and below it.
 
-Relevance surfaces here too, and it is the last piece of *Three surfaces* still unbuilt: a rule
-this repo cannot vary shows as off with the reason in words — *this repo has 2 contributors* —
-rather than as a rule that found nothing. "Last hand alone" fired on 40% of sanity's files and
-30% of VectorLand's, correctly and uselessly.
+Relevance surfaces here as the share under each row's count, and as the `turn off` beside it —
+see *A rule can be irrelevant to a repo*, which is also where the version that turned rules off
+by itself is argued down.
 
 ### Build order, and what each step actually cost
 
