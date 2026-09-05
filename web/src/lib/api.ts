@@ -1268,6 +1268,16 @@ export interface FindingGroup {
    *  one is "nothing here matches" and the other is "this could not be asked", which is the
    *  same distinction the map keeps between an unread wedge and a cold one. */
   blocked: Blocked | null
+  /** The half of the rule's paragraph that is the same on every subject — `''` where it has
+   *  none. Mirrors `findings::Rule::background`.
+   *
+   *  **Shown under the first tile this rule appears on, and not again.** A repo with three
+   *  crowded files printed the same lesson three times, each under its own count; it is worth
+   *  reading once, and on the second tile it says nothing about that file while pushing the
+   *  next measurement off the screen. The split is mechanical rather than editorial — `says`
+   *  is every sentence that quotes the subject's own numbers, this is the prose that quotes
+   *  none — so nothing subject-specific can end up in the half that gets hidden. */
+  background: string
   hits: Finding[]
 }
 

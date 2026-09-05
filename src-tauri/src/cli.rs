@@ -1866,17 +1866,40 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
     // **What could not be asked, said once and out loud.** A rule whose clause the repo has no
     // evidence for finds nothing, and a reader who is not told why reads that as a clean bill
     // — the one thing this surface must never do.
+    //
+    // Folded by the FIX, exactly as the window's footer folds it: seven rules each ending in
+    // the same six words is one job printed seven times, and how much of the catalog one pass
+    // would light up is the number with a decision in it. See `findings::Blocked`.
+    let mut needs: Vec<(&str, usize)> = Vec::new();
     for g in groups.iter() {
         let Some(b) = &g.blocked else { continue };
-        println!("  {} — {}", g.title, b.why);
+        match needs.iter_mut().find(|(need, _)| *need == b.need) {
+            Some((_, n)) => *n += 1,
+            None => needs.push((b.need.as_str(), 1)),
+        }
+    }
+    needs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    for (need, n) in &needs {
+        println!("  {n} of {} rules inactive ({need})", groups.len());
     }
     println!();
 
+    // A rule's background on the first row it raises and not again — the window's rule, and
+    // the transcript has the same repetition to avoid. Wrapped as ONE paragraph with the
+    // sentence it belongs to rather than as a block under it: the two were written to be read
+    // together, and a second indent turns a finding into a finding with a footnote. See
+    // `findings::Rule::background`.
+    let mut said_once: std::collections::HashSet<&str> = Default::default();
     for (key, row) in rows.iter().take(limit) {
         println!("  {}{}", if row.flagged { "⚑ " } else { "" }, key);
         for (g, f) in &row.said {
             println!("    {}", g.title);
-            for line in wrap(&crate::findings::flat(&f.says), 76) {
+            let mut para = crate::findings::flat(&f.says);
+            if !g.background.is_empty() && said_once.insert(g.id.as_str()) {
+                para.push(' ');
+                para.push_str(&g.background);
+            }
+            for line in wrap(&para, 76) {
                 println!("      {line}");
             }
         }

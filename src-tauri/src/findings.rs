@@ -437,6 +437,25 @@ pub struct Rule {
     /// come from the subject or the sentence is a template pretending to be a reading — see
     /// [`render`], which refuses rather than guessing.
     pub says: String,
+    /// The part of a rule's paragraph that is the same on every subject.
+    ///
+    /// **A finding is a measurement and a lesson, and only the measurement is new.** The two
+    /// were one string, so a repo with three crowded files printed *whether they belong
+    /// together is a judgement about what they do, which nothing here has made* three times,
+    /// each under its own count. The lesson is worth reading once and is noise on the second
+    /// tile — it says nothing about THIS file, and it pushes the next measurement off the
+    /// screen.
+    ///
+    /// So the split is by what varies: [`Rule::says`] holds every sentence that quotes this
+    /// subject's own numbers, and this holds the trailing prose that quotes none. That is a
+    /// mechanical test rather than a taste one — a `{{token}}` here would be a sentence that
+    /// changes per subject shown on one subject and hidden on the rest — and it is why some
+    /// rules have no background at all: where the whole paragraph is about the subject,
+    /// nothing repeats and nothing is held back.
+    ///
+    /// The window shows it under the FIRST tile a rule appears on, which is the one somebody
+    /// reads first. See `Findings.tsx`.
+    pub background: String,
     pub pop: Pop,
     pub clauses: Vec<Clause>,
     /// Which clause [`calibrate`] suggests a threshold for. The others are held.
@@ -522,6 +541,7 @@ impl Rule {
             title: "ad-hoc".to_string(),
             so_what: "Matched an ad-hoc rule.".to_string(),
             says: String::new(),
+            background: String::new(),
             pop,
             clauses,
             calibrated: 0,
@@ -1334,6 +1354,11 @@ pub struct Group {
     /// absence is stated rather than drawn as a zero — the same discipline the lens follows
     /// when it says `no git history` on the repo instead of on every wedge.
     pub blocked: Option<Blocked>,
+    /// The rule's constant half — see [`Rule::background`]. Empty where it has none.
+    ///
+    /// On the GROUP rather than on every finding, which is where it would have to be joined
+    /// back together: it is one string per rule and the window shows it once.
+    pub background: String,
     pub hits: Vec<Finding>,
 }
 
@@ -1481,6 +1506,7 @@ pub fn report(
             only: solo.only(i, &sets),
             lenses: rule.lenses(),
             blocked: blocked(rule, facts, traced, read),
+            background: rule.background.clone(),
             hits: sets[i]
                 .iter()
                 .take(PER_GROUP)
@@ -1781,11 +1807,17 @@ pub fn apply_edit(live: &mut Vec<Rule>, edit: RuleEdit) -> Result<(), String> {
     check_template(&edit.says, &clauses)?;
 
     let id = if edit.id.is_empty() { mint_id(&edit.title, live) } else { edit.id.clone() };
+    // **The background survives an edit it was never on.** It is the rule's constant half —
+    // see `Rule::background` — and the form does not carry it, so rebuilding a rule from the
+    // form alone would silently drop it the first time somebody renamed a built-in.
+    let background =
+        live.iter().find(|r| r.id == id).map(|r| r.background.clone()).unwrap_or_default();
     let rule = Rule {
         id: id.clone(),
         title: edit.title.trim().to_string(),
         so_what: edit.so_what.trim().to_string(),
         says: edit.says.trim().to_string(),
+        background,
         pop: edit.pop,
         calibrated: edit.calibrated.min(clauses.len() - 1),
         clauses,
@@ -1873,11 +1905,21 @@ pub fn catalog() -> Vec<Rule> {
     // *one pair of hands*, where `< 2` says the same thing and makes the reader do the
     // arithmetic to find out.
     let le = |field, value| Clause { field, op: Op::Le, value };
-    let rule = |id: &str, title: &str, so_what: &str, says: &str, pop, clauses, calibrated| Rule {
+    // `background` after `says` because it is the tail of the same paragraph — see
+    // `Rule::background`. Empty where every sentence quotes the subject.
+    let rule = |id: &str,
+                title: &str,
+                so_what: &str,
+                says: &str,
+                background: &str,
+                pop,
+                clauses,
+                calibrated| Rule {
         id: id.to_string(),
         title: title.to_string(),
         so_what: so_what.to_string(),
         says: says.to_string(),
+        background: background.to_string(),
         pop,
         clauses,
         calibrated,
@@ -1894,9 +1936,10 @@ pub fn catalog() -> Vec<Rule> {
             "Giant function",
             "Unusually long, and not just a lot of data.",
             "This is {{loc}} lines with {{cognitive}} branch points, where the median function \
-             here is {{median}} lines. Length on its own is not a defect and does not mean this \
-             is several functions — it means anything reading it has to take all of it at once, \
-             and breaking it up is the usual thing to try.",
+             here is {{median}} lines.",
+            "Length on its own is not a defect and does not mean this is several functions — it \
+             means anything reading it has to take all of it at once, and breaking it up is the \
+             usual thing to try.",
             Pop::Func,
             // **A giant body with no branching is DATA, and this is what stops the rule
             // finding it.** On kibana the top of this list was an index-mapping literal, a
@@ -1914,7 +1957,9 @@ pub fn catalog() -> Vec<Rule> {
             "crowded-file",
             "Crowded file",
             "Unusually many functions in one file.",
-            "This file defines {{funcs}} functions, where the median file here defines {{median}}. That is a count rather than a verdict: whether they belong together is a judgement about what they do, which nothing here has made.",
+            "This file defines {{funcs}} functions, where the median file here defines {{median}}.",
+            "That is a count rather than a verdict: whether they belong together is a judgement \
+             about what they do, which nothing here has made.",
             Pop::File,
             vec![ge(Field::Funcs, 40.0)],
             0,
@@ -1929,7 +1974,9 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-unread",
             "Load-bearing and unread",
             "Read this one next.",
-            "{{callers}} call sites depend on this and no reader has assessed it. It is the cheapest assessment available here, in the sense that what it turns out to be matters to every one of them.",
+            "{{callers}} call sites depend on this and no reader has assessed it.",
+            "It is the cheapest assessment available here, in the sense that what one of these \
+             turns out to be matters to every call site that depends on it.",
             Pop::Func,
             vec![ge(Field::Callers, 20.0), lt(Field::Read, 1.0), ge(Field::Loc, 10.0)],
             0,
@@ -1938,7 +1985,11 @@ pub fn catalog() -> Vec<Rule> {
             "knotty-load-bearing",
             "Knotty and load-bearing",
             "Branches a lot, and widely depended on.",
-            "{{callers}} call sites depend on this, and for {{loc}} lines it branches more than its length accounts for. A change here has to be checked against all {{callers}}.",
+            // Every sentence quotes the subject, so nothing is held back — see
+            // `Rule::background`.
+            "{{callers}} call sites depend on this, and for {{loc}} lines it branches more than \
+             its length accounts for. A change here has to be checked against all {{callers}}.",
+            "",
             Pop::Func,
             vec![ge(Field::Tangle, 0.8), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
@@ -1947,7 +1998,8 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-illegible",
             "Load-bearing and hard to read",
             "Hard to follow, and widely depended on.",
-            "A reader assessed this as hard to follow, and {{callers}} call sites depend on it. Every later edit pays that reading cost again.",
+            "A reader assessed this as hard to follow, and {{callers}} call sites depend on it.",
+            "Every later edit pays that reading cost again.",
             Pop::Func,
             vec![ge(Field::Legible, 0.6), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
@@ -1961,7 +2013,8 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-undocumented",
             "Load-bearing and undocumented",
             "Widely depended on, with nothing written about it.",
-            "{{callers}} call sites depend on this and there is no documentation on it. It is among the most used code here that nothing explains.",
+            "{{callers}} call sites depend on this and there is no documentation on it.",
+            "This is among the most used code here that nothing explains.",
             Pop::Func,
             vec![lt(Field::Documented, 0.35), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
@@ -1979,7 +2032,8 @@ pub fn catalog() -> Vec<Rule> {
             "surprising-changing",
             "Surprising and changing",
             "Changing often, and nobody predicted it.",
-            "A reader could not predict this body, and it changed in {{commits}} commits recently. Either on its own is ordinary; both at once is worth knowing before the next edit.",
+            "A reader could not predict this body, and it changed in {{commits}} commits recently.",
+            "Either on its own is ordinary; both at once is worth knowing before the next edit.",
             Pop::Func,
             vec![ge(Field::Surprise, 0.6), ge(Field::Commits, 4.0), ge(Field::Loc, 10.0)],
             1,
@@ -1988,7 +2042,9 @@ pub fn catalog() -> Vec<Rule> {
             "surprising-far-reaching",
             "Surprising and far-reaching",
             "It calls a great deal and nobody predicted it.",
-            "This calls {{calls}} other functions and a reader still could not predict what it does. It coordinates work that is not apparent from its own body.",
+            "This calls {{calls}} other functions and a reader still could not predict what it \
+             does.",
+            "It coordinates work that is not apparent from its own body.",
             Pop::Func,
             vec![ge(Field::Surprise, 0.6), ge(Field::Calls, 10.0), ge(Field::Loc, 10.0)],
             1,
@@ -1997,7 +2053,9 @@ pub fn catalog() -> Vec<Rule> {
             "stale-doc",
             "Stale doc",
             "Documented, and a reader still could not predict it.",
-            "This has documentation and a reader still could not predict the body. Either the documentation describes behaviour the code no longer has, or it describes it in terms that do not help.",
+            "This has documentation and a reader still could not predict the body.",
+            "Either the documentation describes behaviour the code no longer has, or it describes \
+             it in terms that do not help.",
             Pop::Func,
             // **`Some` is not a stale doc, and 0.6 was catching it.** The grades are words
             // before they are numbers: `Grade::Some` is "recognizable, but the body does real
@@ -2019,7 +2077,9 @@ pub fn catalog() -> Vec<Rule> {
             "trap-being-edited",
             "Trap in code people are editing",
             "Easy to break when edited, and being edited.",
-            "A reader flagged this as easy to break when edited, and it changed in {{commits}} commits recently.",
+            "A reader flagged this as easy to break when edited, and it changed in {{commits}} \
+             commits recently.",
+            "",
             Pop::Func,
             vec![ge(Field::Trap, 1.0), ge(Field::Commits, 3.0), ge(Field::Loc, 10.0)],
             1,
@@ -2028,7 +2088,9 @@ pub fn catalog() -> Vec<Rule> {
             "fossil-trap",
             "Fossil trap",
             "Easy to break when edited, and years since anyone did.",
-            "A reader flagged this as easy to break when edited, and no commit has changed it in {{touched_years}} years.",
+            "A reader flagged this as easy to break when edited, and no commit has changed it in \
+             {{touched_years}} years.",
+            "",
             Pop::Func,
             // Gated the same way `fossil` is, and for the same reason one rung down: a trap
             // nobody has touched in three years is a different statement in a repo that is
@@ -2050,7 +2112,9 @@ pub fn catalog() -> Vec<Rule> {
             "clone-being-edited",
             "Clone being edited",
             "One copy changed and the others did not.",
-            "This body appears {{clone_count}} times in the repo, and this copy changed in {{commits}} commits. Changes made here are not applied to the other copies.",
+            "This body appears {{clone_count}} times in the repo, and this copy changed in \
+             {{commits}} commits.",
+            "Changes made in one copy are not applied to the others.",
             Pop::Func,
             vec![ge(Field::CloneSize, 3.0), ge(Field::Commits, 2.0), ge(Field::Loc, 10.0)],
             1,
@@ -2060,6 +2124,7 @@ pub fn catalog() -> Vec<Rule> {
             "Widely cloned",
             "The same body, in several places.",
             "The same {{loc}} lines appear {{clone_count}} times in this repo.",
+            "",
             Pop::Func,
             vec![ge(Field::CloneSize, 4.0), ge(Field::Loc, 30.0)],
             1,
@@ -2069,6 +2134,7 @@ pub fn catalog() -> Vec<Rule> {
             "Fossil",
             "No commit has changed it in years.",
             "{{loc}} lines that no commit has changed in {{touched_years}} years.",
+            "",
             Pop::Func,
             // **Gated on the repo's own age, because "years" is relative to it.** Five years
             // untouched is a finding in a decade-old codebase and an impossibility in an
@@ -2092,7 +2158,8 @@ pub fn catalog() -> Vec<Rule> {
             "tangled-for-size",
             "Tangled for its size",
             "More complicated than its length accounts for.",
-            "For {{loc}} lines this branches more than almost anything else in the repo. Its complexity is not explained by its length.",
+            "For {{loc}} lines this branches more than almost anything else in the repo.",
+            "Its complexity is not explained by its length.",
             Pop::Func,
             vec![ge(Field::Tangle, 0.8), ge(Field::Loc, 40.0)],
             1,
@@ -2110,7 +2177,9 @@ pub fn catalog() -> Vec<Rule> {
             "sole-author",
             "Load-bearing, and only one person has been in it",
             "Widely depended on, and every line of it was last touched by the same person.",
-            "{{callers}} things call this, and every line of it was last touched by the same person — out of {{repo_headcount}} who have worked on this repo. That is fine until they are unavailable.",
+            "{{callers}} things call this, and every line of it was last touched by the same \
+             person — out of {{repo_headcount}} who have worked on this repo.",
+            "That is fine until that person is unavailable.",
             Pop::Func,
             // **The gate comes first because it is what makes the rest of the rule true.**
             // "Only one person has been in it" is a finding in a repo of forty people and a
@@ -2133,7 +2202,9 @@ pub fn catalog() -> Vec<Rule> {
             "alone-in-shared-code",
             "Alone in a file others work in",
             "Only one person's lines are in this body, in a file several people work in.",
-            "Every line of this was last touched by the same person, in a file {{file_headcount}} people have lines in. A pocket somebody owns alone, in shared territory.",
+            "Every line of this was last touched by the same person, in a file \
+             {{file_headcount}} people have lines in.",
+            "A pocket somebody owns alone, in shared territory.",
             Pop::Func,
             // **The file's count is the gate and the finding at once.** Six people in a file
             // is what makes one person in a body of it worth saying — on a repo where nobody
@@ -2153,7 +2224,9 @@ pub fn catalog() -> Vec<Rule> {
             "lone-file",
             "A file nobody else has been in",
             "A whole file with only one or two people's lines in it, on a project with many.",
-            "{{funcs}} functions, and every line of this file was last touched by one of {{headcount}} people — out of {{repo_headcount}} who have worked on this repo.",
+            "{{funcs}} functions, and every line of this file was last touched by one of \
+             {{headcount}} people — out of {{repo_headcount}} who have worked on this repo.",
+            "",
             Pop::File,
             // The same question one scope out from `alone-in-shared-code`, and a different
             // answer: that one is a pocket inside shared territory, this is territory nobody
@@ -2169,7 +2242,9 @@ pub fn catalog() -> Vec<Rule> {
             "crowded-and-knotty",
             "Many have been in it, and it is knotty",
             "Several people have been in something more complicated than its length accounts for.",
-            "{{headcount}} people's lines are standing in this, and for {{loc}} lines it branches more than almost anything else here. Everyone who touched it had to hold that shape in their head.",
+            "{{headcount}} people's lines are standing in this, and for {{loc}} lines it branches \
+             more than almost anything else here.",
+            "Everyone who touched it had to hold that shape in their head.",
             Pop::Func,
             // **Paired with `tangle` rather than with `loc`, and that is the whole design.** A
             // headcount rises with size — a 362-line function has more hands than a 10-line
@@ -2633,6 +2708,9 @@ pub fn merge(base: Vec<Rule>, saved: &[Line]) -> Vec<Rule> {
             title,
             so_what: line.so_what.clone().unwrap_or_else(|| "Matched a rule of yours.".into()),
             says: line.says.clone().unwrap_or_default(),
+            // A rule somebody wrote has one paragraph and it is all about the subject. The
+            // background is the catalog's, and there is no catalog rule behind this one.
+            background: String::new(),
             pop,
             clauses,
             calibrated: 0,
@@ -2697,6 +2775,9 @@ fn amend(r: &mut Rule, line: &Line) {
     // something the rule did not ask.
     if check_template(&r.says, &r.clauses).is_err() {
         r.says = String::new();
+        // The background is the tail of that paragraph, and a tail with no head is a lesson
+        // hanging under the generic one-liner. It goes with it.
+        r.background = String::new();
     }
 }
 

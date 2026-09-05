@@ -806,6 +806,27 @@ export function Findings({
     )
   })()
 
+  /** The tile each rule says its background under — see `FindingGroup.background`.
+   *
+   *  **Computed over the list rather than remembered while drawing it.** A `Set` mutated
+   *  inside the render would make the paragraph a function of how many times React chose to
+   *  render, which is not something a reader can see and not something that stays true under
+   *  a StrictMode double pass. Built here, the answer is the same however often the list is
+   *  drawn: the FIRST tile in the order already on screen, which is the one somebody reads
+   *  first.
+   *
+   *  Keyed by rule id and not by title — a title is prose and gets rewritten, which is the
+   *  same reason a dismissal is not filed under one. */
+  const introduces = (() => {
+    const at = new Map<string, string>()
+    for (const { finding, rules } of items) {
+      for (const r of rules) {
+        if (r.background && !at.has(r.id)) at.set(r.id, finding.key)
+      }
+    }
+    return at
+  })()
+
   /** What could not be asked, and what has been dealt with — the two things a worklist must
    *  say out loud rather than by being short.
    *
@@ -1411,6 +1432,17 @@ export function Findings({
                               <span key={j}>{run.text}</span>
                             ),
                           )}
+                          {/* **The lesson, once, and in the same breath.** It is the tail of
+                              one paragraph and not a second one: the sentences were written to
+                              be read together, and giving the background its own block — its
+                              own face, its own dimming — turned a paragraph into a finding
+                              with a footnote. Every later tile this rule raises just stops
+                              after the measurement, which is what a paragraph does anyway.
+
+                              A leading space rather than a joined string, so the two halves
+                              stay two nodes and nothing has to decide what punctuation goes
+                              between them. */}
+                          {introduces.get(r.id) === finding.key && <span> {r.background}</span>}
                         </p>
                       </div>
                     ))}
