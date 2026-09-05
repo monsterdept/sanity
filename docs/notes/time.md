@@ -167,6 +167,26 @@ because it was wrong. If it comes back it comes back as its own lens with its ow
   has this changed" are named quantities sitting beside the ones the lenses paint. A field
   called `age_days` means what a person means by age; the lens called Age does not.
 
+- **A rule asked `age` and its sentence said `touched`, and it read fine for months.** Fossil
+  gated on `age >= 1825` and printed "{{loc}} lines that no commit has changed in
+  {{age_years}} years." Those are two different quantities — `age` is the oldest surviving
+  line, `touched` the newest — and on ceph's `OSDMonitor::prepare_command_impl` the gap is the
+  whole story: 4,313 lines, 52 people's work standing in it, nineteen years since the oldest
+  line was written, and edited constantly. The tile said nobody had touched it since 2006. It
+  was spotted from the sentence being *absurd* alongside the other three rules firing on the
+  same body, not from the rule, because the rule's own wording is where the confusion lives.
+  Fossil asks `touched` now, and both dates have their own render token so a sentence has to
+  name which one it means.
+- **The template checks exempted the date token, which is how it hid.** `age_years` sat in the
+  "not a field" skip list beside `name` and `path`, so neither the catalog test nor the rule
+  editor's `check_template` asked whether a clause guaranteed it. Both resolve the date tokens
+  to their fields now. The same hole existed one layer down: a repo's saved `catalog.md` holds
+  tuned NUMBERS and takes its prose from the shipped catalog, so a shipped rule that changes
+  which field it asks about leaves the tuned clause pointing at the old one — ceph's saved
+  `age >= 1825` began printing "no commit has changed it in 0.1 years", filled from facts the
+  rule never gated on. `amend` re-runs the check and drops back to the generic sentence rather
+  than the tuning, because the number is the part somebody chose.
+
 ## Why the obvious fixes do not serve the purpose
 
 - **Inverting the Age ramp makes the map louder and no more useful.** On ceph, `LAST TOUCHED`

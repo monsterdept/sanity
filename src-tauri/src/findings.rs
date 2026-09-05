@@ -583,14 +583,15 @@ pub fn render(rule: &Rule, f: &Facts, median: Option<f32>) -> Vec<Span> {
             // degenerate: it says what normal looks like here, which is the whole reason the
             // number is worth printing.
             "median" => median.map(commas),
-            "age_years" => value_of(f, Field::AgeDays).map(|d| {
-                let y = d / 365.0;
-                if y >= 10.0 {
-                    format!("{}", y.round() as i64)
-                } else {
-                    format!("{y:.1}")
-                }
-            }),
+            // **Two dates, two tokens, and they are not interchangeable.** `age` is days
+            // since the OLDEST surviving line was written — how long the body has existed —
+            // and `touched` is days since the newest one changed. A single `age_years` token
+            // reading `age` sat under the sentence "no commit has changed it in N years",
+            // which is what `touched` measures: a 4,313-line body with 52 contributors is
+            // nineteen years OLD and was edited last week, and the tile said nobody had
+            // touched it since 2006.
+            "age_years" => value_of(f, Field::AgeDays).map(years),
+            "touched_years" => value_of(f, Field::TouchedDays).map(years),
             other => Field::parse(other).and_then(|field| value_of(f, field)).map(commas),
         };
         match filled {
@@ -950,6 +951,17 @@ fn facts_of(
             body_pin: node.body.as_deref().map(crate::assessment::body_hash),
         },
         values: v,
+    }
+}
+
+/// Days as years, at the precision a year deserves: whole once it is a decade, one place
+/// under that. Shared by the two date tokens so they cannot print differently.
+fn years(days: f32) -> String {
+    let y = days / 365.0;
+    if y >= 10.0 {
+        format!("{}", y.round() as i64)
+    } else {
+        format!("{y:.1}")
     }
 }
 
@@ -1751,10 +1763,17 @@ fn check_template(says: &str, clauses: &[Clause]) -> Result<(), String> {
         let close = rest[at..].find("}}").ok_or("a `{{` with no `}}`")?;
         let token = &rest[at + 2..at + close];
         rest = &rest[at + close + 2..];
-        if matches!(token, "name" | "path" | "threshold" | "median" | "age_years") {
+        if matches!(token, "name" | "path" | "threshold" | "median") {
             continue;
         }
-        let field = Field::parse(token).ok_or(format!("`{token}` is not a field"))?;
+        // The two date tokens name a field like any other, and have to earn it like any
+        // other — see the catalog test, where exempting `age_years` is what let `fossil`
+        // print "no commit has changed it in N years" off a clause about how OLD it was.
+        let field = match token {
+            "age_years" => Field::AgeDays,
+            "touched_years" => Field::TouchedDays,
+            other => Field::parse(other).ok_or(format!("`{other}` is not a field"))?,
+        };
         // `loc` and `funcs` are set on every subject; everything else has to be earned by a
         // clause, or the sentence silently falls back and nobody finds out.
         let always = field == Field::Loc || field == Field::Funcs;
@@ -1964,7 +1983,7 @@ pub fn catalog() -> Vec<Rule> {
             "fossil-trap",
             "Fossil trap",
             "Easy to break when edited, and years since anyone did.",
-            "A reader flagged this as easy to break when edited, and no commit has changed it in {{age_years}} years.",
+            "A reader flagged this as easy to break when edited, and no commit has changed it in {{touched_years}} years.",
             Pop::Func,
             // Gated the same way `fossil` is, and for the same reason one rung down: a trap
             // nobody has touched in three years is a different statement in a repo that is
@@ -1972,7 +1991,9 @@ pub fn catalog() -> Vec<Rule> {
             vec![
                 ge(Field::RepoAge, 730.0),
                 ge(Field::Trap, 1.0),
-                ge(Field::AgeDays, 1095.0),
+                // "Years since anyone did" is `touched` — see `fossil`, where the same
+                // confusion is written up.
+                ge(Field::TouchedDays, 1095.0),
                 ge(Field::Loc, 10.0),
             ],
             1,
@@ -2002,7 +2023,7 @@ pub fn catalog() -> Vec<Rule> {
             "fossil",
             "Fossil",
             "No commit has changed it in years.",
-            "{{loc}} lines that no commit has changed in {{age_years}} years.",
+            "{{loc}} lines that no commit has changed in {{touched_years}} years.",
             Pop::Func,
             // **Gated on the repo's own age, because "years" is relative to it.** Five years
             // untouched is a finding in a decade-old codebase and an impossibility in an
@@ -2010,9 +2031,16 @@ pub fn catalog() -> Vec<Rule> {
             // as a clean bill. Three years is the judgement: below it, a repo has not been
             // going long enough for "nobody has touched this in ages" to mean ages.
             //
-            // Calibration still moves `age`, so a repo old enough to be asked gets its own
-            // bar. What the gate decides is whether asking is meaningful at all.
-            vec![ge(Field::RepoAge, 1095.0), ge(Field::AgeDays, 1825.0), ge(Field::Loc, 100.0)],
+            // Calibration still moves the bar, so a repo old enough to be asked gets its
+            // own. What the gate decides is whether asking is meaningful at all.
+            // **`touched`, not `age`, and the difference is the whole rule.** `age` is days
+            // since the oldest surviving line was written, so on any long-lived body it is
+            // large whatever happened yesterday — ceph's `OSDMonitor::prepare_command_impl`
+            // is 4,313 lines with 52 people's work standing in it, nineteen years old, and
+            // edited constantly. This rule called it a fossil and printed "no commit has
+            // changed it in 19 years" over the top. `touched` is days since the newest line
+            // moved, which is what "nobody has been back here" actually means.
+            vec![ge(Field::RepoAge, 1095.0), ge(Field::TouchedDays, 1825.0), ge(Field::Loc, 100.0)],
             1,
         ),
         rule(
@@ -2455,6 +2483,21 @@ fn amend(r: &mut Rule, line: &Line) {
     }
     if let Some(says) = &line.says {
         r.says = says.clone();
+    }
+    // **A saved rule keeps the shipped sentence only while its own clauses still answer it.**
+    // A repo's `catalog.md` holds the numbers somebody tuned; the prose keeps coming from the
+    // catalog, so a shipped improvement reaches a tuned repo. That is worth having and it has
+    // one edge: when a shipped rule changes which FIELD it asks about, the tuned clause stays
+    // as written and the new sentence names something the clause no longer gates on. `fossil`
+    // moved from `age` to `touched` and ceph's saved `age >= 1825` began printing "no commit
+    // has changed it in 0.1 years" — filled from facts, fluent, and false.
+    //
+    // The editor refuses such a pairing outright (`check_template`); here the rule is already
+    // saved and refusing it would drop somebody's tuning, so the sentence falls back to the
+    // generic one instead. The number the reader tuned survives, and the tile stops claiming
+    // something the rule did not ask.
+    if check_template(&r.says, &r.clauses).is_err() {
+        r.says = String::new();
     }
 }
 
@@ -3236,6 +3279,33 @@ would hide the shape"
         assert!(spans.iter().any(|s| !s.filled && s.text.contains("lines")));
     }
 
+    /// A tuned clause that outlives the sentence it was written for loses the sentence.
+    ///
+    /// **ceph, exactly.** `fossil` shipped as `age >= 1825`, ceph saved that number, and the
+    /// rule later moved to `touched` because `age` is days since the OLDEST line was written
+    /// — which on a 4,313-line body with fifty-two contributors is nineteen years and says
+    /// nothing about whether anyone has been back. The saved clause stayed `age`; the shipped
+    /// sentence now said `touched`; and the tile read "4,313 lines that no commit has changed
+    /// in 0.1 years", filled from facts the rule never gated on.
+    #[test]
+    fn a_saved_clause_cannot_keep_a_sentence_it_stopped_answering() {
+        let base = catalog();
+        let fossil = base.iter().find(|r| r.id == "fossil").expect("fossil ships").clone();
+        assert!(fossil.says.contains("{{touched_years}}"), "the sentence names touched");
+
+        let line = parse_line("- `fossil`; func: age >= 1825 and loc >= 100").expect("parses");
+        let merged = merge(base.clone(), &[line]);
+        let tuned = merged.iter().find(|r| r.id == "fossil").expect("still there");
+        assert!(tuned.clauses.iter().any(|c| c.field == Field::AgeDays), "tuning survives");
+        assert!(tuned.says.is_empty(), "but the sentence it no longer answers does not");
+
+        // And a saved line that still asks the question keeps its prose.
+        let ok = parse_line("- `fossil`; func: touched >= 900 and loc >= 100").expect("parses");
+        let kept = merge(base, &[ok]);
+        let kept = kept.iter().find(|r| r.id == "fossil").expect("still there");
+        assert_eq!(kept.says, fossil.says);
+    }
+
     /// Every shipped rule's sentence is fillable from what its own clauses guarantee.
     ///
     /// **The catalog is prose now, and prose rots.** A template referencing a field the rule
@@ -3249,11 +3319,21 @@ would hide the shape"
                 let close = rest[at..].find("}}").expect("a token closes");
                 let token = &rest[at + 2..at + close];
                 rest = &rest[at + close + 2..];
-                if matches!(token, "name" | "path" | "threshold" | "median" | "age_years") {
+                if matches!(token, "name" | "path" | "threshold" | "median") {
                     continue;
                 }
-                let field = Field::parse(token)
-                    .unwrap_or_else(|| panic!("{}: `{token}` is not a field", r.title));
+                // **The two date tokens are checked, not exempted, and that is the point.**
+                // `age_years` used to sit in the skip list above, so `fossil` could say "no
+                // commit has changed it in {{age_years}} years" while gating on nothing of
+                // the sort — `age` is days since the OLDEST line was written, and the rule
+                // needed `touched`. The sentence read fine and was false. Resolving each
+                // token to the field it prints is what makes the clause requirement bite.
+                let field = match token {
+                    "age_years" => Field::AgeDays,
+                    "touched_years" => Field::TouchedDays,
+                    other => Field::parse(other)
+                        .unwrap_or_else(|| panic!("{}: `{other}` is not a field", r.title)),
+                };
                 // **Two fields are guaranteed by construction rather than by a clause.**
                 // `facts_of` sets `loc` on every subject and `funcs` on every file, so a
                 // sentence may name them whatever the rule gates on. Everything else has to
