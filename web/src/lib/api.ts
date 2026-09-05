@@ -1262,13 +1262,26 @@ export interface FindingGroup {
    *  **The pair IS the claim.** Surprise and reach is a different sentence from surprise and
    *  size, and a finding exists precisely because no single lens can be worn to see it. */
   lenses: string[]
-  /** Why this rule could not answer, in words — `null` where it could.
+  /** Why this rule could not answer, and what would fix it — `null` where it could.
    *
    *  **A blocked rule is not a rule with no hits**, and the panel must never draw them alike:
    *  one is "nothing here matches" and the other is "this could not be asked", which is the
    *  same distinction the map keeps between an unread wedge and a cold one. */
-  blocked: string | null
+  blocked: Blocked | null
   hits: Finding[]
+}
+
+/** Why a rule cannot answer, and the one thing that would let it. Mirrors
+ *  `findings::Blocked`.
+ *
+ *  **`why` is read one rule at a time and `need` is read across the catalog.** The footer
+ *  folds by `need`, because seven sentences that all mean *read the repo* are one job printed
+ *  seven times, and how much of the catalog one pass would light up is not a question the
+ *  sentences can be asked without matching on their words. */
+export interface Blocked {
+  why: string
+  /** `read required`, `trace required`, or `nothing to compare` where no button exists. */
+  need: string
 }
 
 /** One finding: where to fly, and what to file a decision about. Mirrors `findings::Finding`.

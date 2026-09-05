@@ -1866,8 +1866,9 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
     // **What could not be asked, said once and out loud.** A rule whose clause the repo has no
     // evidence for finds nothing, and a reader who is not told why reads that as a clean bill
     // — the one thing this surface must never do.
-    for g in groups.iter().filter(|g| g.blocked.is_some()) {
-        println!("  {} — {}", g.title, g.blocked.as_deref().unwrap_or(""));
+    for g in groups.iter() {
+        let Some(b) = &g.blocked else { continue };
+        println!("  {} — {}", g.title, b.why);
     }
     println!();
 

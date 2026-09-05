@@ -821,7 +821,36 @@ export function Findings({
    */
   const ignored = (archive ?? []).filter((d) => d.verdict !== 'flagged')
 
-  const blocked = groups?.filter((g) => g.blocked) ?? []
+  /** What could not be asked, one line per REASON rather than one per rule.
+   *
+   *  **Seven rules each ending in the same six words is one fact printed seven times.** An
+   *  unread repo blocks every rule with a reading clause in it, and the footer listed them:
+   *  seven rows whose right-hand halves were identical, which reads as seven problems and
+   *  buries the count that matters — how much of the catalog is dark, and what single thing
+   *  would light it. This is the panel's version of the rule the map already follows: a
+   *  repo-level answer is said once, not repeated on every segment.
+   *
+   *  Folded by the FIX rather than by the sentence, because the fix is the decision: an
+   *  untraced repo blocks Blame on one sentence and Churn on another, and *press Trace* is one
+   *  job either way. The sentences and the rule names hang on the row's tooltip, where
+   *  somebody who wants to know which seven, and why each, can find out.
+   *
+   *  Counted against the whole catalog, because `7 of 19` is the sentence with a decision in
+   *  it and a bare `7` is not. */
+  const blocked = (() => {
+    const by = new Map<string, { rules: string[]; whys: Set<string> }>()
+    for (const g of groups ?? []) {
+      if (!g.blocked) continue
+      const at = by.get(g.blocked.need)
+      if (at) {
+        at.rules.push(g.title)
+        at.whys.add(g.blocked.why)
+      } else by.set(g.blocked.need, { rules: [g.title], whys: new Set([g.blocked.why]) })
+    }
+    return [...by.entries()]
+      .map(([need, v]) => ({ need, rules: v.rules, whys: [...v.whys] }))
+      .sort((a, b) => b.rules.length - a.rules.length || a.need.localeCompare(b.need))
+  })()
   const setAside = groups?.reduce((n, g) => n + g.dismissed, 0) ?? 0
   /** True where a group is holding back rows the wire did not carry — see `PER_GROUP`. With
    *  calibrated thresholds this should not happen; if it does, the tile count is short and
@@ -1573,9 +1602,9 @@ export function Findings({
             {(setAside > 0 || blocked.length > 0) && (
               <div className="mt-2 border-t border-[var(--border)] pt-3 text-[10px] text-[var(--muted-foreground)]">
                 {setAside > 0 && <p>{setAside.toLocaleString()} ignored.</p>}
-                {blocked.map((g) => (
-                  <p key={g.title}>
-                    {g.title} — {g.blocked}
+                {blocked.map((b) => (
+                  <p key={b.need} title={`${b.whys.join('; ')}\n\n${b.rules.join('\n')}`}>
+                    {b.rules.length} of {groups?.length ?? 0} rules inactive ({b.need})
                   </p>
                 ))}
               </div>

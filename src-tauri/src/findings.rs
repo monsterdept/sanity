@@ -153,7 +153,7 @@ pub enum Field {
     /// this field IS, not a mistake) and the picker (choosing one is a different act). See
     /// `Field::scope`.
     ///
-    /// **Not a lifecycle fact.** `blocked` says "nobody has read this repo yet" — sanity's own
+    /// **Not a lifecycle fact.** `blocked` says "this repo has not been read yet" — sanity's own
     /// progress, and every one of its sentences names work that would fix it. *This repo has
     /// two contributors* is not that: no pass changes it. Keeping the two lists apart is what
     /// stops the actionable one from stopping being actionable.
@@ -1327,14 +1327,34 @@ pub struct Group {
     pub only: usize,
     /// The lenses this rule combined — see [`Rule::lenses`].
     pub lenses: Vec<String>,
-    /// Why this rule could not answer, in words, or `None` where it could.
+    /// Why this rule could not answer, or `None` where it could — see [`Blocked`].
     ///
     /// **A rule with an unanswerable clause finds nothing, and nothing looks exactly like a
     /// clean bill.** That is the failure this whole surface is written against, so the
     /// absence is stated rather than drawn as a zero — the same discipline the lens follows
     /// when it says `no git history` on the repo instead of on every wedge.
-    pub blocked: Option<String>,
+    pub blocked: Option<Blocked>,
     pub hits: Vec<Finding>,
+}
+
+/// Why a rule cannot answer, and the one thing that would let it.
+///
+/// **Two strings because the two are read at different distances.** `why` is the sentence a
+/// rule states about itself, and it belongs where one rule is being looked at. `need` is what
+/// somebody would have to DO, and it is what the panel's footer folds by: seven rules blocked
+/// on seven sentences that all mean *read the repo* is one job printed seven times, and the
+/// count that matters — how much of the catalog one pass would light up — cannot be reached
+/// from the sentences without matching on their words.
+///
+/// Both come out of the same branch in [`blocked`], so they cannot drift into disagreeing
+/// about which fix a rule is waiting on.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Blocked {
+    pub why: String,
+    /// The fix, as a short label rather than a sentence: `read required`, `trace required`,
+    /// or `nothing to compare` where no button exists at all.
+    pub need: String,
 }
 
 /// One finding on the wire: where to fly, and what to file a decision about.
@@ -1370,20 +1390,28 @@ pub const PER_GROUP: usize = 50;
 /// nobody read the repo, because nobody traced it, or because no language in it has a call
 /// table — three different sentences, and a reader who is told the wrong one goes looking in
 /// the wrong place.
-pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Option<String> {
+pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Option<Blocked> {
+    /// The two buttons, and the absence that is neither. Named here so the branches below
+    /// spell the fix the same way every time — a footer that folds by `need` turns a typo
+    /// into a second row claiming a second job.
+    const READ: &str = "read required";
+    const TRACE: &str = "trace required";
+    let of = |why: &str, need: &str| {
+        Some(Blocked { why: why.into(), need: need.into() })
+    };
     for c in &rule.clauses {
         if c.field.needs_reading() && !read {
-            return Some("nobody has read this repo yet".into());
+            return of("this repo has not been read yet", READ);
         }
         let git = matches!(
             c.field,
             Field::AgeDays | Field::TouchedDays | Field::Commits | Field::RepoAge
         );
         if git && !traced.git {
-            return Some("no git history has been read".into());
+            return of("no git history has been read", TRACE);
         }
         if c.field == Field::Commits && !traced.churned {
-            return Some("the timeline has not been walked".into());
+            return of("the timeline has not been walked", TRACE);
         }
         // Named rather than left to the catch-all below, which would say "nothing here has a
         // headcount to compare" — true, and no help. This one has a fix and the sentence is
@@ -1391,13 +1419,18 @@ pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Opti
         if matches!(c.field, Field::Headcount | Field::FileHeadcount | Field::RepoHeadcount)
             && !traced.blamed
         {
-            return Some("git history has not been read per line".into());
+            return of("git history has not been read per line", TRACE);
         }
         // Whatever is left: the field exists for this population and nothing has one. On
         // Callers and Reach that is a language whose call shape was never parsed, which is
         // exactly the gray the map paints rather than a zero.
         if !facts.iter().any(|f| value_of(f, c.field).is_some()) {
-            return Some(format!("nothing here has a {} to compare", c.field.name()));
+            // No button opens this one, so the fix reads as an absence rather than a job —
+            // see [`Blocked::need`].
+            return of(
+                &format!("nothing here has a {} to compare", c.field.name()),
+                "nothing to compare",
+            );
         }
     }
     None
@@ -1527,6 +1560,9 @@ pub struct RuleView {
     pub population: usize,
     pub only: usize,
     /// Why it cannot answer here, in words, or `None`.
+    ///
+    /// The SENTENCE alone — see [`Blocked`]. The editor shows one rule at a time, which is
+    /// exactly the distance at which the short form says less than the sentence does.
     pub blocked: Option<String>,
 }
 
@@ -1658,7 +1694,7 @@ fn view_of(
         built_in: known.iter().any(|k| k.id == r.id),
         hits: found.map(|(sets, i, _)| sets[i].len()).unwrap_or(0),
         only: found.map(|(sets, i, solo)| solo.only(i, sets)).unwrap_or(0),
-        blocked: blocked(r, facts, traced, read),
+        blocked: blocked(r, facts, traced, read).map(|b| b.why),
     }
 }
 
