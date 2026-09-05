@@ -568,3 +568,10 @@ website port="8014":
     sleep 1
     open "http://127.0.0.1:{{port}}/"
     wait $server
+
+# Drop the release half of target/. Releases are built in CI, so a local one is a copy of
+# something a tag already made; debug is left alone because `just dev` is the loop that
+# would have to pay for it. `cargo clean` if you want the other 25G too.
+clean:
+    rm -rf src-tauri/target/release
+    du -sh src-tauri/target
