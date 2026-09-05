@@ -26,8 +26,33 @@ tap_repo := "monsterdept/homebrew-tap"
 default:
     @just --list
 
-# Install frontend deps (once).
+# Everything a fresh checkout needs before `just dev` (once).
+#
+# **The Tauri CLI is a cargo SUBCOMMAND, and that is what this was missing.** `just dev` is
+# `cargo tauri dev`, which lives in `~/.cargo/bin` rather than in `web/node_modules` — the
+# npm `@tauri-apps/cli` is deliberately not a dependency here — so a new host ran `just
+# setup`, got a complete frontend, and then failed on the one command the recipe exists to
+# make work. Same install line as `.github/workflows/release.yml`, which is the other
+# fresh-host recipe and the one that must not disagree with this.
+#
+# Presence rather than version: `cargo install` on a host that already has it is a rebuild
+# somebody did not ask for, and a MINUTES-long one from source. `^2` is the major this repo
+# is written against; a 2.x already on PATH is one this can use.
+#
+# **What it deliberately does not do is install anything OS-level.** macOS has WebKit and
+# Windows has WebView2; Linux needs `libwebkit2gtk-4.1-dev libgtk-3-dev
+# libayatana-appindicator3-dev librsvg2-dev libxdo-dev xdg-utils fakeroot`, which is a
+# `sudo apt-get` and not a thing a project recipe gets to run on somebody's machine. The
+# release workflow lists them for the same reason.
 setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v cargo-tauri >/dev/null 2>&1; then
+        echo "tauri-cli: $(cargo tauri --version)"
+    else
+        echo "installing tauri-cli — this builds from source and takes a few minutes"
+        cargo install tauri-cli --version "^2" --locked
+    fi
     cd web && npm install
 
 # Open the app: Tauri dev shell + Vite dev server with hot reload.

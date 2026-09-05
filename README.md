@@ -12,6 +12,10 @@ just scan ../slooth   # headless — the fastest way to see if the metric says a
 just dev              # the app
 ```
 
+`setup` installs the frontend deps and the Tauri CLI, and assumes Rust and Node are already
+there. macOS and Windows need nothing else; on Linux, the WebKit and GTK dev packages have to
+come from your package manager first — `.github/workflows/release.yml` lists them.
+
 ## What the colours mean
 
 A wedge is hot when its body is **surprising** — when little of it is predictable from
