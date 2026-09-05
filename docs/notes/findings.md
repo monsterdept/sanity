@@ -544,6 +544,46 @@ repo on hand with committed readings, and it is one I wrote — so the tier 2 ca
 part of this most likely to be overfitted, and the first thing to re-titrate when a second
 repo has been read.
 
+### The blame rules gained a fourth, and the clone rules cannot be benched here
+
+Four candidates were run one at a time against the raw catalog, on every project on this
+machine — sanity, flox, fussy, tonepoet, openlineage:
+
+| candidate | sanity | flox | fussy | tonepoet | openlineage |
+|---|---|---|---|---|---|
+| `clone_count >= 4 and headcount >= 3` | 0 | 0 | 0 | 0 | 0 |
+| `clone_count >= 4 and trap >= 1` | 0 | 0 | 0 | 0 | 0 |
+| `trap >= 1 and callers >= 20` | 0 | — | 0 | 23 / 7 | — |
+| `headcount <= 1 and calls >= 10` | 154 / 79 | 50 / 31 | 74 / 47 | 2,315 / 1,483 | — |
+
+**The clone pair is not weak, it is unmeasurable on this corpus, and so is the rule that
+ships.** No body of 30 lines or more is copied four times or more in ANY of these repos —
+`widely-cloned` finds nothing on all five. Clone GROUPS are not rare (tonepoet 531 functions,
+openlineage 241, flox 130 in a group of two or more); they are short. Of tonepoet's 531 only
+41 are 30 lines or longer, and none of those is in a group of four. The ceph and kibana
+numbers above — 50 and 141 — came from C++ and TypeScript; Rust, Java and Python in this
+corpus do not clone that way. Nothing here says the rule is wrong, only that this machine
+cannot test it, and a candidate whose every cell is zero must not be read as a candidate that
+was tried.
+
+**`headcount <= 1 and calls >= 10` looked like the strongest of the four and was the emptiest
+clause in the catalog.** On a repo one person wrote, `headcount <= 1` is true of every body,
+so what those 2,315 hits measure is `calls >= 10` — a rule about reach wearing a blame clause.
+`repo_headcount >= 4` is the gate `sole-author` already carries for exactly this, and with it
+the candidate is a real contributor and correctly silent where the premise fails:
+
+| `repo_headcount >= 4 and headcount <= 1 and calls >= 10 and loc >= 10` | hits / only |
+|---|---|
+| flox | 44 / 25 |
+| openlineage | 16 / 11 |
+| tonepoet, sanity, fussy | 0 — one-author repos, and the gate says so |
+
+**Shipped as `sole-author-coordinator`.** It costs `sole-author` three of its own rows on flox
+and brings 25, which is the marginal test passing in the direction the bench keeps pointing:
+reach is the axis nothing else in the catalog is gated on. `trap >= 1 and callers >= 20` is
+held — 23 hits on one repo whose thirteen trapped functions are the whole evidence, which is
+the tier 2 overfitting this note already warns about, one repo further along.
+
 ### Two rules the bench measured cannot be expressed, and are not in the catalog
 
 **Built, and neither is called what the bench called it.** The reduction below landed and the

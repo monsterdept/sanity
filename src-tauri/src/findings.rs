@@ -2198,6 +2198,37 @@ pub fn catalog() -> Vec<Rule> {
             ],
             2,
         ),
+        // **The same gate and the other end of the wiring.** `sole-author` asks who depends on
+        // this body; this asks what it depends ON, which is the axis the bench keeps finding
+        // is the productive one — `surprise >= 0.6 and calls >= 10` brought 20 rows of its own
+        // where the same rule against SIZE brought none, because size is what almost every
+        // other clause is already gated on and reach is drawn by nothing.
+        //
+        // Measured before it shipped, one candidate at a time against the raw catalog: flox
+        // 44 hits and 25 of them nobody else's, openlineage 16 and 11. Ungated it was 2,315
+        // hits on a solo repo — which is the clause doing nothing at all, since `headcount <=
+        // 1` is true of every body in a repo one person wrote. `repo_headcount` is what makes
+        // the sentence a finding rather than a description of the project, exactly as it is
+        // on `sole-author` above.
+        rule(
+            "sole-author-coordinator",
+            "Coordinates a lot, and only one person has been in it",
+            "It calls a great deal, and every line of it was last touched by the same person.",
+            "This calls {{calls}} things in the repo, and every line of it was last touched by \
+             the same person — out of {{repo_headcount}} who have worked on this repo.",
+            "Nobody else has had to hold what it coordinates in their head.",
+            Pop::Func,
+            // `calls` calibrates, for the reason `sole-author` gives about `callers`: a gate
+            // cannot be calibrated and tightening a `<=` means lowering it, and below one is
+            // nothing.
+            vec![
+                ge(Field::RepoHeadcount, 4.0),
+                le(Field::Headcount, 1.0),
+                ge(Field::Calls, 10.0),
+                ge(Field::Loc, 10.0),
+            ],
+            2,
+        ),
         rule(
             "alone-in-shared-code",
             "Alone in a file others work in",
