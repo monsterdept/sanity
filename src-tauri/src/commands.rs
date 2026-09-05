@@ -1826,11 +1826,13 @@ pub fn reorder_projects(state: tauri::State<'_, crate::agentapi::Shared>, keys: 
     crate::agentapi::set_order(&state, keys);
 }
 
-/// Take a project out of the sidebar.
+/// Take a project out of the sidebar, and the caches with it.
 ///
 /// The counterpart to `add_project`, and deliberately not called "delete": it removes a
 /// listing. The repo is untouched and so are its readings, which live in its own
-/// `.sanity/` — see `agentapi::AppState::forget`.
+/// `.sanity/`. What does go is everything this app derived — the same call Reset makes, for
+/// the reason `agentapi::AppState::forget` gives: a row nothing lists any more is a repo
+/// nothing can spend those bytes on.
 #[tauri::command]
 pub fn forget_project(state: tauri::State<'_, crate::agentapi::Shared>, key: String) {
     crate::agentapi::lock(&state).forget(&key);

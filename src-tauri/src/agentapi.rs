@@ -423,13 +423,32 @@ impl AppState {
         crate::reports::save_index(&index);
     }
 
-    /// Take a project out of the sidebar, and out of the index.
+    /// Take a project out of the sidebar, out of the index, and out of the cache.
     ///
     /// **It removes a listing, never a repo and never a reading.** The readings are in the
     /// repo's own `.sanity/`, committed, and this does not touch them — re-adding the
     /// project brings back everything it knew, which is what makes the menu item safe
-    /// enough to have no confirmation behind it. What is lost is a row and its position in
-    /// the history, and the way to undo it is the `+` button.
+    /// enough to have no confirmation behind it. What is lost is a row, its position in the
+    /// history, and this app's own working-out; the way to undo it is the `+` button.
+    ///
+    /// **The caches go with the row, and they used to stay.** Removing a project left its
+    /// tree, scan log, blame and timeline sitting under Application Support with nothing
+    /// left anywhere pointing at them — a repo taken out of the sidebar went on costing what
+    /// it cost while it was in, until `sweep_slots` aged the files out thirty days later. It
+    /// also crossed the two verbs against their own names: Reset deleted the data and kept
+    /// the row, Remove kept the data and dropped the row. `forget_all` is the same call Reset
+    /// makes, and what it deletes is only ever derived — the repo is where it was and the
+    /// readings are inside it.
+    ///
+    /// The path comes off the INDEX and is read before the entry goes, which is also what
+    /// makes it right for the rows with no live project behind them: one declined for cost,
+    /// one waiting on the restore, one that has been reset. Those are exactly the ones
+    /// somebody removes.
+    ///
+    /// Here rather than in the command, which is where Reset's purge lives, and the two are
+    /// not the same shape: `unload` is HALF a verb — the live half, with the index left
+    /// alone — while this is the whole of Remove. A caller that has to remember a second
+    /// call is a caller that will forget it.
     ///
     /// Both halves or neither: dropping it from `projects` alone would leave the entry on
     /// disk, so it would come back on the next launch, and dropping it from the index alone
@@ -442,6 +461,12 @@ impl AppState {
     /// longer exists. The "last repo opened" fallback needs no clearing either — it is a
     /// per-project clock, so it leaves with the project.
     pub fn forget(&mut self, key: &str) {
+        // Before the entry is taken out from under it — see the doc.
+        let repo = crate::reports::load_index()
+            .projects
+            .iter()
+            .find(|p| p.key == key)
+            .map(|p| PathBuf::from(&p.repo));
         self.projects.remove(key);
         // And off the declined list, or a repo taken out of the sidebar comes back as a row
         // offering to scan itself — the ghost `restoring` was written up against, arriving
@@ -460,6 +485,12 @@ impl AppState {
         // After the index write, not before: `persist` merges live state over what is on
         // disk, so running it second is what stops the entry being written back.
         self.persist();
+        // Last, and not conditional on any of it: the removal is what the person asked for
+        // and it is now durable, so the files that were only ever derived from it go. A
+        // delete that failed leaves what leaving them always left — orphans the sweep takes.
+        if let Some(repo) = repo {
+            crate::reports::forget_all(&repo);
+        }
     }
 
     /// Drop the LIVE state for a project and leave it in the list.
@@ -5319,6 +5350,21 @@ pub struct ProjectSummary {
     /// knows and reading as "your projects are gone". These entries carry real names and
     /// zeroed counts, and the flag is what stops a zero being read as a measurement.
     pub loading: bool,
+    /// This app is not holding a scan for the project, and nothing is on its way either.
+    ///
+    /// **A third state, and it has to be stated rather than inferred from the other two.**
+    /// The window read "scanned" as neither declined nor loading, which is true of every row
+    /// that has been scanned and also of the one a reset leaves behind — so that row ticked
+    /// its Scan pill over `0 functions in 0 files`, reported `no git history here` about a
+    /// repo nobody had walked, and offered to read nothing. Every count on a row like this is
+    /// a zero standing for "not measured", the same as behind `loading`, and this is what
+    /// stops one being read as a measurement.
+    ///
+    /// True for all three of the not-held cases — reset, waiting on the restore, declined for
+    /// cost — because it says what the app is holding and not why. See `unloaded`, which
+    /// builds the row, and `AppState::unload`, which is how a project gets here on purpose.
+    #[serde(default)]
+    pub unloaded: bool,
     /// How far that rescan has got, when it has started counting. Both zero means the walk
     /// is still under way and there is no denominator yet — which is a real state, not a
     /// zero-percent one, and the UI shows it as such.
@@ -5332,6 +5378,74 @@ pub struct ProjectSummary {
     /// What `read_done` and `read_total` are counting — see `scan::Progress::unit`.
     #[serde(default)]
     pub read_unit: String,
+}
+
+/// One row for a project the app knows of and is not holding a scan for.
+///
+/// **Three lists render this same row and they were three copies of it.** A scan declined
+/// for cost, a project the restore has not reached, and — the case that has no list —
+/// one whose live state has been dropped by a reset. All three know a name, a path and
+/// nothing else, and the whole of what separates them is whether something is happening
+/// (`loading`) and whether there is a price to print (`scan_cost`), so those are what a
+/// caller overrides and everything else is settled here.
+///
+/// Every count is zero and every reading is empty, which is the rule the counts follow
+/// everywhere: the walk has not run, so there is no denominator, and a guess in one of
+/// these fields is read as a measurement. The configured harness and model DO come
+/// through — they are the index's own, not the scan's, and a repo does not forget who
+/// reads it because nothing is loaded.
+fn unloaded(known: &crate::reports::KnownProject) -> ProjectSummary {
+    ProjectSummary {
+        key: known.key.clone(),
+        name: known.name.clone(),
+        repo: known.repo.clone(),
+        functions: 0,
+        files: 0,
+        // Not walked yet, so there is no tally — see the field.
+        unscanned: None,
+        // Nothing has been scanned, so there is no revision to report. The window reads a
+        // change in this as "refetch"; starting at zero means the first real scan is a
+        // change from it.
+        scanned: 0,
+        excluded: 0,
+        oversize: 0,
+        harness: known.harness.clone(),
+        model: known.model.clone(),
+        // Nothing has been read back yet, so the corpus cannot speak. Zero guesses here,
+        // same as the counts above.
+        banked_model: None,
+        banked_harness: None,
+        banked_models: Vec::new(),
+        recent_model: None,
+        run: None,
+        events: Vec::new(),
+        assessed: 0,
+        unread_lines: 0,
+        commits: 0,
+        replayed: 0,
+        tracing: None,
+        // Nothing scanned, so nothing traced and no bank to price the next one from — the
+        // same rule as the counts above.
+        trace_depth: crate::trace::Depth::Untraced,
+        trace_cost: None,
+        tracing_history: None,
+        resolved: 0,
+        resolvable: 0,
+        behind: false,
+        scan_cost: None,
+        reading: Vec::new(),
+        stale: 0,
+        touched: known.touched,
+        working: false,
+        loading: false,
+        // What the row IS. Every zero above stands for "not measured" and this is the field
+        // that says so — see `ProjectSummary::unloaded`.
+        unloaded: true,
+        read_done: 0,
+        read_total: 0,
+        read_phase: String::new(),
+        read_unit: String::new(),
+    }
 }
 
 impl ProjectList {
@@ -5433,6 +5547,8 @@ impl ProjectList {
                     stale,
                     touched: p.touched,
                     loading: false,
+                    // Held, with a tree behind every count above.
+                    unloaded: false,
                     read_done: 0,
                     read_total: 0,
                     read_phase: String::new(),
@@ -5463,48 +5579,13 @@ impl ProjectList {
                     let known =
                         crate::reports::load_index().projects.into_iter().find(|k| &k.key == key)?;
                     Some(ProjectSummary {
-                        key: known.key.clone(),
-                        name: known.name.clone(),
-                        repo: known.repo.clone(),
+                        // The estimate rides along as the only number this row can honestly
+                        // print, and it is the whole of what makes it a DECLINED row rather
+                        // than an unloaded one. **Not loading**: a declined scan is a standing
+                        // state, not a wait — the row that says "loading" forever is the
+                        // failure that flag exists to prevent, wearing the opposite face.
                         scan_cost: Some(cost.clone()),
-                        functions: 0,
-                        files: 0,
-                        // Not walked yet, so there is no tally — see the field.
-                        unscanned: None,
-                        scanned: 0,
-                        excluded: 0,
-                        oversize: 0,
-                        harness: known.harness.clone(),
-                        model: known.model.clone(),
-                        banked_model: None,
-                        banked_harness: None,
-                        banked_models: Vec::new(),
-                        recent_model: None,
-                        run: None,
-                        events: Vec::new(),
-                        assessed: 0,
-                        unread_lines: 0,
-                        commits: 0,
-                        replayed: 0,
-                        tracing: None,
-                        trace_depth: crate::trace::Depth::Untraced,
-                        trace_cost: None,
-                        tracing_history: None,
-                        resolved: 0,
-                        resolvable: 0,
-                        behind: false,
-                        reading: Vec::new(),
-                        stale: 0,
-                        touched: known.touched,
-                        working: false,
-                        // **Not loading.** A declined scan is a standing state, not a wait —
-                        // the row that says "loading" forever is the failure this flag exists
-                        // to prevent, wearing the opposite face.
-                        loading: false,
-                        read_done: 0,
-                        read_total: 0,
-                        read_phase: String::new(),
-                        read_unit: String::new(),
+                        ..unloaded(&known)
                     })
                 }),
         );
@@ -5521,61 +5602,47 @@ impl ProjectList {
                         .cloned()
                         .unwrap_or_else(|| crate::scan::Progress::at(0, 0));
                     ProjectSummary {
-                        key: known.key.clone(),
-                        name: known.name.clone(),
-                        repo: known.repo.clone(),
-                        // Zeroed behind `loading`, like every other count here: the walk
-                        // has not run, so there is no denominator yet and a guess would be
-                        // read as a measurement.
-                        functions: 0,
-                        files: 0,
-                        // Not walked yet, so there is no tally — see the field.
-                        unscanned: None,
-                        // Nothing has been scanned, so there is no revision to report. The
-                        // window reads a change in this as "refetch"; starting at zero means
-                        // the first real scan is a change from it.
-                        scanned: 0,
-                        excluded: 0,
-                        oversize: 0,
-                        // Configured settings survive a restore in progress — they come
-                        // from the index, which is the thing being restored FROM.
-                        harness: known.harness.clone(),
-                        model: known.model.clone(),
-                        // Nothing has been read back yet, so the corpus cannot speak. Zero
-                        // guesses here, same as the counts above.
-                        banked_model: None,
-                        banked_harness: None,
-                        banked_models: Vec::new(),
-                        recent_model: None,
-                        run: None,
-                        events: Vec::new(),
-                        assessed: 0,
-                        unread_lines: 0,
-                        commits: 0,
-                        replayed: 0,
-                        tracing: None,
-                        // Nothing has been scanned, so nothing has been traced and there is
-                        // no bank to price the next one from — same rule as the counts above.
-                        trace_depth: crate::trace::Depth::Untraced,
-                        trace_cost: None,
-                        tracing_history: None,
-                        resolved: 0,
-                        resolvable: 0,
-                        behind: false,
-                        scan_cost: None,
-                        reading: Vec::new(),
-                        stale: 0,
-                        touched: known.touched,
-                        working: false,
+                        // The one thing this row has that an unloaded one does not: something
+                        // is happening, and how far it has got. Both zero means the walk is
+                        // under way with no denominator yet, which is a real state rather than
+                        // a zero-percent one.
                         loading: true,
                         read_done: progress.done,
                         read_total: progress.total,
                         read_phase: progress.phase,
                         read_unit: progress.unit,
+                        ..unloaded(known)
                     }
                 },
             ),
         );
+        // **Everything else the index knows, which is the list nothing else was keeping.**
+        //
+        // The three sources above are all live state, and a project can be in the index and
+        // in none of them. Reset is how you get there on purpose: it deletes every cache and
+        // calls `unload`, whose own doc says the row has to stay because the point is to scan
+        // it again — and the row went anyway, because nothing listed a project the app was
+        // not holding. Pressing Reset removed the project from the sidebar, which is Remove,
+        // which is the other menu item.
+        //
+        // So the rule is that **the index is the list**, and live state only decides how much
+        // a row can say. `forget` is what takes a row out, and it does it by taking the entry
+        // out of the index; anything still in there is still yours. That also catches the
+        // rows the restore settles without loading — a repo on a volume that is not mounted
+        // stops being pending, and `drain` says so, but it does not stop being a project.
+        //
+        // Zeroed and not loading, like the two above it: a row that cannot say what is in the
+        // repo says nothing about it, and its Scan pill is the offer to find out.
+        {
+            let held = |key: &str| {
+                state.projects.contains_key(key)
+                    || state.awaiting.contains_key(key)
+                    || state.restoring.iter().any(|k| k.key == key)
+            };
+            projects.extend(
+                index.projects.iter().filter(|known| !held(&known.key)).map(unloaded),
+            );
+        }
         // Most recently touched first, unless somebody has arranged the list — see
         // `KnownProjects::order`. Arranged rows come first in the order they were put in;
         // anything the arrangement has never heard of (a project added since) sorts above
@@ -6871,6 +6938,92 @@ fn second() { println!(\"2\"); }\n",
             1,
             "a loaded project is listed once however it got there"
         );
+    }
+
+    /// **Remove takes the caches with the row, and it used to leave them.**
+    ///
+    /// Nothing points at a removed project: it is out of the index, so no launch restores it
+    /// and no sweep knows what its files were for. They sat under Application Support until
+    /// `sweep_slots` aged them out thirty days later — a repo taken out of the sidebar still
+    /// costing what it cost while it was in it. It also crossed the two verbs against their
+    /// own names, Reset deleting the data and keeping the row while Remove did the opposite.
+    ///
+    /// Asserted on a slot per KIND, because the deletion walks a directory apiece and a test
+    /// that writes one file proves only that the first one is walked.
+    #[test]
+    fn removing_a_project_takes_what_was_derived_from_it() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let key = project_key(dir.path());
+        crate::reports::remember(&key, &dir.path().to_string_lossy(), "t");
+
+        // One cache slot per kind, as a scan and a trace of this repo would have left.
+        let slots: Vec<std::path::PathBuf> = ["trees", "scans", "traces", "timelines", "edits"]
+            .iter()
+            .map(|kind| {
+                let at = crate::reports::cache_slot(kind, dir.path(), "p1").expect("a slot");
+                std::fs::write(&at, b"derived").expect("writes");
+                at
+            })
+            .collect();
+        // And one belonging to another repo, which must survive: the deletion is by this
+        // repo's hash, and a sweep of the whole directory would take the neighbour too.
+        let other = tempfile::tempdir().unwrap();
+        let spared = crate::reports::cache_slot("trees", other.path(), "p1").expect("a slot");
+        std::fs::write(&spared, b"someone else's").expect("writes");
+
+        let mut state = AppState::default();
+        state.projects.insert(key.clone(), project_of(dir.path()));
+        state.forget(&key);
+
+        assert!(
+            ProjectList::from_state(&state).projects.is_empty(),
+            "Remove takes the row — that half always worked"
+        );
+        for at in &slots {
+            assert!(!at.exists(), "{} outlived the project it was derived from", at.display());
+        }
+        assert!(spared.exists(), "another repo's cache was taken along with this one's");
+        // The repo itself is not this app's to delete, and neither is anything in it.
+        assert!(dir.path().join("a.rs").exists(), "the repo is not ours to touch");
+    }
+
+    /// **Reset is not Remove, and the difference is one row on screen.**
+    ///
+    /// Reset deletes every cache this app derived for a repo and calls `unload`, which drops
+    /// the live project and leaves the index entry alone — its own doc says the row has to
+    /// stay, because the point of a reset is to do the work again. The row went anyway: the
+    /// list was built from live state alone, so a project the app was not holding was a
+    /// project nobody listed, and the menu item read as a gentler-sounding Remove.
+    ///
+    /// Asserted on the state `reset_project` leaves behind rather than by calling it, which
+    /// wants a Tauri handle: the caches are gone, the index entry stands, nothing is loaded.
+    #[test]
+    fn a_reset_leaves_a_row_to_scan_again() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let key = project_key(dir.path());
+        crate::reports::remember(&key, &dir.path().to_string_lossy(), "t");
+
+        let mut state = AppState::default();
+        state.projects.insert(key.clone(), project_of(dir.path()));
+        state.active = Some(key.clone());
+        assert_eq!(ProjectList::from_state(&state).projects.len(), 1, "loaded, and listed");
+
+        state.unload(&key);
+        let after = ProjectList::from_state(&state);
+        assert_eq!(after.projects.len(), 1, "the row a reset is supposed to leave behind");
+        let row = &after.projects[0];
+        assert_eq!(row.key, key);
+        assert_eq!(row.name, "t", "named from the index, which is what still knows it");
+        // Not pending anything. A reset is a standing state — nothing is happening until
+        // somebody presses Scan — and a row that says `loading` with nothing loading is the
+        // failure that flag exists to prevent.
+        assert!(!row.loading, "nothing is running, so nothing may claim to be");
+        assert_eq!(row.functions, 0, "and it counts nothing, because it has walked nothing");
+        assert_eq!(row.trace_depth, crate::trace::Depth::Untraced);
     }
 
     /// A touch of ANY project must not erase what only the index knows about another.

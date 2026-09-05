@@ -141,7 +141,13 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
   // the row's local `asked` covers only the second before the next poll.
   const reading = !!p.run?.running || !!p.run?.stopping
   const total = p.functions + p.files
-  const scanned = !p.scan_cost && !p.loading
+  // **Three things this is not, and the third one used to be missing.** A row that has been
+  // scanned is one nobody declined, nothing is scanning, and — the case a reset creates — the
+  // app is actually holding. Read as the absence of the first two alone, the row Reset leaves
+  // behind claimed a finished scan of `0 functions in 0 files`, and the two pills after it
+  // answered from those zeros: `no git history here` about a repo nobody had walked, and a
+  // Read offering to read nothing. See `ProjectSummary.unloaded`.
+  const scanned = !p.scan_cost && !p.loading && !p.unloaded
 
   const scan: Phase = p.scan_cost
     ? {
@@ -175,21 +181,34 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
               ? `${compact(p.read_done)} / ${compact(p.read_total)} ${p.read_unit || 'files'}`
               : p.read_phase || 'queued',
         }
-      : p.behind
+      : p.unloaded
         ? {
             key: 'scan',
-            fill: [1],
-            stale: true,
-            verb: 'Rescan',
+            // **Empty, and offering the work rather than reporting it.** This is a project
+            // the app knows and is not holding: reset, or a volume that was not there when
+            // the restore reached it. The note says which of the two questions the row can
+            // answer — its name and where it is — and nothing about what is inside, because
+            // nothing has looked.
+            fill: [0],
+            verb: 'Scan',
             act: 'scan',
-            note: 'need rescan',
+            note: 'not scanned',
           }
-        : {
-            key: 'scan',
-            fill: [1],
-            done: 'Scan',
-            note: `${compact(p.functions)} functions in ${compact(p.files)} files`,
-          }
+        : p.behind
+          ? {
+              key: 'scan',
+              fill: [1],
+              stale: true,
+              verb: 'Rescan',
+              act: 'scan',
+              note: 'need rescan',
+            }
+          : {
+              key: 'scan',
+              fill: [1],
+              done: 'Scan',
+              note: `${compact(p.functions)} functions in ${compact(p.files)} files`,
+            }
 
   const trace = traceOf(p, scanned, replayBlocked)
 

@@ -3271,6 +3271,20 @@ export default function App() {
                     onClear={noop}
                     onDrill={noop}
                   />
+                ) : awaiting && !awaiting.loading && (awaiting.unloaded || awaiting.scan_cost) ? (
+                  // **Nothing is happening here, and the pane used to say it was.** This is a
+                  // project the app knows and is not holding — reset, declined for cost, or a
+                  // volume that was not mounted when the restore reached it — so there is no
+                  // scan to wait for and no progress to report. It fell through to the wait
+                  // below and read `Reading tattle…` under a bar that never moved, for as long
+                  // as anybody left it selected. The row beside it says the same thing in three
+                  // words; this is the room to say it properly and to offer the work.
+                  <Unscanned
+                    project={awaiting}
+                    onScan={() => {
+                      void scanRepo(awaiting.repo).catch((err) => setError(String(err)))
+                    }}
+                  />
                 ) : awaiting ? (
                   // There are projects, and none of them has a tree on screen yet. The empty
                   // pane's copy tells you how to open a project — advice for someone with none,
@@ -3962,6 +3976,57 @@ function HistoryToggle({
  * projects, so adding one dismisses it for good; a persisted dismissal would be state that
  * can only ever go wrong, guarding a screen nobody will see again anyway.
  */
+/**
+ * A project this app knows about and is not holding anything for.
+ *
+ * **The pane's third answer, and it used to have two.** A repo with a tree gets the map; a
+ * repo being scanned gets the wait. A repo with neither — one that has been reset, one whose
+ * scan was declined for cost, one whose volume was not mounted when the restore reached it —
+ * fell into the wait and sat there reading `Reading tattle…` behind a bar with nothing behind
+ * it. Nothing was coming; there was no scan.
+ *
+ * So it says what is true and offers the one thing that changes it. The path is here because
+ * it is the other half of what the app still knows: the name identifies the project and the
+ * path is what a reset did NOT touch — the repo is exactly where it was.
+ *
+ * The estimate rides along where there is one, which is the declined case. It is the reason
+ * that project has no tree, so a button offering to scan it anyway has to say what it costs.
+ */
+function Unscanned({ project, onScan }: { project: ProjectSummary; onScan: () => void }) {
+  const cost = project.scan_cost
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="flex w-full max-w-[46ch] flex-col gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-8 py-8">
+        <div className="flex flex-col gap-1">
+          <h2 className="mono text-[15px] text-[var(--foreground)]">{project.name}</h2>
+          <p className="mono break-all text-[11px] text-[var(--muted-foreground)]">
+            {project.repo}
+          </p>
+        </div>
+        <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">
+          {cost
+            ? 'This repo has not been scanned here — the scan was priced and left for you to start.'
+            : 'Nothing has been scanned here yet. The repo is untouched; everything Sanity derived from it is gone.'}
+        </p>
+        <button
+          onClick={onScan}
+          className="self-start rounded-[var(--radius-sm)] bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--accent-foreground)] hover:opacity-90"
+        >
+          Scan {project.name}
+        </button>
+        {cost && (
+          // The same two facts the row's pill prints, in the same order and for the same
+          // reason — this many files is WHY it is that many seconds.
+          <p className="mono text-[11px] text-[var(--muted-foreground)]">
+            {cost.files === null ? 'size unknown' : `${cost.files.toLocaleString()} files`} → about{' '}
+            {Math.round(cost.seconds)}s
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Empty({ onAdd }: { onAdd: () => void }) {
   const [found, setFound] = useState<{ id: string; installed: boolean }[]>([])
   useEffect(() => {

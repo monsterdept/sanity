@@ -1148,6 +1148,20 @@ export interface ProjectSummary {
    *  are zero because nothing has counted them — not because the repo is empty. The row
    *  shows its name and holds its place; the counts wait. */
   loading: boolean
+  /** This app is not holding a scan for the project — and nothing is on its way either.
+   *
+   *  **A third state, and it has to be a fact rather than the absence of the other two.**
+   *  `phasesOf` read "scanned" as `!scan_cost && !loading`, which was true of every row
+   *  that had been scanned and also of the one Reset leaves behind: the pill ticked Scan
+   *  over `0 functions in 0 files`, the trace gauge reported `no git history here` about a
+   *  repo nobody had walked, and Read offered to read nothing. A row that has walked
+   *  nothing must not answer questions about what is in the repo.
+   *
+   *  Set on a project the app knows from the index and is not holding — after a reset,
+   *  before the restore reaches it, or when its scan was declined for cost. The counts on
+   *  such a row are zeros standing for "not measured", exactly as they are behind
+   *  `loading`. */
+  unloaded?: boolean
   /** How far the pending rescan has got. Both zero means it is still walking the repo and
    *  has no denominator yet — a real state, not zero percent. */
   read_done: number
