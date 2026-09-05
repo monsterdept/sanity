@@ -637,8 +637,8 @@ export default function App() {
     // **A project you have not opened this session inherits the lens you are on**, rather
     // than resetting to a default. Switching repos is a change of subject, not a change of
     // question: somebody comparing two codebases under Docs wants Docs on both. Where the
-    // new repo cannot answer it — no readings yet — `locks` falls back for the duration and
-    // the preference survives to be restored when it can.
+    // new repo cannot answer it — no readings yet — the lens comes over locked: a grey map
+    // under the question you were already asking, with the padlock saying what would fill it.
     setMode(v?.mode ?? view.current.mode)
     setStack(v?.stack ?? [])
     setPicked(null)
@@ -1852,17 +1852,30 @@ export default function App() {
 
   /** What the map is actually painted with.
    *
-   *  **The lens you chose, unless this repo cannot answer it — and choosing does not change
-   *  your choice.** The fallback used to be an effect that called `setMode('language')`, which
-   *  worked once and then lost the preference: open an unread project and Surprise was gone
-   *  for good, so every project after it opened on Language too. Derived instead, the
-   *  preference survives being unanswerable — switch to a repo with readings, or finish a
-   *  pass on this one, and the lens you picked comes back on its own.
+   *  **The lens you chose. A locked one included.**
    *
-   *  A staged export overrides both, for the length of a recording: the file is a copy of
+   *  This substituted `language` for a lens the repo cannot answer, and the substitution was
+   *  the last survivor of a rule this app has otherwise abandoned everywhere: the strip is
+   *  click-through, the menu dims a locked row rather than disabling it, `lib/keys.ts` refuses
+   *  to let the keyboard turn a digit down — all three on the ground that *a locked lens is
+   *  still a place you can stand, and what it has to say there is said by the map*. It could
+   *  not be, while standing on one silently put you somewhere else: ⌘2 on an unread repo
+   *  selected Surprise and landed on Language, with the chip, the key and the panel all
+   *  agreeing that Language was what you had asked for. A shortcut that answers with a
+   *  different lens is worse than one that does nothing, because nothing about the screen
+   *  afterwards says a substitution happened.
+   *
+   *  What a locked lens paints is an absence, which every lens here already knows how to
+   *  draw: no reading is grey, an unresolved language is grey, a repo with no history is
+   *  grey. Why it is grey is the LOCK's job — the padlock on the chip, and the sentence in
+   *  its tooltip beside the button that opens it. That is the one place a repo-level answer
+   *  belongs, and `ColorKey` has been drawing it on the trigger all along; nothing could
+   *  reach that state to see it.
+   *
+   *  A staged export still overrides, for the length of a recording: the file is a copy of
    *  what is on screen, so choosing a lens there means changing the map. It goes back when
    *  the dialog closes, because `staged` does. */
-  const viewMode: ColorMode = staged?.mode ?? (locks[mode] ? 'language' : mode)
+  const viewMode: ColorMode = staged?.mode ?? mode
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
