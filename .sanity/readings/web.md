@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-562 of 565 read · 108 surprising · 7 stale
+566 of 566 read · 108 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -512,14 +512,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/CodeBlock.tsx
 
-### the file itself — QUIRKY — STALE
-- spec 3 · read at `44caf565d2ae` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:35:11Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A component for displaying a code snippet with line numbers: `dedent` strips common leading whitespace from a multi-line string so indentation from the source doesn't leak into the display, `Lines` renders each line as a numbered row, and `CodeBlock` is the exported wrapper that ties them together, likely used to show function bodies/passages elsewhere in the map's detail panels. No syntax highlighting engine is implied by the peer names, so it's probably plain monospace text rather than tokenized highlighting.
-- found: A dual-size code viewer: an inline scrollable box that expands via a corner button into a full modal (Overlay-based, Escape-to-close, with a copy button and title/subtitle header). Uses `dedent` to strip the shared indentation and `tokenize` for lightweight highlighting, but also supports a non-highlighted prose mode (for doc comments) that wraps instead of scrolling, and an optional `marks` map that annotates specific file lines with a label/reason column, used so other lenses (like Complexity) don't reimplement their own code box.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: No file-level doc comment exists — the rich JSDoc block above `dedent` actually documents CodeBlock as a whole (a misplaced/merged header) rather than describing `dedent` itself.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 3 · read at `d2ad6b3aaf79` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:22:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A small, self-contained React component module for displaying a block of source code (e.g., in a detail panel showing a function's body): `dedent` strips common leading whitespace from a code string, `Lines` renders individual numbered lines, and `CodeBlock` is the exported component that ties them together with basic styling/monospace font. No file header is present.
+- found: CodeBlock is a snippet viewer used in panel rows: shows a bounded, scrollable, syntax-tokenized (via lib/tokens) code box with a copy button and an expand-to-modal affordance (Escape/backdrop to close), file-relative line numbers via startLine, optional per-line marks (label+reason column), and a highlight toggle for prose/doc-comment display (wrapped, untokenized). dedent strips the shared leading-whitespace prefix (not per-line) so embedded impl-block indentation doesn't eat panel width, and Lines renders the actual gutter/table with file-line-numbered rows.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: The task listed docs as empty (no file header), but the file is actually saturated with rich inline doc comments on the component and its props explaining design rationale (e.g. why dedent, why marks exist, why modal not full-screen) — the emptiness is about the missing top-of-file summary, not an absence of documentation overall.
 
 ### `dedent`
 - spec 3 · read at `d3e7ad5ad7e6` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:22:16Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -543,14 +541,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/CodeView.tsx
 
-### the file itself — STALE
-- spec 3 · read at `859323050773` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:57:01Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: No header docs — this file's responsibility has to be inferred purely from its three exports: ownerByLine (a helper that builds a Map<number, Node> from a file's child functions, mapping each source line number to its owning function node, based on function line/end ranges), and the CodeView and Minimap components already read, which together implement a single-file source viewer with a lens-colored line-number gutter, syntax highlighting, and a canvas-based structural minimap. The whole file is the "read one file as text" pane of this codebase-visualization app.
-- found: Exactly as predicted: ownerByLine builds a per-line Map<number,Node> from function line/endLine ranges, and the file otherwise consists of the already-read CodeView and Minimap components. No file-level header doc exists (only per-export doc comments), consistent with the empty `docs` field.
-- predicted: full · documented: none · derivable: yes · legible: not judged · trap: no
-- note: Warm read — I had already seen CodeView and Minimap's full bodies in the two immediately preceding tasks, so this file-level task added only ownerByLine as new material.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself — QUIRKY
+- spec 3 · read at `8945639cc95e` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:22:21Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the code-reading panel: `ownerByLine` builds a line-number → owning function/node lookup by walking the file's children and their line ranges, `Minimap` renders a compact, canvas-or-DOM-based overview of the whole file (colored by the same heat lens as the gutter) with a viewport indicator that lets you click/drag to jump around, and `CodeView` (already seen) is the exported component tying source-fetching, tokenization, virtualized rendering, the gutter, and the minimap together into one panel.
+- found: The file has three parts: `ownerByLine` (line→owning-function map, as predicted), `Minimap` (a canvas overview, correctly guessed as click/drag-navigable with a viewport slider), and `CodeView` (the panel, as seen before). But I mispredicted Minimap's coloring: it does NOT use the heat lens at all — a deliberate design choice explained in its doc comment (heat there was tried and reverted because it duplicated the gutter and hid the file's shape) — instead it renders actual glyphs from a pixel glyph-sheet/atlas, colored by syntax token class, with thin rules marking function boundaries. That glyph-atlas rendering approach was not something I predicted.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `ownerByLine`
 - spec 2 · read at `39b85adfda97` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:45:18Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -558,14 +553,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Iterates file.children, skipping non-'func' nodes and those with a null line, then for each line from fn.line to fn.endLine (falling back to fn.line if endLine is null) sets map.set(line, fn). Returns the resulting Map.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
-### `Minimap` — TRAP — STALE
-- spec 3 · read at `bb96e18a5cb5` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:56:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Renders a narrow vertical minimap (likely SVG or canvas) with one thin bar per line, each bar drawn from the line's indentation start to its end — giving an indentation-profile silhouette of the file. It marks boundaries between functions using the owners map (e.g., a divider or tick where one function's ownership ends and the next begins), draws a viewport/scroll-position indicator synced to scroller's scroll state, and lets clicking on the minimap jump the scroller to that line. insetTop pushes the whole thing down to leave room for window controls.
-- found: Confirms the shape (indentation-profile bars, function-boundary marks via owners, scroll-viewport rectangle, click/drag-to-seek) but I missed the implementation: it's an imperative canvas draw (not SVG) driven by a native scroll listener rather than React state to avoid re-rendering 2,690 tokenized rows per frame, and it downsamples multiple source lines into one drawn row for long files (bucketing indent/extent/comment-ness per row) rather than drawing one bar per line unconditionally.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: The draw effect's dependency array lists `lines`/`owners`/`scroller`/`insetTop` but the actual redraw trigger is a native 'scroll' listener added imperatively inside the effect — a future editor adding React state for scroll position (as the removed code apparently did) would silently reintroduce the perf regression the comment describes.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `Minimap` — TANGLED
+- spec 3 · read at `e68915d556c9` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:22:07Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a scrollbar-adjacent overview of the whole file as a canvas (or divs) — one bar per line drawn from its indentation to its end length, likely colored by owning function/node, with a viewport rectangle tracking `scroller`'s scroll position and probably click/drag-to-scroll support; `width` and `insetTop` size and offset the drawing area.
+- found: Draws the minimap imperatively on a canvas outside React's render loop, redrawn on scroll/resize: renders actual per-character glyphs from a rasterized glyph sheet (VS Code minimap-style, not literal bars) tinted by resolved token CSS colors, draws a faint rule where file ownership changes between lines, then overlays a translucent viewport slider. Drag/click handling mimics VS Code's slider-tracks-pointer model (ratio-based delta) rather than teleporting the clicked line to center.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The file docs explicitly describe the minimap as drawing indentation bars and argue against per-glyph rendering ("drawing glyphs... reads as noise"), but the actual implementation renders real character glyphs from a glyph sheet — the docstring appears stale relative to the code.
 
 ### `CodeView` — QUIRKY
 - spec 3 · read at `cf7824dff88a` · commit `89e8108` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:21:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -862,11 +855,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Findings.tsx
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `2ec8f233a591` · commit `871b0b4` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:56:54Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This file is the main UI for browsing/triaging a list of "findings" (likely lint/review issues) tied to file locations. Helper functions derive path pieces (dirOf/dirFor/fileOf/nameOf) and colors/names for "lenses" and "fields" (categorization dimensions), plus draft/blank-draft and fieldsFor/spreadFor helpers for building an editable form. RuleForm is a sub-component for creating/editing a rule (e.g. a suppression or classification rule) tied to a lens, and Findings is the top-level component rendering the findings list with filtering/grouping by directory and lens, including a "share" action and "trim" utility for text truncation.
-- found: This is the full "Findings" panel component (a modal) for a static-analysis tool that scores code (functions/files) on various "lenses" (dimensions like complexity, size, churn) and raises rule-based findings. It has three views (findings list, rules catalog, ignored/archive drawer), a rule-editing form (RuleForm) for creating/editing threshold-based rules with clauses, verdict actions (flag/fine-for-now/fine-always) with optional reasons, address/path formatting helpers with responsive middle-truncation, and lens-based coloring shared with a "map" visualization elsewhere in the app. It merges multiple rule hits per subject into one tile rather than one row per rule.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The extensive prose doc comments explain design rationale/history (alternatives tried and rejected) that could never be derived from the code alone — unusually well-documented for the `derivable` question.
+- spec 3 · served in 3 parts · read at `94d5130d3c8f` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:42Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: React frontend component for the Findings panel, rendering finding groups/tiles from the backend's project_report. Contains formatting/location helpers (trim, share, address, dirOf/dirFor, fileOf, nameOf), rule-domain helpers for grouping/coloring by lens and field (lensName, lensRule, lensColor, fieldColor, fieldsFor, spreadFor, sections), a RuleForm component with draft state (draftOf, blankDraft) for creating/editing custom rules, and a top-level Findings component wiring fetch, tile rendering, and dismiss/decide/edit-rule actions.
+- found: Matches prediction closely in shape: formatting/address helpers, lens/field color helpers deferring to modeToken, a RuleForm for editing rule drafts (with clause-count cap, population-aware field filtering, calibration spread display), and a top-level Findings component. But it's richer than predicted: findings are merged by subject key across multiple rules into one tile per subject (not per-rule), there's a three-way view switch (findings/ignored/rules), per-verdict flag/snooze controls with an inline reason input, careful middle-truncation layout logic for addresses, and a footer reporting blocked/dismissed counts so an empty list is never ambiguous. No file-level header doc exists (docs was empty) — the file's intent is instead carried entirely by dense inline comments on individual declarations.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+- note: This is a file-level task (no single body), so legible/trap are reported as a rough overall impression rather than a judgement about one function, per the ask's own caveat.
 
 ### `trim`
 - spec 3 · read at `4921dbf891a5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -954,17 +947,23 @@ What this is and how to add to it: [README.md](README.md)
 - found: Filters g.fields to those with pop === null (universal) or pop === the given population, exactly as predicted.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
+### `sections`
+- spec 3 · read at `f611dab4a839` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:28Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Splits `fields` into two groups for a picker UI: fields whose scope narrows the subject itself (loc, callers, etc.) go in one section, and fields that are facts about the repo/file as a whole (repo_headcount, file_headcount, etc.) go in a separate "about the repo" section — likely also filtering by `pop` to exclude fields that don't apply to a func vs file rule. Returns an array of {label, fields} section objects for rendering.
+- found: Groups fields by their `scope` property into three sections (subject/file/repo) with labels, dropping empty sections; label for the subject section depends on pop (file vs function). Matches my prediction well, though it's three scopes not two, and it filters by scope field directly rather than by `pop` for exclusion (the file-vs-function distinction only affects the subject label).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
 ### `spreadFor`
 - spec 3 · read at `7612d0c41867` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:41Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: Returns null if f is undefined; otherwise looks up and returns the Spread value on f keyed by pop (e.g. f.spread[pop] or f.funcSpread/f.fileSpread depending on pop), giving the distribution stats relevant to the chosen population.
 - found: Returns null if f is undefined, else f.file or f.func directly (fields named exactly that, not a nested `.spread` lookup) based on pop.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `RuleForm` — QUIRKY
-- spec 3 · read at `d2f35e05e5c4` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders a form for creating/editing a rule against a draft state, using the grammar to determine which fields/clauses are available (likely via fieldsFor/spreadFor helpers to build dropdowns/inputs per lens). Shows the error message if present, disables Save/Delete while busy, and shows the pinned count as a warning that N existing "fine-for-now" decisions will be affected/revisited if the rule changes. Wires onSave/onCancel/onDelete/onReset to buttons, and uses set() to update the draft as the user edits fields.
-- found: Renders the full rule-editing form: title input, a population selector (func/file) that drops clauses the new population can't answer, up to 3 clauses each with field/op/value selects plus a per-clause distribution hint (median/95th/most or a 'nothing here' message), an add-clause button capped at 3, an impact ('so-what') input, an optional report-text textarea, a warning when changed clause fields will resurface pinned fine-for-now decisions, an error message, and save/cancel/delete-or-turn-off/reset-if-built-in buttons.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
+### `RuleForm`
+- spec 3 · read at `5458f15de2de` · commit `2c17aa2` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:01:48Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a form for editing a rule draft: dropdown/inputs for its clauses (field/operator/value) populated from grammar, displays the error string if present, disables save/delete while busy, and wires onSave/onCancel/onDelete/onReset to buttons; shows a warning near the pinned count about how many filed decisions the edit would affect.
+- found: Renders the full rule-editing form: title, population selector (func/file) that drops incompatible clauses, up to 3 clause rows (field/op/value) with per-field spread stats (median/95th/max), an "impact" and optional report-text field, a warning when changed clause fields would un-pin filed decisions, an error message, and save/cancel/reset/delete-or-turn-off buttons.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `Findings` — QUIRKY
 - spec 3 · served in 2 parts · read at `ed37ba50c3ac` · commit `871b0b4` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:57:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1054,22 +1053,19 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/LensPane.tsx
 
-### the file itself — STALE
-- spec 3 · served in 4 parts · read at `d2f96fdf4dd9` · commit `27654c8` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:35:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the whole "lens" system for the Detail pane: the `LensPane` dispatcher plus every per-mode section component it switches to (SurpriseSection, DocsSection, TrapsSection, WiringSection, LanguageSection, HistorySection, AgeSection, ChurnSection, TangleSection, LegibleSection/LegibleKey), along with the small shared UI primitives and helpers they all lean on (Block, Absent, StaleNote, Ladder, RefRow/RefList, NoteBox, Passage, ExpandIcon, Touch, Edge, useFitToPane, and utility functions like spanOf/dirOf/bandSpan/px/when). It's a large, single-responsibility-per-lens module — one file because the lenses share so much visual vocabulary and the "absent measurement" convention, rather than because it's one concern.
-- found: Confirmed: the file holds the LensPane dispatcher plus one section component per lens (Surprise, Legible/LegibleKey, Docs, Traps, Wiring for callers/reach/clones, Language, Tangle, History/Churn/Age) and the shared building blocks (Block, Absent, Ladder, StaleNote, RefRow/RefList, NoteBox, Passage, ExpandIcon, Touch/Edge, useFitToPane/px, when, dirOf/spanOf/bandSpan). Extremely dense with rationale comments explaining design history for nearly every visual decision (why churn is a calendar not a count, why blame/churn/age share one fetch, why the calendar's month/week labels are placed as they are, etc.) — the file has no top-of-file header doc at all despite being the single largest, most design-justified component in the app.
-- predicted: full · documented: none · derivable: no · legible: not judged · trap: no
-- note: There is no file-level doc comment at the top of LensPane.tsx, unlike most of the design-heavy prose that lives inline per-function — a reader skimming just the file header gets nothing, and has to read the whole 1868 lines to find the file's own rationale (in LensPane's own docstring, which describes the pane split rather than the file).
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### the file itself
+- spec 3 · served in 4 parts · read at `748599abd03f` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:22:27Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: The file implementing the "Lens" detail side-panel component for a selected code node in this codebase-visualization tool: a top-level LensPane component that stacks many independent analysis sections (complexity/tangle, docs, traps, wiring/refs, language, age, churn, history, legibility, surprise) as expandable Block widgets, plus a long tail of small shared helper components (RefRow, RefList, NoteBox, Passage, Ladder, StaleNote, ExpandIcon, Edge, Touch) and utility functions (dirOf, bandSpan, px, useFitToPane, when, spanOf) reused across those sections. No file header despite being ~1900 lines, so the purpose must be inferred from the declaration list alone.
+- found: Exactly as predicted structurally: LensPane is a switch that renders one of many lens sections (Surprise, Legible, Docs, Traps, Wiring/callers-reach-clones, Language, History/blame-churn-age, Tangle/complexity) for a selected node, each fetching its own data lazily and each written with an "absence is stated, not hidden" philosophy carried in extensive inline prose comments. I underestimated how much of the file is devoted to precise pixel-level layout/measurement code (useFitToPane, the churn calendar grid, timeline edges) and how much of its bulk is essay-length inline comments explaining design decisions rather than plain doc headers.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: The file has no top-level header doc, but nearly every function has a substantial doc comment explaining rationale — so "no doc" at the file level is misleading about the file's overall documentation density.
 
-### `LensPane` — STALE
-- spec 3 · read at `3439c18fb592` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A switch/dispatch on `mode` that renders the matching lens-specific section component (SurpriseSection, LegibleSection, DocsSection, TrapsSection, WiringSection, LanguageSection, TangleSection, HistorySection, etc.), forwarding the relevant subset of props (node, repoKey, replaying, siblings, ranks, views, tangleBands, tangleOver, onJump) to whichever section is active. Each branch is responsible for its own "absent measurement" messaging per the docs, so this function is mostly plumbing/routing rather than logic itself.
-- found: Two guards before the switch I didn't predict: if `replaying`, short-circuits to an explanatory Absent block instead of any section (since all lenses read the working tree); and for non-function nodes, restricts which modes get a section at all (only surprise/docs/traps/blame, plus a special LegibleKey for 'legible'). Only then does it switch on `mode` to render the matching lens section component, passing through the relevant props.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `LensPane`
+- spec 3 · read at `b06ad68265e7` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:22:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A switch/dispatch on `mode` that renders the matching section component (SurpriseSection, LegibleSection, DocsSection, TrapsSection, WiringSection, LanguageSection, TangleSection, HistorySection) for the active lens, forwarding node/repoKey/siblings/ranks/views/tangleBands/tangleOver/onJump/onOpen as needed. May share some generic absent/stale framing logic before delegating to the section.
+- found: Core is the switch/dispatch to section components I predicted, but there are two guard blocks I missed entirely: an early return showing an "Absent" replaying notice when the map shows a past commit (since all sections read the working tree), and gating logic for non-func container nodes that only lets through surprise/docs/traps/blame modes (plus a special-cased LegibleKey for 'legible') since containers get their breakdown from Summary instead.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The doc comment describes the enclosing pane's design philosophy well but says nothing about the replaying guard or the container-mode allowlist, which are the two most complex pieces of logic in the function body.
 
 ### `Block`
 - spec 3 · read at `0fa4c4027ff0` · commit `be4f3be` · read by claude-sonnet-5 · via claude · when 2026-08-21T07:03:31Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -1680,13 +1676,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: some · trap: no
 - note: I correctly guessed the overall dial concept and pointer-events but substantially underestimated the complexity — it's almost entirely careful circular-typography math (converting linear glyph measurements to angular offsets at multiple radii), not a simple label overlay, and I wrongly assumed a heatShare-driven color scheme that isn't there.
 
-### `SunburstView` — TANGLED — STALE
-- spec 3 · served in 5 parts · read at `ce577dd664b6` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:24Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The giant component that renders the actual sunburst visualization: lays out concentric ring wedges from root sized/colored per mode and views, handles click interactions (select/drill/clear/up), draws the central mascot/hub and its state, pulses nodes currently in `reading`, draws markers/dots for traps and clones on directory rims, applies spacing/rimShare/rings geometry, eases via morph for replay, marks derivable docs, and reports back via onWantRings/onSide which files need ring data and how large the pane is.
-- found: All the core pieces I predicted are correct (ring layout by mode/views, click handling, mascot/hub, reading pulses, trap/clone dot markers, rim geometry knobs, morph easing for replay, onWantRings/onSide reporting), but the actual body is vastly more than that: it implements a from-scratch level-change transition system (leaving/coring/entering wedges with lerped geometry), a continuous rAF 'chase' animator for morph/fold easing, file-zoom unrolling into tiling patches, per-function tiling with roll-up dot textures and stale/unreadable hatches, a rim-histogram/dot-placement algorithm with proximity merging, a selection-mask-via-evenodd-path rendering trick, custom hover/tooltip and rim-segment hit-testing done by pointer math rather than DOM events, directory folding with hatched handles, and a bottom-corner caveat chip enumerating hidden/folded/unparsed content.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `SunburstView` — TANGLED
+- spec 3 · served in 5 parts · read at `f6b5b37897b2` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:21:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Large React component that lays out an SVG sunburst (arcs/rings) for a tree of files/functions, computing wedge geometry (rings, spacing, rim bands, morph easing) and colors per `mode`. Handles interactions (select/drill/clear/up), renders the central mascot hub with findings badge, and draws overlays like reading pulses, trap/clone markers, and derivable-doc pulses using various geometry/color helper functions from the same file.
+- found: It's the full sunburst chart renderer: computes rIn/band/radii/cuts/rim geometry from spacing/density props, runs a custom rAF-based zoom/morph animation system (level-change keyframes, a separate "chase" for continuous morphing/folding, file-open/close fan transitions via FileZoom), builds per-wedge fills via colorFor/histogramsFor, escalates unreadable replay events to the nearest drawn ancestor, computes trap/clone dot marks and mascot gaze direction from active wedges, then renders everything as nested SVG groups (leaving wedges, coring hub, structural wedges, tiled function patches, labels, selection dim-mask, hub disc, mascot layer, tooltip, and a corner caveat chip about hidden/folded/unparsed content).
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
+- note: The prop docs alone predicted the geometry/interaction surface well, but the sheer amount of custom animation machinery (level-change keyframes vs. continuous morph/fold chase vs. file open/close fan, all coexisting and cross-gating each other) was far beyond what the signature/prop docs implied.
 
 ## web/src/components/Tabs.tsx
 
@@ -2615,6 +2610,28 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Given an Arc (inner/outer radius + start/end angle), computes the arc's mid-radius as (inner+outer)/2, then w = arc length at that radius (angle span in radians × mid-radius) and h = radial thickness (outer - inner), returning {w, h} as the label's available width/height.
 - found: w = angle span × mid-radius (arc length at mid radius), h = r1 - r0 (radial thickness); exactly as predicted.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+## web/src/lib/glyphs.ts
+
+### the file itself
+- spec 3 · read at `42fd17af1020` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:22:27Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds the glyph rasterization used by the Minimap: a `glyphSheet()` function that draws each printable ASCII character (32-126) onto an offscreen canvas at a tiny fixed size and extracts per-pixel alpha into a shared buffer, likely memoized/cached since it's relatively expensive to build; and a `cellOf(charCode)` helper mapping a character code to its index/offset in that sheet, returning -1 for unsupported codes.
+- found: glyphSheet() rasterizes ASCII 32-126 once into an offscreen canvas at 8x supersampled size, averages each cell down to a 2x4 greyscale coverage buffer (memoized via a `built` flag, not just the null sheet, so a failed headless build isn't retried), storing alpha-as-coverage since color is applied at blit time by the caller. cellOf(code) maps a char code to its sheet index, returning -1 only for space/tab (to avoid drawing a wall for indentation) but falling back to the LAST glyph's cell for other out-of-range codes rather than -1.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+
+### `glyphSheet`
+- spec 3 · read at `edfa2978463d` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:21:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Lazily builds and caches (module-level singleton) a canvas-rendered sprite sheet of ASCII 32-126 at 1px wide by 2px tall each, extracting the alpha channel per pixel into a Uint8Array; returns null if canvas/document is unavailable (e.g. SSR/non-browser environment).
+- found: Builds a cached sprite sheet by rendering each ASCII glyph at 8x the target size onto a canvas, then downsampling each cell by averaging the alpha channel over the 8x8 source pixels per output pixel, producing anti-aliased coverage values (not just binary on/off) into a Uint8Array; returns null if document is unavailable.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Missed the supersample-and-average technique (draw at 8x, mean the alpha per cell) — I only predicted direct rasterization at target size.
+
+### `cellOf` — QUIRKY
+- spec 3 · read at `c0d12b592039` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:22:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns code - 32 when code is within the printable ASCII range [32, 126] (the range the glyph sheet covers), and -1 otherwise — including for tab (9), which is explicitly excluded per the docs since it's whitespace-with-width rather than a glyph.
+- found: Returns -1 for space and tab (both blank), code - FIRST for in-range printable chars, and for out-of-range codes returns LAST - FIRST (the sheet's last cell, presumably an "unknown"/fallback glyph) rather than -1 as I predicted.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: Out-of-range codes map to a fallback glyph cell (LAST-FIRST), not -1 — only whitespace (space/tab) gets -1; I had the two cases reversed/conflated.
 
 ## web/src/lib/history.ts
 
@@ -3646,13 +3663,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 - note: This was a warm reading — I had already read the full file in the previous file-level task, so this prediction is not independent evidence.
 
-### `tokenize` — STALE
-- spec 3 · read at `4e82ec218d75` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:51:40Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Given a single line of source code, tokenize() scans it left-to-right using a set of regexes (or manual char scanning) to split it into an array of Tok objects, each carrying a token type (keyword, string, comment, number, identifier, punctuation, whitespace) and the matched text/span. It's a lightweight approximate tokenizer, not a full-language lexer, used purely to drive syntax-highlight coloring.
-- found: Uses a single global regex with capture groups (comment/string/num/word/space) matched in a loop to classify each matched span into a Tok with a CSS class name (tok-comment, tok-string, tok-num, tok-key/tok-plain, tok-punct), then passes the array through a `name()` function before returning.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `tokenize`
+- spec 3 · read at `380664b543ac` · commit `a432a3f` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:21:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Tokenizes a single line of source code into an array of Tok objects, each with a text span and a CSS class (e.g. tok-keyword, tok-string, tok-comment, tok-number) for syntax highlighting. Likely implemented as a sequence of regex matches run against the line, walking left to right and classifying spans of identifiers/keywords/punctuation/strings/comments, falling back to a plain class for whitespace/other text. Since this is called per-line, it probably does NOT handle multi-line comments correctly (that's handled by tokenizeAll instead).
+- found: Single-pass regex tokenizer over one line, classifying each matched span as comment/string/number, then words split into control-keyword vs other-keyword vs plain identifier, whitespace as plain, and remaining chars as operator vs punctuation (operators checked first so multi-char ones like => aren't split). Finishes by piping the token list through `name()` (a peer function, presumably for extra identifier/name styling) before returning.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `name` — QUIRKY
 - spec 3 · read at `ce74776fd25e` · commit `89e8108` · read by claude-sonnet-5 · via claude · when 2026-09-04T21:21:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
