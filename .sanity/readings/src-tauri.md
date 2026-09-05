@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1163 of 1163 read · 204 surprising
+1170 of 1170 read · 207 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -2502,11 +2502,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: full · trap: no
 - note: I predicted use of bar/elapsed/grade_ink formatting helpers and an explicit offline_status fallback call, but the function is much plainer — no progress bar or color, and the online/offline distinction is handled inside read_verb rather than here.
 
-### `findings`
-- spec 3 · read at `6dfc5fdc179d` · commit `2c17aa2` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:01:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Reads .sanity findings/rules from disk under `path` (no backend call), merges multiple rule-hits on the same function into one subject entry (per-subject not per-rule), optionally enriches with edit recency (`edits`) and git blame (`blame`), sorts by severity/rank, truncates to `limit`, prints a formatted ranked list, and returns a process exit code.
-- found: Canonicalizes the path, opens the scan cache, picks a trace depth from edits/blame flags, runs an in-process scan (Ordering fidelity, ephemeral score cache), loads assessment reports, builds subject facts + applicable rules, produces per-rule-group findings, then merges hits by subject key into rows sorted by flagged-first then widest (loc) then key. Prints a header with counts, explicitly lists rules that were blocked (couldn't be evaluated) with why, then prints up to `limit` rows each showing which rule group(s) flagged it and the wrapped finding text, plus a truncation notice if more remain.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+### `findings` — QUIRKY
+- spec 3 · read at `a6747f4ddba3` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:11Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: CLI subcommand handler that reads on-disk findings (from .sanity/) for the repo at `path`, merges them per-subject (deduplicating multiple rule hits on the same function into one entry) rather than per-rule, sorts/ranks them, and prints up to `limit` entries — with optional edits/blame annotations shown per entry — returning a process exit code.
+- found: It canonicalizes the path, opens the scan cache, runs a live scan at Ordering fidelity (with trace depth chosen from the edits/blame flags), loads prior assessment reports, computes findings/rules/groups, then merges hits by subject key (flagged-first, then widest by loc) rather than by rule. It prints a header with counts, a summary of rules that were inactive for lack of evidence (folded by their `need`), then up to `limit` entries with each rule's title/text and one-time background text, plus a truncation notice if more remain.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: My prediction assumed findings were merely read from static .sanity/ files; in fact this command performs a full live scan/assessment/rule computation each invocation, and also prints a distinct 'inactive rules' section I didn't anticipate.
 
 ### `wrap`
 - spec 3 · read at `b2cf6ea9c697` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3347,10 +3348,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/findings.rs
 
 ### the file itself
-- spec 3 · served in 6 parts · read at `474f3b0967bd` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:48Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The whole rule/findings engine: Field/Op/Clause/Rule types and their text grammar/parser, evaluation of a subject's Facts against rules (matches/hits/live_hits/rank, gate clauses vs subject clauses), calibration of thresholds against the repo's own population (calibrate/Spreads/Marginal contribution to detect overlapping rules), template rendering of a rule's prose (render/check_template), persistence of the built-in catalog plus user rule edits and per-finding decisions (rules_dir/findings_dir/save_rules, archive/decide/undecide), and the top-level report/subjects pipeline turning a scanned tree plus assessment reports into grouped findings for the UI/CLI. Tests cover grammar completeness, calibration invariants, marginal-contribution correctness, and round-tripping rules/decisions to disk.
-- found: Confirmed all the major pieces I predicted: Field/Op/Clause/Rule grammar+parser, matches/hits/live_hits/rank, calibrate/Spreads/Marginal (overlap-detection), render/check_template, rules_dir/findings_dir/save_rules persistence, archive/decide/undecide, and the report/subjects pipeline. Missed several substantial pieces: NotOurs/not_ours/skipped (excluding generated/test/ignored code from the population entirely), the RuleEdit/apply_edit form-validation flow with its own refusal grammar, RuleView/ClauseView/Viewing/rules_view for the settings UI, the Verdict enum (Flagged/FineForNow/FineAlways) with pin_of-based expiry of dismissals, and the actual ~15-rule default catalog with its extensively argued thresholds (each rule a deliberate two-lens conjunction).
+- spec 3 · served in 7 parts · read at `6b6d8ceea631` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:37Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This file is the core findings/rules engine — it defines the rule grammar (Field, Op, Rule, clauses) and evaluates it against repo facts (walk, facts_of, matches, hits, rank) to produce findings, including self-calibrating thresholds (calibrate, tighten, Spreads) that target a fixed finding count rather than a fixed percentile. It also owns persistence and lifecycle around findings: saving/loading a per-repo tuned rule catalog (saved_rules, save_rules, rules_for, merge, amend), and recording user decisions on individual findings (decide, undecide, pin_of, archive, Verdict) so a finding once addressed or dismissed doesn't reappear.
+- found: This is the full findings engine, larger than expected: it defines the grammar (Field/Op/Pop/Scope/Clause/Rule with parse/expr round-tripping), evaluates it over flattened repo subjects (walk/subjects/facts_of) with strict None-never-defaults semantics for unanswerable clauses, self-calibrates thresholds to a fixed hit-count target rather than a percentile (calibrate/tighten, one-directional tightening only), computes true marginal contribution efficiently (Marginal), renders per-subject sentences with token substitution that abandons rather than guesses on missing data (render/check_template), persists a minimal-diff tuned catalog plus a full regenerated listing (save_rules/save_listing/merge/amend/stale — handling schema drift so old saved thresholds don't silently misapply), and separately manages a durable per-finding decision archive (Decision/Verdict/pin_of/decide/archive) with expiry semantics distinguishing 'fine for now' from 'fine always'. It also serves the settings UI (RuleView/ClauseView/apply_edit/mint_id) and includes an extensive test suite plus a scale benchmark.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: The file is much larger and more layered than the header suggests — it's simultaneously a grammar/parser, an evaluator, a self-tuning calibrator, a UI-facing rules editor, and a separate decision-archive subsystem, each with its own persistence format and backward-compatibility handling; a header pointing to docs/notes/findings.md doesn't convey that scope.
 
 ### `parse`
 - spec 3 · read at `553466a04b5a` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3376,11 +3378,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: Match over Field: Funcs -> Some(Pop::File); a specific set (FileLoc, FileFuncs, FileHeadcount, Read, Surprise, Documented, Legible, Trap) -> Some(Pop::Func), because those are per-reading/per-function measures or would otherwise duplicate a file-level name; everything else -> None (applies to both).
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
-### `scope`
-- spec 3 · read at `635f8c9447e7` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:14Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A short match: fields that are facts about the whole repo (RepoHeadcount, RepoAge, and similar repo-wide fields) return Scope::Repo, and everything else falls through to a default Scope::Subject, distinguishing "narrows the subject" fields from "gates on the repo as a whole" fields.
-- found: Matches as predicted in shape, but there's a third scope I missed: Scope::File for FileLoc/FileFuncs/FileHeadcount, in addition to Scope::Repo for RepoHeadcount/RepoAge and the default Scope::Subject.
+### `graded`
+- spec 3 · read at `a0113e229081` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:30Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A short match over the Field enum returning true for the 0..1 fractional-grade fields (like Documented, Surprise, Legible, Tangle, Trap) and false for the count-like fields (Loc, Callers, Commits, Headcount, etc.), used elsewhere to decide threshold precision during calibration.
+- found: Returns true only for Field::Tangle, Surprise, Documented, and Legible — the 0..1 grade fields — false for everything else (counts of lines/callers/days/people etc).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `scope`
+- spec 3 · read at `ee77f8f85b06` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:48Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Matches on the Field variant and returns a Scope enum value — Scope::Subject (or similar) for fields that measure the individual subject a clause narrows down, and a distinct variant like Scope::Repo for whole-tree facts such as repo_headcount that are the same value across every subject.
+- found: Matches the field: RepoHeadcount/RepoAge map to Scope::Repo, FileLoc/FileFuncs/FileHeadcount map to Scope::File, and everything else defaults to Scope::Subject.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: I anticipated a repo-wide vs subject-level split but missed the middle Scope::File tier for file-level aggregate fields.
 
 ### `needs_reading`
 - spec 3 · read at `a631c8090f75` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -3427,11 +3436,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: I incorrectly guessed the population prefix would be omitted; it's actually included, making this a true round-trip of parse's full input format.
 
 ### `parse` #3
-- spec 3 · read at `c014e595c2cc` · commit `2c17aa2` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:01:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Parses a rule-DSL string like "func: loc >= 200 and callers >= 20" into a Rule: splits on the leading "scope:" prefix, then splits the remainder on "and" into clauses, each parsed as field/operator/value (using Field::parse-like and Op::parse), collecting them into the Rule's clause list. Returns Err with a descriptive message for malformed syntax (missing colon, unknown field, bad operator, unparseable number).
-- found: Splits on the first colon into population ("func"/"function" or "file") and the rest, then splits the rest on " and " into clauses of field/op/number; errors on unknown population, malformed clause shape, unknown field/op, or unparseable number. Also caps clauses to 1-3 "subject"-scope clauses (excluding scope-only clauses), returning a fixed-field Rule with placeholder id/title/so_what.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: The distinction between Scope::Subject clauses and scope-deciding clauses for the 1-3 cap, and the placeholder ad-hoc metadata fields, aren't derivable from the signature — only from the body/comment.
+- spec 3 · read at `995476ac8e96` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes a rule text like "func: loc >= 200 and callers >= 20", splits on ':' into a scope/subject keyword and a boolean expression, tokenizes the expression into Field-op-value clauses joined by and/or, builds a Rule struct (scope + expr tree) via Field::pop/Op::parse helpers, returning Err(String) on malformed input.
+- found: Splits on ':' into a Pop scope (func/file only, no "or" support), parses "and"-joined clauses of field/op/number, enforces a rule must have 1-3 subject-scope clauses (repo-scope clauses exempt from the cap, per comment), and builds a full ad-hoc Rule struct with placeholder title/so_what/background fields.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The comment already explains why repo-scope clauses don't count toward the 3-clause cap, so this isn't an undocumented trap.
 
 ### `trim_num`
 - spec 3 · read at `f01350d0e15d` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:50Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -3609,18 +3618,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `blocked`
-- spec 3 · read at `635a36cab7ae` · commit `2c17aa2` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:02:06Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the rule's fields can actually be answered given the population's state: for each clause's field, if it needs git tracing and `traced` doesn't cover it, or needs a model/deep read and `read` is false, or needs a call table that no file's language provides, returns Some(message) explaining specifically which prerequisite is missing (tracing vs reading vs language support) so the caller can show the right explanation rather than a generic "no data". Returns None if every clause's field is satisfiable given the current facts/traced/read state.
-- found: Iterates rule clauses checking specific unmet prerequisites in priority order: model-read needed but not read, git-derived field but no git trace, Commits needing churn walk, headcount fields needing per-line blame, and finally a catch-all checking if any fact in the population actually has a value for the field at all. Returns the first specific blocking reason found, or None.
+- spec 3 · read at `9471edcc940e` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:23Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether the rule's clauses reference fields that the given facts/traced/read state can't supply -- e.g. if a clause needs `callers` but `traced` is false, or needs any field but `read` is false -- and returns Some(Blocked::SomeReason) distinguishing "not scanned" vs "not traced" vs "language lacks a call table", or None if all needed fields are available.
+- found: Walks the rule's clauses checking specific prerequisites in order: field needs_reading()+!read, git-derived fields+!traced.git, Commits+!traced.churned, headcount fields+!traced.blamed, and finally a catch-all checking whether any fact actually has that field's value (covers the callers/reach-without-call-table case). Returns the first Blocked{why, need} found, or None.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The order/specificity of checks (e.g. Commits needs both git AND churned, headcount needs blamed specifically) is exactly as I predicted structurally, matching the doc's stated rationale well.
+- note: The three named categories (read/git/churn/blame) are more granular than my prediction of a simple read/traced split; each has its own tailored error message.
 
-### `report`
-- spec 3 · read at `d6b7725c5db2` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:23Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: report iterates over the rules, and for each one evaluates it against every subject in `facts` to find hits (skipping/marking rules as blocked when `traced`/`read` say the needed data isn't available), filters out hits already covered by an entry in `archive` (dismissed/decided findings), and packages the remaining hits per rule into a Group (with its own metadata like label/blocked state), returning the full Vec<Group> for the panel.
-- found: For each rule computes live (non-dismissed, via pins from archive) hits over facts, plus a per-population median for rendering sentences, and a "Marginal" set of hits unique to that rule (`solo`/`only`) — then builds one Group per rule with title/tier/expr/counts/blocked flag, and up to PER_GROUP rendered findings (looking up each hit's Facts to render its sentence and checking pins for a "flagged" verdict).
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Missed the calibration/median machinery for rendering sentences and the "only"/marginal uniqueness tracking and the PER_GROUP cap — none of that was guessable from the doc, which focuses on why facts are passed in rather than what the body computes.
+### `report` — QUIRKY — TANGLED
+- spec 3 · read at `dadc82728000` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:58Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the rule catalog, checks `blocked` for each rule to skip/flag ones that can't run given traced/read, evaluates the runnable ones against facts to find matching subjects, filters out entries already covered by archive (pinned/dismissed decisions), and groups the results into Vec<Group> (likely one group per rule or lens) ready for the UI to render.
+- found: Builds one Group per rule: computes per-rule field medians (via Spreads) for rendering comparisons, splits each rule's matches into live vs. dismissed-aside hits (respecting pins), computes "only"/marginal counts across rules, and for each rule assembles a Group carrying tier/expr/blocked-status/lenses plus up to PER_GROUP rendered findings (with per-subject sentence text and flagged status from pins).
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Missed the calibration/median/spread machinery, the live_hits pin-filtering, and the Marginal 'only-this-rule' computation entirely in my prediction.
 
 ### `finding_of`
 - spec 3 · read at `94a1a30ae1dd` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:38:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3642,9 +3651,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `view_of` — QUIRKY
-- spec 3 · read at `9568e6ca657d` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:22Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Assembles a RuleView for one rule in the catalog UI/CLI — carrying whether it's on, and if found is Some, the hit-group counts and the marginal-contribution number for this rule at the current Viewing (calibration slice); if found is None (rule couldn't run / blocked), returns a view saying so rather than a zero count.
-- found: Builds a RuleView carrying the rule's metadata (title, so_what, tier, expr) and population, a per-clause ClauseView list with each clause's median and a re-calibration suggestion (only offered at the currently-calibrated clause, and only if it would tighten not loosen the rule), plus hit/only counts from `found` (0 if None) and a `blocked` reason.
+- spec 3 · read at `fbb14087ad48` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:59Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a RuleView struct from a Rule and its evaluation results: copies over the rule's identifying/display fields (id, description, clause text), sets whether it's currently on, and if `found` is Some, computes summary numbers like hit count and marginal contribution for display, possibly calling `blocked` to check if the rule couldn't run against this viewing context. If `found` is None, the view reports zero hits / not yet evaluated.
+- found: Builds a RuleView by copying display fields off the Rule and computing per-clause views (with median from Spreads and an optional tightened suggestion via `calibrate`, only offered for the calibrated clause when the rule is on and the suggestion actually moves in the stricter direction), plus hit/marginal counts from `found` and a `blocked` reason from the Viewing context.
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
 
 ### `yes`
@@ -3653,11 +3662,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly as predicted: a trivial function that always returns true.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `apply_edit` — TANGLED
-- spec 3 · read at `972561233955` · commit `2c17aa2` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:02:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Mutates the live rule list according to a RuleEdit, validating it against the catalog's grammar before applying — refusing with an explanatory Err(String) (never silently correcting) for edits that don't type-check as a rule (malformed clause, duplicate/unknown id, contradictory threshold), and mutating `live` in place (add/update/remove) on success.
-- found: Validates title non-empty, clause count (1-3 subject-scope clauses), each clause's field/op parse, population-mismatch, repo-scope clauses pass through as gates, non-repo Ge-with-nonpositive-value rejected as vacuous, and template only references guaranteed clauses — all via explicit Err(String) refusals matching the module's no-silent-correction philosophy. On success, mints/keeps an id and applies an add/update/remove based on whether the id already exists in `live` and whether `edit.on` is true — a toggle mechanism I hadn't predicted.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
+### `apply_edit` — QUIRKY — TANGLED
+- spec 3 · read at `d4baf0162bbe` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:30Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes a RuleEdit (a user's proposed rule change) and tries to fold it into the `live` rule list — updating, adding, or removing a Rule by id. For edits that don't map cleanly onto the rule grammar (something the catalog can't express), it returns Err(String) with an explanatory refusal message instead of silently coercing the edit.
+- found: Validates a RuleEdit in detail: non-empty title, 1-3 subject-scope clauses, each clause's field/op parseable and scope-appropriate for the edit's Pop, rejects thresholds that are vacuously true, checks the template only references guaranteed fields, preserves an existing rule's background text across edits, clamps `calibrated`, then applies it by id — replacing if `on` and found, removing if not `on` and found, inserting if `on` and not found, no-op otherwise.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: The on/off toggle acts as add-vs-remove rather than an enabled flag on a stored rule, and a lot of specific validation (clause count/scope/threshold/template checks) isn't hinted at by the docs at all.
 
 ### `check_template`
 - spec 3 · read at `50a015262f06` · commit `2c17aa2` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:01:20Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3673,18 +3683,25 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `catalog`
-- spec 3 · read at `862077946c5e` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A big hardcoded literal building and returning the default Vec<Rule> catalog — one Rule construction per built-in check (e.g. "long function", "too many callers", "high churn", "old and untouched", etc.), each with placeholder threshold values, an id/title/so_what/says template, population (func/file), clauses, and a `calibrated` index pointing at which clause's threshold gets auto-tuned. Mostly repetitive struct-literal boilerplate rather than logic.
-- found: Exactly as predicted: a literal Vec<Rule> of ~18 built-in rules (giant function, crowded file, load-bearing pairs, surprising+churn combos, traps, clones, fossil, tangle, headcount rules), each built via small helper closures (ge/lt/le/rule) with placeholder thresholds and a `calibrated` index. Extensive comments explain design rationale for each rule's clause choices, gates, and calibration index.
+- spec 3 · read at `363a21b26a90` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Returns a large hardcoded Vec<Rule> — the built-in default rule catalog (e.g. "Giant function", "Tangled", "Surprising and changing", "Hard to read", "Long and undocumented", etc.), each constructed with an id, title, so-what sentence, one or two clauses over specific fields with placeholder threshold values, a population (file vs function), associated lenses, and flags marking them built-in/on/calibratable. It's mostly a long list of struct literals rather than any real logic.
+- found: A hardcoded Vec<Rule> of ~17 built-in rules (giant-function, crowded-file, load-bearing-unread, knotty-load-bearing, surprising-changing, fossil, tangled-for-size, sole-author, etc.), each built via a local `rule` closure taking id/title/so-what/says-template/background prose, population (file/func), a list of ge/lt/le clauses over named Fields with placeholder thresholds, and a calibration index picking which clause `calibrate` may tighten.
 - predicted: full · documented: most · derivable: no · legible: most · trap: no
-- note: The comments carry a huge amount of non-derivable domain reasoning (why touched vs age, why gate on repo age/headcount, calibration index choices) that only the file_doc/note in docs/notes/findings.md would otherwise explain.
+- note: Extensive per-rule inline comments justify each threshold/design choice with bench numbers from real repos (htop, kibana, ceph) — those rationales aren't inferable from the struct literals alone.
 
-### `calibrated` — QUIRKY
-- spec 3 · read at `a020c5627e7d` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:15Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: For each Rule, this computes an appropriate threshold by looking at the distribution of the relevant metric across `facts` (e.g., some percentile or outlier cutoff), then returns a new Vec<Rule> with each rule's threshold set to that computed, repo-specific value — a one-time calibration pass rather than something re-run on every scan.
-- found: For each rule, calls calibrate() to find a value hitting TARGET subjects on one designated clause (r.calibrated); if found, it only overwrites the clause's threshold when doing so makes the rule stricter (tighter for its comparison direction) than the shipped value — never looser. If calibration can't reach TARGET, the shipped threshold is kept as-is, silently.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: Calibration is asymmetric (tighten-only, one clause per rule) and silently falls back to the shipped value when too few subjects clear the rule — both non-obvious from the signature.
+### `tighten`
+- spec 3 · read at `af8914c34e2d` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Looks at the rule's calibrated clause and its operator (>= or <=), and updates that clause's threshold to v only if v is stricter than the current value in the direction the operator implies (raises a >= threshold, lowers a <= one) -- never loosens it, per the docs' one-way-ratchet rule.
+- found: Gets the calibrated clause, rounds v to the field's natural unit (2 decimals for graded fields, whole number otherwise) to avoid noisy fractions in the hand-edited catalog file, then only applies v if it's stricter than the current value given the clause's operator direction.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Missed the unit-rounding step (graded fields to 2 decimals, others to whole numbers) in my prediction.
+
+### `calibrated`
+- spec 3 · read at `86508668deaf` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: For each rule, if it has a clause flagged as calibrated, this computes a repo-specific threshold from the distribution of that field's values across `facts` (e.g. a percentile or median-based cutoff) and returns a new Vec<Rule> with that clause's value replaced/suggested accordingly, leaving non-calibrated rules unchanged.
+- found: Maps each rule through a `calibrate` helper that finds a threshold value hitting a TARGET count of matching subjects (given other clauses fixed), and if found, tightens the rule's clause to that value via `tighten`; rules where no threshold reaches TARGET are left as shipped, silently.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The docs shown were the file-level module doc, not documentation of this function; the actual threshold-search logic lives in the unseen `calibrate`/`tighten` helpers.
 
 ### `rules_dir`
 - spec 3 · read at `621cfaafb646` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:25Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3704,6 +3721,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Joins rules_dir(repo) with the literal filename "catalog.md" to produce the rules file path.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
+### `stale`
+- spec 3 · read at `537f8310b6ae` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:05Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Compares the shape (fields/operators, not values) of the line's recorded `was` clauses — or the line's own clauses if there's no `was` — against the shipped rule's current clauses. Returns true when that shape no longer matches (line was tuned for an older version of the rule and should be replaced by the shipped default), false when shapes still line up so tuned values survive.
+- found: If the line has no clauses at all, not stale (false, trivially). Otherwise compares the (field, op) shape of `line.was` (falling back to the line's own clauses if no `was` recorded) against the shipped rule's current clauses' shape; unequal shapes mean the line is stale.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `saved_rules`
 - spec 3 · read at `6c1da5d15d19` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:38:11Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Reads the rules file at rules_path(repo) line by line, attempts to parse each line with parse_line, and collects only the successfully parsed lines into a Vec<Line> in file order, silently dropping any line that fails to parse (or the file doesn't exist, returning empty).
@@ -3716,18 +3739,25 @@ What this is and how to add to it: [README.md](README.md)
 - found: Splits seg into exactly 3 whitespace tokens (field, op, value), parses each via Field::parse/Op::parse/str::parse, returning None if the split shape or any parse fails.
 - predicted: full · documented: some · derivable: no · legible: full · trap: no
 
-### `parse_line` — QUIRKY
-- spec 3 · read at `7512ce1ef1c9` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:09Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Takes one line of the rules-file text format and parses it into a Line enum variant — likely something like a rule title/heading, a clause (field op value), a comment, or blank — returning None for lines it can't recognize, mirroring how parse_shard skips unknown lines elsewhere in this codebase.
-- found: Close in shape (segmented line parsing into a struct, unknown segments skipped) but far more specific than a generic "Line enum" — it's a single `Line` struct with named optional fields (id, off, floor, title, so_what, says, bare clause, or a full Rule expression via func:/file: prefixes), and it deliberately preserves an old bare-clause format for backward compatibility rather than just being a simple grammar.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
+### `parse_line`
+- spec 3 · read at `feab6e6f0f0d` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:33Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Parses one line of the saved-rules file format into a Line struct, extracting an id and possibly flags like off, a floor/threshold, and optional clauses/title fields from some lightweight custom syntax; returns None for blank/comment lines or lines that don't match the expected format.
+- found: Parses a markdown bullet line "- `id`; seg; seg; ..." into a Line, with segments for off, floor N, title/so what/says text fields, a func:/file: expression parsed via the shared Rule::parse grammar into pop+clauses, a bare legacy single-threshold clause via bare_clause (for back-compat with an older save format), and a was: field recording prior clauses for provenance. Unknown segments are silently skipped for forward compatibility.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
+- note: Backward-compat handling (bare_clause, was:) is significant and undocumented — a naive rewrite could drop support for pre-migration saved-rule files.
 
 ### `save_rules`
-- spec 3 · read at `26095f06d120` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:50Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Writes the full current rule set to `rules_path(repo)` as a text file: for each rule, formats its whole definition (condition plus prose — pulled from the catalog for shipped defaults or from the rule itself if not in the catalog) via a helper like `one_line`, joins them, creates the containing directory if needed, and writes the file so it's diff-reviewable and complete rather than only listing deviations from the catalog.
-- found: Creates the rules dir, writes a header comment plus one line per rule (id, expr, and prose fields if not in catalog), appends explicit 'off' lines for catalog rules that are absent from the active set, writes the file, and reads it back to verify the write landed correctly (returning an error otherwise).
+- spec 3 · read at `35ec90eb6536` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:42Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Diffs the given rules against the built-in default catalog, and writes to the rules file only the ones that deviate -- serializing each deviation with the value it deviated from (so `stale` can later detect a default that moved past a tuned value) -- using helpers like bare_clause/one_line/catalog, leaving untouched rules out of the file entirely.
+- found: Writes only deviations from the shipped catalog: rules matching a known id whose expr/title/so_what/says differ get a line (with `was:` for expr changes), unknown ids get written whole, and known ids missing from the current set get an explicit `off` line. If nothing deviates, removes the file entirely rather than leaving an empty one; writes then reads back the file to confirm it landed.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Missed the deleted-rule-becomes-`off`-line handling, the unknown/new-rule branch, the empty-file-removal behavior, and the read-back verification in my prediction.
+
+### `save_listing`
+- spec 3 · read at `c59db9870ef4` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:14Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Writes a generated markdown/text report file into the repo's `.sanity/` directory listing every rule (title, so-what sentence, clauses in readable form), fully overwriting whatever was there before, so it always reflects the current rule set as it just ran. It's a straightforward format-and-write, returning io::Result<()> from the file write.
+- found: Builds a markdown table of the currently-running rules (title/id/expr/so-what) into a README.md under the repo's rules dir, marking each row `(yours)` if it's not in the built-in catalog or `(tuned here)` if its expression differs from the shipped version, and appending a line naming any built-in rules that are silenced (absent from `rules`). Fully overwrites the file each call.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Missed the read-back integrity check and the explicit off-lines for removed catalog rules — both real work beyond just formatting/writing.
 
 ### `one_line` — QUIRKY
 - spec 3 · read at `1aae1f49a8c5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:37Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3735,25 +3765,26 @@ What this is and how to add to it: [README.md](README.md)
 - found: Replaces newlines/carriage-returns with spaces, and replaces the literal substring \"; \" with \", \" — presumably because ';' is a field separator in the flat record format this string gets embedded into.
 - predicted: some · documented: some · derivable: no · legible: full · trap: no
 
-### `rules_for`
-- spec 3 · read at `4604bdf4e02c` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:33:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Tries to load previously saved/tuned rules for this repo (saved_rules); if present, uses/merges those. If not, calibrates the shipped catalog against `facts` (computing thresholds), saves the calibrated result to disk via save_rules, and returns it — so the first run persists its calibration and subsequent runs reuse it.
-- found: If no saved rules exist: calibrates the catalog against facts, skips saving (and returns) for an empty facts set, otherwise saves and returns the tuned rules. If saved rules exist: merges the current catalog with the saved rules (rather than just returning saved) so new built-in rules get picked up alongside saved customizations.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+### `rules_for` — TRAP
+- spec 3 · read at `7dd590fafdfb` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:03Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds the effective rule catalog for a repo: loads any saved/calibrated rules from disk (via saved_rules/rules_path) and merges them with default rules for anything not yet tuned, possibly using facts to filter/select which default rules apply (e.g. based on languages or file types present). Returns a merged Vec<Rule> combining saved thresholds with uncalibrated defaults.
+- found: Builds the effective rule catalog: drops any saved rule whose shape has gone stale vs the base catalog (so a shipped fix can reach old repos), merges base+saved, then calibrates every rule not already 'spoken for' by a saved value against the given facts, tightening thresholds in place. Guards against calibrating/writing anything when facts is empty (avoids creating files for an empty scan), then persists both the rules and a listing back to disk, returning the live rules regardless of whether the save succeeded.
+- predicted: most · documented: most · derivable: no · legible: most · trap: yes
+- note: The empty-facts early return is a deliberate guard against writing a rule catalog into an accidentally-resolved empty-string path, not an obvious optimization — worth flagging for the next editor since removing it silently reintroduces that failure mode.
 
-### `merge`
-- spec 3 · read at `fb5740e3dfe9` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:38:55Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Starts from `base` built-in rules, applies matching amendments from `saved` (parsed rule-file lines) keyed by rule id — toggling on/off, edited clauses/thresholds, deletions — preserving catalog order, likely via an `amend` helper; then appends any rules present only in `saved` (user-authored) in file order.
-- found: Amends base rules with matching saved lines (dropping off ones), then appends fully-user-authored rules from saved lines not matching a base id, including injecting a loc floor clause and defaulting so_what/says text.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The doc comment covers ordering but not the off-filtering, floor-clause injection, or default text for user-authored rules.
+### `merge` — QUIRKY
+- spec 3 · read at `4aa599bad798` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:19Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Walks the base catalog in order, applying matching saved Line amendments (via amend) to each base rule to update thresholds/enabled state, then appends any saved lines whose id isn't found in the base catalog (user-only rules) preserving their original file order — producing catalog order first, then user-only rules.
+- found: Walks base catalog in order: if a saved line matches an id, applies it (amend) unless marked off (which drops the rule entirely, not just leaves it unamended); base rules with no matching line pass through unchanged. Then appends fully user-authored rules — lines with an id unknown to the catalog — built from scratch from the line's pop/clauses/title (requiring all three or the line is dropped), optionally synthesizing a Loc>=floor clause, with empty background since there's no catalog rule to inherit one from.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: I predicted amendment application but missed that 'off' entirely removes a catalog rule, and missed the whole second half building brand-new user-defined rules from scratch (pop/clauses/title/floor synthesis).
 
-### `amend` — QUIRKY — TANGLED — TRAP
-- spec 3 · read at `5582f09f7a8e` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:02:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Checks each optional field on `line` (e.g. verdict, clauses, comment/pin status) and, wherever a field is Some, overwrites the corresponding field on `r`; fields left None on the line are skipped so the rule's existing value survives — a partial-update/merge pattern.
-- found: Applies each optional field on Line to the Rule when present: pop, bare (updates the existing clause matching bare's field), full clauses replacement (re-locating the calibrated index by field rather than index to survive reordering), a legacy `floor` value converted into a Loc clause if none exists, title/so_what/says strings, and finally clears `says` if check_template fails against the new clauses.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: yes
-- note: Silently clears r.says to empty if check_template fails after applying clause changes — an editor adding a new amendable field that changes clauses without re-checking says could unknowingly wipe custom prose, and the function also has legacy-compat logic (floor->Loc clause) and calibrated-index-follows-field-across-reorder logic that aren't hinted at by the one-line doc.
+### `amend` — QUIRKY — TANGLED
+- spec 3 · read at `de5f79dea4d1` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Takes a parsed Line (a single "field: value" entry from an on-disk rule file/diff) and mutates only the corresponding field on `r` — matching on the line's key (title, says, clause, calibrated, etc.) and assigning to that one field of the Rule struct — leaving all other fields of `r` untouched.
+- found: Applies each optionally-present field on `line` to `r` if present: pop, a bare threshold (found by matching field on an existing clause), a full clause list replacement (re-anchoring `calibrated` by field identity rather than index so it survives reordering), a legacy `floor N` migrated into a Loc>=N clause if none exists, plus title/so_what/says overwrites — then clears `says`/`background` back to generic if the (possibly edited) clauses no longer support the saved template, handling a shipped rule's field changing out from under a tuned/saved copy.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- note: The calibrated-clause-follows-field-not-index behavior and the says/background reset-on-stale-template fallback are load-bearing but invisible from the signature or brief doc.
 
 ### `word`
 - spec 3 · read at `71d80e1e4453` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:54Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -3915,6 +3946,26 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A unit test that builds a rule/template whose sentence references a numeric field not guaranteed by any of its matching clauses, runs it through the render/format function against a fact set lacking that number, and asserts that the resulting output omits that sentence/paragraph entirely rather than printing a placeholder like "0" or "?" for the missing measurement.
 - found: Tests `render`'s fallback behavior: a filled template renders normally with the number grouped by commas; a template referencing a field with no evidence (age needing untraced git), an empty `says`, or an unknown token like `{{callerz}}` all fall back to just the `so_what` sentence instead of printing a gap or a literal token. Also checks render returns spans marking which parts are the filled number vs literal text, so the UI can bold the number.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_release_that_moves_a_rules_field_moves_past_the_saved_number`
+- spec 3 · read at `36a44bd36755` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:31Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds a saved/deviation rule tuned against a clause on field X, then simulates the catalog rule changing to ask about a different field, and asserts that merging drops the stale saved value (falling back to the shipped default) rather than applying the old number to a clause it no longer describes -- exercising the stale/merge logic mentioned elsewhere.
+- found: Tests `stale` across several cases: an old-shape saved line (asking `age`) against the current fossil rule (asking `touched`) is stale; same-shape-different-number is not stale (that's tuning); a renumbered shipped default (different `was` values but same fields/ops) is not stale; and a `was`-less line is judged on its own shape against the current rule rather than assumed stale or fresh.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Missed that `was` is compared only on fields/operators (not values) and that was-less lines get judged directly by shape rather than a simpler pass/fail I imagined.
+
+### `only_the_deviations_are_written`
+- spec 3 · read at `18108c3e9a0c` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Test that saves a rule set equal to the shipped defaults (no user edits/decisions) and asserts that no rules file gets written to disk — then makes one small deviation (e.g. an edited rule) and asserts the resulting saved file contains only that deviation, not a full dump of every rule.
+- found: Confirms saving the untouched catalog writes no file; saving with one tuned clause and one silenced rule writes exactly two `- ` lines (with a `was:` annotation for the tuned one and `off` for the silenced one); reading that back and merging with the catalog reproduces the same two deviations; and reverting to the catalog again deletes the file rather than leaving an empty one.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `the_listing_names_every_rule_that_ran` — QUIRKY
+- spec 3 · read at `9c06b2b6ac9f` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:20Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a small fixture and runs the findings evaluator, then asserts that the resulting rule listing/report includes an entry for every rule that actually ran — including ones with zero hits — not just rules that found something, since a printed catalog is supposed to tell someone offline what was checked, not just what was flagged.
+- found: Writes the catalog (minus one rule, simulating it being silenced/removed) to a README.md via `save_listing`, then asserts every remaining rule's title and expression text appear in the file, and that the removed rule is still explicitly named as "Silenced here" rather than just missing.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The doc's framing ('without the app') is really about the README being a plain-text artifact, which the test itself doesn't make obvious — the mechanism is save_listing writing to disk, not an in-memory report.
 
 ### `a_saved_clause_cannot_keep_a_sentence_it_stopped_answering`
 - spec 3 · read at `1bbedbbb81a6` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:54Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
