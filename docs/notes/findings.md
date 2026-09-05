@@ -109,6 +109,65 @@ The same distribution is what lets the settings page show a live match count bes
 rule, which is the only honest way to let somebody edit a threshold — otherwise they are
 typing into the dark and finding out on the next open.
 
+### The file holds what the repo CHANGED, and nothing it did not
+
+**`catalog.md` was every rule written whole, and that made it an `httpd.conf`.** The argument
+for writing all of them was that the file was then a complete statement of what ran, worth
+reading in a diff, and that writing only the deviations would make it change shape whenever a
+shipped default moved — which reads as somebody's edit. Both halves turned out to be wrong,
+and the second one was wrong in the expensive direction.
+
+A repo scanned once froze that day's defaults into itself. `merge` cannot tell a number
+somebody chose from a number that merely shipped, so it defended both, and every later
+improvement to a rule's CLAUSES stopped at the repo boundary. Sanity's own file was fifteen
+lines of which **eight were the shipped defaults verbatim** — pure cruft, and each one blocking
+changes to a rule nobody had ever touched. Prose still flowed through (`title`, `so_what`,
+`says` come from the catalog unless a line overrides them), which is exactly backwards: a
+wording fix reached every repo and a fix to what the rule ASKS reached none.
+
+Nor was it complete, its one justification. Written once and never rewritten, it listed
+fifteen of the nineteen rules that ran, and two of those fifteen were no longer the rules
+their ids name — see `time.md` for `fossil`, which is how this was found.
+
+So the two jobs are split, because they want opposite things:
+
+| | wants |
+|---|---|
+| `catalog.md` — what you changed | minimal, durable, hand-edited, the only thing that overrides |
+| `rules/README.md` — what ran | complete, current, regenerated every scan, nobody edits it |
+
+One file could not be both; that IS the `httpd.conf` failure, and the distro answer is
+`httpd.conf` plus `conf.d/`. `.sanity/` already had the pattern in its own generated
+`README.md`. Someone reading the repo without the app now gets the whole rule set, current,
+with the tuned ones marked; and the only thing that can silently freeze is a line somebody
+actually wrote. A repo that has changed nothing has no `catalog.md` at all.
+
+**A deviation records what it deviated FROM.** `; was: func: repo_age >= 1095 and touched >=
+1825 and loc >= 100` is the shipped rule the number was tuned against. When a release changes
+which fields a rule asks about, the saved number is answering a question that no longer
+exists, and it is dropped rather than left overriding — the rule comes back unspoken-for and
+is calibrated against the repo like one being met for the first time.
+
+**Shape, not value.** Comparing numbers would void somebody's tuning every time a shipped
+default moved, and that tuning is the entire point. What cannot survive is a threshold whose
+field or operator is gone: `1825` meant five years untouched, and there is nothing to carry it
+onto.
+
+**A line with no `was` is judged on its own shape**, which is every file written before this.
+Trusting them wholesale was tried for exactly one run and is worse than useless: sanity's
+`fossil` line came through untouched and was then rewritten WITH a `was` recording the shape it
+had never been tuned against, so the stale number got certified by the mechanism built to catch
+it. Judging the line itself gets every legacy case right. It costs the one case nothing on disk
+can distinguish — a hand-edited set of clauses from before provenance existed loses the edit and
+gets the shipped rule back, calibrated — and of the two ways to be wrong, handing back a current
+rule beats defending a dead one.
+
+This does not loosen the anti-percentile rule above; it is what makes it work. Calibration
+still runs once and sticks, and what makes a number settled is that it lands in `catalog.md`
+and is read back. A rule calibration declines to move writes nothing, comes back unspoken-for,
+and is calibrated again next scan — which is only ever true of a rule already producing a list
+short enough to work down.
+
 ## Two tiers, and the tiering is the product
 
 "Results immediately" has a hard constraint attached: **a fresh scan has no readings.** The

@@ -327,6 +327,15 @@ impl Field {
     }
 
     /// What this field is measured OVER, which is not the same question as which population
+    /// Is this field a 0..1 grade rather than something counted?
+    ///
+    /// Only calibration asks, and only to decide how much precision a threshold deserves —
+    /// two places on a ramp whose whole range is one, and none on a count of lines, days or
+    /// people, where a fraction is an artefact of landing between two subjects.
+    pub fn graded(self) -> bool {
+        matches!(self, Field::Tangle | Field::Surprise | Field::Documented | Field::Legible)
+    }
+
     /// it can be asked of.
     ///
     /// **`pop` says which subjects a rule is about; this says how far a field reaches.** They
@@ -2159,33 +2168,44 @@ pub const TARGET: usize = 8;
 /// arrive, and the list can never be worked down. What makes a number worth saving is that it
 /// can be MET — see `docs/notes/findings.md`, which argues this at length and holds the
 /// measurements.
+/// Move a rule's calibrated threshold to `v`, if that asks for MORE.
+///
+/// **Calibration may TIGHTEN a rule and may never loosen it.**
+///
+/// The shipped number is the rule's meaning: a fossil is code nothing has touched in five
+/// years, and no repo gets to redefine that. Loosening was tried, on the argument that a small
+/// repo should still get a list — and it produced `trap >= 1 and commits >= 0`, which is "any
+/// trap" wearing two lenses, and `Fossil trap ... age >= 5.77`, where the unit is DAYS and the
+/// word had come to mean "older than a week". Nothing breaks. The rule simply stops asking its
+/// second question, and the tile still names both lenses.
+///
+/// So the number moves only in the direction that asks for more, and what a small repo gets is
+/// a short list — which is the honest answer for a repo that has little wrong with it, and the
+/// one thing a percentile could never say.
+fn tighten(r: &mut Rule, v: f32) {
+    let Some(c) = r.clauses.get_mut(r.calibrated) else { return };
+    // **Rounded to the unit the field is actually measured in.** `catalog.md` is a file a
+    // person reads and edits, and `touched >= 2430.4443` is four digits of noise on a
+    // quantity counted in whole days — the calibrator lands between two subjects, and the
+    // fraction is where it landed, not anything about the repo. The graded lenses are the
+    // exception and keep two places, because there `0.8` and `1` are the whole range apart.
+    let v = if c.field.graded() { (v * 100.0).round() / 100.0 } else { v.round() };
+    let tighter = match c.op {
+        Op::Ge | Op::Gt => v > c.value,
+        Op::Le | Op::Lt => v < c.value,
+    };
+    if tighter {
+        c.value = v;
+    }
+}
+
 pub fn calibrated(rules: &[Rule], facts: &[Facts]) -> Vec<Rule> {
     rules
         .iter()
         .map(|r| {
             let mut tuned = r.clone();
             if let Some(v) = calibrate(r, facts, TARGET) {
-                // **Calibration may TIGHTEN a rule and may never loosen it.**
-                //
-                // The shipped number is the rule's meaning: a fossil is code nothing has
-                // touched in five years, and no repo gets to redefine that. Loosening was
-                // tried, on the argument that a small repo should still get a list — and it
-                // produced `trap >= 1 and commits >= 0`, which is "any trap" wearing two
-                // lenses, and `Fossil trap ... age >= 5.77`, where the unit is DAYS and the
-                // word had come to mean "older than a week". Nothing breaks. The rule simply
-                // stops asking its second question, and the tile still names both lenses.
-                //
-                // So the number moves only in the direction that asks for more, and what a
-                // small repo gets is a short list — which is the honest answer for a repo that
-                // has little wrong with it, and the one thing a percentile could never say.
-                let c = &mut tuned.clauses[r.calibrated];
-                let tighter = match c.op {
-                    Op::Ge | Op::Gt => v > c.value,
-                    Op::Le | Op::Lt => v < c.value,
-                };
-                if tighter {
-                    c.value = v;
-                }
+                tighten(&mut tuned, v);
             }
             // No calibration means fewer than `TARGET` subjects clear the rule's other
             // clauses — there is no threshold that gets there, and the shipped number is as
@@ -2240,6 +2260,40 @@ pub struct Line {
     pub says: Option<String>,
     /// A threshold on its own, from the format that predates the grammar — see `parse_line`.
     pub bare: Option<Clause>,
+    /// The shipped rule this line was written against — see [`stale`].
+    pub was: Option<Vec<Clause>>,
+}
+
+/// Has the shipped rule moved out from under a line that was tuned for it?
+///
+/// **A saved number is an answer to the question the rule asked when it was saved.** `fossil`
+/// shipped as `age >= 1825`, every scanned repo saved that number, and the rule later moved to
+/// `touched` because `age` is days since the OLDEST line was written — a different quantity,
+/// and on ceph a nineteen-year gap from the one the rule wanted. The saved line went on
+/// overriding, so the fix reached no repo that had ever been scanned, and the tile printed a
+/// sentence about a field its own clause did not gate on.
+///
+/// **Shape, not value, and that distinction is the whole point.** Comparing the numbers would
+/// void somebody's tuning every time a shipped default moved, which is exactly the tuning
+/// worth keeping. What cannot survive is a threshold whose FIELD or OPERATOR is gone: `1825`
+/// meant five years of not being touched, and there is nothing to carry it onto.
+///
+/// **A line with no `was` is judged on its own shape**, which is the whole legacy estate: every
+/// file written before provenance existed. Trusting them wholesale was tried for exactly one
+/// run and is worse than useless — sanity's own `fossil` line came through untouched and was
+/// then rewritten WITH a `was` recording the shape it had never been tuned against, so the
+/// stale number got certified by the mechanism built to catch it. Judging the line itself gets
+/// every legacy case right: a number tuned for the rule as it stands has the rule's shape and
+/// survives, and one left over from a rule that has since moved does not.
+///
+/// It costs the one case it cannot tell apart — somebody who hand-edited a rule's CLAUSES
+/// before this shipped loses that edit and gets the shipped rule back, calibrated. There is
+/// nothing on disk that distinguishes it from the fossil case, and of the two ways to be
+/// wrong, handing back a current rule beats defending a dead one.
+fn stale(line: &Line, shipped: &Rule) -> bool {
+    let Some(mine) = &line.clauses else { return false };
+    let shape = |cs: &[Clause]| -> Vec<(Field, Op)> { cs.iter().map(|c| (c.field, c.op)).collect() };
+    shape(line.was.as_ref().unwrap_or(mine)) != shape(&shipped.clauses)
 }
 
 /// What this repo has said about its rules, in the order the file says it.
@@ -2285,6 +2339,10 @@ fn parse_line(line: &str) -> Option<Line> {
             // tuned before today would have quietly gone back to shipped defaults, which on
             // this one meant 120 findings where there had been 43.
             out.bare = Some(c);
+        } else if let Some(v) = seg.strip_prefix("was: ") {
+            // Dropped rather than fatal if it will not parse: a `was` nobody can read is a
+            // line with no provenance, which is the case every line predating this was in.
+            out.was = Rule::parse(v).ok().map(|r| r.clauses);
         } else if seg.starts_with("func:") || seg.starts_with("file:") {
             // The expression, in the grammar `Rule::parse` already speaks — the same string a
             // person could have typed at `just findings --rule`, and the same one `expr()`
@@ -2300,53 +2358,95 @@ fn parse_line(line: &str) -> Option<Line> {
     Some(out)
 }
 
-/// Write the rules this repo is using, so they stop moving.
+/// Write what this repo has CHANGED about its rules — and nothing it has not.
 ///
-/// **Every rule, whole, whether or not it differs from the catalog.** The file is then a
-/// complete statement of what ran, which is what makes it worth reviewing in a diff — and the
-/// alternative, writing only what deviates, means the file changes shape when a shipped
-/// default changes, which reads as somebody's edit.
+/// **Only the deviations, and this used to be the other way round.** The file held every rule
+/// whole, on the argument that it was then a complete statement of what ran and worth reading
+/// in a diff. What it actually became is the `httpd.conf` problem: a repo scanned once froze
+/// that day's defaults into itself, `merge` could not tell a number somebody chose from a
+/// number that merely shipped, and so it defended both. Every later improvement to a rule's
+/// clauses stopped at the repo boundary — sanity's own file was fifteen lines of which eight
+/// were the shipped defaults verbatim, blocking changes to rules nobody had ever touched.
 ///
-/// A rule the catalog does not have gets its prose as well, because nothing would supply it.
+/// It was not even complete any more, which was its only justification: written once and never
+/// rewritten, it listed fifteen of the nineteen rules that ran, and two of those fifteen were
+/// no longer the rules those ids name.
+///
+/// So the file is small, hand-editable, and the only thing that overrides anything. What a
+/// person without the app needs — every rule, what it asks, what it says — is [`save_listing`],
+/// which is generated, complete and current, and which nobody edits. One file cannot be both:
+/// the record of what ran wants to be regenerated, and the statement of what you changed has
+/// to be durable.
+///
+/// **A deviation carries what it deviated FROM.** See [`stale`]: without it, a tuned number
+/// outlives the question it answered and there is no way to notice.
 pub fn save_rules(repo: &std::path::Path, rules: &[Rule]) -> std::io::Result<()> {
-    std::fs::create_dir_all(rules_dir(repo))?;
     let known = catalog();
     let mut out = String::new();
-    out.push_str("# Finding rules\n\n");
-    out.push_str("What this repo looks for, and how hard. Calibrated once against this repo to\n");
-    out.push_str(
-        "produce a list somebody would read to the bottom — and then LEFT ALONE, so that\n",
-    );
-    out.push_str("dealing with a finding makes the list shorter instead of lowering the bar for\n");
-    out.push_str("the next one.\n\n");
-    out.push_str(
-        "Edit a number and it is used as written. Add `; off` to silence a rule. Delete\n",
-    );
-    out.push_str(
-        "the file and it is calibrated again. A rule whose id is not one of sanity's own\n",
-    );
-    out.push_str(
-        "carries its own title and sentence, because there is nothing to fall back to.\n\n",
-    );
+    out.push_str("# Rule changes\n\n");
+    out.push_str("What THIS repo has changed about its rules. Everything not listed here runs\n");
+    out.push_str("as sanity ships it — see `README.md` in this directory for the whole set,\n");
+    out.push_str("which is regenerated on every scan and not worth editing.\n\n");
+    out.push_str("Edit a number and it is used as written. Add `; off` to silence a rule.\n");
+    out.push_str("Delete a line and that rule goes back to the shipped one. Delete the file\n");
+    out.push_str("and every rule does.\n\n");
+    out.push_str("`was:` records the rule a number was tuned against. When a release changes\n");
+    out.push_str("which fields a rule asks about, the number no longer answers anything and is\n");
+    out.push_str("dropped rather than left overriding the new rule.\n\n");
+    let mut lines = String::new();
     for r in rules {
-        out.push_str(&format!("- `{}`; {}", r.id, r.expr()));
-        if !known.iter().any(|k| k.id == r.id) {
-            out.push_str(&format!("; title: {}", one_line(&r.title)));
-            out.push_str(&format!("; so what: {}", one_line(&r.so_what)));
+        let Some(k) = known.iter().find(|k| k.id == r.id) else {
+            // A rule somebody wrote is a deviation entire — there is no shipped version of it
+            // to fall back on, so it carries its own prose or it is not a rule at all.
+            lines.push_str(&format!("- `{}`; {}", r.id, r.expr()));
+            lines.push_str(&format!("; title: {}", one_line(&r.title)));
+            lines.push_str(&format!("; so what: {}", one_line(&r.so_what)));
             if !r.says.is_empty() {
-                out.push_str(&format!("; says: {}", one_line(&r.says)));
+                lines.push_str(&format!("; says: {}", one_line(&r.says)));
             }
+            lines.push('\n');
+            continue;
+        };
+        if r.expr() == k.expr() && r.title == k.title && r.so_what == k.so_what && r.says == k.says
+        {
+            continue;
         }
-        out.push('\n');
+        lines.push_str(&format!("- `{}`; {}", r.id, r.expr()));
+        if r.expr() != k.expr() {
+            lines.push_str(&format!("; was: {}", k.expr()));
+        }
+        if r.title != k.title {
+            lines.push_str(&format!("; title: {}", one_line(&r.title)));
+        }
+        if r.so_what != k.so_what {
+            lines.push_str(&format!("; so what: {}", one_line(&r.so_what)));
+        }
+        if r.says != k.says && !r.says.is_empty() {
+            lines.push_str(&format!("; says: {}", one_line(&r.says)));
+        }
+        lines.push('\n');
     }
     // Rules silenced here rather than deleted: an id with no line is a rule that RUNS, so a
     // catalog that simply omitted them would turn every `off` back on at the next release.
     for k in &known {
         if !rules.iter().any(|r| r.id == k.id) {
-            out.push_str(&format!("- `{}`; off\n", k.id));
+            lines.push_str(&format!("- `{}`; off\n", k.id));
         }
     }
     let path = rules_path(repo);
+    if lines.is_empty() {
+        // **A repo that has changed nothing gets no file.** A directory left behind by a look
+        // is a surprise where people run `git status` — `assessments.md` argues this for
+        // readings — and a file whose entire content is "no changes" is worse than absent,
+        // because it reads as a thing to maintain. Removed rather than left stale if it once
+        // had content: what it would otherwise hold is a set of overrides nobody asked for.
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        return Ok(());
+    }
+    std::fs::create_dir_all(rules_dir(repo))?;
+    out.push_str(&lines);
     std::fs::write(&path, &out)?;
     // Read back rather than trusting `Ok`: everything downstream treats these numbers as
     // settled, and a threshold that did not land would silently move on the next open.
@@ -2354,6 +2454,47 @@ pub fn save_rules(repo: &std::path::Path, rules: &[Rule]) -> std::io::Result<()>
         return Err(std::io::Error::other("the rules on disk do not match what was written"));
     }
     Ok(())
+}
+
+/// The whole rule set as it ran, for somebody reading `.sanity/` without the app.
+///
+/// **Generated, complete and current — the job `catalog.md` used to do badly.** That file has
+/// to be durable to be worth hand-editing, and durable is what made it stale. This one is
+/// rewritten on every scan, so a rule added by a release shows up, a rule that changed shows
+/// its new shape, and prose improvements arrive. Nothing reads it back: it is a report.
+pub fn save_listing(repo: &std::path::Path, rules: &[Rule]) -> std::io::Result<()> {
+    std::fs::create_dir_all(rules_dir(repo))?;
+    let known = catalog();
+    let mut out = String::new();
+    out.push_str("# What this repo looks for\n\n");
+    out.push_str("Every rule that ran on the last scan. A finding is one subject — a function\n");
+    out.push_str("or a file — that answers every clause of a rule at once.\n\n");
+    out.push_str("Generated on every scan. Editing it does nothing; `catalog.md` beside it is\n");
+    out.push_str("where changes go, and it exists only once this repo has made one.\n\n");
+    out.push_str("| Rule | Asks | Says |\n|---|---|---|\n");
+    let cell = |s: &str| one_line(s).replace('|', "\\|");
+    for r in rules {
+        let mark = match known.iter().find(|k| k.id == r.id) {
+            None => " *(yours)*",
+            Some(k) if k.expr() != r.expr() => " *(tuned here)*",
+            Some(_) => "",
+        };
+        out.push_str(&format!(
+            "| **{}**{mark}<br>`{}` | `{}` | {} |\n",
+            cell(&r.title),
+            r.id,
+            cell(&r.expr()),
+            cell(&r.so_what),
+        ));
+    }
+    let off: Vec<&str> =
+        known.iter().filter(|k| !rules.iter().any(|r| r.id == k.id)).map(|k| k.id.as_str()).collect();
+    if !off.is_empty() {
+        // Named rather than merely absent: a reader who cannot see what was silenced cannot
+        // tell a rule this repo turned off from one this build never had.
+        out.push_str(&format!("\nSilenced here: {}\n", off.join(", ")));
+    }
+    std::fs::write(rules_dir(repo).join("README.md"), &out)
 }
 
 /// Prose, flattened onto the one line a record gets — see `escape`, which does the same for a
@@ -2369,24 +2510,46 @@ fn one_line(s: &str) -> String {
 /// and the number is what gets kept. Doing it without keeping it would make every rule a
 /// percentile.
 pub fn rules_for(repo: &std::path::Path, facts: &[Facts]) -> Vec<Rule> {
-    let saved = saved_rules(repo);
-    if saved.is_empty() {
-        let tuned = calibrated(&catalog(), facts);
-        // **Nothing is created for a repo with nothing in it.** `assessments.md` states this
-        // for readings — "an open is a look, and a look that leaves a directory behind is a
-        // surprise where people run `git status`" — and it holds here for the same reason. It
-        // is also the guard that would have contained a real one: a path that resolved to the
-        // empty string scanned the current directory, found nothing, and wrote a rule catalog
-        // into whatever the caller happened to be standing in.
-        if facts.is_empty() {
-            return tuned;
-        }
-        // A failure here costs a file, not an answer: the thresholds are still right for this
-        // run, they will simply be calibrated again next time.
-        let _ = save_rules(repo, &tuned);
-        return tuned;
+    let base = catalog();
+    // **A line whose rule has changed shape is dropped before it can override anything.**
+    // See `stale`. Dropping is what lets a shipped fix reach a repo that was scanned before it
+    // — the rule below is then unspoken-for, and gets calibrated against this repo like any
+    // rule being met for the first time.
+    let saved: Vec<Line> = saved_rules(repo)
+        .into_iter()
+        .filter(|l| !base.iter().any(|k| k.id == l.id && stale(l, k)))
+        .collect();
+    let spoken_for: Vec<&str> = saved.iter().map(|l| l.id.as_str()).collect();
+    let mut live = merge(base, &saved);
+
+    // **Calibration runs for every rule the file does not speak for, and its result sticks by
+    // being written.** Not per-scan re-derivation: a threshold that re-computes itself to yield
+    // eight every time is a percentile in disguise, so what makes a number settled is that it
+    // lands in `catalog.md` and is read back next time. A rule calibration declines to move
+    // writes nothing, comes back unspoken-for, and is calibrated again — which is only ever
+    // true of a rule already producing a list short enough to work down.
+    //
+    // **Nothing is created for a repo with nothing in it.** `assessments.md` states this for
+    // readings — "an open is a look, and a look that leaves a directory behind is a surprise
+    // where people run `git status`" — and it is the guard that would have contained a real
+    // one: a path that resolved to the empty string scanned the current directory, found
+    // nothing, and wrote a rule catalog into whatever the caller happened to be standing in.
+    if facts.is_empty() {
+        return live;
     }
-    merge(catalog(), &saved)
+    for r in &mut live {
+        if spoken_for.contains(&r.id.as_str()) {
+            continue;
+        }
+        if let Some(v) = calibrate(r, facts, TARGET) {
+            tighten(r, v);
+        }
+    }
+    // A failure here costs a file, not an answer: the thresholds are still right for this run,
+    // they will simply be calibrated again next time.
+    let _ = save_rules(repo, &live);
+    let _ = save_listing(repo, &live);
+    live
 }
 
 /// The catalog this repo runs: the shipped rules as its file amends them, then the rules only
@@ -3277,6 +3440,90 @@ would hide the shape"
         let spans = render(&filled, at, Some(11.0));
         assert!(spans.iter().any(|s| s.filled && s.text == "12,345"));
         assert!(spans.iter().any(|s| !s.filled && s.text.contains("lines")));
+    }
+
+    /// A tuned number does not survive the rule changing which field it asks about.
+    #[test]
+    fn a_release_that_moves_a_rules_field_moves_past_the_saved_number() {
+        let fossil = catalog().into_iter().find(|r| r.id == "fossil").expect("ships");
+
+        // What every repo scanned before yesterday has on disk.
+        let old = parse_line("- `fossil`; func: age >= 1825 and loc >= 100; was: func: age >= 1825 and loc >= 100")
+            .expect("parses");
+        assert!(stale(&old, &fossil), "the rule asks `touched` now; `age` cannot carry over");
+
+        // The same number, tuned against the rule as it stands. Nothing to void.
+        let now = parse_line(
+            "- `fossil`; func: repo_age >= 1095 and touched >= 4000 and loc >= 100; was: func: repo_age >= 1095 and touched >= 1825 and loc >= 100",
+        )
+        .expect("parses");
+        assert!(!stale(&now, &fossil), "same shape, different number — that IS the tuning");
+
+        // **A shipped default moving is not a shape change.** Voiding on value would throw
+        // away tuning every time a catalog number was adjusted, which is the tuning worth
+        // keeping: `was` is compared on fields and operators only.
+        let renumbered = parse_line(
+            "- `fossil`; func: repo_age >= 1095 and touched >= 4000 and loc >= 100; was: func: repo_age >= 900 and touched >= 1200 and loc >= 50",
+        )
+        .expect("parses");
+        assert!(!stale(&renumbered, &fossil));
+
+        // **A line from before provenance existed is judged on its own shape.** One that asks
+        // what the rule asks is a tuning and survives; one left over from the rule's previous
+        // shape does not — and that second case is the entire reason this exists, so trusting
+        // every `was`-less line would have let it through on the one run that mattered.
+        let ancient = parse_line("- `fossil`; func: repo_age >= 1095 and touched >= 4000 and loc >= 100")
+            .expect("parses");
+        assert!(!stale(&ancient, &fossil), "tuned for the rule as it stands");
+        let legacy = parse_line("- `fossil`; func: age >= 1825 and loc >= 100").expect("parses");
+        assert!(stale(&legacy, &fossil), "tuned for a rule that no longer exists");
+    }
+
+    /// The file holds what this repo changed, and a repo that changed nothing has no file.
+    #[test]
+    fn only_the_deviations_are_written() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let repo = dir.path();
+
+        // Shipped, unchanged, every rule: nothing to say.
+        save_rules(repo, &catalog()).expect("writes");
+        assert!(!rules_path(repo).exists(), "an untouched repo gets no catalog.md");
+
+        // One tuned rule and one silenced. Both are deviations; the other seventeen are not.
+        let mut rules = catalog();
+        let at = rules.iter().position(|r| r.id == "giant-function").expect("ships");
+        rules[at].clauses[0].value = 339.0;
+        rules.retain(|r| r.id != "widely-cloned");
+        save_rules(repo, &rules).expect("writes");
+        let text = std::fs::read_to_string(rules_path(repo)).expect("now it exists");
+        let body: Vec<&str> = text.lines().filter(|l| l.starts_with("- ")).collect();
+        assert_eq!(body.len(), 2, "two changes, two lines: {body:?}");
+        assert!(body[0].contains("loc >= 339") && body[0].contains("; was: "), "{}", body[0]);
+        assert!(body[1].contains("`widely-cloned`; off"));
+
+        // And it round-trips: the file is read back into the same two rules.
+        let live = merge(catalog(), &saved_rules(repo));
+        assert_eq!(live.iter().find(|r| r.id == "giant-function").expect("kept").clauses[0].value, 339.0);
+        assert!(!live.iter().any(|r| r.id == "widely-cloned"), "still silenced");
+
+        // Undo them both and the file goes, rather than sitting there saying nothing.
+        save_rules(repo, &catalog()).expect("writes");
+        assert!(!rules_path(repo).exists());
+    }
+
+    /// Somebody without the app can read what the repo looks for.
+    #[test]
+    fn the_listing_names_every_rule_that_ran() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let mut rules = catalog();
+        rules.retain(|r| r.id != "widely-cloned");
+        save_listing(dir.path(), &rules).expect("writes");
+        let text = std::fs::read_to_string(rules_dir(dir.path()).join("README.md")).expect("read");
+        for r in &rules {
+            assert!(text.contains(&r.title), "{} is missing from the listing", r.id);
+            assert!(text.contains(&r.expr()), "{} runs but the listing does not say what it asks", r.id);
+        }
+        assert!(text.contains("Silenced here: widely-cloned"), "a silenced rule is named, not just absent");
     }
 
     /// A tuned clause that outlives the sentence it was written for loses the sentence.
