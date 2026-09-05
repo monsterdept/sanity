@@ -493,39 +493,46 @@ export function MarkerToggle({ on, onToggle }: { on: boolean; onToggle: (v: bool
 }
 
 /**
- * Which of Age's two dates the lens paints — see `AgeRead`.
+ * The segmented track two lenses pick a reading in — see `AgeReading` and `BlameReading`.
  *
- * **Two segments in the track rather than a pulldown, and that is the argument `ModeSwitcher`
- * makes in reverse.** Eleven alternatives stopped fitting beside the thing they qualify and
- * became a menu; two of them fit with room to spare, and a segmented control earns its width
- * exactly when it can show the alternatives — which here is the whole point, because nobody
- * arrives at this lens knowing there are two readings of it. A menu would hide the second one
- * behind a click, and the second one is the reading the lens is FOR.
+ * **One shape, because the row has already paid for the alternative.** `LensToggle` exists
+ * because three on/off controls were written separately and drifted into three shapes; a
+ * reading is the other kind of control in this row, and the second one was on its way to the
+ * same place — Age had a track with two segments and Blame had a pill with a glyph, for what
+ * is the same question asked of two lenses.
  *
- * The words are the ones the wedges say. The pressed segment reads `oldest line` and a tooltip
- * reads `oldest line 412d ago` — the same sentence at two sizes, so the control does not have
- * to be translated into the map. See `ageLabel`, which is where both come from.
+ * **And it is the same question.** Both offer two readings of ONE list: Age takes the oldest
+ * date in it or the newest, Blame takes the newest line's name or the biggest pile of them.
+ * What either control changes is what the colour MEANS and never what is drawn, which is the
+ * rule that puts both of them left of the spacer.
  *
- * **And they name the LINE rather than the code.** `first seen` was the first spelling and it
- * claimed what blame cannot see: per-line provenance holds the last commit to touch each line,
- * so a body rewritten wholesale reads as young and its true first appearance is gone. The
- * oldest line standing here is a fact; when this was written is not one we hold.
+ * Two segments rather than a switch, and `LensToggle` states the test: segments earn their
+ * width when the alternatives are two different QUESTIONS, and waste it when the second is
+ * the first one negated. Both of these pass it. Two segments rather than a pulldown is the
+ * same test read the other way, which is the argument `ModeSwitcher` makes in reverse:
+ * eleven alternatives stopped fitting beside the thing they qualify and became a menu, two
+ * fit with room to spare — and showing them is the whole point, because nobody arrives at a
+ * lens knowing it has two readings. A menu, or a switch wearing one word, hides the second
+ * reading behind a click, and the second reading is what the lens is FOR.
+ *
+ * The words are the ones the map says. `tint` is the lens's own colour, so the pressed
+ * segment matches the switcher's chip: this row already says what the colour means, and a
+ * reading is a statement about that colour rather than a second, unrelated control.
  */
-export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRead) => void }) {
-  const opts: { key: AgeRead; word: string; title: string }[] = [
-    {
-      key: 'newest',
-      word: 'newest',
-      title:
-        'Colour by the NEWEST line here — how long since a commit last touched this body. Bright is recent: where work has been happening.',
-    },
-    {
-      key: 'oldest',
-      word: 'oldest',
-      title:
-        'Colour by the OLDEST line still standing here. Cold is code nobody has been near in a long while — a different question from what has been touched lately, and on a body rewritten last week out of lines from 2014 the two disagree by a decade. The oldest LINE, not when the code first appeared: a wholesale rewrite leaves nothing behind saying when it was written.',
-    },
-  ]
+function ReadingSwitch<T extends string>({
+  read,
+  onRead,
+  tint,
+  opts,
+}: {
+  read: T
+  onRead: (r: T) => void
+  /** A custom property NAME rather than a resolved colour, because `inkOn` needs the name to
+   *  work out what can be written on it. */
+  tint: string
+  /** `said` is what the pressed segment reads, where that differs — see `AgeReading`. */
+  opts: { key: T; word: string; said?: string; title: string }[]
+}) {
   return (
     <div
       className={`flex items-center gap-0.5 rounded-full px-[3px] ${CONTROL_H}`}
@@ -544,25 +551,60 @@ export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRea
             onClick={() => onRead(o.key)}
             title={o.title}
             className="rounded-full px-2 text-[11px] transition-colors"
-            // The chosen segment wears the lens's own colour, the way the switcher's trigger
-            // does: this row already says what the map is coloured by, and the sub-reading is
-            // a statement about the same colour rather than a second, unrelated control.
             style={
               on
-                ? { background: 'var(--age-4)', color: inkOn('--age-4'), fontWeight: 600 }
+                ? { background: `var(${tint})`, color: inkOn(tint), fontWeight: 600 }
                 : { color: 'var(--muted-foreground)' }
             }
           >
-            {/* **The noun rides on the chosen segment only.** Both halves carrying it reads as
-                two nouns to compare — `newest line` against `oldest line` — when what is being
-                compared is the adjective and the noun is the same in both. On the pressed one
-                it completes the sentence the wedges are saying; on the other it is a word the
-                eye has to skip to reach the choice. */}
-            {on ? `${o.word} line` : o.word}
+            {on ? (o.said ?? o.word) : o.word}
           </button>
         )
       })}
     </div>
+  )
+}
+
+/**
+ * Which of Age's two dates the lens paints — see `AgeRead`.
+ *
+ * The words are the ones the wedges say. The pressed segment reads `oldest line` and a tooltip
+ * reads `oldest line 412d ago` — the same sentence at two sizes, so the control does not have
+ * to be translated into the map. See `ageLabel`, which is where both come from.
+ *
+ * **And they name the LINE rather than the code.** `first seen` was the first spelling and it
+ * claimed what blame cannot see: per-line provenance holds the last commit to touch each line,
+ * so a body rewritten wholesale reads as young and its true first appearance is gone. The
+ * oldest line standing here is a fact; when this was written is not one we hold.
+ */
+export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRead) => void }) {
+  return (
+    <ReadingSwitch
+      read={read}
+      onRead={onRead}
+      tint="--age-4"
+      opts={[
+        {
+          key: 'newest',
+          word: 'newest',
+          // **The noun rides on the chosen segment only.** Both halves carrying it reads as
+          // two nouns to compare — `newest line` against `oldest line` — when what is being
+          // compared is the adjective and the noun is the same in both. On the pressed one
+          // it completes the sentence the wedges are saying; on the other it is a word the
+          // eye has to skip to reach the choice.
+          said: 'newest line',
+          title:
+            'Colour by the NEWEST line here — how long since a commit last touched this body. Bright is recent: where work has been happening.',
+        },
+        {
+          key: 'oldest',
+          word: 'oldest',
+          said: 'oldest line',
+          title:
+            'Colour by the OLDEST line still standing here. Cold is code nobody has been near in a long while — a different question from what has been touched lately, and on a body rewritten last week out of lines from 2014 the two disagree by a decade. The oldest LINE, not when the code first appeared: a wholesale rewrite leaves nothing behind saying when it was written.',
+        },
+      ]}
+    />
   )
 }
 
@@ -737,10 +779,27 @@ export function TangleReading({
 /** Which of Blame's two reductions the map paints.
  *
  * **Two readings of one measurement, not two measurements** — which is the same shape Age's
- * switch has and the reason this sits beside it: every line of a function carries the name of
- * whoever touched it LAST, and the two readings take the newest of those or the biggest pile.
- * They disagree often. A typo fix in a four-hundred-line body makes somebody its last toucher
- * while they hold one line of it.
+ * reading has, and the reason this sits beside it in the same control: every line of a
+ * function carries the name of whoever touched it LAST, and the two readings take the newest
+ * of those or the biggest pile. They disagree often. A typo fix in a four-hundred-line body
+ * makes somebody its last toucher while they hold one line of it.
+ *
+ * **It was a switch wearing the word `most lines`, and a switch is the wrong shape for it.**
+ * `LensToggle` states the test — segments earn their width when the alternatives are two
+ * different QUESTIONS — and this passes it as plainly as Age does: the off state was not "not
+ * most lines", it was *the newest line's name*, a reading with a name of its own that a
+ * control showing only the other one had nowhere to put. Half the lens was behind a word that
+ * did not mention it.
+ *
+ * **`newest line`, not `last touched`, and both segments have to be spelled the same way.**
+ * Each names the lines the name is read off — the newest one, or the biggest pile — which is
+ * the whole of what separates them, and it is the spelling Age already uses for that same
+ * line. `last touched` named the ACT instead, so the pair read as a date against a quantity
+ * rather than as two reductions of one list. `LensHelp` says it this way too: one spelling
+ * per lens, in the control and in the help.
+ *
+ * The noun sits on the chosen segment only — see the options below, and `AgeReading`, which
+ * does the same thing for the same reason one step removed.
  *
  * Left of the spacer with the other three, on the rule they all follow: what it changes is
  * what the COLOUR MEANS, not what is drawn.
@@ -752,24 +811,37 @@ export function BlameReading({
   read: BlameRead
   onRead: (r: BlameRead) => void
 }) {
-  const on = read === 'lines'
   return (
-    <LensToggle
-      on={on}
-      onToggle={(v) => onRead(v ? 'lines' : 'touched')}
-      word="most lines"
-      title={
-        on
-          ? 'Colour by who touched each wedge most recently instead — a timestamp with a name on it.'
-          : 'Colour by whose lines most of each body IS. Not ownership: blame reports who touched each line last, so a body rewritten wholesale reads as new and everyone whose lines were replaced is gone.'
-      }
-    >
-      {/* Three bars of different lengths, the longest lit: a pile being compared to piles. */}
-      <svg width="13" height="9" viewBox="0 0 13 9" aria-hidden>
-        <rect x="0" y="0.5" width="7" height="2.2" rx="1.1" fill="currentColor" opacity={0.55} />
-        <rect x="0" y="3.4" width="13" height="2.2" rx="1.1" fill="currentColor" />
-        <rect x="0" y="6.3" width="4" height="2.2" rx="1.1" fill="currentColor" opacity={0.55} />
-      </svg>
-    </LensToggle>
+    <ReadingSwitch
+      read={read}
+      onRead={onRead}
+      // Blame has no ramp to quote, so it takes a chrome colour of its own — see `modeToken`,
+      // and the switcher's chip, which wears the same one.
+      tint="--lens-blame"
+      opts={[
+        {
+          key: 'touched',
+          // **The noun rides on the chosen segment, exactly as Age's does, and it earns its
+          // place there for a slightly different reason.** Age's two segments share one noun,
+          // so carrying it twice would put the same word on both sides of a comparison that
+          // is only ever about the adjective. These two do not share it — a line against a
+          // pile of them — but the adjective is still what is being chosen between, and the
+          // noun is what completes the sentence once you have chosen: `newest line` and
+          // `most lines` read as the map's own words, while unpressed they get out of the way
+          // of the choice.
+          word: 'newest',
+          said: 'newest line',
+          title:
+            "Colour by the NEWEST line's name — who touched each wedge most recently. A timestamp with a name on it, and what this lens has always painted.",
+        },
+        {
+          key: 'lines',
+          word: 'most',
+          said: 'most lines',
+          title:
+            'Colour by whose lines most of each body IS. Not ownership: blame reports who touched each line last, so a body rewritten wholesale reads as new and everyone whose lines were replaced is gone.',
+        },
+      ]}
+    />
   )
 }

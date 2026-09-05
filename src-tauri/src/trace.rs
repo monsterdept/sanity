@@ -688,6 +688,16 @@ impl<'a> FileTrace<'a> {
         self.blame.map(FileBlame::headcount)
     }
 
+    /// Whose lines most of this FILE is, for the file's own node — see
+    /// [`FileBlame::main_author`], where the difference from a function's is the point.
+    ///
+    /// The file's own answer under Blame's second reading, beside `last_author` which is its
+    /// answer under the first. `None` without per-line blame, and never borrowed downwards:
+    /// `func` below still returns `None` for a range blame could not read.
+    pub(crate) fn main_author(&self) -> Option<String> {
+        self.blame.and_then(FileBlame::main_author)
+    }
+
     /// This function's own history where blame could read it, the file's otherwise — an
     /// untracked file, a repo without git, a range the blame no longer covers, or a repo
     /// traced only to depth 1 should cost RESOLUTION, not the axis.
@@ -790,6 +800,10 @@ fn apply_to(
     if node.kind == NodeKind::File {
         let file = FileTrace::of(&node.path, Histories { history, blame, edits });
         node.last_author = file.last_author();
+        // The file's own answer under the other reading — see `FileTrace::main_author`. A
+        // file carries one name per reading or the map has nothing to paint on it, which is
+        // what `most lines` had before this.
+        node.main_author = file.main_author();
         // A file's own headcount, which is not its functions' pooled — see
         // `Blame::file_headcount`, where the difference is the point.
         node.headcount = file.headcount();
@@ -1047,6 +1061,49 @@ mod tests {
         apply(&mut a, &history, &whole, None);
         apply(&mut b, &history, &chunked, None);
         same(&rows(&a), &rows(&b));
+    }
+
+    /// **A file carries a name under BOTH of Blame's readings, whichever path built it.**
+    ///
+    /// A file's own band is what the map paints wherever a ring has not been fetched, so a
+    /// file with `last_author` and no `main_author` drew as `no blame` the moment the reading
+    /// was switched to `most lines` — from the rim inwards, taking the legend's people with
+    /// it. There are two paths that build a file node and the field has to be written on both:
+    /// `scan` folds the tree with a trace already in hand, `apply` lands one on a tree folded
+    /// cold, and a repo arrives either way depending only on when git got there.
+    #[test]
+    fn a_file_is_named_under_both_readings_whichever_path_built_it() {
+        let dir = repo();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+
+        // Folded with the trace in hand.
+        let warm = scan_of(dir.path(), Depth::Lines);
+
+        // Folded cold, traced afterwards — the deferred path.
+        let mut cold = scan_of(dir.path(), Depth::Untraced);
+        let scans = crate::scancache::ScanCache::open(dir.path());
+        let history = depth1(dir.path(), &stop, &|_| {}).expect("walks");
+        let files = blamable(&cold, &scans);
+        let blame = Blame::read(dir.path(), &files, &history, &scans, &stop, &|_| {});
+        apply(&mut cold, &history, &blame, None);
+
+        let named = |scan: &crate::scan::Scan| {
+            let mut out = Vec::new();
+            scan.root.visit(&mut |n| {
+                if n.kind == crate::model::NodeKind::File {
+                    out.push((n.id.clone(), n.last_author.clone(), n.main_author.clone()));
+                }
+            });
+            out
+        };
+        let warm = named(&warm);
+        let cold = named(&cold);
+        assert!(!warm.is_empty(), "the fixture has files");
+        for (id, last, main) in &warm {
+            assert!(last.is_some(), "{id}: no last author");
+            assert!(main.is_some(), "{id}: no name under `most lines`");
+        }
+        assert_eq!(warm, cold, "the two paths name a file differently");
     }
 
     fn scan_of(repo: &Path, depth: Depth) -> crate::scan::Scan {

@@ -128,7 +128,15 @@ use std::path::{Path, PathBuf};
 ///    with no contributors and no history, which is a confident answer nobody computed. The
 ///    rules that gate on them would then be false everywhere and find nothing, silently, on
 ///    every repo whose tree happened to be cached before this landed.
-const VERSION: u32 = 17;
+/// 18: A FILE node carries `main_author` — its own biggest pile of standing lines, the twin
+///    of the `last_author` it already carried. No field was added, so nothing here would have
+///    refused a version-17 tree: it loads with the field `None` on every file, which is what a
+///    repo with no blame reports and is indistinguishable from it. That is the bump. Blame's
+///    `most lines` reading paints a file's own band whenever its ring has not been fetched —
+///    which at the root of a large repo is every wedge on screen — so a cached tree would go
+///    on drawing `no blame` from the rim inwards, and the legend would go on losing the people
+///    it names, until something unrelated dropped the cache.
+const VERSION: u32 = 18;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

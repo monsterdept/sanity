@@ -1293,17 +1293,24 @@ fn score_dir(
                     name,
                     kind: NodeKind::File,
                     excluded: file.excluded,
-                    // **A file has a headcount of its own; it does not have a main author.**
-                    // Its headcount is everyone with a line still standing anywhere in it,
-                    // which is a real measurement and a different one from its functions'
-                    // — that difference is what `file_headcount` is for. A "main author"
-                    // over a whole file is the claim this refuses: the biggest pile of lines
-                    // in a 2,000-line file says nothing about the body you are looking at.
+                    // **Both reductions are the file's OWN, and neither is lent downwards.**
+                    // Each is one walk over the same list — every line in this file with the
+                    // name of whoever touched it last — taken once as a count of names and
+                    // once as the biggest pile. The refusal that used to stand here was
+                    // right about one thing and wrong about the other: the biggest pile in a
+                    // 2,000-line file does say nothing about the body you are looking at, and
+                    // `FileTrace::func` still hands a function `None` for exactly that
+                    // reason. But the file's own band is not a body — it is the unit the map
+                    // paints whenever a ring has not been fetched — and with no name under
+                    // `most lines` every one of those wedges fell to `no blame`: the map went
+                    // grey from the rim inwards, the legend lost the people it names, and the
+                    // panel counted a repo's lines as unattributed. `last_author` answers at
+                    // this resolution under the other reading; this is its twin.
                     //
                     // From blame, alongside `last_author`, in both the paths that build a
                     // file node: here and in `apply`, which lands a trace on a tree folded
                     // without one.
-                    main_author: None,
+                    main_author: file_trace.main_author(),
                     headcount: file_trace.headcount(),
                     // The module's banner, and the second half of the comment stack a
                     // reader is handed — `collect_tasks` reads it straight off this field

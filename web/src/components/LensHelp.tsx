@@ -248,7 +248,7 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
         />
       }
       measures="who a wedge belongs to, in one of two ways — see the reading below."
-      values="last touched · most lines"
+      values="newest line · most lines"
     >
       <p>
         <B>Neither reading is authorship, and the lens is not called Author for that reason.</B>{' '}
@@ -258,7 +258,7 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       </p>
       <ul className="mt-1 list-disc space-y-0.5 pl-4">
         <li>
-          <code>last touched</code> — the newest line's name. A timestamp with a name on it, and
+          <code>newest line</code> — the newest line's name. A timestamp with a name on it, and
           what this lens has always painted.
         </li>
         <li>

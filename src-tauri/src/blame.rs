@@ -137,6 +137,44 @@ impl FileBlame {
         self.authors.iter().filter(|a| !a.is_empty()).count() as u32
     }
 
+    /// Whose lines most of this FILE is.
+    ///
+    /// **A file's own reduction, exactly as `headcount` is, and it stands in for nothing.**
+    /// The two are the same walk over the same list — every line in the file with the name of
+    /// whoever touched it last — taken once as a count of names and once as the biggest pile.
+    /// It includes the space between functions, where a file's imports and its module-level
+    /// wiring live, and that is a fact about the file rather than an average of its bodies.
+    ///
+    /// **A function never borrows it**, and that is the whole of what was refused when this
+    /// did not exist: the biggest pile in a 2,000-line file says nothing about the body you
+    /// are looking at, so `FileTrace::func` still returns `None` where blame could not read a
+    /// range. What it answers is the question the FILE's own band asks — the same resolution
+    /// `last_author` already answers under the other reading, and without it the `most lines`
+    /// reading had nothing to paint on any file whose ring had not been fetched: the map went
+    /// grey from the rim inwards and the legend lost the people it names.
+    ///
+    /// `None` on a file with no blame, never a name from an empty pile — the same absence
+    /// every blame-derived number here states.
+    pub fn main_author(&self) -> Option<String> {
+        // Ties to the earlier index, which is the order `authors` was built in and therefore
+        // stable across runs — the same rule `range` follows, and for the same reason: an
+        // arbitrary answer is fine, one that moves between two scans of the same tree is a
+        // wedge that changes colour for nothing.
+        let mut held = vec![0u32; self.authors.len()];
+        for l in &self.lines {
+            if let Some(n) = held.get_mut(l.author as usize) {
+                *n += 1;
+            }
+        }
+        held.iter()
+            .enumerate()
+            .max_by_key(|(_, n)| **n)
+            .filter(|(_, n)| **n > 0)
+            .and_then(|(i, _)| self.authors.get(i))
+            .filter(|a| !a.is_empty())
+            .cloned()
+    }
+
     /// Collapse the lines of one function into the six facts the map needs.
     ///
     /// **Three of them are reductions of one list and it is worth naming which.** Every line
@@ -1227,6 +1265,26 @@ summary second
         assert_eq!(hers.last_author, "Ada");
         assert_eq!(hers.main_author, "Ada");
         assert_eq!(hers.headcount, 1, "one hand, which is what a rule asks about");
+    }
+
+    /// **A file answers the `most lines` reading itself, or the map has nothing to paint.**
+    ///
+    /// A file's own band is what the map draws wherever a ring has not been fetched — which at
+    /// the root of a large repo is every wedge on screen — so a file with no `main_author`
+    /// fell to `no blame` under that reading and took the legend's people with it. Asserted
+    /// against `headcount` and against `last_author`, because this has to be the file's own
+    /// walk over its own lines and not either of the other two answers wearing a new name.
+    #[test]
+    fn a_file_holds_its_own_biggest_pile() {
+        let b = parse_porcelain(SAMPLE);
+        // Ada holds two of the file's three lines; Grace holds the third and it is newer.
+        assert_eq!(b.main_author().as_deref(), Some("Ada"), "the file's biggest pile");
+        assert_eq!(b.headcount(), 2, "and its own count of hands, unchanged");
+
+        // Nobody's pile is not a name. An empty file has no answer, which is the absence
+        // every blame-derived number here states rather than an author called "".
+        let empty = parse_porcelain("");
+        assert_eq!(empty.main_author(), None, "an empty pile names nobody");
     }
 
     #[test]
