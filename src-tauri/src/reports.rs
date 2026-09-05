@@ -378,7 +378,10 @@ pub fn mark_used(path: &Path) {
 /// Written out rather than discovered from the directory listing: a kind that stops being
 /// used should disappear from here deliberately, and a new one that forgets to appear is a
 /// reset that quietly leaves something behind — which is the failure a reset exists to fix.
-const KINDS: [&str; 4] = ["trees", "scans", "traces", "timelines"];
+/// `edits` was missing, which is exactly the failure the paragraph above describes: it takes
+/// a slot through [`cache_slot`] and prunes its own siblings through [`prune_slots`], so it
+/// behaves like the other four in every way except being reachable by a reset or a sweep.
+const KINDS: [&str; 5] = ["trees", "scans", "traces", "timelines", "edits"];
 
 /// Throw away everything derived for this repo, whatever build or window wrote it.
 ///
@@ -417,8 +420,7 @@ pub fn prune_slots(kind: &str, repo: &Path, tag: &str) {
     let Some(dir) = data_dir().map(|d| d.join(kind)) else { return };
     let hash = format!("{:016x}", slot_hash(repo));
     // Every sibling of the live slot: its `.slim.bin`, its `.links.bin`, an abandoned
-    // `.tmp`. And the unsuffixed names of the builds that predate tagging, which nothing
-    // else will ever look at again.
+    // `.tmp`.
     let mine = format!("{hash}-{tag}.");
     let Ok(entries) = std::fs::read_dir(&dir) else { return };
     for e in entries.flatten() {
@@ -426,13 +428,65 @@ pub fn prune_slots(kind: &str, repo: &Path, tag: &str) {
         if !name.starts_with(&hash) || name.starts_with(&mine) {
             continue;
         }
-        let old = e
-            .metadata()
-            .and_then(|m| m.modified())
-            .map(|t| t.elapsed().map(|age| age > KEEP_SLOTS).unwrap_or(false))
-            .unwrap_or(false);
-        if old {
+        if expendable(&e) {
             let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+/// Can this slot be thrown away without costing anybody a rebuild?
+///
+/// Two answers, and the difference is worth the function.
+///
+/// **A slot with no tag can never be read again, by anything.** [`cache_slot`] builds
+/// `{hash}-{tag}`, so every build that ships looks for a name with a tag in it and nothing
+/// anywhere opens a bare `{hash}`. These are the files of the builds that predate tagging;
+/// they went on being kept because the sweep was written as one rule about age, and age is
+/// the answer to a question they do not raise. Six gigabytes of one machine's twelve were
+/// these, waiting out a clock on behalf of a build that cannot use them.
+///
+/// **A tagged slot gets the clock**, because that is the case [`KEEP_SLOTS`] was written for:
+/// the tag belongs to a build this one cannot see, and the only evidence about whether it is
+/// still in use is when its file was last touched. Note that a lower version number is NOT
+/// evidence of abandonment — a release app one `PARSE_VERSION` behind a dev build is the
+/// exact pair the slots exist to keep apart, and it is the older of the two.
+fn expendable(e: &std::fs::DirEntry) -> bool {
+    // A tag is what follows the hash, so a name with no `-` in it has none. `.tmp` and the
+    // `.slim.bin` siblings all sit after the tag, which is why this asks about the `-` and
+    // not about the extension.
+    let name = e.file_name().to_string_lossy().to_string();
+    if !name.split('.').next().unwrap_or("").contains('-') {
+        return true;
+    }
+    e.metadata()
+        .and_then(|m| m.modified())
+        .map(|t| t.elapsed().map(|age| age > KEEP_SLOTS).unwrap_or(false))
+        .unwrap_or(false)
+}
+
+/// The same sweep, over every repo rather than the one being scanned.
+///
+/// **A clock nothing winds is not a clock.** [`prune_slots`] runs inside a scan and matches
+/// on that repo's hash, so `KEEP_SLOTS` reads as *thirty days, and then only if you come
+/// back* — a repo scanned once and never opened again keeps its caches forever, which for an
+/// attic of one-off scans is the common case rather than the edge one. The largest slot on
+/// the machine this was written on belonged to a repo nobody had opened in a fortnight.
+///
+/// Called once at startup, off the launch path: it is `readdir` and `unlink` over a few
+/// hundred names, and it is holding nothing anybody is waiting for.
+///
+/// Silent, and safe against a live neighbour: a slot in use is touched on every open by
+/// [`mark_used`], so "not modified in thirty days" means nothing has read it either. A build
+/// that loses a slot it wanted rebuilds it, which is the trade every cache here already
+/// makes.
+pub fn sweep_slots() {
+    let Some(root) = data_dir() else { return };
+    for kind in KINDS {
+        let Ok(entries) = std::fs::read_dir(root.join(kind)) else { continue };
+        for e in entries.flatten() {
+            if expendable(&e) {
+                let _ = std::fs::remove_file(e.path());
+            }
         }
     }
 }
@@ -545,13 +599,17 @@ mod tests {
         }
 
         prune_slots("trees", repo, "p4v7");
-        for p in [&mine, &slim, &theirs, &untagged, &elsewhere] {
+        for p in [&mine, &slim, &theirs, &elsewhere] {
             assert!(p.exists(), "nothing written today is anybody's abandoned slot: {p:?}");
         }
+        assert!(
+            !untagged.exists(),
+            "a name with no tag is not an abandoned slot, it is an unreachable one"
+        );
 
         // Aged past the window, which is the only thing that makes a slot sweepable.
         let old = std::time::SystemTime::now() - KEEP_SLOTS - std::time::Duration::from_secs(60);
-        for p in [&mine, &slim, &theirs, &untagged, &elsewhere] {
+        for p in [&mine, &slim, &theirs, &elsewhere] {
             std::fs::File::options()
                 .write(true)
                 .open(p)
@@ -564,7 +622,46 @@ mod tests {
         assert!(mine.exists(), "this build's own slot is never swept, however long it sat");
         assert!(slim.exists(), "nor the files beside it under the same tag");
         assert!(!theirs.exists(), "an abandoned build's slot goes");
-        assert!(!untagged.exists(), "so does the name from before there were tags");
         assert!(elsewhere.exists(), "and another repo's cache was never this sweep's business");
+    }
+
+    /// The sweep with no repo in hand reaches the repos nobody comes back to.
+    ///
+    /// **`prune_slots` runs inside a scan, so its clock only ticks for a repo you reopen.**
+    /// Thirty days is the right number for a neighbour's slot and it was being applied to a
+    /// set that never included the abandoned ones: a repo scanned once and closed keeps every
+    /// byte forever, which is most of what a machine with an attic of them is holding.
+    #[test]
+    fn the_startup_sweep_reaches_a_repo_nobody_has_opened() {
+        let _home = crate::agentapi::tests::data_home();
+        let gone = Path::new("/somewhere/scanned-once");
+        let here = Path::new("/somewhere/every-day");
+        let stale = cache_slot("scans", gone, "f7").expect("a slot").with_extension("json");
+        let fresh = cache_slot("scans", here, "f7").expect("a slot").with_extension("json");
+        let untagged = stale.with_file_name(
+            stale.file_name().unwrap().to_string_lossy().replace("-f7", ""),
+        );
+        for p in [&stale, &fresh, &untagged] {
+            std::fs::write(p, "x").unwrap();
+        }
+
+        sweep_slots();
+        assert!(stale.exists(), "a slot written today belongs to somebody");
+        assert!(!untagged.exists(), "an unreachable name goes on sight, whatever its age");
+
+        // Only the abandoned repo's clock is allowed to run out. `mark_used` touches the
+        // other one on every open, which is what makes age mean "not used" rather than
+        // "not written" — see its own doc.
+        let old = std::time::SystemTime::now() - KEEP_SLOTS - std::time::Duration::from_secs(60);
+        std::fs::File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(old))
+            .unwrap();
+        sweep_slots();
+
+        assert!(!stale.exists(), "a repo nobody has opened in a month is nobody's cache");
+        assert!(fresh.exists(), "and the one somebody opened today is untouched");
     }
 }

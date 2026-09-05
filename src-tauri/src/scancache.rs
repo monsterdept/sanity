@@ -319,8 +319,18 @@ impl ScanCache {
         let (mut stored, lines) = self
             .path
             .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|s| read_log(&s))
+            .and_then(|p| read_file(p))
+            .map(|(text, packed)| {
+                // A log written before this build compressed anything still reads, and the
+                // next save turns it into one. Nothing is thrown away to get there: a
+                // rewrite is what `save` does anyway once the log has drifted far enough
+                // from the store, and this is that, one compaction early. Ceph's cache is
+                // 2.8GB and expiring it to change container would have cost a full rescan.
+                if !packed {
+                    self.dirty.lock().unwrap_or_else(|e| e.into_inner()).rewrite = true;
+                }
+                read_log(&text)
+            })
             .filter(|(s, _)| s.version == FORMAT_VERSION)
             .unwrap_or_else(|| {
                 (
@@ -587,7 +597,7 @@ impl ScanCache {
                 s.push_str(&entry_line(k, e));
             }
             let tmp = path.with_extension("tmp");
-            if std::fs::write(&tmp, s).is_ok() && std::fs::rename(&tmp, path).is_ok() {
+            if std::fs::write(&tmp, pack(&s)).is_ok() && std::fs::rename(&tmp, path).is_ok() {
                 d.lines = inner.entries.len() + 1;
                 d.rewrite = false;
                 d.keys.clear();
@@ -617,7 +627,7 @@ impl ScanCache {
             .append(true)
             .create(true)
             .open(path)
-            .and_then(|mut f| f.write_all(s.as_bytes()));
+            .and_then(|mut f| f.write_all(&pack(&s)));
         if appended.is_ok() {
             d.lines += n;
             d.keys.clear();
@@ -631,6 +641,75 @@ impl ScanCache {
 /// re-encoding the whole store to say that is what made a large tree quadratic. The cost is
 /// that a reader has to apply the lines in order, and that removals need a rewrite — both
 /// cheap next to serialising hundreds of megabytes on a timer.
+/// The log is gzip, and the append survives it.
+///
+/// **A cache bigger than the thing it caches.** Every entry carries the function bodies and
+/// the file's head verbatim, which is 67% of the bytes and is a copy of source that is on
+/// disk two directories away — measured on ceph, 2.8GB of log to spare a scan from reading
+/// 1.3GB of code. Dropping the bodies was the obvious move and is the wrong one: every scan
+/// recomputes the surprise proxy, the doc grade and the clone fingerprint over them, hit or
+/// miss, so they would have to be read back from source on the fast path that currently does
+/// not open the file at all — trading one sequential read for a scattered one across a
+/// hundred and fifty thousand files.
+///
+/// What the bodies ARE is compressible: the same license header at the top of every file in
+/// a kernel tree, `{\n\treturn 0;\n}` ten thousand times over. Measured on 200MB of ceph's
+/// own log, gzip returns 4.0–4.6× depending on level and zstd 4.5×, and the decode is a
+/// tenth of a second either way. `flate2` is already compiled into this binary for the
+/// compressibility term in `heuristic`, and a second compressor for a 0.5× ratio difference
+/// is a dependency bought with somebody else's supply chain.
+///
+/// **Members concatenate, which is the whole reason this fits.** The format is a log because
+/// the cost of a write has to be the size of what CHANGED — see [`ScanCache::save`] — and a
+/// single compressed document would make every append a rewrite of the store. gzip is framed
+/// the same way the log is: each append writes its own member, a reader decodes the
+/// concatenation as one stream, and a member torn off by a kill leaves the ones before it
+/// exactly as readable as a torn LINE does. The two properties the format was chosen for
+/// both survive.
+const LEVEL: u32 = 3;
+
+/// gzip's own first two bytes. The name on disk is unchanged and the file is sniffed instead
+/// — see the reader in [`ScanCache::store`]. A new extension is a new path, a new path is a
+/// cache miss, and a cache miss here is a full rescan of every repo anybody has open.
+const GZIP: [u8; 2] = [0x1f, 0x8b];
+
+fn pack(text: &str) -> Vec<u8> {
+    use std::io::Write;
+    let mut w = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(LEVEL));
+    if w.write_all(text.as_bytes()).is_err() {
+        return text.as_bytes().to_vec();
+    }
+    w.finish().unwrap_or_else(|_| text.as_bytes().to_vec())
+}
+
+/// The log as text, and whether it was compressed when found.
+///
+/// **A truncated tail is data, not an error.** `read_to_end` appends everything it decoded
+/// before the failure, so a member cut off mid-write yields every member before it and the
+/// beginning of that one — which lands in [`read_log`] as a partial last line, the case it
+/// has always dropped. Bailing out on the `Err` instead would throw away the whole cache to
+/// avoid one unfinished append.
+fn read_file(path: &Path) -> Option<(String, bool)> {
+    let raw = std::fs::read(path).ok()?;
+    if !raw.starts_with(&GZIP) {
+        return Some((String::from_utf8(raw).ok()?, false));
+    }
+    use std::io::Read;
+    let mut out: Vec<u8> = Vec::new();
+    let _ = flate2::read::MultiGzDecoder::new(raw.as_slice()).read_to_end(&mut out);
+    let text = match String::from_utf8(out) {
+        Ok(t) => t,
+        // A member torn mid-character. Everything up to it is still whole.
+        Err(e) => {
+            let good = e.utf8_error().valid_up_to();
+            let mut bytes = e.into_bytes();
+            bytes.truncate(good);
+            String::from_utf8(bytes).ok()?
+        }
+    };
+    Some((text, true))
+}
+
 fn header_line(s: &Stored) -> String {
     serde_json::to_string(&serde_json::json!({ "version": s.version, "head": s.head }))
     .unwrap_or_default()
@@ -901,7 +980,7 @@ mod tests {
         // The same log, as a build with a different parser sees it.
         // From the pristine log each time — the previous iteration wrote its own stamp over
         // the file, and re-reading it would look for a version that is no longer there.
-        let written = fs::read_to_string(&path).unwrap();
+        let written = read_file(&path).unwrap().0;
         for stamp in [
             format!(r#""parse":{}"#, crate::parse::PARSE_VERSION + 1),
             r#""parse":0"#.to_string(),
@@ -1033,7 +1112,7 @@ mod tests {
             cache.save();
         }
 
-        let lines = fs::read_to_string(&path).unwrap().lines().count();
+        let lines = read_file(&path).unwrap().0.lines().count();
         assert_eq!(lines, 5, "expected a header and one line per file, got {lines}");
         assert_eq!(
             ScanCache::open(repo.path())
@@ -1058,13 +1137,83 @@ mod tests {
         on_disk(repo.path(), &[("a.rs", "fn one() {}"), ("b.rs", "fn one() {}")]);
         let path = ScanCache::path_for(repo.path()).unwrap();
 
-        let text = fs::read_to_string(&path).unwrap();
+        // Written back UNCOMPRESSED, which is the older shape of this file and still a
+        // shape the reader has to accept — see `read_file`. The torn *member* is its own
+        // test below.
+        let text = read_file(&path).unwrap().0;
         let torn = format!("{}{{\"k\":\"c.rs\",\"e\":{{\"mtime\":1,\"len\"", text);
         fs::write(&path, torn).unwrap();
 
         let back = ScanCache::open(repo.path());
         let n = back.store().as_ref().expect("a store is read on first use").entries.len();
         assert_eq!(n, 2, "a torn trailing line took the good entries with it");
+    }
+
+    /// The same property one layer down: a member cut off mid-write costs that append.
+    ///
+    /// **The compressed log's version of a torn line, and it had to be checked rather than
+    /// assumed.** A single-document compressor would fail the whole stream on a truncated
+    /// tail, which is the failure the log format exists to avoid; gzip members concatenate,
+    /// so the decode of everything before the cut is already in the buffer when the error
+    /// arrives — provided the reader keeps it instead of returning the `Err`.
+    #[test]
+    fn a_torn_last_member_costs_only_its_own_append() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = tempfile::tempdir().unwrap();
+        on_disk(repo.path(), &[("a.rs", "fn one() {}"), ("b.rs", "fn one() {}")]);
+        let path = ScanCache::path_for(repo.path()).unwrap();
+
+        let whole = fs::read(&path).unwrap();
+        assert!(whole.starts_with(&GZIP), "the log is written compressed");
+        let mut torn = whole.clone();
+        torn.extend_from_slice(&pack("{\"k\":\"c.rs\",\"e\":{\"mtime\":1")[..12]);
+        fs::write(&path, torn).unwrap();
+
+        let back = ScanCache::open(repo.path());
+        let n = back.store().as_ref().expect("a store is read on first use").entries.len();
+        assert_eq!(n, 2, "a torn trailing member took the good entries with it");
+    }
+
+    /// A log from a build that wrote plain text is read, and then compacted into one that
+    /// is not.
+    ///
+    /// **Expiring it instead was the alternative and it costs a rescan.** Ceph's log is
+    /// 2.8GB and its scan is minutes; changing container is not a reason to ask for either.
+    #[test]
+    fn a_plain_log_is_read_and_then_written_back_compressed() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = tempfile::tempdir().unwrap();
+        on_disk(repo.path(), &[("a.rs", "fn one() {}")]);
+        let path = ScanCache::path_for(repo.path()).unwrap();
+
+        // What every cache on disk before this change looks like.
+        let plain = read_file(&path).unwrap().0;
+        fs::write(&path, &plain).unwrap();
+
+        let cache = ScanCache::open(repo.path());
+        assert_eq!(
+            cache.store().as_ref().expect("a store is read on first use").entries.len(),
+            1,
+            "a plain log still reads"
+        );
+        let p = repo.path().join("b.rs");
+        fs::write(&p, "fn one() {}").unwrap();
+        let Look::Miss { ident, .. } = cache.look("b.rs", &p, None) else { panic!("miss") };
+        cache.put_parse("b.rs", &ident, Lang::Rust, &[func("one")], None, "head");
+        cache.save();
+
+        let raw = fs::read(&path).unwrap();
+        assert!(raw.starts_with(&GZIP), "the next save compacts it rather than appending to it");
+        assert_eq!(
+            ScanCache::open(repo.path())
+                .store()
+                .as_ref()
+                .expect("a store is read on first use")
+                .entries
+                .len(),
+            2,
+            "and nothing was lost on the way"
+        );
     }
 
     /// A removal has to survive a reopen, and an append cannot express one.

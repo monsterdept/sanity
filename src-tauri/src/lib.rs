@@ -215,6 +215,9 @@ pub fn run() {
         .setup(move |_app| {
             build_window(_app.handle());
             crate::harness::warm();
+            // Off the launch path: `readdir` and `unlink` over a few hundred names, holding
+            // nothing anybody is waiting for. See `reports::sweep_slots` for what it takes.
+            std::thread::spawn(crate::reports::sweep_slots);
             #[cfg(target_os = "macos")]
             {
                 use tauri::{Emitter, Manager};
