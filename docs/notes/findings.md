@@ -864,6 +864,13 @@ This is the part to get right before any of it ships, and the answer is already 
   correct — the decision was made about a different question — and it must be said at the
   moment of editing rather than discovered as findings reappearing. *Changing this rule's
   clauses brings back 7 findings somebody set aside.*
+- **A flag does not move a finding in the list.** `flagged` is the one verdict that keeps a
+  finding on screen, and for a while it also sorted that finding to the front — of its rule, of
+  the merged worklist and of `sanity findings`. Clicking Flag therefore made the row jump out
+  from under the pointer and reordered the list around it, and the order stopped meaning what
+  every other surface's order means: how wide the body is. A flag is a note about what you mean
+  to do next, not a claim about the code, so `live_hits` ranks by `rank()` alone and the panel
+  and the CLI sort on `loc` alone. The flag says itself, in the tile and as `⚑` in the CLI.
 - **`fine-always` does not care**, by construction. It is a statement about the subject, not
   about a version of it, and `Verdict::hides` never consults the pin for it.
 - **Deleting a rule orphans its decisions rather than deleting them.** They stay in
@@ -1185,7 +1192,7 @@ problem; the reading of it was.
 ### Two views, and the CLI has both
 
 `sanity findings` is the worklist: one entry per SUBJECT, merged the way the panel merges,
-flagged first then widest, with each rule's sentence under it and the blocked rules named
+widest first, with each rule's sentence under it and the blocked rules named
 before the list rather than left as silence. It runs in process, like `refresh` and unlike
 `status` — the read verbs ask the backend because what they report is partly live, and a
 finding is not: it is the tree, the readings and the rules, all on disk. An endpoint would be

@@ -796,13 +796,14 @@ export function Findings({
         } else by.set(l.key, { finding: l, rules: [g], says: [l.says], flagged: l.flagged })
       }
     }
-    // Flagged first, then widest — the same order the backend ranks each rule by, applied
-    // again here because merging by subject shuffles them back together.
+    // Widest, then key — the same order the backend ranks each rule by, applied again here
+    // because merging by subject shuffles them back together. **A flag does not move a tile.**
+    // Flagging used to sort the tile to the front, so the row you clicked jumped out from under
+    // the pointer and the list you were reading down reordered itself around it; a flag is a
+    // note about what you mean to do, not a claim that this body is wider than the ones above.
     return [...by.values()].sort(
       (a, b) =>
-        Number(b.flagged) - Number(a.flagged) ||
-        b.finding.hit.loc - a.finding.hit.loc ||
-        a.finding.key.localeCompare(b.finding.key),
+        b.finding.hit.loc - a.finding.hit.loc || a.finding.key.localeCompare(b.finding.key),
     )
   })()
 
@@ -1489,7 +1490,7 @@ export function Findings({
                     </div>
                     {(
                       [
-                        ['flagged', 'Flag for action', 'Stays in the list, at the top'],
+                        ['flagged', 'Flag for action', 'Stays in the list, marked'],
                         ['fine-for-now', 'Fine as it stands', 'Hidden until this code changes'],
                         ['fine-always', 'Always fine', 'Hidden whatever this code does'],
                       ] as [Verdict, string, string][]

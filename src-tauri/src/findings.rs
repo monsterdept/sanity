@@ -1031,18 +1031,19 @@ fn rank(v: &mut [&Subject]) {
 
 /// A rule's findings, minus the ones somebody has settled — and how many those were.
 ///
-/// **A flagged finding is not settled.** It stays, and it comes first: somebody has committed to
-/// doing it, and a worklist that swallowed the rows you had committed to would be a worklist
-/// you cannot commit to anything in.
+/// **A flagged finding is not settled.** It stays, in the place it already had: somebody has
+/// committed to doing it, and a worklist that swallowed the rows you had committed to would be
+/// a worklist you cannot commit to anything in. It does not move to the front — a flag is a note
+/// about what you intend to do, not a claim that this body is wider or worse than the one above
+/// it, and a list that reshuffles under the click loses the row you were reading.
 pub fn live_hits<'a>(
     rule: &Rule,
     facts: &'a [Facts],
     decided: &HashMap<&str, HashMap<&str, (Verdict, &str)>>,
 ) -> (Vec<&'a Subject>, usize) {
-    let mut keep: Vec<(&Subject, bool)> = Vec::new();
+    let mut keep: Vec<&Subject> = Vec::new();
     let mut settled = 0usize;
     for f in facts.iter().filter(|f| matches(rule, f)) {
-        let mut flagged = false;
         if let Some((verdict, pin)) =
             decided.get(f.subject.key.as_str()).and_then(|by_rule| by_rule.get(rule.id.as_str()))
         {
@@ -1050,16 +1051,12 @@ pub fn live_hits<'a>(
                 settled += 1;
                 continue;
             }
-            flagged = *verdict == Verdict::Flagged;
         }
-        keep.push((&f.subject, flagged));
+        keep.push(&f.subject);
     }
-    // Flagged first, then widest — the same total order everywhere, with one thing in front
-    // of it.
-    keep.sort_by(|a, b| {
-        b.1.cmp(&a.1).then_with(|| b.0.loc.cmp(&a.0.loc)).then_with(|| a.0.key.cmp(&b.0.key))
-    });
-    (keep.into_iter().map(|(s, _)| s).collect(), settled)
+    // Widest first — one total order everywhere, and a verdict is not part of it.
+    rank(&mut keep);
+    (keep, settled)
 }
 
 /// The archive as the evaluator wants it: subject, then rule id.

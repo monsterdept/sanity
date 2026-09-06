@@ -1833,7 +1833,8 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         &crate::findings::archive(&path),
     );
 
-    // Merged by subject, flagged first then widest — the panel's order, from the same numbers.
+    // Merged by subject, widest first — the panel's order, from the same numbers. A flag does
+    // not move a row: see `findings::live_hits`.
     #[derive(Default)]
     struct Row<'a> {
         flagged: bool,
@@ -1850,9 +1851,7 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         }
     }
     let mut rows: Vec<(&str, Row)> = by_key.into_iter().collect();
-    rows.sort_by(|(ak, a), (bk, b)| {
-        b.flagged.cmp(&a.flagged).then_with(|| b.loc.cmp(&a.loc)).then_with(|| ak.cmp(bk))
-    });
+    rows.sort_by(|(ak, a), (bk, b)| b.loc.cmp(&a.loc).then_with(|| ak.cmp(bk)));
 
     let settled: usize = groups.iter().map(|g| g.dismissed).sum();
     println!();
