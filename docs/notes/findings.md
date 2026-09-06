@@ -1198,6 +1198,23 @@ before the list rather than left as silence. It runs in process, like `refresh` 
 finding is not: it is the tree, the readings and the rules, all on disk. An endpoint would be
 a second answer, and findings that depended on whether the app happened to be open.
 
+**And the CLI decides, because a worklist you cannot answer is a report.** `sanity findings
+snooze | allow | flag | clear <KEY>` are the three buttons in the panel and the one that
+takes them back, named for what they do rather than for what the archive stores — `Verdict`
+keeps its own words. The KEY is the line the list already prints: `key_of` is `path#name`, so
+copying a finding out of the list is how you address it, and nothing has to be looked up.
+
+Two things they are careful about, both of which are the panel's rules rather than new ones.
+A verdict writes **one decision per rule that currently raises the subject** — the tile is the
+unit and writing only the first would leave a finding half-decided — with `--rule` for the
+case a tile cannot express: *this is fine BECAUSE it is long, but the tangle still stands.*
+And a rule that `blocked` says cannot answer is named and refused rather than written, because
+a pin taken while the churn rules are dark is a pin full of absences that will never match
+again. `clear` needs no scan at all: the archive is keyed on strings it already holds, which is
+what lets a decision be taken back on a repo whose rules no longer raise the finding — the
+case it is most needed in. It reads the archive back rather than trusting the writes, being
+the one verb here that deletes.
+
 `just findings` is the bench: one row per RULE, with its calibrated suggestion and its
 marginal contribution. That is a question about the catalog, where the verb asks a question
 about the repo, and they are deliberately not the same output.

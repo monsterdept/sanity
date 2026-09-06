@@ -2838,7 +2838,10 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    fn word(self) -> &'static str {
+    /// The word this verdict is stored and printed as. One spelling, used by the archive it is
+    /// written to and by the CLI that reports what it wrote — two would be a store whose
+    /// entries the tool that made them cannot name.
+    pub fn word(self) -> &'static str {
         match self {
             Verdict::Flagged => "flagged",
             Verdict::FineForNow => "fine-for-now",
