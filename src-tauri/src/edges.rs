@@ -178,7 +178,11 @@ const GLOBAL_UNIQUE: usize = 1;
 /// runs on the same parse the scan already paid for.
 pub fn wire(files: &[FileView<'_>]) -> Wiring {
     // name → every definition of it, with the family and directory needed to rank candidates.
-    let mut defs: HashMap<&str, Vec<(u8, &str, Site)>> = HashMap::new();
+    let mut defs: HashMap<&str, Vec<Def<'_>>> = HashMap::new();
+    // Every name a qualifier could legitimately BE: the types and modules definitions sit in,
+    // and the file stems a module-qualified call spells. See `resolve`.
+    let mut owners: HashSet<&str> = HashSet::new();
+    let mut modules: HashSet<&str> = HashSet::new();
     let mut resolvable = 0u64;
     for (fi, file) in files.iter().enumerate() {
         if !crate::parse::resolves_calls(file.lang) {
@@ -187,8 +191,18 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
         resolvable += file.funcs.len() as u64;
         let fam = family(file.lang);
         let dir = dir_of(file.path);
+        modules.insert(stem_of(file.path));
         for (gi, func) in file.funcs.iter().enumerate() {
-            defs.entry(func.name.as_str()).or_default().push((fam, dir, (fi, gi)));
+            let owner = func.owner.as_deref();
+            if let Some(o) = owner {
+                owners.insert(o);
+            }
+            defs.entry(func.name.as_str()).or_default().push(Def {
+                fam,
+                dir,
+                site: (fi, gi),
+                owner,
+            });
         }
     }
 
@@ -204,8 +218,8 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
         let dir = dir_of(file.path);
         for (gi, func) in file.funcs.iter().enumerate() {
             let from = (fi, gi);
-            for name in &func.calls {
-                let hits = resolve(&defs, name, fam, fi, dir);
+            for call in &func.calls {
+                let hits = resolve(&defs, call, fam, fi, dir, &owners, &modules);
                 if hits.is_empty() {
                     unresolved += 1;
                     continue;
@@ -261,7 +275,23 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
     Wiring { per_site, resolved, unresolved, resolvable, edges }
 }
 
-/// Which definitions a call by this name reaches, nearest tier first.
+/// One definition, as the resolver needs to see it.
+struct Def<'a> {
+    fam: u8,
+    dir: &'a str,
+    site: Site,
+    /// The type or module it is defined in — see [`crate::parse::FuncDef::owner`]. `None` is
+    /// a free function, and that is the half of this the dot rule turns on.
+    owner: Option<&'a str>,
+}
+
+/// The file name without its directory or extension — what a module-qualified call spells.
+fn stem_of(path: &str) -> &str {
+    let file = path.rsplit_once('/').map_or(path, |(_, f)| f);
+    file.split_once('.').map_or(file, |(stem, _)| stem)
+}
+
+/// Which definitions a call reaches, nearest tier first.
 ///
 /// **Same file, then same directory, then the whole family** — and the tiers are not just a
 /// preference order, they carry different evidence. A name matched inside the file it is
@@ -270,42 +300,112 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
 /// only a name with exactly one definition anywhere is taken; past that it is a common word
 /// (`get`, `run`, `new`) and the honest answer is that we do not know.
 ///
+/// **That guard was necessary and not sufficient, and the gap had a body count.** It fires on
+/// a name defined MORE than once. A name defined exactly once still took every call spelled
+/// like it, anywhere in the family — so `parse.rs`'s private `collect`, which one line in the
+/// repo calls, was credited with all 175 bodies that write `.collect()`. And the directory
+/// tier has the same hole one level down: `src-tauri/src` is forty files in one directory, so
+/// every `.len()` in the backend landed on whichever `len` happened to live next door. The ten
+/// most-called functions in this repo were `new`, `collect`, `path`, `len`, `is_empty` and
+/// `get` — the Rust standard library, ranked as though it were the code.
+///
+/// **So how a call was SPELLED decides which tiers it may use.** That is not the receiver's
+/// type, which no parse here can have; it is [`crate::parse::Via`], read off the page:
+///
+/// - **`f()`** vouches for nothing and needs nothing. The tiers are as they were.
+/// - **`A::f()` or `x.f()` where `A` names a type something in this repo is defined in.**
+///   The strongest evidence available, and it beats locality: the candidates are the ones
+///   with that owner, wherever they live.
+/// - **`m.f()` or `m::f()` where `m` names a module or a file here.** That is how Python and
+///   Go spell a call to a free function in another file, and how Rust spells `mem::swap`. The
+///   qualifier is checked and then spent; the tiers run as for a bare name.
+/// - **Anything else** — `xs.collect()`, `Vec::new()` — is a call through something this repo
+///   never defined. Two things follow, and both are facts about the language rather than
+///   guesses about the code: it cannot be reaching a FREE function, because no language here
+///   lets you call one through a value or a foreign type; and its own directory vouches for
+///   nothing, because the receiver is not local, so the middle tier is skipped. What is left
+///   is the file it was written in, or a name defined exactly once in the repo.
+///
 /// Returning several sites rather than picking one is deliberate. A guess would put a
 /// confident edge on the map where the parse has none, and the counts this feeds are already
 /// only ever read as "roughly how wired is this" — one extra candidate in a directory changes
 /// a caller count by one, where a wrong pick changes two functions' wiring and looks certain.
 fn resolve(
-    defs: &HashMap<&str, Vec<(u8, &str, Site)>>,
-    name: &str,
+    defs: &HashMap<&str, Vec<Def<'_>>>,
+    call: &crate::parse::Call,
     fam: u8,
     file: usize,
     dir: &str,
+    owners: &HashSet<&str>,
+    modules: &HashSet<&str>,
 ) -> Vec<Site> {
-    let Some(all) = defs.get(name) else { return Vec::new() };
-    let same_family: Vec<&(u8, &str, Site)> = all.iter().filter(|(f, _, _)| *f == fam).collect();
+    let Some(all) = defs.get(call.name.as_str()) else { return Vec::new() };
+    let same_family: Vec<&Def<'_>> = all.iter().filter(|d| d.fam == fam).collect();
     if same_family.is_empty() {
         return Vec::new();
     }
-    let here: Vec<Site> =
-        same_family.iter().filter(|(_, _, s)| s.0 == file).map(|(_, _, s)| *s).collect();
+
+    let (through, qualifier) = match &call.via {
+        crate::parse::Via::Free => (false, None),
+        crate::parse::Via::Dot(q) | crate::parse::Via::Path(q) => (true, q.as_deref()),
+    };
+    // Named the owner: that IS the answer, and locality has nothing to add to it.
+    if let Some(q) = qualifier {
+        if owners.contains(q) {
+            let owned: Vec<Site> =
+                same_family.iter().filter(|d| d.owner == Some(q)).map(|d| d.site).collect();
+            if !owned.is_empty() {
+                return owned;
+            }
+        }
+    }
+    // A bare name, or a qualifier that names a module here, leaves the tiers as they always
+    // were. A receiver with no name to check does not: an unreadable qualifier is a reason to
+    // know less, never a reason to fall back to knowing more.
+    let local = !through || qualifier.is_some_and(|q| modules.contains(q));
+
+    let mut reachable: Vec<&Def<'_>> = same_family;
+    if !local {
+        // Through a value or a foreign type, so it is not a free function — and `self.f()`
+        // and `this.f()` land here too, which is right: they are methods, and the file tier
+        // below is where an impl and its own calls almost always sit.
+        reachable.retain(|d| d.owner.is_some());
+        if reachable.is_empty() {
+            return Vec::new();
+        }
+    }
+
+    let here: Vec<Site> = reachable.iter().filter(|d| d.site.0 == file).map(|d| d.site).collect();
     if !here.is_empty() {
         return here;
     }
-    let near: Vec<Site> =
-        same_family.iter().filter(|(_, d, _)| *d == dir).map(|(_, _, s)| *s).collect();
+    // Past its own file, a call through an unrecognised receiver has nothing left to offer.
+    // Repo-uniqueness is real evidence about a NAME and none at all about a receiver's type:
+    // `as_str`, `lock` and `count` are each defined exactly once here and each of them still
+    // collected every standard-library call spelled the same way. The file tier survives
+    // because `self.f()` is written next to the impl it belongs to; nothing below it does.
+    if !local {
+        return Vec::new();
+    }
+    let near: Vec<Site> = reachable.iter().filter(|d| d.dir == dir).map(|d| d.site).collect();
     if !near.is_empty() {
         return near;
     }
-    if same_family.len() > GLOBAL_UNIQUE {
+    if reachable.len() > GLOBAL_UNIQUE {
         return Vec::new();
     }
-    same_family.iter().map(|(_, _, s)| *s).collect()
+    reachable.iter().map(|d| d.site).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parse::FuncDef;
+
+    /// A call written as a bare name, which is what most of these fixtures mean.
+    fn free(name: &str) -> crate::parse::Call {
+        crate::parse::Call { name: name.to_string(), via: crate::parse::Via::Free }
+    }
 
     fn def(name: &str, calls: &[&str]) -> FuncDef {
         FuncDef {
@@ -318,7 +418,39 @@ mod tests {
             end_line: 2,
             shape: None,
             cognitive: None,
-            calls: calls.iter().map(|c| c.to_string()).collect(),
+            calls: calls.iter().map(|c| free(c)).collect(),
+        }
+    }
+
+    /// A definition inside a type, which is what makes it reachable through a receiver.
+    fn method(owner: &str, name: &str, calls: &[crate::parse::Call]) -> FuncDef {
+        FuncDef { owner: Some(owner.into()), calls: calls.to_vec(), ..def(name, &[]) }
+    }
+
+    /// A definition with calls this file has spelled out, rather than the bare names `def`
+    /// takes.
+    fn spells(name: &str, calls: &[crate::parse::Call]) -> FuncDef {
+        FuncDef { calls: calls.to_vec(), ..def(name, &[]) }
+    }
+
+    /// `q.name()` — a call through a receiver spelled `q`.
+    fn dot(q: &str, name: &str) -> crate::parse::Call {
+        crate::parse::Call {
+            name: name.to_string(),
+            via: crate::parse::Via::Dot(Some(q.to_string())),
+        }
+    }
+
+    /// `something().name()` — a receiver with no name to check.
+    fn anon(name: &str) -> crate::parse::Call {
+        crate::parse::Call { name: name.to_string(), via: crate::parse::Via::Dot(None) }
+    }
+
+    /// `Q::name()`.
+    fn path(q: &str, name: &str) -> crate::parse::Call {
+        crate::parse::Call {
+            name: name.to_string(),
+            via: crate::parse::Via::Path(Some(q.to_string())),
         }
     }
 
@@ -327,6 +459,93 @@ mod tests {
         let views: Vec<FileView<'_>> =
             files.iter().map(|(p, l, f)| FileView { path: p, lang: *l, funcs: f }).collect();
         wire(&views)
+    }
+
+    /// **The one that shipped for months and made the whole lens report the standard
+    /// library.** `xs.collect()` is not a call to a free function named `collect` — no
+    /// language read here lets you call one through a value — but the resolver saw only the
+    /// name, found exactly one definition repo-wide and credited every body in the repo to
+    /// it. On sanity itself the private helper in `parse.rs` was reported with 175 callers
+    /// against a true 1, and it was the third most-called function in the repo.
+    #[test]
+    fn a_call_through_a_receiver_is_not_a_call_to_a_free_function() {
+        let w = wired(&[
+            ("src/parse.rs", Lang::Rust, vec![def("collect", &[])]),
+            (
+                "src/scan.rs",
+                Lang::Rust,
+                vec![spells("scan", &[anon("collect"), dot("xs", "collect")])],
+            ),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(0), "a free function is not a method");
+        assert_eq!(w.at(1, 0).map(|x| x.calls), Some(0));
+    }
+
+    /// The other half of the same rule: a receiver with no name to check is still a receiver.
+    ///
+    /// `xs.iter().collect()` ends in `)`, not in an identifier — and reading that as a BARE
+    /// name is what kept the bug alive through the first fix. An unreadable qualifier is a
+    /// reason to know less, never a reason to fall back to knowing more.
+    #[test]
+    fn an_unreadable_receiver_is_not_a_bare_name() {
+        let w = wired(&[
+            ("src/a.rs", Lang::Rust, vec![method("Store", "load", &[])]),
+            ("src/b.rs", Lang::Rust, vec![spells("run", &[anon("load")])]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(0), "nothing vouches for that receiver");
+    }
+
+    /// A qualifier that names a type something here is defined in is the strongest evidence
+    /// this method gets, and it beats being next door: `Store::load()` means the `load` in
+    /// `impl Store`, not the unrelated one the caller happens to share a directory with.
+    #[test]
+    fn an_owner_beats_locality() {
+        let w = wired(&[
+            ("src/far/store.rs", Lang::Rust, vec![method("Store", "load", &[])]),
+            ("src/near.rs", Lang::Rust, vec![def("load", &[])]),
+            ("src/caller.rs", Lang::Rust, vec![spells("run", &[path("Store", "load")])]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "the owner named it");
+        assert_eq!(w.at(1, 0).map(|x| x.callers), Some(0), "sharing a directory is not evidence");
+    }
+
+    /// **A qualifier that names a MODULE is spent, not held against the call.** `util.helper()`
+    /// in Python and Go, and `util::helper()` in Rust, are how a free function in another file
+    /// is called — so the qualifier is checked, found to be a file here, and then the ordinary
+    /// tiers run exactly as they do for a bare name. Refusing these would paint every
+    /// cross-file call in two whole languages as reaching nothing.
+    ///
+    /// **This one passes under the old resolver too**, and is here for that reason rather than
+    /// in spite of it: the other four in this group pin what the spelling rule REFUSES, and
+    /// this pins what it must go on allowing. A fix measured only by what it removes has no
+    /// way to notice that it removed too much.
+    #[test]
+    fn a_module_qualifier_leaves_the_tiers_alone() {
+        let w = wired(&[
+            ("src/util.rs", Lang::Rust, vec![def("helper", &[])]),
+            ("src/far/caller.rs", Lang::Rust, vec![spells("run", &[path("util", "helper")])]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "a module qualifier is not a receiver");
+    }
+
+    /// A method reached through a variable resolves inside its own file, where an impl and the
+    /// code that uses it almost always sit — and stops there. The directory tier vouches for
+    /// locality, and the receiver is not local; `src-tauri/src` is forty files deep in one
+    /// directory, which is how every `.len()` in the backend landed on one `len`.
+    #[test]
+    fn an_unknown_receiver_reaches_no_further_than_its_own_file() {
+        let w = wired(&[
+            // The receiver is deliberately not spelled like either file: a qualifier that
+            // names a module here is a different case, and it is the test above this one.
+            (
+                "src/a.rs",
+                Lang::Rust,
+                vec![method("Blame", "len", &[]), spells("near", &[dot("held", "len")])],
+            ),
+            ("src/b.rs", Lang::Rust, vec![spells("far", &[dot("held", "len")])]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "its own file still counts");
+        assert_eq!(w.at(1, 0).map(|x| x.calls), Some(0), "the next file over does not");
     }
 
     #[test]

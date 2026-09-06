@@ -94,7 +94,13 @@ use crate::parse::FuncDef;
 /// format change, because a cache full of `None` would draw a repo as unsupported until
 /// something else happened to invalidate it. `PARSE_VERSION` moved with it, for the reason the
 /// paragraph above gives.
-const FORMAT_VERSION: u32 = 7;
+/// 8 because `FuncDef::calls` changed TYPE — `Vec<String>` to `Vec<Call>`, which records how
+/// each call was spelled. The field name did not move, so the guard in this file's tests
+/// cannot see it, and neither can serde: a version-7 entry decodes its call list as an empty
+/// one, and an empty call list is a function that calls nothing, drawn as a sink under Reach.
+/// That is the failure this number exists for, and it is invisible without it.
+/// `PARSE_VERSION` moved with it, for the reason the paragraph above gives.
+const FORMAT_VERSION: u32 = 8;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";

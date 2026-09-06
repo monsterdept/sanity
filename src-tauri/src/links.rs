@@ -226,7 +226,11 @@ pub(crate) mod tests {
             owner: None,
             start_line: line,
             end_line: line + 4,
-            calls: calls.iter().map(|c| c.to_string()).collect(),
+            calls: calls.iter().map(|c| crate::parse::Call {
+                name: c.to_string(),
+                via: crate::parse::Via::Free,
+            })
+            .collect(),
             shape,
             cognitive: None,
         }
@@ -343,6 +347,12 @@ pub(crate) mod tests {
             .enumerate()
             .map(|(i, e)| (links.callers.get(&(i as u32)).map_or(0, |v| v.len()), e))
             .collect();
+        let edges: usize = links.callers.values().map(Vec::len).sum();
+        let called = links.callers.len();
+        println!(
+            "  {edges} edges · {called} functions with a caller ({:.0}%)",
+            100.0 * called as f64 / links.len() as f64
+        );
         hot.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
         for (n, e) in hot.iter().take(10) {
             println!("  {n:>4} callers  {}  {}:{}", e.name, links.files[e.file as usize], e.line);

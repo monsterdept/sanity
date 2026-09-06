@@ -19,6 +19,7 @@ alternative was built and thrown away, and the note is the only record of that.
 | [assessments.md](docs/notes/assessments.md) | `.sanity/`, keys, staleness, `SPEC`, provenance |
 | [mcp.md](docs/notes/mcp.md) | The tool contract, batching, queue, endpoint routing |
 | [rings.md](docs/notes/rings.md) | Drilling, ring count, rim histograms, the color cap, folding |
+| [wiring.md](docs/notes/wiring.md) | Callers and Reach: name matching, what a call's spelling proves |
 | [time.md](docs/notes/time.md) | What Churn and Age are FOR, and why what they measure isn't it |
 | [panel.md](docs/notes/panel.md) | The detail pane, per-lens sections, code tiles |
 | [history.md](docs/notes/history.md) | Replay, timeline cache, movie export |
@@ -61,6 +62,15 @@ the map went on looking like a map.
   count. It used to take its largest member's name and color, which drew a tail of 209 people
   as one person and made it the widest band on the wedge. Only sub-pixel runs merge, and only
   with each other — a wide band that absorbs its neighbours is wider than the value it names.
+- **A caller count is a claim about this repo, so a name is not enough to make one.** Calls
+  resolve by NAME — there is no type checker — and a name defined once here took every call
+  spelled like it: `parse.rs`'s private `collect`, which one line calls, was credited with the
+  175 bodies that write `.collect()`, and the ten most-called functions in this repo were the
+  Rust standard library. What a parse can honestly add is how the call was SPELLED, never what
+  the receiver was — `Via`, and `edges::resolve` spends it. **Read [wiring.md](docs/notes/wiring.md)
+  before touching `resolve`**: the stricter rule that refuses every unrecognised receiver was
+  built and measured, and it costs 180 functions their last caller, which draws live code as
+  dead. Refusing an edge is cheap; inventing an absence is not.
 - **A tree written before the trace is an untraced tree.** `treecache::save` runs inside
   `scan()`, which the app calls at `Depth::Untraced`; `redraw` banks the drawable half again
   once the trace lands, carrying the stored signature over rather than recomputing it — a
