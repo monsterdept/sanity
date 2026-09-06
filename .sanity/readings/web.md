@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-566 of 566 read · 107 surprising
+568 of 568 read · 106 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -291,10 +291,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/App.tsx
 
 ### the file itself — QUIRKY
-- spec 3 · served in 7 parts · read at `5192ecd1f811` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:58:39Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: App.tsx is the root React component that owns global application state (selected project, scan/agent progress, current trace, findings) and orchestrates data fetching via Tauri commands, rendering the various panels (Rings/Sunburst map, findings list, history). It bundles several small memoization comparator helpers (sameRun, sameIds, sameProgress, sameCost, sameProjects, findById) plus small UI subcomponents (progress bar pieces, buttons, toggles, empty states) all in one large file with no header doc describing its overall shape.
-- found: The entire application's orchestration layer for the whole window: polling and following whatever project/repo an agent or the user has opened, live scan-shape/progress streaming, function-ring lazy fetching and grafting into the tree, agent activity/reading polling and batching, the full History/replay subsystem (trace chaining across three depths, timeline tables/deltas, playhead, scrubbing, frame trees), color-lens state and per-lens 'locked' reasoning, author/language ranking for the palette, keyboard shortcuts, findings/decisions fetching, CLI-link and onboarding dialogs, and the top-level JSX layout wiring together Sidebar/TopRow/Sunburst/HistoryBar/Detail/CodeView/dialogs. It also contains the memo comparator helpers, a couple of progress-bar subcomponents (ProgressTrack/Strip/Pane), and small UI pieces (Spacer, FindButton, HistoryToggle, Empty onboarding screen) at the tail. Every piece of state and every effect carries a multi-paragraph comment justifying a specific past bug or design tradeoff it fixes.
+- spec 3 · served in 7 parts · read at `259fb2362e07` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Top-level React frontend file for the desktop app: defines the App component composing the project sidebar, scan/read progress UI (ProgressTrack/ProgressStrip/ProgressPane), empty/unscanned states, and small pure helpers (sameRun/sameIds/sameProgress/sameCost/sameProjects/findById/parentOf/traceSig/readingSignature) for memoization/diffing of state polled from the Rust backend, plus controls like FindButton/HistoryToggle. The header doc I was given is narrowly about a "Trace pill" feature, so I expect it covers only a slice of the file rather than the whole file's responsibility.
+- found: App.tsx is the entire main-window orchestrator: the App component owns project selection/polling, the live tree (scan+readings+streamed scores, all carefully diffed/batched to avoid re-rendering thousands of arcs), the assembling-map-while-scanning state, the git-history replay system (timeline fetch, scrubbing, frame trees, movie export), trace/chase-trace phase chaining, color-mode/lens state and locking logic, keyboard shortcuts, findings/rules panel wiring, and the whole JSX shell (sidebar, top bar, sunburst, detail panel, several dialogs). It's far more than a UI shell over a handful of named helpers — it's the central state machine for the whole desktop app.
 - predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: The header doc I was given (about chaseTrace/the Trace pill) describes one real but tiny feature inside this file, not the file's actual scope — a stranger reading only that doc would have no idea this file also owns history replay, streaming scan/score state, findings, and keyboard shortcuts.
 
 ### `noop`
 - spec 3 · read at `f8812f446328` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -359,11 +360,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file_doc here is stale/misattached — it's the chaseTrace doc bleeding onto this peer, not a description of parentOf.
 
 ### `App` — QUIRKY — TANGLED
-- spec 3 · served in 6 parts · read at `6c8ac24bc7be` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:40Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: App is the root React component: it holds top-level state (current run/project selection, progress data, trace/find UI state, history toggle) via hooks like useProgress, wires up effects to fetch/poll data, and renders the overall layout by composing ProgressPane, ProgressStrip, FindButton, HistoryToggle and Empty depending on state. It likely contains most of the event handlers (selecting items, tracing, searching) inline rather than delegating to smaller components, which is why it's so large.
-- found: App is the entire application's state machine and root render, not just a thin shell around hooks. It owns: the project list/poll that follows whatever an agent has opened, the scan/tree state with batched score and shape-streaming updates, a separate on-demand fetch/graft system for per-file function rings (batched to avoid rebuilding huge trees), the full History/replay subsystem (timeline tables, deltas, playhead, scrubbing, frame trees), a trace-chaining state machine (`chaseTrace`) that walks log→blame→replay phases with per-project stop flags, lens/color-mode state and per-lens sub-readings (age, blame, tangle, churn), keyboard shortcut handling, search/jump-to-function resolution, findings/rules/decisions fetching, mascot state, and finally a large JSX tree wiring all of this into the sidebar/map/panel/dialogs layout.
+- spec 3 · served in 6 parts · read at `cac73ada25f7` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:33:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the root React component for the whole app: it holds the top-level state (selected project/repo, current run's progress and reports, trace/history UI state), wires up effects to poll or subscribe to backend progress updates, and renders the overall layout — header, project list, progress strip/pane, and buttons like Find/History — delegating to the many helper components and comparison functions (sameRun, sameIds, sameProgress, etc.) listed as peers to avoid unnecessary re-renders.
+- found: This is the entire application's root component: dozens of state hooks and refs covering the current scan/tree, streaming shape/progress during a scan, agent readings, per-project view memory (lens/drill stack) with switchTo, a full history/replay subsystem (timeline tables, deltas, frame building, scrubbing, playback), a three-phase trace/replay chain (chaseTrace) with per-project busy/stop guards, on-demand function-ring fetching batched and grafted into the tree, color ranking/legend logic for categorical lenses (author/language) that stays stable across drills and replays, keyboard shortcuts, and the full JSX layout wiring all of this into the sidebar/map/panel/dialogs. It's less a single function than an entire app's state machine and orchestration layer.
 - predicted: some · documented: none · derivable: no · legible: some · trap: no
-- note: The file_doc handed out with this task describes `chaseTrace`'s intent, not App's — it's essentially undocumented as a whole despite being ~3300 lines.
+- note: My initial one-paragraph prediction captured the shape (root component, layout, progress) but wildly undersold the sheer number of independently-reasoned subsystems (history replay, trace chaining, ring batching, rank stability across replay/drill) crammed into one function.
 
 ### `useProgress`
 - spec 3 · read at `72304b16c0ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -414,11 +415,19 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The important asymmetric-disable logic (`!on && (...)`) and the "leaving is always allowed" invariant live only in an inline body comment, not in the params doc I was handed before reading.
 
-### `Empty` — QUIRKY
-- spec 3 · read at `7608306ba708` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: `Empty` renders the first-run screen with a single primary call-to-action button (wired to `onAdd`) to add a repo, plus a small check (likely an effect probing for `claude`/`codex` binaries or config) that states whether an agent CLI is available, and a brief mention of MCP as a secondary way to trigger the same action — no headline/pitch copy, since the doc says it deliberately dropped that.
-- found: Renders a card with an Add-a-repo button, a line naming which coding-agent harnesses are installed (from `harnesses()`), a demoted mention of `sanity check` terminal use, and a whole CLI-linking sub-UI that checks `cliStatus()` and lets the user install/link the `sanity` CLI onto PATH, showing state depending on whether PATH already resolves to this app, a different build, or nothing.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
+### `Unscanned`
+- spec 3 · read at `f765b9597ed4` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:31Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Renders the project pane's third state (no tree, nothing running): shows the project's name and path, a short explanation of why there's nothing to show, and a Scan button wired to onScan, including the scan-cost estimate when the project has one (the declined-for-cost case).
+- found: Renders the card exactly as predicted: project name/path, a message that branches on whether project.scan_cost exists (declined-with-estimate vs never-scanned), a Scan button calling onScan, and when a cost exists, a files→seconds estimate line matching the row's pill phrasing.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The file_doc field returned alongside this function's docs is actually about a different function (the trace pill / chaseTrace), not about Unscanned — the real matching prose was in the docs array.
+
+### `Empty` — TANGLED
+- spec 3 · read at `7093db70de31` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:34:01Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A React empty-state component shown when no repo/project has been loaded/scanned yet — it renders a placeholder illustration/message and a call-to-action button that invokes onAdd() to open or add a repository, plus probably secondary content like instructions or hints given its length.
+- found: Empty-state card with an "Add a repo" button calling onAdd, plus checks for installed coding-agent harnesses (claude/codex) to tell the user whether reading will work, and a CLI-on-PATH status section with an "install/link CLI" button that calls installCli() and re-checks cliStatus().
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+- note: The file_doc handed to me described chaseTrace/the trace pill, which is unrelated to this component — it doesn't describe Empty at all.
 
 ## web/src/CodeWindow.tsx
 
@@ -965,11 +974,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Renders the full rule-editing form: title, population selector (func/file) that drops incompatible clauses, up to 3 clause rows (field/op/value) with per-field spread stats (median/95th/max), an "impact" and optional report-text field, a warning when changed clause fields would un-pin filed decisions, an error message, and save/cancel/reset/delete-or-turn-off buttons.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
-### `Findings` — TANGLED
-- spec 3 · served in 2 parts · read at `788bbc668a61` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:23Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A large panel component (drawer/modal, since it takes `open`/`onClose`) that renders the findings list grouped by rule (per the docs, one tile per finding rather than grouped-by-rule display). It shows a loading state while `groups`/`archive`/`rules` are null, an explanatory message instead of live data when `replaying` is true, and otherwise renders each finding with its lens color/name, file/dir location, and controls to decide/undecide a verdict (calling onDecide/onUndecide) and pick a hit (onPick). It also manages rule editing via an embedded RuleForm/draft state (draftOf/blankDraft/fieldsFor) for creating, saving, resetting, and deleting rules (onSaveRule/onDeleteRule/onResetRule), surfacing backend error sentences on failure, and shows a footer noting what rules could not run.
-- found: A large drawer/panel component with three tabbed views (findings, rules, ignored). The findings view merges per-hit findings across rules into one tile per subject (function/file), sorted by flagged-then-size, shows lens-colored rule sentences, verdict buttons (flag/fine-for-now/fine-always) with an optional reason input, and a footer reporting ignored counts and rules blocked from running. The rules view lists/edits rules via an inline RuleForm with draft state, numeric clause validation, save/delete/reset against async callbacks that surface backend error strings. The ignored view lists archived non-flag decisions with an undo button. It also handles escape-to-close and measures column width via ResizeObserver for middle-truncating file paths.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
+### `Findings`
+- spec 3 · served in 2 parts · read at `de0cf5ef93b6` · commit `c67382e` · read by claude-sonnet-5 · via claude · when 2026-09-06T19:14:31Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders the findings drawer: iterates `groups` (grouped by rule) rendering one tile per finding with lens/field color coding, lets the user pick a hit to navigate to it, decide/undecide verdicts per subject, and edit/delete/reset rules through an embedded RuleForm. Shows a footer listing rules that couldn't be asked and previously-ignored findings, disables decisions while `replaying` is true, and renders loading/empty states when `groups`, `rules`, or `archive` are null.
+- found: A three-view panel (findings/ignored/rules) switched by tabs. In the findings view, it merges hits from multiple rule groups into one tile per subject (so a function flagged by 3 rules gets one card, not three), computes which rule 'introduces' shared background prose, tracks column width via ResizeObserver for middle-truncated path display, and offers three verdict buttons (flag/fine-for-now/fine-always) each optionally opening a reason input. The rules view lets you add/edit/delete/reset rules via an inline RuleForm with validation of numeric clause values, and the ignored view lists past decisions with an undo action. A footer reports rules that couldn't run and how many findings were set aside.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ## web/src/components/HistoryBar.tsx
 
@@ -1328,10 +1337,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `phasesOf`
-- spec 3 · read at `95df3cb2a9b5` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Builds the array of exactly three Phase objects (scan, trace, read) from a ProjectSummary, each with a label, a progress fraction (for the fill), and whether it should render as an actionable button vs. a flat 'done' marker — deriving state like 'no history', 'in progress', 'behind/stale', or 'complete' per phase from distinct fields on p so the three states can't collapse into each other. The replayBlocked flag likely disables/greys out the trace or read pill's button when replay can't currently run.
-- found: Builds [scan, trace, read] Phase objects. Scan branches on scan_cost/loading/behind/else into estimate/in-progress-with-stop/stale-needs-rescan/done states. Trace is delegated to a separate traceOf(p, scanned, replayBlocked) helper. Read branches on reading(running or stopping)/not-yet-scanned(na)/fully-assessed-done/in-progress, carefully keeping 'unread' and 'stale' as disjoint counts rather than one derived by subtraction, per an explicit design note.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- spec 3 · read at `dc6358a22f36` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:33:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds an array of exactly 3 Phase objects (scan/trace/read pills) from a ProjectSummary, each with a label, progress value, and button-vs-flat-marker state. It carefully distinguishes similar-looking states (no git history vs untraced repo, declined scan vs in-progress, map behind repo vs never generated) per the doc, and uses replayBlocked to gate whether the read/map phase can be actioned.
+- found: Builds the scan/trace/read Phase objects. Scan branches on scan_cost/loading/unloaded/behind/else to produce estimate, in-progress-with-stop, not-scanned, need-rescan, or done states. Trace is delegated entirely to traceOf(p, scanned, replayBlocked). Read branches on a 'reading' wave state (running/stopping, with its own stop action) vs not-scanned-yet vs fully-read-and-fresh vs partial, and in the partial case splits the remainder into 'unread' vs 'stale' counts rather than subtracting one from the other.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `traceOf` — QUIRKY — TANGLED
 - spec 3 · read at `f707f58acdc3` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1418,10 +1427,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Rings.tsx
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `d4b4a393741f` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:45Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Rings.tsx is the settings/control panel component for the ring visualization, not the ring rendering itself — a collection of small controls (sliders, toggles, menus) governing ring count, band width, spacing, color count, which lens is active (age/churn/tangle/blame), markers, and a "derivable" filter, plus small "Reading" subcomponents that display the current value for each lens.
-- found: Exactly a controls-panel file: RingCount (stepper), BandWidth/Slider (range inputs), SpacingMenu (popover with three sliders + reset), ColorCount (stepper through CAPS), LensToggle (shared switch), MarkerToggle, AgeReading, DerivableToggle, ChurnWindow (dropdown), TangleReading, BlameReading — all small UI controls for configuring the ring visualization's lenses and geometry, with no rendering of the rings themselves.
-- predicted: full · documented: none · derivable: yes · legible: not judged · trap: no
+- spec 3 · served in 2 parts · read at `5537ef37fc1d` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A collection of small settings-panel UI controls for the Rings visualization (sliders/toggles/switches: ring count, band width, spacing, color count, lens toggle, marker toggle, and per-lens ReadingSwitch variants for age/tangle/blame/churn) rather than the ring-drawing/rendering logic itself, which likely lives in a separate file.
+- found: Exactly a bag of small, mostly stateless settings-panel controls for the Rings/Sunburst view: RingCount and ColorCount steppers, BandWidth and SpacingMenu sliders (with a private Slider helper), LensToggle (shared on/off pill used by MarkerToggle and DerivableToggle), ReadingSwitch (shared two-segment control used by AgeReading, TangleReading via LensToggle, and BlameReading), and ChurnWindow as a separate scaled pulldown. No file header exists; each control instead carries its own detailed doc comment explaining UI/design rationale (why a stepper vs slider vs switch vs pulldown) rather than what it renders.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `RingCount`
 - spec 3 · read at `054d30d5cc62` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:43Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -1469,11 +1478,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: full · derivable: no · legible: full · trap: no
 - note: The dot-SVG-as-icon design (mirroring the thing it controls) and delegation to LensToggle aren't guessable from the signature/peers alone, though the doc field explains the rationale well.
 
+### `ReadingSwitch`
+- spec 3 · read at `4e4443187f17` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:31Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Renders a small segmented-control track — one button per entry in opts — styled with the tint color for whichever segment matches read, calling onRead(opt.key) on click, using opt.said ?? opt.word as the pressed label and opt.word otherwise, with opt.title as a tooltip.
+- found: Renders a pill-shaped segmented track with one button per opt; the pressed segment gets background var(tint) and ink color computed via inkOn(tint), showing said-or-word text, others are plain muted-color buttons; clicking calls onRead(key).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: Docs explain the design rationale (why one shared shape vs three, why segments vs a menu) rather than the render details, which is expected for this kind of decision-record comment.
+
 ### `AgeReading`
-- spec 3 · read at `8e5eab640c39` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders a two-segment toggle control with segments labeled "oldest line" and "newest line" (matching AgeRead values), styling the segment matching the current `read` prop as pressed/active, and calling `onRead` with the newly selected value when the other segment is clicked.
-- found: Renders a pill-shaped two-segment toggle ("newest"/"oldest") with tooltips explaining each reading; the active segment is colored with the age lens's own color and gains a "line" suffix (e.g. "oldest line"), the inactive one stays plain muted text; clicking calls onRead with that segment's key.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `61efeb630816` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:34:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Renders a two-option toggle/switch control for AgeRead (e.g. oldest line vs another date basis), showing the pressed option's short label via ageLabel and a tooltip with the fuller phrasing, calling onRead(r) when the user picks the other option.
+- found: A thin wrapper around ReadingSwitch with tint '--age-4' and two hardcoded options, 'newest' and 'oldest', each with its own word/said/title strings explaining what coloring by that line means; no ageLabel function involved.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `DerivableToggle`
 - spec 3 · read at `8c94a0333d7a` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:24Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -1496,11 +1512,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: I wrongly guessed the docs (about a 'Complexity' weighted/raw toggle) didn't apply to this function — they actually describe it exactly, just using 'Complexity' as the lens's display name while the code/type calls it Tangle.
 
 ### `BlameReading`
-- spec 3 · read at `b1e8e6325cc5` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:29Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders a small two-option toggle (segmented control) letting the user pick between blame's two readings — "last toucher" vs "biggest pile" (most lines) — displaying `read` as the selected state and calling `onRead` with the new value on click, mirroring the pattern of AgeReading and other *Reading toggle components in this settings panel.
-- found: A thin wrapper around the shared LensToggle component: derives `on` from read==='lines', toggles between 'lines' and 'touched', and supplies a tooltip and a small 3-bar SVG icon representing "piles being compared". Behavior matched my prediction; I did not predict the specific LensToggle delegation or icon.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc comment on the enclosing type explains the semantic distinction well (last-toucher vs biggest-pile) but doesn't mention this is implemented via LensToggle delegation.
+- spec 3 · read at `6cef41bd2f54` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:33:23Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a two-segment toggle (likely reusing ReadingSwitch/LensToggle) with two options for BlameRead — one labeled something like "newest line" and the other "biggest pile" — highlighting whichever matches the current `read` value and calling `onRead` with the other option when clicked.
+- found: Renders a ReadingSwitch with a blame-specific tint and two options keyed 'touched'/'lines', worded 'newest'/'most' and said as 'newest line'/'most lines', each with a title explaining the reduction (newest toucher vs whose lines dominate the body) — delegating the actual toggle UI to ReadingSwitch.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ## web/src/components/RollupDots.tsx
 

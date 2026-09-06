@@ -24,6 +24,7 @@ where changes go, and it exists only once this repo has made one.
 | **Fossil**<br>`fossil` | `func: repo_age >= 1095 and touched >= 1825 and loc >= 100` | No commit has changed it in years. |
 | **Tangled for its size** *(tuned here)*<br>`tangled-for-size` | `func: tangle >= 0.8 and loc >= 98` | More complicated than its length accounts for. |
 | **Load-bearing, and only one person has been in it**<br>`sole-author` | `func: repo_headcount >= 4 and headcount <= 1 and callers >= 10 and loc >= 10` | Widely depended on, and every line of it was last touched by the same person. |
+| **Coordinates a lot, and only one person has been in it**<br>`sole-author-coordinator` | `func: repo_headcount >= 4 and headcount <= 1 and calls >= 10 and loc >= 10` | It calls a great deal, and every line of it was last touched by the same person. |
 | **Alone in a file others work in**<br>`alone-in-shared-code` | `func: file_headcount >= 6 and headcount <= 1 and loc >= 20` | Only one person's lines are in this body, in a file several people work in. |
 | **A file nobody else has been in**<br>`lone-file` | `file: repo_headcount >= 6 and funcs >= 5 and headcount <= 2` | A whole file with only one or two people's lines in it, on a project with many. |
 | **Many have been in it, and it is knotty**<br>`crowded-and-knotty` | `func: headcount >= 4 and tangle >= 0.8 and loc >= 10` | Several people have been in something more complicated than its length accounts for. |
