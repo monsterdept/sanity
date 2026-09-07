@@ -136,7 +136,15 @@ use std::path::{Path, PathBuf};
 ///    which at the root of a large repo is every wedge on screen — so a cached tree would go
 ///    on drawing `no blame` from the rim inwards, and the legend would go on losing the people
 ///    it names, until something unrelated dropped the cache.
-const VERSION: u32 = 18;
+/// 19: `edges::resolve` stopped letting a call through a receiver this repo cannot name reach
+///    a definition in its own file. No record changed shape, and neither did the parser — so
+///    `PARSE_VERSION` did not move and NOTHING here would have refused a version-18 tree. It
+///    would have loaded a `links.bin` full of the old answers and gone on drawing them: 19
+///    callers on a test-only `walk`, every one of them tree-sitter's `cursor.walk()`. A cached
+///    call graph is a set of numbers whose meaning changed underneath it, which is the exact
+///    shape of the failure the paragraph above this one describes, arriving through a
+///    recomputation rather than a field.
+const VERSION: u32 = 19;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

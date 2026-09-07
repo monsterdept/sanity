@@ -68,9 +68,11 @@ the map went on looking like a map.
   175 bodies that write `.collect()`, and the ten most-called functions in this repo were the
   Rust standard library. What a parse can honestly add is how the call was SPELLED, never what
   the receiver was — `Via`, and `edges::resolve` spends it. **Read [wiring.md](docs/notes/wiring.md)
-  before touching `resolve`**: the stricter rule that refuses every unrecognised receiver was
-  built and measured, and it costs 180 functions their last caller, which draws live code as
-  dead. Refusing an edge is cheap; inventing an absence is not.
+  before touching `resolve`**: a receiver this repo cannot NAME reaches nothing, `self` is the
+  one it can, and the fully strict rule that refuses every receiver was built and measured at
+  180 functions losing their last caller — live code drawn as dead. Refusing an edge is cheap;
+  inventing an absence is not. **A change to `resolve` moves `treecache::VERSION`**: nothing
+  about the records changes shape, so a warm tree serves the old call graph in silence.
 - **A tree written before the trace is an untraced tree.** `treecache::save` runs inside
   `scan()`, which the app calls at `Depth::Untraced`; `redraw` banks the drawable half again
   once the trace lands, carrying the stored signature over rather than recomputing it — a

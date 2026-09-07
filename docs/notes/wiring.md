@@ -56,6 +56,21 @@ exactly as they were (this is how Python, Go and Rust all spell a call to a free
 another file); anything else is a call through something this repo never defined, and reaches
 no further than the file it was written in.
 
+**The file tier was the last place this hid.** The rule above first kept it: a call through an
+unnameable receiver could still resolve inside the file it was written in, on the argument that
+an impl and the code using it sit together. That argument fails exactly where it costs most — in
+a big file that uses a common method name it also defines. `parse.rs` defines a test-only `walk`
+and writes `cursor.walk()` throughout, and the finding read *19 call sites depend on this*. A
+blind reviewer caught it by reading the body, which is the only way it was ever going to be
+caught. So a receiver this repo cannot name now reaches nothing at all.
+
+What the file tier was really standing in for is `self`, and `self` deserves better than
+locality: it is the one receiver whose type is not a lookup, because the body doing the calling
+is defined in something and that something is what `self` means. `this` and `Self` are the same
+word elsewhere. Handled by name, it beats locality the way a named owner does — and it is why
+closing the file tier costs 54 functions their last caller rather than the 180 the fully strict
+rule cost.
+
 **`Via::Dot(None)` is the case that kept the bug alive through the first attempt.**
 `xs.iter().collect()` has a receiver with no name to check, because it ends in a paren. Read
 as a bare name it went straight back to resolving repo-wide, and `collect` came out at 176 —
@@ -69,7 +84,8 @@ On sanity itself, the same instrument (`REPO=… cargo test --lib -- --ignored n
 | | edges | functions with a caller |
 |---|---|---|
 | before | 6,422 | 1,071 of 1,686 (64%) |
-| after | 3,077 | 1,046 of 1,686 (62%) |
+| after (spelling) | 3,077 | 1,046 of 1,686 (62%) |
+| after (`self`, no file tier) | 2,793 | 992 of 1,705 (58%) |
 
 **Half the call graph was noise, and it cost twenty-five functions their last caller.** That
 ratio is the argument: the deleted edges were piled onto a handful of names, so removing them

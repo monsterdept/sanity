@@ -219,7 +219,8 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
         for (gi, func) in file.funcs.iter().enumerate() {
             let from = (fi, gi);
             for call in &func.calls {
-                let hits = resolve(&defs, call, fam, fi, dir, &owners, &modules);
+                let hits =
+                    resolve(&defs, call, fam, fi, dir, func.owner.as_deref(), &owners, &modules);
                 if hits.is_empty() {
                     unresolved += 1;
                     continue;
@@ -330,12 +331,16 @@ fn stem_of(path: &str) -> &str {
 /// confident edge on the map where the parse has none, and the counts this feeds are already
 /// only ever read as "roughly how wired is this" — one extra candidate in a directory changes
 /// a caller count by one, where a wrong pick changes two functions' wiring and looks certain.
+#[allow(clippy::too_many_arguments)]
 fn resolve(
     defs: &HashMap<&str, Vec<Def<'_>>>,
     call: &crate::parse::Call,
     fam: u8,
     file: usize,
     dir: &str,
+    // The owner of the body making the call, which is the one receiver type that can be
+    // known: `self` is whatever this is defined in.
+    mine: Option<&str>,
     owners: &HashSet<&str>,
     modules: &HashSet<&str>,
 ) -> Vec<Site> {
@@ -349,8 +354,16 @@ fn resolve(
         crate::parse::Via::Free => (false, None),
         crate::parse::Via::Dot(q) | crate::parse::Via::Path(q) => (true, q.as_deref()),
     };
+    // **`self` is the one receiver whose type is knowable**, and it is knowable exactly
+    // because it is not a lookup: the body doing the calling is defined in something, and
+    // `self.f()` means that something's `f`. `this` and `Self` are the same word in the other
+    // languages read here.
+    let named = match qualifier {
+        Some("self" | "this" | "Self") => mine,
+        other => other,
+    };
     // Named the owner: that IS the answer, and locality has nothing to add to it.
-    if let Some(q) = qualifier {
+    if let Some(q) = named {
         if owners.contains(q) {
             let owned: Vec<Site> =
                 same_family.iter().filter(|d| d.owner == Some(q)).map(|d| d.site).collect();
@@ -375,18 +388,24 @@ fn resolve(
         }
     }
 
+    // **A receiver this repo cannot name reaches nothing, its own file included.** The file
+    // tier was left open here at first, on the argument that an impl and the code using it sit
+    // together — and it put 19 callers on `parse.rs`'s test-only `walk`, every one of them
+    // tree-sitter's `cursor.walk()` written in the same file. A big file that uses a common
+    // method name it also defines is exactly where that argument fails, and a big file is
+    // where a wrong caller count does the most damage. `self` is handled above, which is the
+    // case the file tier was really standing in for.
+    if !local {
+        return Vec::new();
+    }
     let here: Vec<Site> = reachable.iter().filter(|d| d.site.0 == file).map(|d| d.site).collect();
     if !here.is_empty() {
         return here;
     }
-    // Past its own file, a call through an unrecognised receiver has nothing left to offer.
     // Repo-uniqueness is real evidence about a NAME and none at all about a receiver's type:
     // `as_str`, `lock` and `count` are each defined exactly once here and each of them still
     // collected every standard-library call spelled the same way. The file tier survives
     // because `self.f()` is written next to the impl it belongs to; nothing below it does.
-    if !local {
-        return Vec::new();
-    }
     let near: Vec<Site> = reachable.iter().filter(|d| d.dir == dir).map(|d| d.site).collect();
     if !near.is_empty() {
         return near;
@@ -528,12 +547,20 @@ mod tests {
         assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "a module qualifier is not a receiver");
     }
 
-    /// A method reached through a variable resolves inside its own file, where an impl and the
-    /// code that uses it almost always sit — and stops there. The directory tier vouches for
-    /// locality, and the receiver is not local; `src-tauri/src` is forty files deep in one
-    /// directory, which is how every `.len()` in the backend landed on one `len`.
+    /// **A receiver this repo cannot name reaches nothing, and its own file is not an
+    /// exception.**
+    ///
+    /// The file tier was left open for these at first, on the argument that an impl and the
+    /// code using it sit together. It put 19 callers on `parse.rs`'s test-only `walk`, all of
+    /// them tree-sitter's `cursor.walk()` written in the same file — and a big file using a
+    /// common method name it also defines is both where that argument fails and where a wrong
+    /// count does the most damage.
+    ///
+    /// `self` is what the file tier was standing in for, and it is handled exactly: not by
+    /// locality but by knowing what the CALLER is defined in, which is the one receiver type
+    /// that is never a guess. The test below this one pins that half.
     #[test]
-    fn an_unknown_receiver_reaches_no_further_than_its_own_file() {
+    fn an_unnameable_receiver_reaches_nothing() {
         let w = wired(&[
             // The receiver is deliberately not spelled like either file: a qualifier that
             // names a module here is a different case, and it is the test above this one.
@@ -544,8 +571,25 @@ mod tests {
             ),
             ("src/b.rs", Lang::Rust, vec![spells("far", &[dot("held", "len")])]),
         ]);
-        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "its own file still counts");
-        assert_eq!(w.at(1, 0).map(|x| x.calls), Some(0), "the next file over does not");
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(0), "not even from its own file");
+        assert_eq!(w.at(1, 0).map(|x| x.calls), Some(0), "and not from the next one over");
+    }
+
+    /// **`self.f()` is the one call through a receiver whose type is not a guess**, because it
+    /// is not a lookup at all: the body doing the calling is defined in something, and that
+    /// something is what `self` is. It beats locality the same way a named owner does — the
+    /// impl in the far file wins over the same-named free function next door.
+    #[test]
+    fn self_is_the_receiver_this_can_name() {
+        let w = wired(&[
+            ("src/far/store.rs", Lang::Rust, vec![
+                method("Store", "load", &[]),
+                method("Store", "run", &[dot("self", "load")]),
+            ]),
+            ("src/far/other.rs", Lang::Rust, vec![def("load", &[])]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "its own type's method");
+        assert_eq!(w.at(1, 0).map(|x| x.callers), Some(0), "not the neighbour of that name");
     }
 
     #[test]

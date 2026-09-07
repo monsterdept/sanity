@@ -97,6 +97,20 @@ pub enum Field {
     Surprise,
     /// The reader's grade of the documentation, on the same terms.
     Documented,
+    /// Whether there is a doc comment on this body at all — 1 or 0, off the PARSE.
+    ///
+    /// **An absence is countable, and a quality is not.** `documented` is the reader's grade
+    /// of how well the words explain the code, and it is right that it is graded rather than
+    /// counted — but it is a bad witness to whether any words EXIST. It said `none` for
+    /// `LensPane#Block`, whose five-line doc comment its own prediction quotes almost verbatim,
+    /// and for `Report::blank`, which carries one. Two of the four findings the rule produced
+    /// were false, and false is worse than over-eager: a list somebody has caught lying is a
+    /// list they stop reading.
+    ///
+    /// Free, and already on the tree — `Node::provenance` is `Source` exactly when the parse
+    /// found a doc comment. So a rule that claims an absence can be made to check it, and a
+    /// rule built only on this one answers on a repo nobody has read.
+    HasDoc,
     /// How hard the reader found it going — **high is worse**, which is why it is not called
     /// `legible`.
     ///
@@ -189,6 +203,7 @@ impl Field {
             "read" => Field::Read,
             "surprise" => Field::Surprise,
             "documented" | "docs" => Field::Documented,
+            "has_doc" | "doc" => Field::HasDoc,
             // `legible` is accepted and means the same thing: it is what this field was
             // called in files written before the name was found to be backwards.
             "illegible" | "legible" => Field::Legible,
@@ -218,6 +233,7 @@ impl Field {
             Field::Read => "read",
             Field::Surprise => "surprise",
             Field::Documented => "documented",
+            Field::HasDoc => "has_doc",
             Field::Legible => "illegible",
             Field::Headcount => "headcount",
             Field::FileLoc => "file_loc",
@@ -247,7 +263,7 @@ impl Field {
             Field::AgeDays | Field::TouchedDays => "age",
             Field::Commits => "churn",
             Field::Surprise => "surprise",
-            Field::Documented => "docs",
+            Field::Documented | Field::HasDoc => "docs",
             Field::Legible => "legible",
             Field::Trap => "traps",
             // Blame paints NAMES; this is a count of them, which no lens draws. See the
@@ -272,9 +288,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 21;
+    pub const COUNT: usize = 22;
 
-    pub const ALL: [Field; 20] = [
+    pub const ALL: [Field; 21] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -294,6 +310,7 @@ impl Field {
         Field::Read,
         Field::Surprise,
         Field::Documented,
+        Field::HasDoc,
         Field::Legible,
     ];
 
@@ -320,6 +337,7 @@ impl Field {
             | Field::Read
             | Field::Surprise
             | Field::Documented
+            | Field::HasDoc
             | Field::Legible
             | Field::Trap => Some(Pop::Func),
             _ => None,
@@ -960,6 +978,10 @@ fn facts_of(
     }
     if node.kind == NodeKind::Func {
         set(Field::Read, Some(if report.is_some() { 1.0 } else { 0.0 }));
+        // Off the parse, so it answers whether or not anybody has read this. `Node::doc` is
+        // the comment the parse found attached to this body — the same string the reader is
+        // handed, which is what makes "there is none" checkable against what it was shown.
+        set(Field::HasDoc, Some(f32::from(node.doc.is_some())));
         if let Some(r) = report {
             let (predicted, documented) = r.grades();
             set(Field::Surprise, Some(predicted.surprise()));
@@ -2001,11 +2023,25 @@ pub fn catalog() -> Vec<Rule> {
             vec![ge(Field::Legible, 0.6), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
         ),
-        // **`documented` runs HIGH for well documented**, so this clause is `lt` — written as
-        // `ge` first, which quietly asked for load-bearing code somebody had already
-        // explained. A rule can be exactly backwards and still return a plausible list, which
-        // is the failure mode this whole surface is built around: nothing crashes, the tiles
-        // look right, and the sentence on them is false.
+        // **`documented` runs HIGH for well documented**, so a clause on it would be `lt` —
+        // written as `ge` first, which quietly asked for load-bearing code somebody had
+        // already explained. A rule can be exactly backwards and still return a plausible
+        // list, which is the failure mode this whole surface is built around: nothing crashes,
+        // the tiles look right, and the sentence on them is false.
+        //
+        // **And it no longer asks the reader at all, because the reader was the wrong witness
+        // for this question.** `documented < 0.35` graded `LensPane#Block` at `none` while
+        // quoting its five-line doc comment nearly verbatim in the same reading, and did the
+        // same to `Report::blank`. Two of the four findings this rule produced were false, and
+        // an over-eager finding costs a click where a false one costs the list its credibility.
+        // The sentence here is an ABSENCE — *there is no documentation on it* — and an absence
+        // is countable: `has_doc` is the parse's own answer, free, and the same string the
+        // reader was handed. See `Field::HasDoc`.
+        //
+        // Losing the grade is not a loss of the question it was asked for. "There are words
+        // and they do not explain the body" is a different finding, and `stale-doc` is where
+        // it lives. It is also what makes this rule TIER 1: it answers on a repo nobody has
+        // read, which is most repos on their first afternoon.
         rule(
             "load-bearing-undocumented",
             "Load-bearing and undocumented",
@@ -2013,7 +2049,7 @@ pub fn catalog() -> Vec<Rule> {
             "{{callers}} call sites depend on this and there is no documentation on it.",
             "This is among the most used code here that nothing explains.",
             Pop::Func,
-            vec![lt(Field::Documented, 0.35), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
+            vec![lt(Field::HasDoc, 1.0), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
             1,
         ),
         // **Surprise against churn — designed in the note, never built until now.** The pair
