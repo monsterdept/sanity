@@ -48,7 +48,7 @@ fn main() {
         }
     };
 
-    let tasks = agentapi::all_tasks(&scanned, &path);
+    let tasks = agentapi::all_tasks(&scanned, &repo);
     if tasks.is_empty() {
         eprintln!("no functions found");
         std::process::exit(1);
