@@ -97,6 +97,17 @@ pub enum Field {
     Surprise,
     /// The reader's grade of the documentation, on the same terms.
     Documented,
+    /// Does a test call this — 1 or 0, and absent where test code cannot be told apart.
+    ///
+    /// **The word is "under test", never "coverage".** Coverage means the line EXECUTED, which
+    /// takes an instrumented run of the suite, and this tool runs nothing. A rule that said
+    /// `coverage < 1` would be claiming a measurement nobody took, on the question a reader is
+    /// most likely to take at face value. What this says is exactly what it knows: a test
+    /// calls this, or no test calls this, or we cannot tell tests apart here.
+    ///
+    /// Direct callers only — see [`crate::edges::Wire::under_test`] for why a transitive
+    /// closure would reach nearly everything and distinguish nothing.
+    UnderTest,
     /// Callers that are not this repo's own test code, or `None` where the language gives
     /// nothing reliable to tell test code by — see [`crate::edges::Wire::dependents`].
     ///
@@ -221,6 +232,7 @@ impl Field {
             "documented" | "docs" => Field::Documented,
             "has_doc" | "doc" => Field::HasDoc,
             "dependents" => Field::Dependents,
+            "under_test" => Field::UnderTest,
             // `legible` is accepted and means the same thing: it is what this field was
             // called in files written before the name was found to be backwards.
             "illegible" | "legible" => Field::Legible,
@@ -252,6 +264,7 @@ impl Field {
             Field::Documented => "documented",
             Field::HasDoc => "has_doc",
             Field::Dependents => "dependents",
+            Field::UnderTest => "under_test",
             Field::Legible => "illegible",
             Field::Headcount => "headcount",
             Field::FileLoc => "file_loc",
@@ -275,6 +288,7 @@ impl Field {
         Some(match self {
             Field::Loc | Field::Funcs => "size",
             Field::Callers | Field::Dependents => "callers",
+            Field::UnderTest => "tests",
             Field::Calls => "reach",
             Field::CloneSize => "clones",
             Field::Cognitive | Field::Tangle => "tangle",
@@ -306,9 +320,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 23;
+    pub const COUNT: usize = 24;
 
-    pub const ALL: [Field; 22] = [
+    pub const ALL: [Field; 23] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -330,6 +344,7 @@ impl Field {
         Field::Documented,
         Field::HasDoc,
         Field::Dependents,
+        Field::UnderTest,
         Field::Legible,
     ];
 
@@ -1004,6 +1019,7 @@ fn facts_of(
         // Absent where the language has no test convention worth trusting, which keeps the
         // three rules below dark there rather than answering with a number nobody computed.
         set(Field::Dependents, node.dependents.map(|d| d as f32));
+        set(Field::UnderTest, node.under_test.map(|u| f32::from(u)));
         if let Some(r) = report {
             let (predicted, documented) = r.grades();
             set(Field::Surprise, Some(predicted.surprise()));
@@ -2088,6 +2104,30 @@ pub fn catalog() -> Vec<Rule> {
             Pop::Func,
             vec![lt(Field::HasDoc, 1.0), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
             1,
+        ),
+        // **The pair reading was for.** A body a reader could not predict, that real code
+        // depends on, and that no test calls: three facts from three different instruments,
+        // none of which is a defect alone. Surprise says nobody can guess it, `dependents`
+        // says the repo leans on it, and `under_test` says nothing will catch it moving.
+        //
+        // `under_test` and not "coverage": this never runs the suite, so what it knows is
+        // that no test CALLS this, which is a fact about the call graph. A rule named for
+        // coverage would be borrowing a word that means the line executed.
+        rule(
+            "load-bearing-untested",
+            "Load-bearing, surprising, and no test calls it",
+            "Depended on, unpredictable, and nothing exercises it.",
+            "{{dependents}} call sites depend on this, a reader could not predict it, and no \
+             test in this repo calls it.",
+            "This is among the code here most likely to break quietly.",
+            Pop::Func,
+            vec![
+                lt(Field::UnderTest, 1.0),
+                ge(Field::Surprise, 0.6),
+                ge(Field::Dependents, 10.0),
+                ge(Field::Loc, 10.0),
+            ],
+            2,
         ),
         // **Surprise against churn — designed in the note, never built until now.** The pair
         // the whole metric was argued for: code nobody predicted, that is also moving. Neither

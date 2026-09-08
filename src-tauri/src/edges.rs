@@ -69,6 +69,22 @@ pub struct Wire {
     /// the compiler enforces it; Go says `_test.go`; C++ says nothing at all, and a confident
     /// zero there would be the third time this file invented a number nobody computed.
     pub dependents: Option<u32>,
+    /// Does a test call this — `None` where test code cannot be told apart here.
+    ///
+    /// **"A test calls this", never "this is covered".** Coverage means the line executed,
+    /// which needs the suite to have been RUN and instrumented, and this tool never runs
+    /// anything. Borrowing the word would be the map claiming a measurement nobody took, on
+    /// the one question people are most primed to misread.
+    ///
+    /// Direct callers only. One hop is a fact somebody can act on — write a test that calls
+    /// this — where a transitive closure reaches nearly everything through two or three
+    /// helpers and stops distinguishing anything. If depth is ever wanted it should be a
+    /// number, not a wider boolean.
+    ///
+    /// The absence is the important half: `None` means test code is not separable here (C++,
+    /// GDScript, anything with no contract and nothing read), and it must render as "we
+    /// cannot tell" rather than as "no test calls this".
+    pub under_test: Option<bool>,
     /// Distinct functions in this repo that this one calls.
     pub calls: u32,
     /// Distinct neighbours — callers and callees together, counted once each.
@@ -146,6 +162,8 @@ pub struct FileView<'a> {
 /// Every function's wiring, plus what could not be resolved.
 pub struct Wiring {
     per_site: HashMap<Site, Wire>,
+    /// What each site turned out to be, and on what evidence — for the tree, which draws it.
+    pub tested: HashMap<Site, Testness>,
     /// Every resolved edge, caller first. Deduplicated, recursion already dropped.
     ///
     /// **Kept rather than folded away, because two scalars cannot be clicked.** The counts
@@ -216,6 +234,7 @@ pub fn wire_with(
     // Which sites are test code, and which FILES we were able to ask about at all — kept per
     // file rather than per language so nothing has to be hashed that is not already.
     let mut tests: HashSet<Site> = HashSet::new();
+    let mut tested: HashMap<Site, Testness> = HashMap::new();
     let mut told: Vec<bool> = vec![false; files.len()];
     let mut resolvable = 0u64;
     for (fi, file) in files.iter().enumerate() {
@@ -241,6 +260,7 @@ pub fn wire_with(
                 if t.is_test {
                     tests.insert((fi, gi));
                 }
+                tested.insert((fi, gi), t);
                 told[fi] = true;
             }
             let owner = func.owner.as_deref();
@@ -297,6 +317,9 @@ pub fn wire_with(
             for gi in 0..file.funcs.len() {
                 let seed = Wire {
                     dependents: told[fi].then_some(0),
+                    // A repo where tests are separable can say "nothing tests this"; one
+                    // where they are not must say nothing at all.
+                    under_test: told[fi].then_some(false),
                     ..Wire::default()
                 };
                 per_site.insert((fi, gi), seed);
@@ -313,8 +336,13 @@ pub fn wire_with(
             w.callers += 1;
             // Counted up from zero only for languages we can actually ask; everywhere else it
             // stays `None` rather than becoming a zero nobody measured.
-            if told[to.0] && !tests.contains(from) {
-                *w.dependents.get_or_insert(0) += 1;
+            if told[to.0] {
+                if tests.contains(from) {
+                    // Seeded below, so this only ever raises a `false` to a `true`.
+                    w.under_test = Some(true);
+                } else {
+                    *w.dependents.get_or_insert(0) += 1;
+                }
             }
         }
         neighbours.entry(*from).or_default().insert(*to);
@@ -332,7 +360,7 @@ pub fn wire_with(
     // carries in `scan`'s directory grouping.
     let mut edges: Vec<(Site, Site)> = edges.into_iter().collect();
     edges.sort_unstable();
-    Wiring { per_site, resolved, unresolved, resolvable, edges }
+    Wiring { per_site, tested, resolved, unresolved, resolvable, edges }
 }
 
 /// One definition, as the resolver needs to see it.
@@ -840,6 +868,39 @@ mod tests {
         // And a body nothing calls is a dependents ZERO, not an absence: the language was
         // asked and answered.
         assert_eq!(w.at(0, 2).map(|x| x.dependents), Some(Some(0)));
+    }
+
+    /// **"A test calls this" is an existential claim, and its absence is stated as one.**
+    ///
+    /// `Some(true)` means we found a test that calls it. `Some(false)` means test code is
+    /// separable here and none of its callers is one. `None` means we cannot tell tests apart
+    /// at all — and that must never render as "no test calls this", which is the whole reason
+    /// it is three states.
+    #[test]
+    fn under_test_says_a_test_calls_this_and_not_that_it_is_covered() {
+        let w = wired(&[(
+            "src/a.rs",
+            Lang::Rust,
+            vec![
+                def("covered", &[]),
+                def("lonely", &[]),
+                test_fn("exercises", &[free("covered")]),
+            ],
+        )]);
+        assert_eq!(w.at(0, 0).map(|x| x.under_test), Some(Some(true)), "a test calls it");
+        assert_eq!(w.at(0, 1).map(|x| x.under_test), Some(Some(false)), "and none calls this");
+
+        // A language where test code cannot be told apart says nothing rather than "no".
+        let cc = wired(&[(
+            "src/a.cc",
+            Lang::Cpp,
+            vec![def("helper", &[]), def("run", &["helper"])],
+        )]);
+        assert_eq!(
+            cc.at(0, 0).map(|x| x.under_test),
+            Some(None),
+            "not `false` — that would be a finding asserted about code nobody could classify",
+        );
     }
 
     /// **A contract answers both ways, which is what spares the reader the question.**

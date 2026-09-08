@@ -150,7 +150,13 @@ use std::path::{Path, PathBuf};
 ///    trusting*. Three rules gate on it and would go quietly dark on every warm repo,
 ///    reporting a clean bill over code they never asked about. The same shape as `headcount`
 ///    at version 16, which is the paragraph this one is modelled on.
-const VERSION: u32 = 20;
+/// 21: a function node carries `under_test` — whether a test calls it — and `tested`, what it
+///    is itself and on what evidence. Both `#[serde(default)]`, so a version-20 tree loads
+///    them `None` on every function. `None` is the state that means "test code cannot be told
+///    apart here", so a warm repo would report the honest absence over code the tool could
+///    classify perfectly well, and the lens would draw a repo with tests as one where nothing
+///    can be said about them.
+const VERSION: u32 = 21;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

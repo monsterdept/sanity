@@ -680,6 +680,18 @@ pub struct Node {
     /// path relies on.
     #[serde(default)]
     pub callers: Option<u32>,
+    /// Does a test call this, and `None` where test code cannot be told apart here.
+    ///
+    /// **"A test calls this", not "this is covered"** — see [`crate::edges::Wire::under_test`].
+    #[serde(default)]
+    pub under_test: Option<bool>,
+    /// Is this body itself test code, and on what evidence — see [`Testness`].
+    ///
+    /// Carried so the map can draw where a repo's tests are, which is a question nothing else
+    /// on the node answers: `under_test` says what a test reaches, and this says what a test
+    /// IS. `None` on a container, and on any body nothing could tell either way.
+    #[serde(default)]
+    pub tested: Option<Testness>,
     /// Callers that are not this repo's own test code — see [`crate::edges::Wire::dependents`].
     ///
     /// `None` where the language offers no reliable way to tell test code apart, which is a
@@ -921,6 +933,8 @@ impl Node {
             hotspots: Vec::new(),
             callers: None,
             dependents: None,
+            under_test: None,
+            tested: None,
             calls: None,
             incident: None,
             away: None,
@@ -1175,6 +1189,8 @@ impl Node {
             // and a file has neither.
             callers: self.callers,
             dependents: self.dependents,
+            under_test: self.under_test,
+            tested: self.tested,
             calls: self.calls,
             incident: self.incident,
             away: self.away,

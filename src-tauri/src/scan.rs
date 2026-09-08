@@ -1447,6 +1447,8 @@ fn score_dir(
                         // exists to make, asserted about code nobody looked at.
                         callers: wire.map(|w| w.callers),
                         dependents: wire.and_then(|w| w.dependents),
+                        under_test: wire.and_then(|w| w.under_test),
+                        tested: wiring.tested.get(&(base + fi, i)).copied(),
                         calls: wire.map(|w| w.calls),
                         incident: wire.map(|w| w.incident),
                         away: wire.map(|w| w.away),
@@ -1541,6 +1543,8 @@ fn score_dir(
                     // converges on the repo's mean and says nothing.
                     callers: None,
                     dependents: None,
+                    under_test: None,
+                    tested: None,
                     calls: None,
                     incident: None,
                     away: None,
