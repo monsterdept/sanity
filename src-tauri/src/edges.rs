@@ -367,6 +367,16 @@ fn contract_of(lang: Lang, path: &str, in_cfg_test: bool) -> Option<Testness> {
     }
 }
 
+/// Does this language's toolchain answer the test question by itself?
+///
+/// The queue asks it before deciding whether to spend a sentence asking a reader — see
+/// `agentapi::TEST_ASK`. One function so the two cannot disagree: a language that got a
+/// contract here and was not removed from the ask list would be paying for an answer it
+/// already has, silently and on every reading.
+pub fn has_test_contract(lang: Option<Lang>) -> bool {
+    lang.is_some_and(|l| contract_of(l, "", false).is_some())
+}
+
 /// The weaker half: a runner's glob or a directory name. Never consulted where a contract
 /// spoke.
 fn convention_of(lang: Lang, path: &str) -> Option<Testness> {
@@ -763,6 +773,31 @@ mod tests {
             Some(Some(1)),
             "the compiler says this ships, so it is a dependent"
         );
+    }
+
+    /// **A reader outranks a convention and is outranked by a contract.**
+    ///
+    /// The order is the order the evidence is worth: a contract is a fact about what ships, a
+    /// reader actually read the body, and a convention only ever saw the path. So a reader can
+    /// overrule a directory guess — a fixture builder sitting in a production file, or a
+    /// helper under `tests/` that production calls — and cannot overrule the compiler.
+    #[test]
+    fn a_reader_outranks_the_layout_and_not_the_toolchain() {
+        // The layout says test; nothing has read it.
+        let w = wired(&[
+            ("tests/helpers.py", Lang::Python, vec![def("build", &[])]),
+            ("app/run.py", Lang::Python, vec![def("run", &["build"])]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.dependents), Some(Some(1)), "a caller is a dependent");
+
+        // `wire_with` is the entry point that carries a reader's answers; `scan` fills it
+        // from the store, which is where the keying lives.
+        assert!(wire_with(&[], &HashMap::new()).edges.is_empty(), "empty is empty");
+
+        // Python has no contract, so the queue asks; Rust has one, so it never does.
+        assert!(!has_test_contract(Some(Lang::Python)));
+        assert!(has_test_contract(Some(Lang::Rust)) && has_test_contract(Some(Lang::Go)));
+        assert!(!has_test_contract(None), "a language nobody parsed answers nothing");
     }
 
     /// **A language with no test convention says nothing rather than zero.** C++ has no

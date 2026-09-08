@@ -801,6 +801,44 @@ fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u3
     }
 }
 
+/// Which sites a reader has called test code, keyed the way `edges` indexes them.
+///
+/// Only consulted where the language has no contract, so this reads nothing on a Rust or Go
+/// repo and returns an empty map — the same shape as a repo nobody has read.
+fn reader_tests(
+    repo: &Path,
+    flat: &[crate::edges::FileView<'_>],
+) -> std::collections::HashMap<(usize, usize), crate::model::Testness> {
+    let mut out = std::collections::HashMap::new();
+    if flat.iter().all(|f| crate::edges::has_test_contract(Some(f.lang))) {
+        return out;
+    }
+    let stored = crate::assessment::read_all(&crate::assessment::dir(repo));
+    if stored.is_empty() {
+        return out;
+    }
+    for (fi, file) in flat.iter().enumerate() {
+        if crate::edges::has_test_contract(Some(file.lang)) {
+            continue;
+        }
+        // `ord` is the index among same-named functions in this file, which is what
+        // `key_of` counts — the twins rule, and the reason a reading is not keyed on a line.
+        let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for (gi, func) in file.funcs.iter().enumerate() {
+            let ord = seen.entry(func.name.as_str()).or_insert(0);
+            let key = crate::assessment::key_of(file.path, &func.name, *ord);
+            *ord += 1;
+            if let Some(is_test) = stored.get(&key).and_then(|r| r.test) {
+                out.insert(
+                    (fi, gi),
+                    crate::model::Testness { is_test, how: crate::model::Tested::Reader },
+                );
+            }
+        }
+    }
+    out
+}
+
 /// Just the files — for callers that only need the list, such as a signature or a size.
 pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
     walk_files(root).files
@@ -1730,7 +1768,14 @@ pub fn scan(
     // These two are single passes over what is already in memory and are over in moments;
     // they get a name rather than a count because there is nothing to divide.
     on_progress(Progress::phase("wiring the call graph"));
-    let wiring = crate::edges::wire(&flat);
+    // **What a reader has already said about which bodies are tests**, for the languages
+    // where nothing else can say — see `edges::contract_of`. Read from the store here rather
+    // than taken as an argument: `wire` runs inside the scan and every caller loads the
+    // readings AFTER it, so the alternative was an eleventh parameter on a signature a
+    // reviewer has already called the awkward part of this function. It costs one pass over
+    // `.sanity/readings/` on a repo that has any, and nothing at all on one that does not.
+    let read_test = reader_tests(root, &flat);
+    let wiring = crate::edges::wire_with(&flat, &read_test);
     on_progress(Progress::phase("finding copies"));
     let copies = crate::clones::find(&flat);
     // Where each directory's files start in `flat`. A prefix sum over the same iteration

@@ -688,6 +688,10 @@ pub(crate) fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     r.legible = parse_grade(v);
                 } else if let Some(v) = seg.strip_prefix("trap:") {
                     r.trap = v.trim() == "yes";
+                } else if let Some(v) = seg.strip_prefix("test:") {
+                    // Absent from the line means nobody asked, which is not the same as `no` —
+                    // see `Report::test`. Only a segment that is actually there answers.
+                    r.test = Some(v.trim() == "yes");
                 }
             }
         }
@@ -1273,7 +1277,7 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     let (predicted, documented) = r.grades();
     let doc = documented.map_or("not judged".to_string(), |g| grade_word(g).to_string());
     s.push_str(&format!(
-        "- predicted: {} · documented: {} · derivable: {} · legible: {} · trap: {}\n",
+        "- predicted: {} · documented: {} · derivable: {} · legible: {} · trap: {}{}\n",
         grade_word(predicted),
         doc,
         if r.derivable { "yes" } else { "no" },
@@ -1281,6 +1285,13 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
         // has no opinion about legibility, and printing one would invent a measurement.
         r.legible.map_or("not judged".to_string(), |g| grade_word(g).to_string()),
         if r.trap { "yes" } else { "no" },
+        // Written only when it was asked. A `test: no` on every Rust reading would be the
+        // store recording an answer nobody gave.
+        match r.test {
+            Some(true) => " · test: yes",
+            Some(false) => " · test: no",
+            None => "",
+        },
     ));
 
     if !r.note.trim().is_empty() {

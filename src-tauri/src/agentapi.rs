@@ -1033,6 +1033,13 @@ none, which is itself the finding) and the declarations in `peers`, before openi
 whether the header could have been written from the code alone. Leave `legible` and `trap` \
 unset — both are judgements about one body.";
 
+/// The one extra sentence a reading needs where no toolchain says what is a test.
+///
+/// **Sent only to the languages that have no contract**, which is the same argument
+/// [`FILE_ASK`] makes: text on the wire is multiplied by the readings it reaches, and this
+/// reaches none of a Rust or Go repo's. It is one line because it is one boolean.
+const TEST_ASK: &str = "Also set `test`: is this body test code — a test, a fixture, or a helper that exists to support them? Nothing in this language marks it, so judge what the body DOES rather than where it sits: a helper under a tests directory that production calls is not test code, and a fixture builder in a production file is.";
+
 /// A four-step ordinal, for the two things a reader can judge but not measure.
 ///
 /// Deliberately not a 0-100. A model asked for a number emits one, but 73 versus 68 is
@@ -1195,6 +1202,18 @@ pub struct Report {
     /// reader knows which it wrote, and this is it saying so.
     #[serde(default)]
     pub trap: bool,
+    /// Whether this body is test code, as the reader saw it — `None` where it was not asked.
+    ///
+    /// **Asked only where no toolchain answers**, which is why it is an `Option` rather than a
+    /// `bool` like `trap`. Rust says `#[cfg(test)]` and Go says `_test.go`, and both are facts
+    /// about what ships; asking a reader to re-derive those would spend tokens on every reading
+    /// in those repos to be told what the compiler already said. Where there IS no contract —
+    /// C++ loudest among them — a reader is the only source that can see a fixture living in a
+    /// production file, which no path and no attribute reaches.
+    ///
+    /// `None` is "nobody asked", never "not a test". See [`crate::model::Tested`].
+    #[serde(default)]
+    pub test: Option<bool>,
     /// One sentence a human can read. Optional — a correct prediction needs no note.
     #[serde(default)]
     pub note: String,
@@ -1384,6 +1403,7 @@ impl Report {
             derivable: false,
             legible: None,
             trap: false,
+            test: None,
             note: String::new(),
             cold: false,
             position: None,
@@ -1577,7 +1597,17 @@ fn collect_tasks(
                 file_doc: file_doc.unwrap_or_default().trim().to_string(),
                 lines: node.loc,
                 file: false,
-                ask: String::new(),
+                // Asked only where no toolchain answers. In Rust and Go the compiler and the
+                // build tool already say which bodies are tests, and spending a sentence per
+                // reading to be told it again buys nothing — see `Report::test`. Everywhere
+                // else a reader is the only source that can see a fixture in a production
+                // file, so the question rides on exactly the tasks that need it, which is the
+                // argument `FILE_ASK` already makes one field up.
+                ask: if crate::edges::has_test_contract(node.lang) {
+                    String::new()
+                } else {
+                    TEST_ASK.to_string()
+                },
             },
         ));
         return;
