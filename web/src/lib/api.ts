@@ -203,6 +203,27 @@ export interface Node {
    *  The two COUNTS travel rather than the ratio they make, so a container can sum them —
    *  see `wiringShare`. */
   callers: number | null
+  /** Callers that are not this repo's own test code, or `null` where test code cannot be
+   *  told apart here — see `edges::Wire::dependents`. A test is a caller and it is not a
+   *  dependent, and one number cannot be both. */
+  dependents?: number | null
+  /** Does a test call this — `null` where test code cannot be told apart at all.
+   *
+   *  **Three states, and the third is the point.** `false` means tests are separable here
+   *  and none of this body's callers is one; `null` means nothing could classify them —
+   *  C++ has no test contract, so on a repo like ceph the whole language is `null`. The two
+   *  must not paint alike: one is a finding, the other is an absence.
+   *
+   *  Never called coverage. Coverage means the line EXECUTED, which takes an instrumented
+   *  run of the suite, and nothing here runs anything. */
+  under_test?: boolean | null
+  /** Is this body itself test code, and on what evidence — see `model::Testness`.
+   *
+   *  `how` is `contract` (the toolchain says so), `reader` (a reader read the body) or
+   *  `convention` (a filename or a directory). The level travels with the answer so a panel
+   *  can say which it leaned on; a bare boolean would be an estimate whose accuracy is the
+   *  tool's own diligence, worn as a property of the code. */
+  tested?: { is_test: boolean; how: 'contract' | 'reader' | 'convention' } | null
   calls: number | null
   incident: number | null
   away: number | null

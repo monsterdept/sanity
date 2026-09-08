@@ -179,6 +179,24 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       Documentation a model could reproduce from the body alone is graded <code>none</code>.
     </Lens>
   ),
+  testing: (
+    <Lens
+      name="Testing"
+      needs="Scan"
+      swatch={
+        <Steps
+          fills={['var(--unanalyzed)', 'var(--structure)', 'var(--under-test)', 'var(--untested)']}
+        />
+      }
+      measures="which bodies a test calls, and which bodies are the tests."
+      values="cannot tell · test · a test calls this · no test calls this"
+    >
+      <code>no test calls this</code> is a fact about the call graph, not about whether the code
+      ran: nothing here executes your suite, so this is never coverage. A body nothing could
+      classify stays neutral — C++ has no marker for a test, so on a repo like ceph most of it
+      says nothing rather than saying <code>untested</code>.
+    </Lens>
+  ),
   traps: (
     <Lens
       name="Traps"

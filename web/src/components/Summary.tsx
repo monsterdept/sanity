@@ -35,6 +35,9 @@ const GRADES: Grade[] = ['none', 'some', 'most', 'full']
 const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   legible: 'Legibility',
   docs: 'Documentation',
+  // What the rows are, not what the lens is called: the lens is Testing, and the rows
+  // underneath it are the bodies split by what a test reaches.
+  testing: 'Tested and untested',
   traps: 'Traps',
   callers: 'Callers',
   reach: 'What it calls',

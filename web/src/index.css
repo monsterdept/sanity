@@ -167,6 +167,20 @@
    * and Traps cannot be confused at a glance. Hot pink is louder than any ramp end here,
    * which is the point: this is the one lens where the answer is "look at these". */
   --trap: #ff4f95;
+  /* Testing is a MARK lens like Traps and Clones, so these are two marks and a neutral rather
+   * than a ramp: a body is exercised by a test or it is not, and shading it would invent
+   * degrees of testedness nobody measured.
+   *
+   * The loud one is `--untested`, because that is the answer somebody opens this lens to find.
+   * `--under-test` is deliberately quiet — it is the reassurance, and a map where the
+   * reassurance shouts is a map that is hard to read for the finding. Neither is hot pink:
+   * `--trap` owns that, and two loud lenses that look alike is how a glance goes wrong.
+   *
+   * A body nothing could classify takes `--unanalyzed`, not one of these. C++ has no marker
+   * for a test, so most of a repo like ceph says nothing here — and "we could not look" must
+   * never wear the colour of "nothing tests this". */
+  --untested: #ff9b3d;
+  --under-test: #4f9d7a;
   /* A copy gets a mark, not a ramp — see `--trap` above and the paragraph under `--birth`
    * for the idiom. "This body appears seven times" is a fact somebody can go and check, not
    * a degree of anything, so it sits off every scale exactly as a reported trap does. The
@@ -726,6 +740,8 @@
 
   --unanalyzed: #4a4642;
   --trap: #ff5ea1;
+  --untested: #ffab54;
+  --under-test: #5cb389;
   /* Lifted off the ink the way --trap is. Worst case: 33.9 from --structure, 28.8 from
    * --unanalyzed, 17.6 from --trap, 15.3 from --callers-4. */
   --clone: #bd5cff;

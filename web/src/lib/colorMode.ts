@@ -43,6 +43,7 @@ export type ColorMode =
   | 'surprise'
   | 'legible'
   | 'docs'
+  | 'testing'
   | 'traps'
   | 'clones'
   | 'callers'
@@ -130,6 +131,7 @@ export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
   surprise: 'live',
   legible: 'live',
   docs: 'live',
+  testing: 'live',
   traps: 'live',
   clones: 'cost',
   callers: 'cost',
@@ -183,6 +185,11 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   // wheel is untouched: same hues, same order down the column, two lenses wearing each other's.
   age: 'Age',
   churn: 'Churn',
+  // **Appended, never inserted.** The lens digits are `Object.keys` of this record, so a lens
+  // dropped in the middle shifts every digit after it and silently takes away a key somebody
+  // had learned — `keys.ts` says so at length. Twelve is past ⌘0 and ⌘-, so Testing has no
+  // digit of its own and is reached with `[` and `]`, which is the shape that does not run out.
+  testing: 'Testing',
 }
 
 export const MODE_HINT: Record<ColorMode, string> = {
@@ -190,6 +197,9 @@ export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
   legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
+  // **Testing, not Tests.** The lens is the tests AND what they reach — a lens that only
+  // showed where the tests are would answer half the question somebody opens it with.
+  testing: 'what the tests reach, and what they are',
   traps: 'what will bite whoever edits it next',
   callers: 'how many things call it',
   reach: 'how much it calls out to',
@@ -536,6 +546,8 @@ export function rampOf(mode: ColorMode): Ramp {
  *  are given `heat` because that is what the fall-through gave them and nothing reads it; what
  *  matters is that they are a stated `never` rather than an omission. */
 const RAMP_OF: Record<ColorMode, Ramp> = {
+  // Categorical, like Blame and Language: four states, coloured by slot rather than shaded.
+  testing: 'heat',
   tangle: 'tangle',
   surprise: 'heat',
   legible: 'legible',
@@ -1193,6 +1205,39 @@ export function colorFor(
     return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${DOC_WORDS[g]}` }
   }
 
+  if (mode === 'testing') {
+    // **Four states, and the fourth is the whole reason this is not three.**
+    //
+    // A test, a body a test calls, a body no test calls, and — separately — a body nothing
+    // could classify. `under_test === null` means test code is not separable in this
+    // language: C++ has no contract, googletest is a library rather than a build rule, so on
+    // a repo like ceph the entire C++ half arrives null. Painting that the same as "no test
+    // calls this" would assert `untested` over code nobody could look at, which is the
+    // failure every other lens here is written against — Callers goes grey on a language
+    // whose calls were never parsed, and this is the same absence.
+    //
+    // Never called coverage. Coverage means the line EXECUTED; this is a fact about the call
+    // graph, and borrowing the word would claim a measurement nobody took.
+    if (node.kind !== 'func') return null
+    if (node.tested?.is_test) {
+      return {
+        fill: 'var(--structure)',
+        stop: 'var(--structure)',
+        ink: inkOn('var(--structure)'),
+        // The evidence travels with the answer, because "the compiler says so" and "a
+        // filename says so" are not the same claim — see `model::Testness`.
+        label: `test (${node.tested.how})`,
+      }
+    }
+    if (node.under_test === null || node.under_test === undefined) return null
+    const fill = node.under_test ? 'var(--under-test)' : 'var(--untested)'
+    return {
+      fill,
+      stop: fill,
+      ink: inkOn(fill),
+      label: node.under_test ? 'a test calls this' : 'no test calls this',
+    }
+  }
   if (mode === 'traps') {
     // Two states and an absence, not a ramp: a trap is a boolean and shading it would
     // invent degrees of danger nobody reported. Read-and-clear is drawn in the structural
@@ -1563,6 +1608,9 @@ export function churnLabel(commits: number, days: number): string {
  *  A `Record` for the same reason everything on this page is one now: it was a chain of
  *  `mode !== …` and the twelfth lens was not in it. */
 const FROM_COLS: Record<ColorMode, boolean> = {
+  // Nothing on a file answers "does a test call this" — it is a fact about one body and its
+  // callers, so a file has nothing to stand in WITH. Paired with `STANDS_IN` below.
+  testing: false,
   churn: true,
   age: true,
   tangle: true,
@@ -1608,6 +1656,10 @@ const FROM_COLS: Record<ColorMode, boolean> = {
  *  it was missed from; the others were the band order and the ramp. A `Record` over
  *  `ColorMode` fails the build instead of the picture. */
 const STANDS_IN: Record<ColorMode, boolean> = {
+  // A file may not stand in for its functions here, for the reason `traps` may not: the
+  // question is asked of a body, and a file's answer would be an average over four states
+  // that do not average.
+  testing: false,
   // A file's own tangle is the mean over ALL its functions, computed in Rust rather than over
   // whichever rings happen to have arrived, so it is complete by construction exactly as churn
   // and age are — and `Cols::tangle` carries the per-function values so the distribution is
@@ -1913,6 +1965,27 @@ function contribute(
       } else {
         put(UNKNOWN, 'unread', 'var(--structure)', n)
       }
+    } else if (mode === 'testing') {
+      // **Not read off a reading, unlike the three below it.** Test-ness is answered by the
+      // parse and the paths first — a contract, then a convention — and only asks a reader
+      // where nothing else can say. So the absence here is not "nobody has read this", it is
+      // "nothing could classify this language", and it takes the unanalyzed neutral for the
+      // same reason Callers goes grey where calls were never parsed.
+      //
+      // The tests themselves are a band rather than a drop: the lens is Testing, not Tested,
+      // and where a repo's tests live is half of what somebody opens it to see.
+      if (n.tested?.is_test) {
+        put('test', 'test', 'var(--structure)', n)
+      } else if (n.under_test === null || n.under_test === undefined) {
+        put(UNKNOWN, 'cannot tell', 'var(--unanalyzed)', n)
+      } else {
+        put(
+          n.under_test ? 'a test calls this' : 'no test calls this',
+          n.under_test ? 'a test calls this' : 'no test calls this',
+          n.under_test ? 'var(--under-test)' : 'var(--untested)',
+          n,
+        )
+      }
     } else if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
       // Both are read straight off the reading, so both share one absence: a function
       // nobody has read yet. It is a bucket rather than a drop, for the same reason the
@@ -2205,6 +2278,15 @@ const BUCKET_ORDER: Record<ColorMode, 'lines' | (() => readonly string[])> = {
   // Traps first: it is the only row anybody opens this lens to find. One name rather than a
   // full list, which works because an unlisted key now sorts LAST — see `rank`.
   traps: () => ['trap'],
+  // Loud end leading, like every other lens: what somebody opens Testing for is what nothing
+  // exercises. `no test calls this` is the finding, `a test calls this` is the reassurance,
+  // and the tests themselves are context under both.
+  //
+  // **`test` is listed rather than left out.** An unlisted key is `indexOf` −1, which sorts
+  // BEFORE index 0 — so omitting it would have put the tests at the top of the panel, which
+  // is precisely the opposite of what the comment above claimed. `cannot tell` stays
+  // unlisted on purpose: it is the absence bucket every lens keeps at the end.
+  testing: () => ['no test calls this', 'a test calls this', 'test'],
   // Most-called first. It was fewest-first, on the argument that the sparse end is what people
   // sweep for — true, and outweighed by the rule now holding every lens together: one
   // direction, loud end leading, so a rim can be compared with the rim beside it and with the
