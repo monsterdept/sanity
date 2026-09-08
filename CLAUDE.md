@@ -19,7 +19,7 @@ alternative was built and thrown away, and the note is the only record of that.
 | [assessments.md](docs/notes/assessments.md) | `.sanity/`, keys, staleness, `SPEC`, provenance |
 | [mcp.md](docs/notes/mcp.md) | The tool contract, batching, queue, endpoint routing |
 | [rings.md](docs/notes/rings.md) | Drilling, ring count, rim histograms, the color cap, folding |
-| [wiring.md](docs/notes/wiring.md) | Callers and Reach: name matching, what a call's spelling proves |
+| [wiring.md](docs/notes/wiring.md) | Callers and Reach: name matching, spelling, what counts as a test |
 | [time.md](docs/notes/time.md) | What Churn and Age are FOR, and why what they measure isn't it |
 | [panel.md](docs/notes/panel.md) | The detail pane, per-lens sections, code tiles |
 | [history.md](docs/notes/history.md) | Replay, timeline cache, movie export |
@@ -73,6 +73,19 @@ the map went on looking like a map.
   180 functions losing their last caller — live code drawn as dead. Refusing an edge is cheap;
   inventing an absence is not. **A change to `resolve` moves `treecache::VERSION`**: nothing
   about the records changes shape, so a warm tree serves the old call graph in silence.
+- **A test is a caller and it is not a dependent, and who says so has levels.** `callers` is
+  every call site and is what the lens paints; `dependents` is what the load-bearing rules
+  ask, and a finding that says *a change here has to be checked against all 13* is false when
+  eleven are the body's own tests. Knowing which is which is `Tested`: **Contract** (the repo
+  wrote it down — `#[cfg(test)]`, `_test.go`, a `jest` key), **Reader** (asked only where no
+  contract exists, and the only thing that sees a fixture in a production file), then
+  **Convention**. Collapsing them to a boolean makes the number an estimate whose accuracy is
+  our own diligence, worn as a property of the code. **`None` is nobody having said, never
+  "not a test"** — C++ has no contract at all, so `dependents` is absent across ceph's C++ and
+  the rules asking for it go quiet there. **One silence is not a statement**: a manifest naming
+  no runner has said nothing, and only counts once the tree is silent too. **And a reading is
+  applied where readings live** — `links::retest_tree`, off `links.bin`, never inside `scan`,
+  because the tree is what the parse can say.
 - **A tree written before the trace is an untraced tree.** `treecache::save` runs inside
   `scan()`, which the app calls at `Depth::Untraced`; `redraw` banks the drawable half again
   once the trace lands, carrying the stored signature over rather than recomputing it — a

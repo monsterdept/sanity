@@ -100,6 +100,95 @@ the Reach lens's headline finding and a false one is the worst thing this lens d
 row in `call_sites` is in the table for the same reason. Refusing an edge is cheap, and
 inventing an absence is not.
 
+## What a test is, and who gets to say
+
+A caller that is a test is not a dependent. Both blind reviewers of this repo worked that
+out by hand and wrote almost the same sentence — *10 of the 13 call sites are its own
+tests*, *the real count is two* — because the finding said **a change here has to be checked
+against all 13**, and eleven of those move with the function as one edit.
+
+So `callers` and `dependents` are two numbers. `callers` is what the lens paints and a test
+genuinely is one. `dependents` is what the load-bearing rules ask for, and answering it
+needs to know which code is a test.
+
+**That knowledge has levels, and collapsing them to a boolean is what makes a metric lie.**
+A number built on a bare `true` is an estimate whose accuracy is a function of how many
+conventions we bothered to encode — our own diligence, presented as a property of the code.
+`Tested` keeps the level, the way `Provenance` keeps four variants rather than two:
+
+- **Contract** — the repo's author wrote it down. `#[cfg(test)]` is a declaration to the
+  compiler, `_test.go` one to the go tool, a `jest` key in `package.json` one to jest. All
+  three are somebody saying which code is a test, and reading a declaration is not guessing.
+  **A contract answers both ways**: Rust's silence is a real `false`, which is exactly what
+  lets a Rust repo skip the reader question entirely.
+- **Reader** — a reader read the body and said so. Asked ONLY where no contract exists,
+  because paying a sentence per reading to be told what the compiler already said buys
+  nothing. It is the only source that can see a fixture living in a production file, which
+  no path and no attribute reaches — and on the one real reading pass this was tested with,
+  a C++ helper called `square_xs` with no assertion in it came back `test: yes`.
+- **Convention** — a runner's published glob or a directory somebody named. Filenames are
+  the stronger half: `foo.test.ts` was named that to match a pattern someone else wrote
+  down, where a directory called `tests` is a domain noun in plenty of repos.
+
+Contract beats Reader beats Convention, and the order is what the evidence is worth: a
+contract is a fact about what ships, a reader actually read the body, a convention only ever
+saw the path.
+
+**Absence is not a level.** `None` means nobody has said, and it must never render as "not a
+test". C++ has no contract at all — googletest is a library, not a build rule — so on ceph
+`dependents` is `None` across the entire C++ half and the rules that ask for it go quiet
+there. Honest, and a real loss of coverage; see below.
+
+### One silence is not a statement
+
+A `package.json` with no runner in it has not said "there are no tests" — it has said
+nothing about tests. `deno test` and `bun test` are built in and need no dependency,
+`unittest` is in Python's standard library, a justfile can call a global runner, and a
+monorepo declares it next door. Read as a declaration, that mistake was filed at CONTRACT
+strength and short-circuited both the reader and the convention: a repo with tests would
+have had its `tests/` directory ignored and its tests counted as dependents, silently.
+
+So the manifest's silence only counts when the tree is silent too — nothing shaped like a
+test anywhere in that language — and even then it is `Convention`, consulted after a reader
+rather than instead of one. **Being worth skipping a question over and being a declaration
+are two different judgements**, and fusing them is what made this a contract in the first
+place. `skip_test_ask` answers the first, `declared_of` the second.
+
+### A reading is applied where readings live
+
+The reader tier was an input to `edges::wire`, which runs inside `scan` — so a landed
+reading changed nothing until the next scan, and while it lagged the finding went on
+overclaiming. That was a layering mistake. The tree carries the parse, the paths and the
+git, plus a PROXY score; readings are applied at query time, which is why the panel folds
+them onto nodes and why every other reading-derived value is already live.
+
+`links::retest_tree` is that application: one pass over `links.bin`, which is written beside
+the tree precisely so the edges survive a launch that reads no source. No re-parse. The same
+trade `treecache::redraw` makes when a trace lands. It runs when a reading lands and only
+when that reading answered the test question at all, so a Rust or Go repo never pays it.
+
+**It is keyed by NODE ID**, because that is what the map in hand is keyed by —
+`assessment::load` resolves the durable key on the way in and hands back `live.id`. Building
+`key_of` there matched nothing, and the first test written for it passed anyway, because the
+fixture's keys were spelled to match the code rather than the store.
+
+### Three detectors, and why two of them remain
+
+`findings::not_ours` excludes test code by PATH at file level, and its rule is deliberately
+more liberal than `convention_of`: it takes a bare `test/` directory in any language, where
+this file refuses to guess that for C++. That is defensible rather than sloppy, because the
+costs differ — pointing the instrument somewhere useless loses a finding nobody hears about,
+and miscounting a dependent prints a sentence that is false. Worth unifying behind one
+function with a tier argument; not worth forcing to one threshold.
+
+`findings::in_a_test_module` asked whether an owner chain ran through a module named
+`tests`. The findings population asks `Node::tested` now, which is strictly more, and the
+44 functions that left this repo's population are the ones a name could never have seen:
+eight `#[cfg(test)]` modules called something else — `slot_tests`, `real`, `languages`,
+`kinds`, `complexity` among them. A blind reviewer had already been taken in by that gap,
+reporting `parse.rs` as "already split into `languages`/`kinds`/`complexity` submodules"
+when all three are test modules.
+
 ## What `dependents` costs, which is not nothing
 
 `dependents` is `None` wherever `is_test` has no answer, and the three rules that gate on it
