@@ -76,10 +76,19 @@ pub struct Wire {
     /// anything. Borrowing the word would be the map claiming a measurement nobody took, on
     /// the one question people are most primed to misread.
     ///
-    /// Direct callers only. One hop is a fact somebody can act on — write a test that calls
-    /// this — where a transitive closure reaches nearly everything through two or three
-    /// helpers and stops distinguishing anything. If depth is ever wanted it should be a
-    /// number, not a wider boolean.
+    /// **What a test REACHES, at any depth.** A test of `a` exercises `b` through `a`; saying
+    /// only the first hop is tested paints every accessor under a tested entry point as
+    /// untested, which reads as false because it is.
+    ///
+    /// Direct-only was the first answer, on the argument that a closure reaches nearly
+    /// everything and distinguishes nothing. Measured, it saturates at 37% of classifiable
+    /// bodies on two unrelated Rust repos — so almost two thirds are reached by no test at
+    /// any depth, and the closure is the discriminating answer rather than the vacuous one.
+    /// See `links::reach_depth::how_far_do_tests_reach`.
+    ///
+    /// **It undercounts, and only in the safe direction for the green band.** The call graph
+    /// refuses every edge it cannot name, so a body reached through an unresolvable call is
+    /// reported as unreached. `no test reaches this` is therefore an upper bound.
     ///
     /// The absence is the important half: `None` means test code is not separable here (C++,
     /// GDScript, anything with no contract and nothing read), and it must render as "we
@@ -331,18 +340,47 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
             w.callers += 1;
             // Counted up from zero only for languages we can actually ask; everywhere else it
             // stays `None` rather than becoming a zero nobody measured.
-            if told[to.0] {
-                if tests.contains(from) {
-                    // Seeded below, so this only ever raises a `false` to a `true`.
-                    w.under_test = Some(true);
-                } else {
-                    *w.dependents.get_or_insert(0) += 1;
-                }
+            // `dependents` is a DIRECT question — how many call sites depend on this — so it
+            // is counted here. Reach is not, and is walked below.
+            if told[to.0] && !tests.contains(from) {
+                *w.dependents.get_or_insert(0) += 1;
             }
         }
         neighbours.entry(*from).or_default().insert(*to);
         neighbours.entry(*to).or_default().insert(*from);
     }
+    // **What a test reaches, not what it calls.** A test of `a` exercises `b` through `a`,
+    // and `c` through `b`, and reporting only the first hop paints the accessors under a
+    // tested entry point as untested — which reads as false, because it is.
+    //
+    // Transitive was argued against on the grounds that a closure reaches nearly everything
+    // and stops distinguishing anything. That was an assertion, and it is wrong: measured on
+    // two unrelated Rust repos it saturates at 37% of classifiable bodies — sanity 14% direct
+    // to 37% reached, flox 18% to 37% — so nearly two thirds are reached by no test at any
+    // depth. `how_far_do_tests_reach` is the measurement and it is kept.
+    //
+    // A cycle is not a special case: a visited set makes `c` calling `a` back terminate.
+    let mut out_edges: HashMap<Site, Vec<Site>> = HashMap::new();
+    for (from, to) in &edges {
+        out_edges.entry(*from).or_default().push(*to);
+    }
+    let mut reached: HashSet<Site> = HashSet::new();
+    let mut queue: Vec<Site> = tests.iter().copied().collect();
+    while let Some(at) = queue.pop() {
+        for to in out_edges.get(&at).map(Vec::as_slice).unwrap_or_default() {
+            if !tests.contains(to) && reached.insert(*to) {
+                queue.push(*to);
+            }
+        }
+    }
+    for site in &reached {
+        if told[site.0] {
+            if let Some(w) = per_site.get_mut(site) {
+                w.under_test = Some(true);
+            }
+        }
+    }
+
     for (site, near) in &neighbours {
         let Some(w) = per_site.get_mut(site) else { continue };
         let home = dir_of(files[site.0].path);
@@ -871,6 +909,37 @@ mod tests {
     /// separable here and none of its callers is one. `None` means we cannot tell tests apart
     /// at all — and that must never render as "no test calls this", which is the whole reason
     /// it is three states.
+    /// **A test reaches what its callees reach.** `a` is called by a test, `b` by `a`, `c` by
+    /// `b` — and `c` calling `a` back is a cycle the walk terminates on rather than a case.
+    /// Only `lonely`, which nothing reaches, stays false.
+    ///
+    /// The first version of this counted DIRECT callers, which drew every accessor under a
+    /// tested entry point as untested. It was defended on the grounds that a closure reaches
+    /// nearly everything; measured, it saturates near a third — see
+    /// `links::reach_depth::how_far_do_tests_reach`.
+    #[test]
+    fn a_test_reaches_what_its_callees_reach() {
+        let w = wired(&[(
+            "src/a.rs",
+            Lang::Rust,
+            vec![
+                def("a", &["b"]),
+                def("b", &["c"]),
+                def("c", &["a"]),
+                def("lonely", &[]),
+                test_fn("exercises", &[free("a")]),
+            ],
+        )]);
+        for (i, name) in [(0, "a"), (1, "b"), (2, "c")] {
+            assert_eq!(
+                w.at(0, i).map(|x| x.under_test),
+                Some(Some(true)),
+                "`{name}` is reached through the chain",
+            );
+        }
+        assert_eq!(w.at(0, 3).map(|x| x.under_test), Some(Some(false)), "nothing reaches it");
+    }
+
     #[test]
     fn under_test_says_a_test_calls_this_and_not_that_it_is_covered() {
         let w = wired(&[(

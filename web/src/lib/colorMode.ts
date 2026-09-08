@@ -1221,9 +1221,9 @@ export function colorFor(
     if (node.kind !== 'func') return null
     if (node.tested?.isTest) {
       return {
-        fill: 'var(--structure)',
-        stop: 'var(--structure)',
-        ink: inkOn('var(--structure)'),
+        fill: 'var(--is-test)',
+        stop: 'var(--is-test)',
+        ink: inkOn('var(--is-test)'),
         // The evidence travels with the answer, because "the compiler says so" and "a
         // filename says so" are not the same claim — see `model::Testness`.
         label: `test (${node.tested.how})`,
@@ -1608,9 +1608,10 @@ export function churnLabel(commits: number, days: number): string {
  *  A `Record` for the same reason everything on this page is one now: it was a chain of
  *  `mode !== …` and the twelfth lens was not in it. */
 const FROM_COLS: Record<ColorMode, boolean> = {
-  // Nothing on a file answers "does a test call this" — it is a fact about one body and its
-  // callers, so a file has nothing to stand in WITH. Paired with `STANDS_IN` below.
-  testing: false,
+  // `Cols::testing` carries one entry per function, so a file stands in with its functions'
+  // own values rather than with a single point of its own — the same thing `tangle` does, and
+  // the reason both of these are true rather than false.
+  testing: true,
   churn: true,
   age: true,
   tangle: true,
@@ -1656,10 +1657,10 @@ const FROM_COLS: Record<ColorMode, boolean> = {
  *  it was missed from; the others were the band order and the ramp. A `Record` over
  *  `ColorMode` fails the build instead of the picture. */
 const STANDS_IN: Record<ColorMode, boolean> = {
-  // A file may not stand in for its functions here, for the reason `traps` may not: the
-  // question is asked of a body, and a file's answer would be an average over four states
-  // that do not average.
-  testing: false,
+  // A file stands in for functions the window was never sent, out of `Cols::testing`. Without
+  // it the rim draws over whichever rings happened to arrive, which at a repo's root is a
+  // confident picture of a biased sample.
+  testing: true,
   // A file's own tangle is the mean over ALL its functions, computed in Rust rather than over
   // whichever rings happen to have arrived, so it is complete by construction exactly as churn
   // and age are — and `Cols::tangle` carries the per-function values so the distribution is
@@ -1832,6 +1833,11 @@ function contribute(
       kind: 'func'
       loc: number
       score?: Score
+      /** The Testing lens reads both, and a stand-in that omitted them would report every
+       *  ring-less file as unclassifiable — the confident-wrong-colour failure this whole
+       *  stand-in exists to avoid. */
+      tested?: { isTest: boolean; how: 'contract' | 'reader' | 'convention' } | null
+      underTest?: boolean | null
       children: Node[]
     } = { synthetic: true, kind: 'func', loc: 0, children: [] }
     if (mode === 'language' || mode === 'blame') {
@@ -1975,7 +1981,7 @@ function contribute(
       // The tests themselves are a band rather than a drop: the lens is Testing, not Tested,
       // and where a repo's tests live is half of what somebody opens it to see.
       if (n.tested?.isTest) {
-        put('test', 'test', 'var(--structure)', n)
+        put('test', 'test', 'var(--is-test)', n)
       } else if (n.underTest === null || n.underTest === undefined) {
         put(UNKNOWN, 'cannot tell', 'var(--unanalyzed)', n)
       } else {
@@ -2139,6 +2145,11 @@ function contributeCols(
     kind: 'func'
     loc: number
     score?: Score
+      /** The Testing lens reads both, and a stand-in that omitted them would report every
+       *  ring-less file as unclassifiable — the confident wrong colour this stand-in exists
+       *  to avoid. */
+      tested?: { isTest: boolean; how: 'contract' | 'reader' | 'convention' } | null
+      underTest?: boolean | null
     callers?: number
     calls?: number
     cloneSize?: number
@@ -2181,6 +2192,17 @@ function contributeCols(
             lastTouchedDays: c.touched[i] < 0 ? null : c.touched[i],
           })
     stand.callers = c.callers[i] < 0 ? undefined : c.callers[i]
+    // **`null` for the absence, never `undefined`.** The Testing arm reads `underTest` and
+    // treats undefined and null alike, but `tested` has to come back a real object for a
+    // body that IS one — the band is `test`, not `cannot tell`, and a stand-in that dropped
+    // it would report a repo's test files as unclassifiable.
+    //
+    // `how` is `convention` because a column carries the answer and not the evidence for it.
+    // That is honest rather than lazy: this is a stand-in, and the panel that wants to say
+    // which tier decided has the function node in front of it by then.
+    const testing = c.testing?.[i] ?? -1
+    stand.tested = testing === 2 ? { isTest: true, how: 'convention' as const } : null
+    stand.underTest = testing === 1 ? true : testing === 0 ? false : null
     stand.calls = c.calls[i] < 0 ? undefined : c.calls[i]
     stand.comparable = c.clones[i] < 0 ? undefined : 1
     stand.cloneSize = c.clones[i] > 0 ? c.clones[i] : undefined

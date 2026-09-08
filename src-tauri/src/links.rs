@@ -135,20 +135,44 @@ impl Links {
                 continue;
             }
             let mut dependents = 0u32;
-            let mut under_test = false;
             for from in self.callers.get(&id).map(Vec::as_slice).unwrap_or_default() {
                 // A caller nobody can classify counts as a dependent, which is the reading
                 // `wire` has always taken: the claim is "this many things depend on it", and
                 // an unclassifiable caller is still one of them.
-                if is_test(*from) == Some(true) {
-                    under_test = true;
-                } else {
+                if is_test(*from) != Some(true) {
                     dependents += 1;
                 }
             }
-            out.insert(id, (Some(dependents), Some(under_test)));
+            out.insert(id, (Some(dependents), Some(false)));
+        }
+
+        // **Reach, not the first hop** — the same closure `edges::wire` walks, and here for
+        // the same reason: a test of `a` exercises `b` through `a`. Two implementations of
+        // one rule is how the map and a landed reading would come to disagree about the same
+        // repo, so this is deliberately the identical shape.
+        let mut reached: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut queue: Vec<u32> =
+            (0..self.entries.len() as u32).filter(|id| is_test(*id) == Some(true)).collect();
+        while let Some(at) = queue.pop() {
+            for to in self.calls.get(&at).map(Vec::as_slice).unwrap_or_default() {
+                if is_test(*to) != Some(true) && reached.insert(*to) {
+                    queue.push(*to);
+                }
+            }
+        }
+        for id in reached {
+            if let Some(slot) = out.get_mut(&id) {
+                if slot.1.is_some() {
+                    slot.1 = Some(true);
+                }
+            }
         }
         out
+    }
+
+    /// What this entry calls, for a walk outward over the graph.
+    pub fn calls_of(&self, id: u32) -> Vec<u32> {
+        self.calls.get(&id).cloned().unwrap_or_default()
     }
 
     /// The entry at this file and start line, which is how a tree node finds its edges.
@@ -264,6 +288,82 @@ impl Links {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod reach_depth {
+    /// **How far a test's reach actually goes, before believing either answer.**
+    ///
+    /// `under_test` counts DIRECT callers, on the argument that a transitive closure reaches
+    /// nearly everything and stops distinguishing anything. That was an assertion. This
+    /// measures it: how many bodies a test reaches at one hop, two, three, and where it
+    /// saturates. Ignored, like `neighbours` — a measurement, not a correctness test.
+    ///
+    /// `REPO=/path cargo test --lib -- --ignored --nocapture how_far_do_tests_reach`
+    #[test]
+    #[ignore]
+    fn how_far_do_tests_reach() {
+        let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
+        let m = crate::scan::Memos::ephemeral();
+        let scan = crate::scan::scan(
+            std::path::Path::new(&repo),
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Untraced,
+        )
+        .expect("scans");
+
+        // Node id -> is it a test / can it be classified, straight off the tree.
+        let links = &scan.links;
+        let mut is_test = std::collections::HashMap::new();
+        scan.root.visit(&mut |n| {
+            if n.kind == crate::model::NodeKind::Func {
+                if let Some(line) = n.line {
+                    if let Some(id) = links.at_line(&n.path, line) {
+                        is_test.insert(id, n.tested.map(|t| t.is_test));
+                    }
+                }
+            }
+        });
+
+        let classifiable: Vec<u32> =
+            is_test.iter().filter(|(_, v)| v.is_some()).map(|(k, _)| *k).collect();
+        let tests: Vec<u32> =
+            is_test.iter().filter(|(_, v)| **v == Some(true)).map(|(k, _)| *k).collect();
+        let subjects = classifiable.len() - tests.len();
+
+        // Outward from every test, one hop at a time, over the CALLEE direction.
+        let mut depth: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+        let mut front: Vec<u32> = tests.clone();
+        let mut d = 0usize;
+        println!("  {} tests, {subjects} classifiable non-test bodies", tests.len());
+        while !front.is_empty() && d < 12 {
+            d += 1;
+            let mut next = Vec::new();
+            for from in &front {
+                for to in links.calls_of(*from) {
+                    if is_test.get(&to).copied().flatten() == Some(false)
+                        && !depth.contains_key(&to)
+                    {
+                        depth.insert(to, d);
+                        next.push(to);
+                    }
+                }
+            }
+            let reached = depth.len();
+            println!(
+                "  depth {d}: +{} newly reached, {reached} of {subjects} ({:.0}%)",
+                next.len(),
+                100.0 * reached as f64 / subjects.max(1) as f64
+            );
+            front = next;
+        }
     }
 }
 

@@ -156,7 +156,13 @@ use std::path::{Path, PathBuf};
 ///    apart here", so a warm repo would report the honest absence over code the tool could
 ///    classify perfectly well, and the lens would draw a repo with tests as one where nothing
 ///    can be said about them.
-const VERSION: u32 = 21;
+/// 22: `under_test` is what a test REACHES rather than what it directly calls, and a function
+///    node carries `Cols::testing` so a file can stand in for functions the window was never
+///    sent. A version-21 tree holds the direct answer under the same field name — no shape
+///    changed, nothing would refuse it, and it would paint every accessor beneath a tested
+///    entry point as untested. A recomputation that changes what a cached number MEANS, which
+///    is the hazard version 19 was bumped for.
+const VERSION: u32 = 22;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

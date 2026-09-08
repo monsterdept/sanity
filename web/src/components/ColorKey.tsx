@@ -242,6 +242,36 @@ function Legend({
   // boolean somebody either reported or did not. Shading it would invent degrees of danger
   // nobody graded, and a two-ended label would ask the reader to find the middle of a set
   // with no middle. One filled bar in the color the map is actually using, named once.
+  // **A set, not a scale.** Four named states with no order between them: a gradient would
+  // say there is a middle, and there is nothing between "a test calls this" and "no test
+  // calls this" to be halfway along. Same argument Traps makes below, with four swatches
+  // instead of one because none of these is the default the others are read against.
+  //
+  // `cannot tell` is listed rather than left to the unread swatch under the ramp, because on
+  // this lens it is not "nobody has read it" — it is "this language has no way to say", which
+  // is a different sentence and the one most of a C++ repo will be wearing.
+  if (mode === 'testing') {
+    const states: [string, string][] = [
+      ['var(--untested)', 'no test calls this'],
+      ['var(--under-test)', 'a test calls this'],
+      ['var(--is-test)', 'test'],
+      ['var(--unanalyzed)', 'cannot tell'],
+    ]
+    return (
+      <div className={`${RIBBON} flex flex-wrap items-center gap-x-3 gap-y-1`}>
+        {states.map(([fill, label]) => (
+          <span key={label} className="inline-flex items-center gap-1.5">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+              style={{ background: fill }}
+            />
+            <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
+          </span>
+        ))}
+      </div>
+    )
+  }
+
   if (mode === 'traps') {
     return (
       <div className={`${RIBBON} inline-flex items-center gap-2`}>

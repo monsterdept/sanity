@@ -487,6 +487,14 @@ export interface Cols {
   tangle: [number, number][]
   touched: number[]
   callers: number[]
+  /** What the Testing lens paints, per function: `1` a test calls this, `0` none does, `2`
+   *  this body IS a test, `-1` the absence — test code cannot be told apart here.
+   *
+   *  Carried so a FILE can stand in for functions the window was never sent. Rings arrive
+   *  only for files wide enough to draw an inside, so at a repo's root most files have none,
+   *  and a histogram over the ones that happened to arrive is a confident picture of a
+   *  biased sample. */
+  testing: number[]
   calls: number[]
   clones: number[]
 }

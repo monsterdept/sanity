@@ -185,7 +185,7 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       needs="Scan"
       swatch={
         <Steps
-          fills={['var(--unanalyzed)', 'var(--structure)', 'var(--under-test)', 'var(--untested)']}
+          fills={['var(--unanalyzed)', 'var(--is-test)', 'var(--under-test)', 'var(--untested)']}
         />
       }
       measures="which bodies a test calls, and which bodies are the tests."
