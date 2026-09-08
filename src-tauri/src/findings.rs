@@ -858,6 +858,11 @@ pub fn not_ours(path: &str, excluded: bool) -> Option<NotOurs> {
 ///
 /// The chain is dotted — `tests.Foo` for an impl inside `mod tests` — so this asks about any
 /// link in it rather than the whole string.
+///
+/// **Superseded for the findings population by [`crate::model::Node::tested`]**, which knows
+/// the difference between a module the compiler excludes and one somebody merely named
+/// `tests`. Kept because it is the only thing that can answer from an owner alone, with no
+/// tree and no scan behind it.
 pub fn in_a_test_module(owner: &str) -> bool {
     owner.split('.').any(|seg| matches!(seg, "tests" | "test"))
 }
@@ -935,11 +940,16 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
                 let ord = seen.entry(c.name.as_str()).or_insert(0);
                 let key = crate::assessment::key_of(&node.path, &c.name, *ord);
                 *ord += 1;
-                // **A Rust unit test is a function-level exclusion, not a file-level one.**
-                // It lives in the file it tests, so `not_ours` cannot see it from the path;
-                // what reaches the tree is the enclosing module, which is why `mod_item` is an
-                // owner. Everything else this catches is already gone by file.
-                if c.owner.as_deref().is_some_and(in_a_test_module) {
+                // **A unit test is a function-level exclusion, not a file-level one.** It
+                // lives in the file it tests, so `not_ours` cannot see it from the path.
+                //
+                // This used to ask whether the owner chain ran through a module named `tests`,
+                // which was the best signal available before the tree carried one. `tested` is
+                // strictly more: `#[cfg(test)]` is what the COMPILER excludes, so a module
+                // merely named `tests` is code that ships and now stays in the population,
+                // and a fixture a reader identified in a production file drops out of it —
+                // which no name and no path could ever have reached. See `model::Testness`.
+                if c.tested.is_some_and(|t| t.is_test) {
                     continue;
                 }
                 let report = reports.get(&key).filter(|r| !r.stale);
