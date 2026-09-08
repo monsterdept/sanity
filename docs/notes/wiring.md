@@ -100,6 +100,25 @@ the Reach lens's headline finding and a false one is the worst thing this lens d
 row in `call_sites` is in the table for the same reason. Refusing an edge is cheap, and
 inventing an absence is not.
 
+## What `dependents` costs, which is not nothing
+
+`dependents` is `None` wherever `is_test` has no answer, and the three rules that gate on it
+then do not match those subjects at all. That is the same silence `callers` has always had on a
+language whose calls nobody taught it to follow — but it is a WIDER silence, and the widening
+is a real cost paid for the sentence being true.
+
+On VectorLand it is the whole repo: GDScript has no test convention worth a table entry, so
+"load-bearing and undocumented" cannot be asked there at all. On ceph it will be the same, in
+C++, on the largest codebase any of this has been pointed at.
+
+And the silence is per-LANGUAGE while `blocked` is per-REPO, so a mixed repo with one Python
+file among the GDScript unblocks the rule for everything and then reports a clean bill over
+every body it could not ask about. `blocked` names the case where the whole repo cannot answer;
+it has nothing to say about the half that cannot. Callers has carried the same hole since it
+was written and the map paints it gray per node, which findings have no equivalent of.
+
+Worth knowing before believing a quiet rule on a repo that is not Rust.
+
 ## What it still cannot do
 
 `project.scan()` from another file is a real edge and it is now dropped: the receiver is a

@@ -1487,6 +1487,20 @@ pub fn blocked(rule: &Rule, facts: &[Facts], traced: Traced, read: bool) -> Opti
         {
             return of("git history has not been read per line", TRACE);
         }
+        // Named for the same reason `headcount` is: the catch-all would say "nothing here has
+        // a dependents to compare", which is true and tells nobody anything. This one is not a
+        // job either — there is no button — but the sentence names a fact about the LANGUAGE
+        // rather than about the repo, and that is the difference between "we looked and found
+        // nothing" and "we cannot look here".
+        if c.field == Field::Dependents
+            && !facts.iter().any(|f| value_of(f, c.field).is_some())
+        {
+            return of(
+                "nothing here says which code is a test, so what depends on what cannot be \
+                 separated from what exercises it",
+                "nothing to compare",
+            );
+        }
         // Whatever is left: the field exists for this population and nothing has one. On
         // Callers and Reach that is a language whose call shape was never parsed, which is
         // exactly the gray the map paints rather than a zero.
