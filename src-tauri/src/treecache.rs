@@ -144,7 +144,13 @@ use std::path::{Path, PathBuf};
 ///    call graph is a set of numbers whose meaning changed underneath it, which is the exact
 ///    shape of the failure the paragraph above this one describes, arriving through a
 ///    recomputation rather than a field.
-const VERSION: u32 = 19;
+/// 20: a function node carries `dependents` — callers that are not this repo's own test code.
+///    `#[serde(default)]`, so a version-19 tree loads it as `None` on every function, and
+///    `None` is this field's third state: *this language has no test convention worth
+///    trusting*. Three rules gate on it and would go quietly dark on every warm repo,
+///    reporting a clean bill over code they never asked about. The same shape as `headcount`
+///    at version 16, which is the paragraph this one is modelled on.
+const VERSION: u32 = 20;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

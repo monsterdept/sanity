@@ -97,6 +97,22 @@ pub enum Field {
     Surprise,
     /// The reader's grade of the documentation, on the same terms.
     Documented,
+    /// Callers that are not this repo's own test code, or `None` where the language gives
+    /// nothing reliable to tell test code by — see [`crate::edges::Wire::dependents`].
+    ///
+    /// **A test is a caller and it is not a dependent.** Both judges who triaged this repo
+    /// worked that out by hand and said so: *10 of the 13 call sites are its own tests*, *the
+    /// real count is two*. `callers` is not wrong — a test does call the thing — but the
+    /// sentence these rules print is *a change here has to be checked against all 13*, and
+    /// that is false when eleven of them move with the function as one edit.
+    ///
+    /// Which is the narrow half of a bigger temptation, and worth saying where it will be
+    /// read. `crowded-file` counts a file's test functions too, and that finding is TRUE:
+    /// `parse.rs` really does define 116 functions and a reader really does page past all of
+    /// them. Both judges allowed it anyway, and dismissing a true finding is what `allow` is
+    /// FOR. Teaching the catalog to discount tests everywhere would freeze one repo's
+    /// judgement into every repo's instrument. Only the claim that is false gets fixed.
+    Dependents,
     /// Whether there is a doc comment on this body at all — 1 or 0, off the PARSE.
     ///
     /// **An absence is countable, and a quality is not.** `documented` is the reader's grade
@@ -204,6 +220,7 @@ impl Field {
             "surprise" => Field::Surprise,
             "documented" | "docs" => Field::Documented,
             "has_doc" | "doc" => Field::HasDoc,
+            "dependents" => Field::Dependents,
             // `legible` is accepted and means the same thing: it is what this field was
             // called in files written before the name was found to be backwards.
             "illegible" | "legible" => Field::Legible,
@@ -234,6 +251,7 @@ impl Field {
             Field::Surprise => "surprise",
             Field::Documented => "documented",
             Field::HasDoc => "has_doc",
+            Field::Dependents => "dependents",
             Field::Legible => "illegible",
             Field::Headcount => "headcount",
             Field::FileLoc => "file_loc",
@@ -256,7 +274,7 @@ impl Field {
     pub fn lens(self) -> Option<&'static str> {
         Some(match self {
             Field::Loc | Field::Funcs => "size",
-            Field::Callers => "callers",
+            Field::Callers | Field::Dependents => "callers",
             Field::Calls => "reach",
             Field::CloneSize => "clones",
             Field::Cognitive | Field::Tangle => "tangle",
@@ -288,9 +306,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 22;
+    pub const COUNT: usize = 23;
 
-    pub const ALL: [Field; 21] = [
+    pub const ALL: [Field; 22] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -311,6 +329,7 @@ impl Field {
         Field::Surprise,
         Field::Documented,
         Field::HasDoc,
+        Field::Dependents,
         Field::Legible,
     ];
 
@@ -982,6 +1001,9 @@ fn facts_of(
         // the comment the parse found attached to this body — the same string the reader is
         // handed, which is what makes "there is none" checkable against what it was shown.
         set(Field::HasDoc, Some(f32::from(node.doc.is_some())));
+        // Absent where the language has no test convention worth trusting, which keeps the
+        // three rules below dark there rather than answering with a number nobody computed.
+        set(Field::Dependents, node.dependents.map(|d| d as f32));
         if let Some(r) = report {
             let (predicted, documented) = r.grades();
             set(Field::Surprise, Some(predicted.surprise()));
@@ -1993,11 +2015,11 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-unread",
             "Load-bearing and unread",
             "Read this one next.",
-            "{{callers}} call sites depend on this and no reader has assessed it.",
+            "{{dependents}} call sites depend on this and no reader has assessed it.",
             "It is the cheapest assessment available here, in the sense that what one of these \
              turns out to be matters to every call site that depends on it.",
             Pop::Func,
-            vec![ge(Field::Callers, 20.0), lt(Field::Read, 1.0), ge(Field::Loc, 10.0)],
+            vec![ge(Field::Dependents, 20.0), lt(Field::Read, 1.0), ge(Field::Loc, 10.0)],
             0,
         ),
         rule(
@@ -2006,21 +2028,22 @@ pub fn catalog() -> Vec<Rule> {
             "Branches a lot, and widely depended on.",
             // Every sentence quotes the subject, so nothing is held back — see
             // `Rule::background`.
-            "{{callers}} call sites depend on this, and for {{loc}} lines it branches more than \
-             its length accounts for. A change here has to be checked against all {{callers}}.",
+            "{{dependents}} call sites depend on this, and for {{loc}} lines it branches more \
+             than its length accounts for. A change here has to be checked against all \
+             {{dependents}}.",
             "",
             Pop::Func,
-            vec![ge(Field::Tangle, 0.8), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
+            vec![ge(Field::Tangle, 0.8), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
             1,
         ),
         rule(
             "load-bearing-illegible",
             "Load-bearing and hard to read",
             "Hard to follow, and widely depended on.",
-            "A reader assessed this as hard to follow, and {{callers}} call sites depend on it.",
+            "A reader assessed this as hard to follow, and {{dependents}} call sites depend on it.",
             "Every later edit pays that reading cost again.",
             Pop::Func,
-            vec![ge(Field::Legible, 0.6), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
+            vec![ge(Field::Legible, 0.6), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
             1,
         ),
         // **`documented` runs HIGH for well documented**, so a clause on it would be `lt` —
@@ -2046,10 +2069,10 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-undocumented",
             "Load-bearing and undocumented",
             "Widely depended on, with nothing written about it.",
-            "{{callers}} call sites depend on this and there is no documentation on it.",
+            "{{dependents}} call sites depend on this and there is no documentation on it.",
             "This is among the most used code here that nothing explains.",
             Pop::Func,
-            vec![lt(Field::HasDoc, 1.0), ge(Field::Callers, 10.0), ge(Field::Loc, 10.0)],
+            vec![lt(Field::HasDoc, 1.0), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
             1,
         ),
         // **Surprise against churn — designed in the note, never built until now.** The pair

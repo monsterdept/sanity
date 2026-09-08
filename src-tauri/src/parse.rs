@@ -4231,3 +4231,4 @@ extension Thing {
         assert_eq!(fns.len(), 1);
     }
 }
+

@@ -1257,6 +1257,7 @@ fn score_dir(
                         // reads as "nothing calls this", which is the finding this lens
                         // exists to make, asserted about code nobody looked at.
                         callers: wire.map(|w| w.callers),
+                        dependents: wire.and_then(|w| w.dependents),
                         calls: wire.map(|w| w.calls),
                         incident: wire.map(|w| w.incident),
                         away: wire.map(|w| w.away),
@@ -1350,6 +1351,7 @@ fn score_dir(
                     // are — and for the same reason, that a mean over a container's leaves
                     // converges on the repo's mean and says nothing.
                     callers: None,
+                    dependents: None,
                     calls: None,
                     incident: None,
                     away: None,

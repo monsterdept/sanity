@@ -53,6 +53,21 @@ use crate::model::Lang;
 pub struct Wire {
     /// Distinct functions in this repo that call this one. Recursion does not count.
     pub callers: u32,
+    /// Of those, how many are NOT this repo's own test code — or `None` where the language
+    /// gives nothing reliable to tell test code by.
+    ///
+    /// **A test is a caller and it is not a dependent, and one number cannot be both.**
+    /// `callers` answers "how many things call this", which is what the lens paints and which
+    /// a test genuinely is. The findings that matter here ask something else — *a change here
+    /// has to be checked against all 13* — and that sentence is false when eleven of the
+    /// thirteen are the body's own unit tests, because changing a function and changing its
+    /// tests is one edit and not thirteen. Two questions, so two numbers; the alternative was
+    /// redefining `callers` under the lens that already draws it.
+    ///
+    /// **`None` is "this language told us nothing", never zero.** Rust says `#[cfg(test)]` and
+    /// the compiler enforces it; Go says `_test.go`; C++ says nothing at all, and a confident
+    /// zero there would be the third time this file invented a number nobody computed.
+    pub dependents: Option<u32>,
     /// Distinct functions in this repo that this one calls.
     pub calls: u32,
     /// Distinct neighbours — callers and callees together, counted once each.
@@ -183,6 +198,10 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
     // and the file stems a module-qualified call spells. See `resolve`.
     let mut owners: HashSet<&str> = HashSet::new();
     let mut modules: HashSet<&str> = HashSet::new();
+    // Which sites are test code, and which FILES we were able to ask about at all — kept per
+    // file rather than per language so nothing has to be hashed that is not already.
+    let mut tests: HashSet<Site> = HashSet::new();
+    let mut told: Vec<bool> = vec![false; files.len()];
     let mut resolvable = 0u64;
     for (fi, file) in files.iter().enumerate() {
         if !crate::parse::resolves_calls(file.lang) {
@@ -193,6 +212,12 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
         let dir = dir_of(file.path);
         modules.insert(stem_of(file.path));
         for (gi, func) in file.funcs.iter().enumerate() {
+            if let Some(t) = is_test(file.lang, file.path, func.owner.as_deref()) {
+                if t {
+                    tests.insert((fi, gi));
+                }
+                told[fi] = true;
+            }
             let owner = func.owner.as_deref();
             if let Some(o) = owner {
                 owners.insert(o);
@@ -245,7 +270,11 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
     for (fi, file) in files.iter().enumerate() {
         if crate::parse::resolves_calls(file.lang) {
             for gi in 0..file.funcs.len() {
-                per_site.insert((fi, gi), Wire::default());
+                let seed = Wire {
+                    dependents: told[fi].then_some(0),
+                    ..Wire::default()
+                };
+                per_site.insert((fi, gi), seed);
             }
         }
     }
@@ -257,6 +286,11 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
         }
         if let Some(w) = per_site.get_mut(to) {
             w.callers += 1;
+            // Counted up from zero only for languages we can actually ask; everywhere else it
+            // stays `None` rather than becoming a zero nobody measured.
+            if told[to.0] && !tests.contains(from) {
+                *w.dependents.get_or_insert(0) += 1;
+            }
         }
         neighbours.entry(*from).or_default().insert(*to);
         neighbours.entry(*to).or_default().insert(*from);
@@ -284,6 +318,40 @@ struct Def<'a> {
     /// The type or module it is defined in — see [`crate::parse::FuncDef::owner`]. `None` is
     /// a free function, and that is the half of this the dot rule turns on.
     owner: Option<&'a str>,
+}
+
+/// Is this definition test code — `None` where the language offers nothing to tell it by.
+///
+/// **Contract before convention, and nothing below that.** Three tiers are available and only
+/// the first two are worth trusting: a toolchain that ENFORCES the marker (`#[cfg(test)]` is
+/// excluded from the binary by the compiler; `_test.go` is a build rule), and a test runner's
+/// published default glob (`test_*.py`, `*.spec.ts`) — a filename chosen to match a pattern
+/// somebody else wrote down. The third tier is a bare `tests/` directory, which is a name a
+/// person chose: it is a domain noun in plenty of repos, it covers vendored trees, and the
+/// fixtures and helpers under it are a grey area by definition rather than by detection. It is
+/// deliberately not here, and its absence is why this returns `None` rather than `false` for a
+/// language it has nothing on.
+///
+/// Rust is read off `owner` rather than the attribute, which costs no parse change and no
+/// version bump: `mod tests` is the universal spelling, and on this repo it catches 393 of the
+/// 397 functions under `#[cfg(test)]`. The four it misses are nested inside an `impl` in that
+/// module, which reports the impl's type instead. That is a real gap and a cheap one; the
+/// attribute is where to go if it ever matters.
+fn is_test(lang: Lang, path: &str, owner: Option<&str>) -> Option<bool> {
+    let file = path.rsplit_once('/').map_or(path, |(_, f)| f);
+    match lang {
+        Lang::Rust => Some(owner == Some("tests") || path.contains("/tests/")),
+        Lang::Go => Some(file.ends_with("_test.go")),
+        Lang::Python => Some(
+            file.starts_with("test_") || file.ends_with("_test.py") || file == "conftest.py",
+        ),
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript => Some(
+            [".test.", ".spec."].iter().any(|m| file.contains(m)) || path.contains("/__tests__/"),
+        ),
+        Lang::Ruby => Some(file.ends_with("_spec.rb") || file.ends_with("_test.rb")),
+        // Everything else, C++ loudest among them: no contract, no runner glob, nothing to say.
+        _ => None,
+    }
 }
 
 /// The file name without its directory or extension — what a module-qualified call spells.
@@ -592,6 +660,45 @@ mod tests {
         assert_eq!(w.at(1, 0).map(|x| x.callers), Some(0), "not the neighbour of that name");
     }
 
+    /// **A test is a caller and it is not a dependent**, and the two numbers say so
+    /// separately. Both blind reviewers of this repo worked this out by hand — *10 of the 13
+    /// call sites are its own tests* — because the sentence a finding prints is *a change here
+    /// has to be checked against all 13*, and eleven of those move with the function as one
+    /// edit.
+    ///
+    /// `callers` is deliberately unchanged: it is what the lens paints, and a test does call
+    /// the thing.
+    #[test]
+    fn a_test_is_a_caller_and_not_a_dependent() {
+        let w = wired(&[(
+            "src/a.rs",
+            Lang::Rust,
+            vec![
+                def("helper", &[]),
+                def("shipped", &["helper"]),
+                // `mod tests` is how Rust spells it, and `owner` already carries it — which is
+                // what makes this cost no parse change and no version of its own.
+                method("tests", "covers_helper", &[free("helper")]),
+            ],
+        )]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(2), "both of them call it");
+        assert_eq!(w.at(0, 0).map(|x| x.dependents), Some(Some(1)), "only one depends on it");
+        // And a body nothing calls is a dependents ZERO, not an absence: the language was
+        // asked and answered.
+        assert_eq!(w.at(0, 2).map(|x| x.dependents), Some(Some(0)));
+    }
+
+    /// **A language with no test convention says nothing rather than zero.** C++ has no
+    /// compiler marker and no enforced layout — googletest is a library, not a build rule — so
+    /// a confident "0 of these callers are tests" there would be the third number this file
+    /// invented. The rules that ask for it go dark instead.
+    #[test]
+    fn a_language_with_no_test_convention_reports_no_dependents() {
+        let w = wired(&[("src/a.cc", Lang::Cpp, vec![def("helper", &[]), def("run", &["helper"])])]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "callers are still counted");
+        assert_eq!(w.at(0, 0).map(|x| x.dependents), Some(None), "and nothing is claimed");
+    }
+
     #[test]
     fn a_call_becomes_a_caller() {
         let w = wired(&[("a.rs", Lang::Rust, vec![def("top", &["helper"]), def("helper", &[])])]);
@@ -719,3 +826,4 @@ mod tests {
         assert_eq!(w.at(0, 1).unwrap().incident, 1);
     }
 }
+

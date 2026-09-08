@@ -642,6 +642,12 @@ pub struct Node {
     /// path relies on.
     #[serde(default)]
     pub callers: Option<u32>,
+    /// Callers that are not this repo's own test code — see [`crate::edges::Wire::dependents`].
+    ///
+    /// `None` where the language offers no reliable way to tell test code apart, which is a
+    /// third state and not a zero: C++ has no test contract at all.
+    #[serde(default)]
+    pub dependents: Option<u32>,
     #[serde(default)]
     pub calls: Option<u32>,
     /// Distinct neighbours — callers and callees together, a mutual pair counted once — and
@@ -876,6 +882,7 @@ impl Node {
             score: None,
             hotspots: Vec::new(),
             callers: None,
+            dependents: None,
             calls: None,
             incident: None,
             away: None,
@@ -1129,6 +1136,7 @@ impl Node {
             // `hot_share`. `callers` and `calls` do NOT — they are one function's own counts,
             // and a file has neither.
             callers: self.callers,
+            dependents: self.dependents,
             calls: self.calls,
             incident: self.incident,
             away: self.away,
