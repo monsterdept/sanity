@@ -220,7 +220,12 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// `xs.collect()` from `collect()`. Every cached entry holds the old shape and would decode
 /// into a body that calls nothing. No reading expires — `reading_hash` covers the header, the
 /// doc and the body, and a call's spelling is none of them.
-pub const PARSE_VERSION: u32 = 9;
+/// 10 because [`MAX_CALLS`] went from 64 to 2048, so a body over the old cap now records the
+/// calls it always made. Every cached entry holds a list that was cut short, and a short list
+/// is not a wrong-looking one: it is a confident under-count of the wiring, on exactly the
+/// bodies the wiring rules fire on. No reading expires — `reading_hash` covers the header, the
+/// doc and the body, and how many of a body's calls were written down is none of them.
+pub const PARSE_VERSION: u32 = 10;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -2140,11 +2145,34 @@ fn name_chars(lang: Lang) -> &'static str {
 /// At most this many distinct callee names per function.
 ///
 /// A ceiling on what a cached parse costs, not a claim about code. These names ride inside
-/// `scancache`'s `FuncDef`, so an unbounded list on a 2,000-line generated dispatcher is
-/// paid on every open of every repo forever. Truncation loses edges from the one function
-/// that is already the least readable thing in the file, which is the cheapest place to
-/// lose them.
-pub(crate) const MAX_CALLS: usize = 64;
+/// `scancache`'s `FuncDef`, so an unbounded list on a generated dispatcher is paid on every
+/// open of every repo forever.
+///
+/// **It was 64, and that comment used to say truncation "loses edges from the one function
+/// that is already the least readable thing in the file, which is the cheapest place to lose
+/// them." That was exactly backwards.** The cap is a limit on OUT-edges, and an edge is a
+/// pair — so dropping App.tsx's 65th callee also removes App from the CALLER count of
+/// everything past it. It does not cost the oversized function anything a reader would
+/// notice; it costs every ordinary function that the oversized one calls. On this repo it
+/// drew 101 functions as called by nothing that something calls, which is the Reach lens's
+/// headline finding, asserted about live code. And it lands only on the largest, most tangled
+/// bodies in a repo — which is the exact population every one of these rules selects for.
+///
+/// **2048 because the tail was measured rather than guessed**, over 117,495 functions in three
+/// repos:
+///
+/// | | p50 | p99 | p99.9 | max | over 512 |
+/// |---|---|---|---|---|---|
+/// | sanity | 4 | 49 | 137 | 270 (`App`) | 0 |
+/// | VectorLand | 4 | 32 | 61 | 82 | 0 |
+/// | ceph | 2 | 29 | 63 | **790** (`main`, `radosgw-admin.cc`) | 1 |
+///
+/// The median function makes four calls. The largest hand-written body anywhere is a CLI
+/// dispatcher at 790 — real code that a cap of 512 would have quietly cut in half. 2048 is
+/// 2.6× that and 13× the 99.99th percentile, so nothing a person writes reaches it and a
+/// generated monster is still bounded. Raising it costs nothing that is not actually there:
+/// the list is as long as the body's real call count, and the constant is only a ceiling.
+pub(crate) const MAX_CALLS: usize = 2048;
 
 /// Every distinct call this function makes, in order of first appearance.
 ///

@@ -188,9 +188,10 @@ const GLOBAL_UNIQUE: usize = 1;
 ///
 /// Three passes, none of them clever: index every definition by name, resolve every call
 /// against that index, then fold the edge list into per-function counts. The cost is
-/// proportional to call sites, which is bounded by [`crate::parse::MAX_CALLS`] per function —
-/// so a 17,000-function repo is about a million hash lookups, well under a second, and it
-/// runs on the same parse the scan already paid for.
+/// proportional to the calls that are actually THERE — [`crate::parse::MAX_CALLS`] is a
+/// ceiling and not a budget, and the measured median body makes four calls. A 17,000-function
+/// repo is about a million hash lookups, well under a second, and it runs on the same parse
+/// the scan already paid for.
 pub fn wire(files: &[FileView<'_>]) -> Wiring {
     // name → every definition of it, with the family and directory needed to rank candidates.
     let mut defs: HashMap<&str, Vec<Def<'_>>> = HashMap::new();

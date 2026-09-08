@@ -119,6 +119,37 @@ was written and the map paints it gray per node, which findings have no equivale
 
 Worth knowing before believing a quiet rule on a repo that is not Rust.
 
+## The cap was hiding more than the resolver ever did
+
+`MAX_CALLS` bounds how many distinct callees one body records. It was 64, and its comment said
+truncation "loses edges from the one function that is already the least readable thing in the
+file, which is the cheapest place to lose them."
+
+That is exactly backwards, and a blind reviewer found it by checking a number: a finding said
+`App` calls 19 things, and the body invokes 70-odd. **An edge is a pair.** Dropping App's 65th
+callee does not cost App anything a reader would notice — it removes App from the CALLER count
+of every function past that point. The cap is a limit on out-edges that is paid by the ordinary
+functions on the other end, and it lands only on the largest, most tangled bodies in a repo,
+which is the exact population every one of these rules selects for.
+
+On this repo it drew **101 functions as called by nothing that something calls** — a bigger
+false absence than any of the resolver changes above, sitting there the whole time. Raising the
+cap to 2048 takes the graph from 2,797 edges to 2,967 and those 101 back.
+
+The number is measured, over 117,495 functions in three repos:
+
+| | p50 | p99 | p99.9 | max | over 512 |
+|---|---|---|---|---|---|
+| sanity | 4 | 49 | 137 | 270 (`App`) | 0 |
+| VectorLand | 4 | 32 | 61 | 82 | 0 |
+| ceph | 2 | 29 | 63 | **790** (`main`, `radosgw-admin.cc`) | 1 |
+
+The median body makes four calls. The largest hand-written one anywhere is a CLI dispatcher at
+790 — real code a cap of 512 would have cut in half. Dropping the cap entirely is still wrong:
+it is the only thing bounding a generated file's initializer, and the list is cached per
+function forever. 2048 is 2.6× the largest real body and 13× the 99.99th percentile, and costs
+nothing that is not actually there.
+
 ## What it still cannot do
 
 `project.scan()` from another file is a real edge and it is now dropped: the receiver is a
