@@ -320,9 +320,24 @@ mod retest_tests {
 
         assert_eq!(helper(&scan), (None, None), "no evidence, so no answer either way");
 
+        // **Keyed off the tree itself, never spelled out here.** The first version of this
+        // test wrote the keys by hand in the shape the implementation happened to use, so it
+        // passed while `retest_tree` looked reports up under a key nothing produces. Taking
+        // the ids from the scan is what makes it a test of the keying rather than of my
+        // memory of it.
+        let id_of = |s: &crate::scan::Scan, want: &str| {
+            let mut id = String::new();
+            s.root.visit(&mut |n| {
+                if n.name == want && n.kind == NodeKind::Func {
+                    id = n.id.clone();
+                }
+            });
+            assert!(!id.is_empty(), "`{want}` is in the fixture");
+            id
+        };
         let mut reports = HashMap::new();
-        reports.insert("a.cc#covers".to_string(), Report { test: Some(true), ..Report::blank() });
-        reports.insert("a.cc#helper".to_string(), Report { test: Some(false), ..Report::blank() });
+        reports.insert(id_of(&scan, "covers"), Report { test: Some(true), ..Report::blank() });
+        reports.insert(id_of(&scan, "helper"), Report { test: Some(false), ..Report::blank() });
         assert!(retest_tree(&mut scan, &reports), "the tree moved");
         assert_eq!(
             helper(&scan),
@@ -524,16 +539,18 @@ pub fn retest_tree(
     // apart. See `assessment::key_of`.
     let mut structural: HashMap<u32, Option<Testness>> = HashMap::new();
     let mut said: HashMap<u32, bool> = HashMap::new();
-    let mut ord: HashMap<(String, String), usize> = HashMap::new();
     scan.root.visit(&mut |n| {
         if n.kind != NodeKind::Func {
             return;
         }
         let Some(line) = n.line else { return };
         let Some(id) = links.at_line(&n.path, line) else { return };
-        let seen = ord.entry((n.path.clone(), n.name.clone())).or_insert(0);
-        let key = crate::assessment::key_of(&n.path, &n.name, *seen);
-        *seen += 1;
+        // **Keyed by NODE ID, because that is what the map in hand is keyed by.**
+        // `assessment::load` resolves the durable key on the way in and hands back
+        // `live.id`; so does the bank path. Building `key_of` here looked right and matched
+        // nothing — and the first test written for it passed, because its fixture keys were
+        // chosen to match this code instead of to match the store.
+        let key = &n.id;
         structural.insert(id, n.tested);
         // **A reader outranks a convention and never a contract.** A contract is a fact about
         // what ships; overriding it with a judgement would be the tool second-guessing the
@@ -541,7 +558,7 @@ pub fn retest_tree(
         if matches!(n.tested.map(|t| t.how), Some(Tested::Contract)) {
             return;
         }
-        if let Some(t) = reports.get(&key).and_then(|r| r.test) {
+        if let Some(t) = reports.get(key).and_then(|r| r.test) {
             said.insert(id, t);
         }
     });
@@ -553,15 +570,12 @@ pub fn retest_tree(
         .retest(|id| said.get(&id).copied().or_else(|| structural.get(&id).and_then(|t| t.map(|t| t.is_test))));
 
     let mut moved = false;
-    let mut ord: HashMap<(String, String), usize> = HashMap::new();
     scan.root.visit_mut(&mut |n| {
         if n.kind != NodeKind::Func {
             return;
         }
         let Some(line) = n.line else { return };
         let Some(id) = links.at_line(&n.path, line) else { return };
-        let seen = ord.entry((n.path.clone(), n.name.clone())).or_insert(0);
-        *seen += 1;
         if let Some(t) = said.get(&id) {
             let now = Some(Testness { is_test: *t, how: Tested::Reader });
             moved |= n.tested != now;

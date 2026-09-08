@@ -138,6 +138,10 @@ fn main() {
         }
     };
     let reports = sanity_lib::assessment::load(&path, &scan);
+    // The reader's half, applied where readings live — see `links::retest_tree`. The bench
+    // measures what the panel would show, so it has to apply the same evidence.
+    let mut scan = scan;
+    sanity_lib::links::retest_tree(&mut scan, &reports);
     eprintln!();
 
     let traced = findings::Traced {

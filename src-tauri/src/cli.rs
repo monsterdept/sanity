@@ -1848,6 +1848,12 @@ fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
         }
     };
     let reports = crate::assessment::load(&path, &scan);
+    // **A reading is applied here, not inside the scan.** `wire` answers from the parse and
+    // the paths; what a reader said about which bodies are tests lands afterwards — see
+    // `links::retest_tree`. The app does this when a reading arrives; a headless verb has to
+    // do it once, on the way past, or every CLI answer is the structural half only.
+    let mut scan = scan;
+    crate::links::retest_tree(&mut scan, &reports);
     let traced = crate::findings::Traced {
         git: true,
         churned: scan.stats.churned,
