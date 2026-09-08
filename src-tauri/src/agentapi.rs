@@ -4690,8 +4690,17 @@ async fn report(
     if let Some((name, path)) = named {
         project.note("read", name, path, Some(&r));
     }
+    // **A reading that classifies test code changes the wiring, and changes it now.** Only
+    // this one field can, and only where no contract already answered, so the pass is skipped
+    // entirely on a Rust or Go repo and on every reading that was never asked the question.
+    // `retest_tree` re-derives from `links.bin` beside the tree; nothing is re-parsed.
+    let reclassified = r.test.is_some();
     project.reports.insert(r.id.clone(), r);
     project.reads = project.reads.wrapping_add(1);
+    if reclassified && crate::links::retest_tree(&mut project.scan, &project.reports) {
+        // The window watches this like any other change to the tree.
+        project.scanned = project.scanned.wrapping_add(1);
+    }
     // Written through on every report. An assessment is minutes of an agent's work and
     // must not depend on the app exiting cleanly to survive.
     let write_error = save_reports(&project.repo, &project.scan, &project.reports).err();

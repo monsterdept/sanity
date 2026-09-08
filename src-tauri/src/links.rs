@@ -39,6 +39,7 @@ use std::collections::HashMap;
 
 use crate::clones::Copies;
 use crate::edges::{FileView, Site, Wiring};
+use crate::model::{NodeKind, Tested, Testness};
 
 /// One function, as much of it as a row in a list needs.
 ///
@@ -107,6 +108,61 @@ pub struct Links {
 }
 
 impl Links {
+    /// Re-derive what a READER changes about the wiring, from the table beside the tree.
+    ///
+    /// **The tree is what the parse can say; a reading is applied where readings live.** The
+    /// reader tier was originally an input to `edges::wire`, which meant a landed reading
+    /// changed nothing until the next scan — and while it lagged, a finding went on saying
+    /// "13 call sites depend on this" with a test among the thirteen. That is the overclaim
+    /// the tier exists to remove, deferred rather than avoided.
+    ///
+    /// Nothing here re-parses. `links.bin` is written beside the tree precisely so the edges
+    /// survive a launch that never reads a file, and this is a pass over them: for every
+    /// function, ask what its callers ARE and count the ones that are not tests. The same
+    /// trade `treecache::redraw` already makes when a trace lands.
+    ///
+    /// `is_test` returns `None` for a body whose language cannot classify tests at all, and
+    /// that absence propagates: a callee nobody can classify reports no `dependents` and no
+    /// `under_test` rather than a zero and a `false`.
+    pub fn retest(
+        &self,
+        is_test: impl Fn(u32) -> Option<bool>,
+    ) -> HashMap<u32, (Option<u32>, Option<bool>)> {
+        let mut out = HashMap::new();
+        for id in 0..self.entries.len() as u32 {
+            if is_test(id).is_none() {
+                out.insert(id, (None, None));
+                continue;
+            }
+            let mut dependents = 0u32;
+            let mut under_test = false;
+            for from in self.callers.get(&id).map(Vec::as_slice).unwrap_or_default() {
+                // A caller nobody can classify counts as a dependent, which is the reading
+                // `wire` has always taken: the claim is "this many things depend on it", and
+                // an unclassifiable caller is still one of them.
+                if is_test(*from) == Some(true) {
+                    under_test = true;
+                } else {
+                    dependents += 1;
+                }
+            }
+            out.insert(id, (Some(dependents), Some(under_test)));
+        }
+        out
+    }
+
+    /// The entry at this file and start line, which is how a tree node finds its edges.
+    pub fn at_line(&self, path: &str, line: u32) -> Option<u32> {
+        let file = self.files.iter().position(|f| f == path)? as u32;
+        self.index.get(&(file, line)).copied()
+    }
+
+    /// This entry's durable key, for looking a reading up — see `assessment::key_of`.
+    pub fn key_at(&self, id: u32, ord: usize) -> Option<String> {
+        let e = self.entries.get(id as usize)?;
+        Some(crate::assessment::key_of(self.files.get(e.file as usize)?, &e.name, ord))
+    }
+
     /// Fold a scan's own working state into the table the panel reads.
     ///
     /// `files` is the same flat view [`crate::edges::wire`] and [`crate::clones::find`] were
@@ -208,6 +264,71 @@ impl Links {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod retest_tests {
+    use super::*;
+    use crate::agentapi::Report;
+
+    /// A two-function C++ file, scanned for real so the edges are the ones `wire` produces.
+    fn cpp_scan(dir: &std::path::Path) -> crate::scan::Scan {
+        std::fs::write(
+            dir.join("a.cc"),
+            "void helper() { int x = 1; }\nvoid covers() { helper(); }\n",
+        )
+        .expect("write");
+        let m = crate::scan::Memos::ephemeral();
+        crate::scan::scan(
+            dir,
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Untraced,
+        )
+        .expect("scans")
+    }
+
+    /// **A reader's answer reaches the wiring without a rescan.**
+    ///
+    /// This is the layering the split exists for. The reader tier used to be an input to
+    /// `edges::wire`, which runs inside `scan` — so a landed reading changed nothing until
+    /// somebody scanned again, and while it waited a finding said "N call sites depend on
+    /// this" with a test among the N. The overclaim was deferred rather than removed.
+    ///
+    /// C++ on purpose: no contract, and no directory convention worth trusting on a codebase
+    /// of any size, so a reader is the only thing that can classify it and before the reading
+    /// there is nothing to say.
+    #[test]
+    fn a_reading_reaches_the_wiring_without_a_rescan() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let mut scan = cpp_scan(dir.path());
+        let helper = |s: &crate::scan::Scan| -> (Option<u32>, Option<bool>) {
+            let mut got = (None, None);
+            s.root.visit(&mut |n| {
+                if n.name == "helper" && n.kind == NodeKind::Func {
+                    got = (n.dependents, n.under_test);
+                }
+            });
+            got
+        };
+
+        assert_eq!(helper(&scan), (None, None), "no evidence, so no answer either way");
+
+        let mut reports = HashMap::new();
+        reports.insert("a.cc#covers".to_string(), Report { test: Some(true), ..Report::blank() });
+        reports.insert("a.cc#helper".to_string(), Report { test: Some(false), ..Report::blank() });
+        assert!(retest_tree(&mut scan, &reports), "the tree moved");
+        assert_eq!(
+            helper(&scan),
+            (Some(0), Some(true)),
+            "a test calls it, and nothing that is not a test does",
+        );
     }
 }
 
@@ -376,4 +497,81 @@ pub(crate) mod tests {
         assert!(links.at("src/a.rs", 40).is_none());
         assert!(links.at("src/nope.rs", 1).is_none());
     }
+}
+
+/// Apply what readers have said about test code to a tree, without re-parsing anything.
+///
+/// **The whole point of the split.** `edges::wire` answers from the parse and the paths;
+/// this answers from the readings, which arrive continuously and long after the scan. A
+/// reading that says "this body is a test" changes what depends on the bodies it CALLS, and
+/// it changes them here rather than at the next scan — which is what it used to wait for,
+/// and while it waited a finding went on saying "13 call sites depend on this" with a test
+/// among the thirteen.
+///
+/// Nothing here re-parses. `links.bin` is written beside the tree precisely so the edges
+/// survive a launch that reads no source, and this is one pass over them — the same trade
+/// `treecache::redraw` makes when a trace lands.
+///
+/// Returns whether anything moved, so a caller can skip re-banking a tree already right.
+pub fn retest_tree(
+    scan: &mut crate::scan::Scan,
+    reports: &HashMap<String, crate::agentapi::Report>,
+) -> bool {
+    let links = scan.links.clone();
+
+    // Every function's entry id, what the structure already decided, and the `ord` its
+    // reading is keyed under — twins share a name and a path and nothing else tells them
+    // apart. See `assessment::key_of`.
+    let mut structural: HashMap<u32, Option<Testness>> = HashMap::new();
+    let mut said: HashMap<u32, bool> = HashMap::new();
+    let mut ord: HashMap<(String, String), usize> = HashMap::new();
+    scan.root.visit(&mut |n| {
+        if n.kind != NodeKind::Func {
+            return;
+        }
+        let Some(line) = n.line else { return };
+        let Some(id) = links.at_line(&n.path, line) else { return };
+        let seen = ord.entry((n.path.clone(), n.name.clone())).or_insert(0);
+        let key = crate::assessment::key_of(&n.path, &n.name, *seen);
+        *seen += 1;
+        structural.insert(id, n.tested);
+        // **A reader outranks a convention and never a contract.** A contract is a fact about
+        // what ships; overriding it with a judgement would be the tool second-guessing the
+        // compiler. See `model::Testness`.
+        if matches!(n.tested.map(|t| t.how), Some(Tested::Contract)) {
+            return;
+        }
+        if let Some(t) = reports.get(&key).and_then(|r| r.test) {
+            said.insert(id, t);
+        }
+    });
+    if said.is_empty() {
+        return false;
+    }
+
+    let tally = links
+        .retest(|id| said.get(&id).copied().or_else(|| structural.get(&id).and_then(|t| t.map(|t| t.is_test))));
+
+    let mut moved = false;
+    let mut ord: HashMap<(String, String), usize> = HashMap::new();
+    scan.root.visit_mut(&mut |n| {
+        if n.kind != NodeKind::Func {
+            return;
+        }
+        let Some(line) = n.line else { return };
+        let Some(id) = links.at_line(&n.path, line) else { return };
+        let seen = ord.entry((n.path.clone(), n.name.clone())).or_insert(0);
+        *seen += 1;
+        if let Some(t) = said.get(&id) {
+            let now = Some(Testness { is_test: *t, how: Tested::Reader });
+            moved |= n.tested != now;
+            n.tested = now;
+        }
+        if let Some((dependents, under_test)) = tally.get(&id) {
+            moved |= n.dependents != *dependents || n.under_test != *under_test;
+            n.dependents = *dependents;
+            n.under_test = *under_test;
+        }
+    });
+    moved
 }

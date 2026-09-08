@@ -212,19 +212,16 @@ const GLOBAL_UNIQUE: usize = 1;
 /// repo is about a million hash lookups, well under a second, and it runs on the same parse
 /// the scan already paid for.
 pub fn wire(files: &[FileView<'_>]) -> Wiring {
-    wire_with(files, &HashMap::new(), &Declarations::default())
+    wire_with(files, &Declarations::default())
 }
 
-/// `wire`, plus whatever a reader has said about which bodies are tests.
+/// `wire`, plus what the repo's own manifests declared — see [`Declarations`].
 ///
-/// A separate entry point rather than an argument on `wire`, because the readings are not
-/// something the call graph needs and every other caller has none — see
-/// [`crate::model::Tested::Reader`], which is consulted only where a contract is silent.
-pub fn wire_with(
-    files: &[FileView<'_>],
-    read_test: &HashMap<Site, Testness>,
-    declared: &Declarations,
-) -> Wiring {
+/// **A reader's answer is deliberately not an input here.** The tree is what the parse and
+/// the paths can say; a reading is applied where readings live, by [`crate::links::retest`].
+/// Taking one as an argument was what made a landed reading need a whole rescan before it
+/// changed anything, which is a layering mistake rather than a property of the design.
+pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
     // name → every definition of it, with the family and directory needed to rank candidates.
     let mut defs: HashMap<&str, Vec<Def<'_>>> = HashMap::new();
     // Every name a qualifier could legitimately BE: the types and modules definitions sit in,
@@ -246,14 +243,12 @@ pub fn wire_with(
         let dir = dir_of(file.path);
         modules.insert(stem_of(file.path));
         for (gi, func) in file.funcs.iter().enumerate() {
-            // Contract first; a reading second where the language has no contract; the
-            // layout last. See `contract_of` — and note the reader is only ASKED where a
-            // contract is silent, so this order is also the order the evidence arrives in.
-            // Contract, reader, then the two convention-strength answers — the repo's own
-            // corroborated silence before a bare path match, because it is about the whole
-            // language rather than one filename.
+            // **Structural evidence only, strongest first**: the toolchain's marker, then a
+            // filename or directory convention, then the repo's own corroborated silence —
+            // which comes last of the three because it is about a whole language rather than
+            // one file. A reader's answer belongs to none of these tiers and is applied by
+            // `links::retest`, where readings live.
             let known = contract_of(file.lang, file.path, func.in_cfg_test)
-                .or_else(|| read_test.get(&(fi, gi)).copied())
                 .or_else(|| convention_of(file.lang, file.path))
                 .or_else(|| declared_of(file.lang, declared));
             if let Some(t) = known {
@@ -945,7 +940,7 @@ mod tests {
         // `wire_with` is the entry point that carries a reader's answers; `scan` fills it
         // from the store, which is where the keying lives.
         let none = Declarations::default();
-        assert!(wire_with(&[], &HashMap::new(), &none).edges.is_empty(), "empty is empty");
+        assert!(wire_with(&[], &none).edges.is_empty(), "empty is empty");
 
         // Python has no contract, so the queue asks; Rust has one, so it never does.
         assert!(!has_test_contract(Some(Lang::Python)));

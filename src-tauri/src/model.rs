@@ -1126,6 +1126,15 @@ impl Node {
     }
 
     /// Depth-first walk, parents before children.
+    /// The same walk, with the nodes mutable — for the passes that re-derive a field from
+    /// evidence that arrived after the scan. See [`crate::links::retest`].
+    pub fn visit_mut(&mut self, f: &mut impl FnMut(&mut Node)) {
+        f(self);
+        for c in &mut self.children {
+            c.visit_mut(f);
+        }
+    }
+
     pub fn visit<'a>(&'a self, f: &mut impl FnMut(&'a Node)) {
         f(self);
         for c in &self.children {

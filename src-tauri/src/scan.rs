@@ -951,45 +951,6 @@ mod declared_tests {
     }
 }
 
-/// Which sites a reader has called test code, keyed the way `edges` indexes them.
-///
-/// Only consulted where the language has no contract, so this reads nothing on a Rust or Go
-/// repo and returns an empty map — the same shape as a repo nobody has read.
-fn reader_tests(
-    repo: &Path,
-    flat: &[crate::edges::FileView<'_>],
-    declared: &crate::edges::Declarations,
-) -> std::collections::HashMap<(usize, usize), crate::model::Testness> {
-    let mut out = std::collections::HashMap::new();
-    if flat.iter().all(|f| crate::edges::skip_test_ask(Some(f.lang), declared)) {
-        return out;
-    }
-    let stored = crate::assessment::read_all(&crate::assessment::dir(repo));
-    if stored.is_empty() {
-        return out;
-    }
-    for (fi, file) in flat.iter().enumerate() {
-        if crate::edges::skip_test_ask(Some(file.lang), declared) {
-            continue;
-        }
-        // `ord` is the index among same-named functions in this file, which is what
-        // `key_of` counts — the twins rule, and the reason a reading is not keyed on a line.
-        let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        for (gi, func) in file.funcs.iter().enumerate() {
-            let ord = seen.entry(func.name.as_str()).or_insert(0);
-            let key = crate::assessment::key_of(file.path, &func.name, *ord);
-            *ord += 1;
-            if let Some(is_test) = stored.get(&key).and_then(|r| r.test) {
-                out.insert(
-                    (fi, gi),
-                    crate::model::Testness { is_test, how: crate::model::Tested::Reader },
-                );
-            }
-        }
-    }
-    out
-}
-
 /// Just the files — for callers that only need the list, such as a signature or a size.
 pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
     walk_files(root).files
@@ -1932,8 +1893,7 @@ pub fn scan(
     let named: Vec<(String, Lang)> =
         flat.iter().map(|f| (f.path.to_string(), f.lang)).collect();
     let declared = declared_for(root, &named);
-    let read_test = reader_tests(root, &flat, &declared);
-    let wiring = crate::edges::wire_with(&flat, &read_test, &declared);
+    let wiring = crate::edges::wire_with(&flat, &declared);
     on_progress(Progress::phase("finding copies"));
     let copies = crate::clones::find(&flat);
     // Where each directory's files start in `flat`. A prefix sum over the same iteration
