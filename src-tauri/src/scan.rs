@@ -801,6 +801,73 @@ fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u3
     }
 }
 
+/// What this repo's own manifests say about whether it has tests at all.
+///
+/// **Read, never inferred.** A `jest` key, a runner in `devDependencies`, a `test` script, a
+/// `pytest.ini` — each is the author writing down how their tests are found, and the absence
+/// of every one of them is the author saying there are none. See [`crate::edges::Declares`].
+///
+/// Deliberately conservative: anything unrecognised leaves the answer absent, and absent falls
+/// through to convention and then to a reader exactly as before. The only claim made here is
+/// the one a file supports.
+pub fn declared_for(root: &Path) -> crate::edges::Declarations {
+    let mut out = crate::edges::Declarations::default();
+
+    // The JS family. `package.json` is the manifest, and any of three things in it — or a
+    // runner's own config file beside it — means tests are configured somewhere.
+    let manifests = ["package.json", "web/package.json", "app/package.json", "ui/package.json"];
+    let configs = [
+        "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs",
+        "jest.config.json", "vitest.config.ts", "vitest.config.js", "vitest.config.mts",
+        ".mocharc.json", ".mocharc.yml", ".mocharc.js", "karma.conf.js",
+    ];
+    let any_config = |dir: &Path| configs.iter().any(|c| dir.join(c).exists());
+    let mut saw_manifest = false;
+    let mut saw_runner = false;
+    for m in manifests {
+        let path = root.join(m);
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        saw_manifest = true;
+        if let Some(dir) = path.parent() {
+            saw_runner |= any_config(dir);
+        }
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+            // A manifest we could not read is not a manifest that said no.
+            saw_runner = true;
+            continue;
+        };
+        saw_runner |= json.get("jest").is_some() || json.get("vitest").is_some();
+        saw_runner |= json
+            .get("scripts")
+            .and_then(|s| s.get("test"))
+            .and_then(|t| t.as_str())
+            .is_some_and(|t| !t.trim().is_empty() && !t.contains("no test specified"));
+        for section in ["devDependencies", "dependencies"] {
+            if let Some(deps) = json.get(section).and_then(|d| d.as_object()) {
+                saw_runner |= deps.keys().any(|k| {
+                    matches!(k.as_str(), "jest" | "vitest" | "mocha" | "ava" | "jasmine" | "karma")
+                        || k.starts_with("@jest/")
+                });
+            }
+        }
+    }
+    if saw_manifest && !saw_runner {
+        out.js = Some(crate::edges::Declares::NoTests);
+    }
+
+    // Python. Any of these files configuring pytest is a declaration that tests exist; there
+    // is no manifest that is always present, so silence here stays silence.
+    let py_configs = ["pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "conftest.py"];
+    let py_any = py_configs.iter().any(|c| {
+        std::fs::read_to_string(root.join(c))
+            .is_ok_and(|t| t.contains("pytest") || t.contains("[tool:pytest]") || c == &"conftest.py")
+    });
+    if root.join("pyproject.toml").exists() && !py_any {
+        out.python = Some(crate::edges::Declares::NoTests);
+    }
+    out
+}
+
 /// Which sites a reader has called test code, keyed the way `edges` indexes them.
 ///
 /// Only consulted where the language has no contract, so this reads nothing on a Rust or Go
@@ -808,9 +875,10 @@ fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u3
 fn reader_tests(
     repo: &Path,
     flat: &[crate::edges::FileView<'_>],
+    declared: &crate::edges::Declarations,
 ) -> std::collections::HashMap<(usize, usize), crate::model::Testness> {
     let mut out = std::collections::HashMap::new();
-    if flat.iter().all(|f| crate::edges::has_test_contract(Some(f.lang))) {
+    if flat.iter().all(|f| crate::edges::has_test_contract(Some(f.lang), declared)) {
         return out;
     }
     let stored = crate::assessment::read_all(&crate::assessment::dir(repo));
@@ -818,7 +886,7 @@ fn reader_tests(
         return out;
     }
     for (fi, file) in flat.iter().enumerate() {
-        if crate::edges::has_test_contract(Some(file.lang)) {
+        if crate::edges::has_test_contract(Some(file.lang), declared) {
             continue;
         }
         // `ord` is the index among same-named functions in this file, which is what
@@ -1774,8 +1842,9 @@ pub fn scan(
     // readings AFTER it, so the alternative was an eleventh parameter on a signature a
     // reviewer has already called the awkward part of this function. It costs one pass over
     // `.sanity/readings/` on a repo that has any, and nothing at all on one that does not.
-    let read_test = reader_tests(root, &flat);
-    let wiring = crate::edges::wire_with(&flat, &read_test);
+    let declared = declared_for(root);
+    let read_test = reader_tests(root, &flat, &declared);
+    let wiring = crate::edges::wire_with(&flat, &read_test, &declared);
     on_progress(Progress::phase("finding copies"));
     let copies = crate::clones::find(&flat);
     // Where each directory's files start in `flat`. A prefix sum over the same iteration

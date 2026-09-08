@@ -194,7 +194,7 @@ const GLOBAL_UNIQUE: usize = 1;
 /// repo is about a million hash lookups, well under a second, and it runs on the same parse
 /// the scan already paid for.
 pub fn wire(files: &[FileView<'_>]) -> Wiring {
-    wire_with(files, &HashMap::new())
+    wire_with(files, &HashMap::new(), &Declarations::default())
 }
 
 /// `wire`, plus whatever a reader has said about which bodies are tests.
@@ -202,7 +202,11 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
 /// A separate entry point rather than an argument on `wire`, because the readings are not
 /// something the call graph needs and every other caller has none — see
 /// [`crate::model::Tested::Reader`], which is consulted only where a contract is silent.
-pub fn wire_with(files: &[FileView<'_>], read_test: &HashMap<Site, Testness>) -> Wiring {
+pub fn wire_with(
+    files: &[FileView<'_>],
+    read_test: &HashMap<Site, Testness>,
+    declared: &Declarations,
+) -> Wiring {
     // name → every definition of it, with the family and directory needed to rank candidates.
     let mut defs: HashMap<&str, Vec<Def<'_>>> = HashMap::new();
     // Every name a qualifier could legitimately BE: the types and modules definitions sit in,
@@ -227,6 +231,7 @@ pub fn wire_with(files: &[FileView<'_>], read_test: &HashMap<Site, Testness>) ->
             // layout last. See `contract_of` — and note the reader is only ASKED where a
             // contract is silent, so this order is also the order the evidence arrives in.
             let known = contract_of(file.lang, file.path, func.in_cfg_test)
+                .or_else(|| declared_of(file.lang, declared))
                 .or_else(|| read_test.get(&(fi, gi)).copied())
                 .or_else(|| convention_of(file.lang, file.path));
             if let Some(t) = known {
@@ -367,14 +372,64 @@ fn contract_of(lang: Lang, path: &str, in_cfg_test: bool) -> Option<Testness> {
     }
 }
 
+/// What the REPO says about its own tests, read from the files its author wrote.
+///
+/// **A contract is what somebody wrote down, not only what a compiler enforces.** That is the
+/// wider and better line: `#[cfg(test)]` is a declaration to the compiler, `_test.go` is one
+/// to the go tool, and a `jest` key in `package.json` is one to jest. All three are the
+/// repo's author saying which code is a test, and reading a declaration is not guessing.
+///
+/// The inverse is a declaration too, and it is the cheapest one here: **a project that
+/// configures no test runner at all for a language has said there are no tests in it.** This
+/// repo's own `web/` is exactly that — no config file, no runner in `devDependencies`, no
+/// `test` script — and without this, every one of its TypeScript functions costs a reader the
+/// question `TEST_ASK` asks, to be told no. That was 6.5% of the token floor to learn
+/// something `package.json` already said.
+///
+/// Absent means only that nothing was found to read. It is not `NoTests`: a repo can have
+/// tests and configure them somewhere this does not look, so the fall-through is convention
+/// and then a reader, exactly as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Declares {
+    /// The repo configures no test runner for this language family. Nothing here is a test.
+    NoTests,
+}
+
+/// What each language family's manifests declare. Built once per scan — see
+/// [`crate::scan::declared`], which is where the files are read.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Declarations {
+    pub js: Option<Declares>,
+    pub python: Option<Declares>,
+}
+
+impl Declarations {
+    fn of(&self, lang: Lang) -> Option<Declares> {
+        match lang {
+            Lang::TypeScript | Lang::Tsx | Lang::JavaScript => self.js,
+            Lang::Python => self.python,
+            _ => None,
+        }
+    }
+}
+
 /// Does this language's toolchain answer the test question by itself?
 ///
 /// The queue asks it before deciding whether to spend a sentence asking a reader — see
 /// `agentapi::TEST_ASK`. One function so the two cannot disagree: a language that got a
 /// contract here and was not removed from the ask list would be paying for an answer it
 /// already has, silently and on every reading.
-pub fn has_test_contract(lang: Option<Lang>) -> bool {
-    lang.is_some_and(|l| contract_of(l, "", false).is_some())
+pub fn has_test_contract(lang: Option<Lang>, declared: &Declarations) -> bool {
+    lang.is_some_and(|l| {
+        contract_of(l, "", false).is_some() || declared.of(l) == Some(Declares::NoTests)
+    })
+}
+
+/// The repo's own declaration, at contract strength because somebody wrote it.
+fn declared_of(lang: Lang, declared: &Declarations) -> Option<Testness> {
+    match declared.of(lang)? {
+        Declares::NoTests => Some(Testness { is_test: false, how: Tested::Contract }),
+    }
 }
 
 /// The weaker half: a runner's glob or a directory name. Never consulted where a contract
@@ -792,12 +847,22 @@ mod tests {
 
         // `wire_with` is the entry point that carries a reader's answers; `scan` fills it
         // from the store, which is where the keying lives.
-        assert!(wire_with(&[], &HashMap::new()).edges.is_empty(), "empty is empty");
+        let none = Declarations::default();
+        assert!(wire_with(&[], &HashMap::new(), &none).edges.is_empty(), "empty is empty");
 
         // Python has no contract, so the queue asks; Rust has one, so it never does.
-        assert!(!has_test_contract(Some(Lang::Python)));
-        assert!(has_test_contract(Some(Lang::Rust)) && has_test_contract(Some(Lang::Go)));
-        assert!(!has_test_contract(None), "a language nobody parsed answers nothing");
+        assert!(!has_test_contract(Some(Lang::Python), &none));
+        assert!(
+            has_test_contract(Some(Lang::Rust), &none) && has_test_contract(Some(Lang::Go), &none)
+        );
+        assert!(!has_test_contract(None, &none), "a language nobody parsed answers nothing");
+
+        // **And a repo that declared no runner has answered for its whole language.** This
+        // repo's `web/` is exactly that, and without it every TypeScript function costs a
+        // reader the question — 6.5% of the token floor to be told what `package.json` says.
+        let said_no = Declarations { js: Some(Declares::NoTests), ..Default::default() };
+        assert!(has_test_contract(Some(Lang::TypeScript), &said_no), "the repo already said");
+        assert!(!has_test_contract(Some(Lang::Python), &said_no), "and only for that family");
     }
 
     /// **A language with no test convention says nothing rather than zero.** C++ has no
