@@ -100,7 +100,12 @@ use crate::parse::FuncDef;
 /// one, and an empty call list is a function that calls nothing, drawn as a sink under Reach.
 /// That is the failure this number exists for, and it is invisible without it.
 /// `PARSE_VERSION` moved with it, for the reason the paragraph above gives.
-const FORMAT_VERSION: u32 = 8;
+/// 9 because `FuncDef` gained `in_cfg_test` — whether the compiler excludes this body from
+/// the binary, which is the CONTRACT half of what makes a caller a dependent. `#[serde(default)]`,
+/// so a version-8 entry loads it `false` on every function, and `false` is indistinguishable
+/// from "this ships": every test in a warm repo would be counted as a dependent of what it
+/// exercises, which is the exact overclaim the field exists to stop.
+const FORMAT_VERSION: u32 = 9;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -826,6 +831,7 @@ mod tests {
             end_line: 1,
             shape: None,
             cognitive: None,
+            in_cfg_test: false,
             calls: Vec::new(),
         }
     }
@@ -901,6 +907,7 @@ mod tests {
                 "cognitive",
                 "doc",
                 "end_line",
+                "in_cfg_test",
                 "name",
                 "owner",
                 "shape",

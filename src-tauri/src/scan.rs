@@ -2423,6 +2423,7 @@ mod tests {
                 body: format!("{{ {i} }}"),
                 doc: None,
                 owner: None,
+                in_cfg_test: false,
                 start_line: i as u32 * 3 + 1,
                 end_line: i as u32 * 3 + 2,
                 shape: None,

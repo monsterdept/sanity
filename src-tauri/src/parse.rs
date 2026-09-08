@@ -88,6 +88,17 @@ pub struct FuncDef {
     /// make loud. The lens paints grey on `None`, as Callers does on an unresolved language.
     #[serde(default)]
     pub cognitive: Option<u32>,
+    /// The TOOLCHAIN says this body is test code — see [`crate::model::Tested::Contract`].
+    ///
+    /// Only what the compiler or the build tool decides lands here. In Rust that is
+    /// `#[cfg(test)]`, which excludes the code from the binary; nothing else in this file is
+    /// certain enough. A module somebody NAMED `tests` is a convention and is decided outside
+    /// the parse, where the path is also known — this field is the claim that cannot be wrong.
+    ///
+    /// `false` on a language with no contract means only that no contract spoke. The absence
+    /// is turned back into an absence by `contract_of`, which knows which languages have one.
+    #[serde(default)]
+    pub in_cfg_test: bool,
 }
 
 impl FuncDef {
@@ -225,7 +236,11 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// is not a wrong-looking one: it is a confident under-count of the wiring, on exactly the
 /// bodies the wiring rules fire on. No reading expires — `reading_hash` covers the header, the
 /// doc and the body, and how many of a body's calls were written down is none of them.
-pub const PARSE_VERSION: u32 = 10;
+/// 11 because `FuncDef` carries `in_cfg_test`, read off the `#[cfg(test)]` attribute. A cached
+/// entry has it `false` everywhere, which is not a wrong-looking value — it is "this code
+/// ships", asserted about a repo's whole test suite. No reading expires: `reading_hash` covers
+/// the header, the doc and the body, and an attribute above the item is none of them.
+pub const PARSE_VERSION: u32 = 11;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -522,6 +537,40 @@ const OWNER_KINDS: &[&str] = &[
 /// run returned `T`, so every method on a generic type was attributed to its type
 /// parameter. A cold reader caught it by predicting the doc and then reading the body,
 /// which is the entire point of the instrument, so it would be a poor joke to leave it.
+/// Is this definition inside something the compiler excludes from the build?
+///
+/// **Read off a real parse.** `#[cfg(test)]` is not a child of the item it marks — tree-sitter
+/// makes it an `attribute_item` SIBLING immediately before, and the same is true of `#[test]`
+/// on a function. So this walks up the ancestors and, at each one, looks at the previous named
+/// sibling. Guessing that the attribute hangs off the `mod_item` is the shape this would have
+/// had if it were written from memory, and it would have found nothing, silently.
+///
+/// Rust only, deliberately. It is the one language here where a marker means the code is not
+/// in the binary, and that is what makes this a contract rather than a strong hint. Go's
+/// contract is `_test.go`, which is a filename and is decided where the path is known.
+fn under_cfg_test(node: TsNode, lang: Lang, src: &str) -> bool {
+    if lang != Lang::Rust {
+        return false;
+    }
+    let mut cur = Some(node);
+    while let Some(n) = cur {
+        if let Some(prev) = n.prev_sibling() {
+            if prev.kind() == "attribute_item" {
+                let t = text(prev, src);
+                // `cfg(test)` and `cfg(all(test, …))` both say it, and whitespace inside the
+                // token tree is the author's business.
+                let flat: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+                if flat.contains("cfg(test)") || flat.contains("(test,") || flat.contains(",test)")
+                {
+                    return true;
+                }
+            }
+        }
+        cur = n.parent();
+    }
+    false
+}
+
 fn owner_of(node: TsNode, lang: Lang, src: &str) -> Option<String> {
     if lang == Lang::Go {
         let raw = text(node.child_by_field_name("receiver")?, src);
@@ -1688,6 +1737,7 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         calls,
         shape: shape_of(node, body_start, body_end),
         cognitive: cognitive_of(node, lang, src),
+        in_cfg_test: under_cfg_test(node, lang, src),
     })
 }
 
@@ -3422,6 +3472,35 @@ mod tests {
         );
     }
 
+    /// **`#[cfg(test)]` is a preceding SIBLING, not a child**, and the same is true of
+    /// `#[test]` on the function. Written from memory this would have asked the `mod_item` for
+    /// an attribute child, found none, and reported a repo's whole test suite as shipping
+    /// code — silently, and in the safe-looking direction. The shape was read off a real parse.
+    ///
+    /// The nesting cases are the point: a function inside an `impl` inside the module is still
+    /// excluded from the binary, so the walk goes up the ancestors rather than looking at one.
+    #[test]
+    fn the_compiler_says_which_bodies_ship() {
+        let seen = |src: &str| -> Vec<(String, bool)> {
+            parse_functions(Lang::Rust, src).iter().map(|f| (f.name.clone(), f.in_cfg_test)).collect()
+        };
+        assert_eq!(
+            seen("fn ships() {}\n#[cfg(test)]\nmod tests {\n  fn covers() {}\n}\n"),
+            vec![("ships".to_string(), false), ("covers".to_string(), true)],
+        );
+        // Nested one level further in, which the ancestor walk exists for.
+        assert_eq!(
+            seen("#[cfg(test)]\nmod tests {\n  struct S;\n  impl S { fn deep() {} }\n}\n"),
+            vec![("deep".to_string(), true)],
+        );
+        // **A module merely NAMED `tests` is not a contract.** Nothing excludes it, so it
+        // ships — and calling it a test would be the tool overriding the compiler.
+        assert_eq!(
+            seen("mod tests {\n  fn looks_like_one() {}\n}\n"),
+            vec![("looks_like_one".to_string(), false)],
+        );
+    }
+
     /// A pointer call is a call through a value, and C++ writes both spellings.
     #[test]
     fn an_arrow_is_a_dot() {
@@ -4259,4 +4338,5 @@ extension Thing {
         assert_eq!(fns.len(), 1);
     }
 }
+
 

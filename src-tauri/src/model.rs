@@ -326,6 +326,44 @@ pub enum NodeKind {
     Func,
 }
 
+/// How we came to believe a body is test code, weakest claim last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tested {
+    /// The toolchain says so, and being wrong would break the build. `#[cfg(test)]` is
+    /// excluded from the binary by the compiler; `_test.go` is a rule of the `go` tool.
+    /// A contract answers BOTH ways — "this is test code" and "this is not" are equally
+    /// certain, which is what lets a reader be spared the question.
+    Contract,
+    /// The layout says so. `tests/`, `__tests__/`, `test_*.py` — a runner's published glob or
+    /// a directory somebody named. Usually right, and nothing enforces it: `tests` is a domain
+    /// noun in plenty of repos, vendored trees carry their own, and a fixture living under one
+    /// is a grey area by definition rather than by detection failure.
+    Convention,
+    /// A reader read the body and said so. Asked only where no contract exists — see
+    /// `Report::test` — because it is the only source that can see a fixture living in a
+    /// production file, which is the case no path and no attribute reaches.
+    Reader,
+}
+
+/// What is known about whether a body is test code, and on what evidence.
+///
+/// **Three levels rather than a boolean, for the reason `Provenance` is four rather than
+/// two.** A number computed from this would otherwise be an estimate whose accuracy is a
+/// function of how many conventions we happened to encode — our diligence, smuggled in as if
+/// it were a property of the code. Stated, it is a claim a reader of the finding can weigh.
+///
+/// **`None` is "nobody has said", never "not a test."** A contract that answers `Some(false)`
+/// is a different fact entirely: the compiler has told us this ships.
+///
+/// Contract beats Reader beats Convention. A contract is a fact about what ships; a reader
+/// actually read the body; a convention only ever saw the path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Testness {
+    pub is_test: bool,
+    pub how: Tested,
+}
+
 /// Where an explanation came from. This is not decoration — it is the thing that keeps
 /// the map honest.
 ///

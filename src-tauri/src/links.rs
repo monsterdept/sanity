@@ -233,6 +233,7 @@ pub(crate) mod tests {
             .collect(),
             shape,
             cognitive: None,
+            in_cfg_test: false,
         }
     }
 

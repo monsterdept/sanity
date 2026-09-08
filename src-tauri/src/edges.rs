@@ -41,6 +41,7 @@
 //! function has fourteen callers" would make it a graded input and cost every cold
 //! prediction ever taken; that trade is worth measuring before it is worth spending.
 
+use crate::model::{Tested, Testness};
 use std::collections::{HashMap, HashSet};
 
 use crate::model::Lang;
@@ -193,6 +194,15 @@ const GLOBAL_UNIQUE: usize = 1;
 /// repo is about a million hash lookups, well under a second, and it runs on the same parse
 /// the scan already paid for.
 pub fn wire(files: &[FileView<'_>]) -> Wiring {
+    wire_with(files, &HashMap::new())
+}
+
+/// `wire`, plus whatever a reader has said about which bodies are tests.
+///
+/// A separate entry point rather than an argument on `wire`, because the readings are not
+/// something the call graph needs and every other caller has none — see
+/// [`crate::model::Tested::Reader`], which is consulted only where a contract is silent.
+pub fn wire_with(files: &[FileView<'_>], read_test: &HashMap<Site, Testness>) -> Wiring {
     // name → every definition of it, with the family and directory needed to rank candidates.
     let mut defs: HashMap<&str, Vec<Def<'_>>> = HashMap::new();
     // Every name a qualifier could legitimately BE: the types and modules definitions sit in,
@@ -213,8 +223,14 @@ pub fn wire(files: &[FileView<'_>]) -> Wiring {
         let dir = dir_of(file.path);
         modules.insert(stem_of(file.path));
         for (gi, func) in file.funcs.iter().enumerate() {
-            if let Some(t) = is_test(file.lang, file.path, func.owner.as_deref()) {
-                if t {
+            // Contract first; a reading second where the language has no contract; the
+            // layout last. See `contract_of` — and note the reader is only ASKED where a
+            // contract is silent, so this order is also the order the evidence arrives in.
+            let known = contract_of(file.lang, file.path, func.in_cfg_test)
+                .or_else(|| read_test.get(&(fi, gi)).copied())
+                .or_else(|| convention_of(file.lang, file.path));
+            if let Some(t) = known {
+                if t.is_test {
                     tests.insert((fi, gi));
                 }
                 told[fi] = true;
@@ -321,41 +337,64 @@ struct Def<'a> {
     owner: Option<&'a str>,
 }
 
-/// Is this definition test code — `None` where the language offers nothing to tell it by.
+/// What is known about whether this definition is test code, and on what evidence.
 ///
-/// **Contract before convention, and nothing below that.** Three tiers are available and only
-/// the first two are worth trusting: a toolchain that ENFORCES the marker (`#[cfg(test)]` is
-/// excluded from the binary by the compiler; `_test.go` is a build rule), and a test runner's
-/// published default glob (`test_*.py`, `*.spec.ts`) — a filename chosen to match a pattern
-/// somebody else wrote down. The third tier is a bare `tests/` directory, which is a name a
-/// person chose: it is a domain noun in plenty of repos, it covers vendored trees, and the
-/// fixtures and helpers under it are a grey area by definition rather than by detection. It is
-/// deliberately not here, and its absence is why this returns `None` rather than `false` for a
-/// language it has nothing on.
+/// **Contract, then Convention — and the reader sits between them**, filled in by the caller
+/// where it has a reading to offer, because this function has none. See
+/// [`crate::model::Testness`] for why the level is kept rather than collapsed to a boolean:
+/// a number built on a bare `true` is an estimate whose accuracy is a function of how many
+/// conventions we bothered to encode, presented as if it were a property of the code.
 ///
-/// Rust is read off `owner` rather than the attribute, which costs no parse change and no
-/// version bump: `mod tests` is the universal spelling, and on this repo it catches 393 of the
-/// 397 functions under `#[cfg(test)]`. The four it misses are nested inside an `impl` in that
-/// module, which reports the impl's type instead. That is a real gap and a cheap one; the
-/// attribute is where to go if it ever matters.
-fn is_test(lang: Lang, path: &str, owner: Option<&str>) -> Option<bool> {
+/// **A contract answers both ways.** Rust's `#[cfg(test)]` decides what is in the binary, so
+/// its silence is a real `false` and not a shrug — which is exactly what lets a Rust repo skip
+/// the reader question entirely. Go's `_test.go` is the same kind of fact, spelled as a
+/// filename.
+///
+/// Everything below that is [`Tested::Convention`]: a runner's published glob (`test_*.py`,
+/// `*.spec.ts`) or a directory somebody named. Filenames are the stronger half — a filename is
+/// chosen to match a pattern someone else wrote down, where a directory called `tests` is a
+/// domain noun in plenty of repos, covers vendored trees, and says nothing about the fixtures
+/// under it. Both are here and both are labelled, so a finding can say which it leaned on.
+fn contract_of(lang: Lang, path: &str, in_cfg_test: bool) -> Option<Testness> {
     let file = path.rsplit_once('/').map_or(path, |(_, f)| f);
+    let yes = |is_test| Some(Testness { is_test, how: Tested::Contract });
     match lang {
-        Lang::Rust => Some(owner == Some("tests") || path.contains("/tests/")),
-        Lang::Go => Some(file.ends_with("_test.go")),
-        Lang::Python => Some(
-            file.starts_with("test_") || file.ends_with("_test.py") || file == "conftest.py",
-        ),
-        Lang::TypeScript | Lang::Tsx | Lang::JavaScript => Some(
-            [".test.", ".spec."].iter().any(|m| file.contains(m)) || path.contains("/__tests__/"),
-        ),
-        Lang::Ruby => Some(file.ends_with("_spec.rb") || file.ends_with("_test.rb")),
-        // Everything else, C++ loudest among them: no contract, no runner glob, nothing to say.
+        // The compiler excludes it. `tests/` beside `src/` is cargo's own contract for
+        // integration tests, and is anchored at the crate root rather than matched anywhere.
+        Lang::Rust => yes(in_cfg_test || path.starts_with("tests/") || path.contains("/tests/")),
+        Lang::Go => yes(file.ends_with("_test.go")),
         _ => None,
     }
 }
 
-/// The file name without its directory or extension — what a module-qualified call spells.
+/// The weaker half: a runner's glob or a directory name. Never consulted where a contract
+/// spoke.
+fn convention_of(lang: Lang, path: &str) -> Option<Testness> {
+    let file = path.rsplit_once('/').map_or(path, |(_, f)| f);
+    let seg = |s: &str| path.split('/').any(|p| p == s);
+    let guess = |is_test| Some(Testness { is_test, how: Tested::Convention });
+    match lang {
+        Lang::Python => guess(
+            file.starts_with("test_")
+                || file.ends_with("_test.py")
+                || file == "conftest.py"
+                || seg("tests")
+                || seg("test"),
+        ),
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript => guess(
+            [".test.", ".spec."].iter().any(|m| file.contains(m))
+                || seg("__tests__")
+                || seg("tests"),
+        ),
+        Lang::Ruby => guess(file.ends_with("_spec.rb") || file.ends_with("_test.rb") || seg("spec")),
+        Lang::Java | Lang::Kotlin | Lang::Scala => guess(path.contains("/src/test/")),
+        // C++ loudest among the rest: no contract, and a bare `test/` directory on a codebase
+        // this size is a guess rather than a convention. It says nothing until a reader does.
+        _ => None,
+    }
+}
+
+/// The file name without its directory or extension — what a module-qualified call spells./// The file name without its directory or extension — what a module-qualified call spells.
 fn stem_of(path: &str) -> &str {
     let file = path.rsplit_once('/').map_or(path, |(_, f)| f);
     file.split_once('.').map_or(file, |(stem, _)| stem)
@@ -506,6 +545,7 @@ mod tests {
             end_line: 2,
             shape: None,
             cognitive: None,
+            in_cfg_test: false,
             calls: calls.iter().map(|c| free(c)).collect(),
         }
     }
@@ -513,6 +553,18 @@ mod tests {
     /// A definition inside a type, which is what makes it reachable through a receiver.
     fn method(owner: &str, name: &str, calls: &[crate::parse::Call]) -> FuncDef {
         FuncDef { owner: Some(owner.into()), calls: calls.to_vec(), ..def(name, &[]) }
+    }
+
+    /// A body the compiler excludes from the binary — `#[cfg(test)]`, which is the only
+    /// thing that makes it test code by CONTRACT. A module merely named `tests` is a
+    /// convention, and for Rust the contract has already answered by then.
+    fn test_fn(name: &str, calls: &[crate::parse::Call]) -> FuncDef {
+        FuncDef {
+            owner: Some("tests".into()),
+            in_cfg_test: true,
+            calls: calls.to_vec(),
+            ..def(name, &[])
+        }
     }
 
     /// A definition with calls this file has spelled out, rather than the bare names `def`
@@ -677,9 +729,9 @@ mod tests {
             vec![
                 def("helper", &[]),
                 def("shipped", &["helper"]),
-                // `mod tests` is how Rust spells it, and `owner` already carries it — which is
-                // what makes this cost no parse change and no version of its own.
-                method("tests", "covers_helper", &[free("helper")]),
+                // `#[cfg(test)]` is the contract: the compiler will not put this in the
+                // binary, so it is not a dependent of anything.
+                test_fn("covers_helper", &[free("helper")]),
             ],
         )]);
         assert_eq!(w.at(0, 0).map(|x| x.callers), Some(2), "both of them call it");
@@ -687,6 +739,30 @@ mod tests {
         // And a body nothing calls is a dependents ZERO, not an absence: the language was
         // asked and answered.
         assert_eq!(w.at(0, 2).map(|x| x.dependents), Some(Some(0)));
+    }
+
+    /// **A contract answers both ways, which is what spares the reader the question.**
+    ///
+    /// Rust's `#[cfg(test)]` decides what is in the binary, so its silence is a real `false`
+    /// and not a shrug — and because the contract has spoken, the convention below it is never
+    /// consulted. A module somebody merely NAMED `tests`, with no attribute, is code that
+    /// ships, and counting it as a test would be the tool overriding the compiler.
+    #[test]
+    fn a_contract_answers_both_ways_and_stops_there() {
+        let w = wired(&[(
+            "src/a.rs",
+            Lang::Rust,
+            vec![
+                def("helper", &[]),
+                // `mod tests` in name only: no attribute, so this is in the binary.
+                method("tests", "looks_like_a_test", &[free("helper")]),
+            ],
+        )]);
+        assert_eq!(
+            w.at(0, 0).map(|x| x.dependents),
+            Some(Some(1)),
+            "the compiler says this ships, so it is a dependent"
+        );
     }
 
     /// **A language with no test convention says nothing rather than zero.** C++ has no
