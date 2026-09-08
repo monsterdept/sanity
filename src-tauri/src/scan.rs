@@ -810,7 +810,23 @@ fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u3
 /// Deliberately conservative: anything unrecognised leaves the answer absent, and absent falls
 /// through to convention and then to a reader exactly as before. The only claim made here is
 /// the one a file supports.
-pub fn declared_for(root: &Path) -> crate::edges::Declarations {
+/// [`declared_for`], corroborated against a scan that already exists.
+///
+/// The queue path has a tree and no file list, and the alternative was walking the repo again
+/// per request. One in-memory walk instead.
+pub fn declared_from_scan(repo: &Path, root: &Node) -> crate::edges::Declarations {
+    let mut files: Vec<(String, Lang)> = Vec::new();
+    root.visit(&mut |n| {
+        if n.kind == NodeKind::File {
+            if let Some(l) = n.lang {
+                files.push((n.path.clone(), l));
+            }
+        }
+    });
+    declared_for(repo, &files)
+}
+
+pub fn declared_for(root: &Path, files: &[(String, Lang)]) -> crate::edges::Declarations {
     let mut out = crate::edges::Declarations::default();
 
     // The JS family. `package.json` is the manifest, and any of three things in it — or a
@@ -851,7 +867,13 @@ pub fn declared_for(root: &Path) -> crate::edges::Declarations {
             }
         }
     }
-    if saw_manifest && !saw_runner {
+    // **One silence is not a statement; two independent ones are worth acting on.** A
+    // manifest that never mentions a runner has said nothing about tests — Deno and Bun ship
+    // their own and need no dependency, a justfile can invoke a global one, and a monorepo
+    // declares it next door. So the manifest only counts when nothing in the tree is shaped
+    // like a test either, which is the silence Deno's `foo_test.ts` and unittest's
+    // `test_*.py` both break.
+    if saw_manifest && !saw_runner && !any_test_shaped(files, is_js) {
         out.js = Some(crate::edges::Declares::NoTests);
     }
 
@@ -862,10 +884,71 @@ pub fn declared_for(root: &Path) -> crate::edges::Declarations {
         std::fs::read_to_string(root.join(c))
             .is_ok_and(|t| t.contains("pytest") || t.contains("[tool:pytest]") || c == &"conftest.py")
     });
-    if root.join("pyproject.toml").exists() && !py_any {
+    if root.join("pyproject.toml").exists()
+        && !py_any
+        && !any_test_shaped(files, |l| l == Lang::Python)
+    {
         out.python = Some(crate::edges::Declares::NoTests);
     }
     out
+}
+
+/// Does anything in this language look like a test, by any convention we know?
+///
+/// The second silence. Cheap — it is a filename match over a list the caller already has —
+/// and it is what keeps a repo whose tests nobody declared from being reported as having
+/// none. `unittest`, `deno test` and `bun test` all need no configuration whatsoever, so the
+/// filenames are the only thing that speaks for them.
+fn any_test_shaped(files: &[(String, Lang)], want: impl Fn(Lang) -> bool) -> bool {
+    files.iter().filter(|(_, l)| want(*l)).any(|(path, lang)| {
+        crate::edges::looks_like_a_test(*lang, path)
+    })
+}
+
+fn is_js(l: Lang) -> bool {
+    matches!(l, Lang::TypeScript | Lang::Tsx | Lang::JavaScript)
+}
+
+#[cfg(test)]
+mod declared_tests {
+    use super::*;
+
+    fn write(dir: &Path, rel: &str, body: &str) {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().expect("parent")).expect("mkdir");
+        std::fs::write(p, body).expect("write");
+    }
+
+    /// **A manifest that never mentions a runner has said nothing, not "no".**
+    ///
+    /// Deno and Bun ship test runners and need no dependency and no config, `unittest` is in
+    /// Python's standard library, and a justfile can call a globally installed jest. So the
+    /// manifest's silence only counts when the tree is silent too — and the moment one file
+    /// is shaped like a test, this repo is one that has tests nobody declared.
+    #[test]
+    fn silence_needs_seconding_before_it_means_no() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let root = dir.path();
+        write(root, "package.json", r#"{"name":"x","scripts":{"build":"tsc"}}"#);
+
+        let plain = [("src/app.ts".to_string(), Lang::TypeScript)];
+        assert_eq!(
+            declared_for(root, &plain).js,
+            Some(crate::edges::Declares::NoTests),
+            "no runner named and nothing shaped like a test",
+        );
+
+        // One Deno-style test file, declared nowhere, and the claim has to go away.
+        let with_tests = [
+            ("src/app.ts".to_string(), Lang::TypeScript),
+            ("src/app_test.ts".to_string(), Lang::TypeScript),
+        ];
+        assert_eq!(declared_for(root, &with_tests).js, None, "the tree says otherwise");
+
+        // And a manifest that DOES name one never gets there in the first place.
+        write(root, "package.json", r#"{"devDependencies":{"vitest":"^1"}}"#);
+        assert_eq!(declared_for(root, &plain).js, None, "a runner is configured");
+    }
 }
 
 /// Which sites a reader has called test code, keyed the way `edges` indexes them.
@@ -878,7 +961,7 @@ fn reader_tests(
     declared: &crate::edges::Declarations,
 ) -> std::collections::HashMap<(usize, usize), crate::model::Testness> {
     let mut out = std::collections::HashMap::new();
-    if flat.iter().all(|f| crate::edges::has_test_contract(Some(f.lang), declared)) {
+    if flat.iter().all(|f| crate::edges::skip_test_ask(Some(f.lang), declared)) {
         return out;
     }
     let stored = crate::assessment::read_all(&crate::assessment::dir(repo));
@@ -886,7 +969,7 @@ fn reader_tests(
         return out;
     }
     for (fi, file) in flat.iter().enumerate() {
-        if crate::edges::has_test_contract(Some(file.lang), declared) {
+        if crate::edges::skip_test_ask(Some(file.lang), declared) {
             continue;
         }
         // `ord` is the index among same-named functions in this file, which is what
@@ -1842,7 +1925,9 @@ pub fn scan(
     // readings AFTER it, so the alternative was an eleventh parameter on a signature a
     // reviewer has already called the awkward part of this function. It costs one pass over
     // `.sanity/readings/` on a repo that has any, and nothing at all on one that does not.
-    let declared = declared_for(root);
+    let named: Vec<(String, Lang)> =
+        flat.iter().map(|f| (f.path.to_string(), f.lang)).collect();
+    let declared = declared_for(root, &named);
     let read_test = reader_tests(root, &flat, &declared);
     let wiring = crate::edges::wire_with(&flat, &read_test, &declared);
     on_progress(Progress::phase("finding copies"));

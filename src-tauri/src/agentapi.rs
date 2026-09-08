@@ -1608,7 +1608,7 @@ fn collect_tasks(
                 // else a reader is the only source that can see a fixture in a production
                 // file, so the question rides on exactly the tasks that need it, which is the
                 // argument `FILE_ASK` already makes one field up.
-                ask: if crate::edges::has_test_contract(node.lang, declared) {
+                ask: if crate::edges::skip_test_ask(node.lang, declared) {
                     String::new()
                 } else {
                     TEST_ASK.to_string()
@@ -1733,7 +1733,7 @@ pub fn all_tasks(scan: &Scan, repo: &std::path::Path) -> Vec<Task> {
         &HashMap::new(),
         &HashMap::new(),
         None,
-        &crate::scan::declared_for(repo),
+        &crate::scan::declared_from_scan(repo, &scan.root),
         &mut out,
     );
     out.into_iter().map(|(_, t)| t).collect()
@@ -2476,7 +2476,7 @@ fn work_left(project: &Project) -> WorkLeft {
         &project.reports,
         &none,
         None,
-        &crate::scan::declared_for(&project.repo),
+        &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
         &mut unread,
     );
     // A lease only counts as in flight while it covers work that is still outstanding: a
@@ -3079,7 +3079,7 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         &project.reports,
         &project.leased,
         None,
-        &crate::scan::declared_for(&project.repo),
+        &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
         &mut tasks,
     );
     let now = Instant::now();
@@ -3257,7 +3257,7 @@ pub fn reading_curve(state: &Shared, key: &str) -> Vec<u32> {
         &project.reports,
         &HashMap::new(),
         None,
-        &crate::scan::declared_for(&project.repo),
+        &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
         &mut tasks,
     );
     let all = tasks.len();
@@ -7315,7 +7315,7 @@ fn second() { println!(\"2\"); }\n",
                 &p.reports,
                 &HashMap::new(),
                 None,
-                &crate::scan::declared_for(&p.repo),
+                &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
                 &mut out,
             );
             // Functions only. The file itself is queued too — see `Task::file` — and this
@@ -7508,7 +7508,7 @@ fn second() { println!(\"2\"); }\n",
             &p.reports,
             &HashMap::new(),
             None,
-            &crate::scan::declared_for(&p.repo),
+            &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
             &mut out,
         );
         let tasks: Vec<Task> = out.into_iter().map(|(_, t)| t).filter(|t| !t.file).collect();
@@ -7570,7 +7570,7 @@ fn second() { println!(\"2\"); }\n",
             &p.reports,
             &HashMap::new(),
             None,
-            &crate::scan::declared_for(&p.repo),
+            &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
             &mut out,
         );
         let names: Vec<String> =
@@ -7705,7 +7705,7 @@ fn second() { println!(\"2\"); }\n",
             &p.reports,
             &HashMap::new(),
             None,
-            &crate::scan::declared_for(&p.repo),
+            &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
             &mut out,
         );
         let file: Vec<&Task> = out.iter().map(|(_, t)| t).filter(|t| t.file).collect();

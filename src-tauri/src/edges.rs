@@ -230,10 +230,13 @@ pub fn wire_with(
             // Contract first; a reading second where the language has no contract; the
             // layout last. See `contract_of` — and note the reader is only ASKED where a
             // contract is silent, so this order is also the order the evidence arrives in.
+            // Contract, reader, then the two convention-strength answers — the repo's own
+            // corroborated silence before a bare path match, because it is about the whole
+            // language rather than one filename.
             let known = contract_of(file.lang, file.path, func.in_cfg_test)
-                .or_else(|| declared_of(file.lang, declared))
                 .or_else(|| read_test.get(&(fi, gi)).copied())
-                .or_else(|| convention_of(file.lang, file.path));
+                .or_else(|| convention_of(file.lang, file.path))
+                .or_else(|| declared_of(file.lang, declared));
             if let Some(t) = known {
                 if t.is_test {
                     tests.insert((fi, gi));
@@ -419,17 +422,47 @@ impl Declarations {
 /// `agentapi::TEST_ASK`. One function so the two cannot disagree: a language that got a
 /// contract here and was not removed from the ask list would be paying for an answer it
 /// already has, silently and on every reading.
-pub fn has_test_contract(lang: Option<Lang>, declared: &Declarations) -> bool {
+pub fn has_test_contract(lang: Option<Lang>) -> bool {
+    lang.is_some_and(|l| contract_of(l, "", false).is_some())
+}
+
+/// Is asking a reader "is this a test" worth a sentence on this task?
+///
+/// **A different question from how much we KNOW**, and keeping them apart is the fix for
+/// having made corroborated silence a contract. A repo that declares no runner anywhere and
+/// holds no file shaped like a test is one where the answer is not seriously in doubt — not
+/// because anybody declared it, but because there is nothing left for a reader to find. That
+/// is worth skipping the question over and is not worth calling a contract.
+pub fn skip_test_ask(lang: Option<Lang>, declared: &Declarations) -> bool {
     lang.is_some_and(|l| {
-        contract_of(l, "", false).is_some() || declared.of(l) == Some(Declares::NoTests)
+        has_test_contract(Some(l)) || declared.of(l) == Some(Declares::NoTests)
     })
 }
 
-/// The repo's own declaration, at contract strength because somebody wrote it.
+/// What corroborated silence is worth, which is not what a declaration is worth.
+///
+/// **`NoTests` is an inference and is labelled as one.** A manifest that does not mention
+/// jest has not said "there are no tests" — it has said nothing about tests, and reading
+/// silence as a statement is the mistake this whole file keeps being written against. So it
+/// comes back at [`Tested::Convention`] and is consulted after a reader, not before.
+///
+/// It is still worth having, and it is still worth NOT paying a reader to improve: those are
+/// two different questions and conflating them is what put this at contract strength in the
+/// first place. `skip_test_ask` answers the second one.
 fn declared_of(lang: Lang, declared: &Declarations) -> Option<Testness> {
     match declared.of(lang)? {
-        Declares::NoTests => Some(Testness { is_test: false, how: Tested::Contract }),
+        Declares::NoTests => Some(Testness { is_test: false, how: Tested::Convention }),
     }
+}
+
+/// Does this path match any test convention we know, for any language?
+///
+/// Exposed because `scan::declared` needs exactly this question and must not answer it with a
+/// second copy: a repo is reported as having no tests only when nothing here looks like one,
+/// so a pattern in one list and not the other is a repo silently mis-declared.
+pub fn looks_like_a_test(lang: Lang, path: &str) -> bool {
+    contract_of(lang, path, false).map(|t| t.is_test).unwrap_or_default()
+        || convention_of(lang, path).map(|t| t.is_test).unwrap_or_default()
 }
 
 /// The weaker half: a runner's glob or a directory name. Never consulted where a contract
@@ -446,8 +479,11 @@ fn convention_of(lang: Lang, path: &str) -> Option<Testness> {
                 || seg("tests")
                 || seg("test"),
         ),
+        // `_test.ts` is Deno's spelling and `.test.ts` is jest's; a repo using the first
+        // and declaring nothing was reported as having no tests at all until a fixture
+        // caught it. Both, and the same for `spec`.
         Lang::TypeScript | Lang::Tsx | Lang::JavaScript => guess(
-            [".test.", ".spec."].iter().any(|m| file.contains(m))
+            [".test.", ".spec.", "_test.", "_spec."].iter().any(|m| file.contains(m))
                 || seg("__tests__")
                 || seg("tests"),
         ),
@@ -851,18 +887,24 @@ mod tests {
         assert!(wire_with(&[], &HashMap::new(), &none).edges.is_empty(), "empty is empty");
 
         // Python has no contract, so the queue asks; Rust has one, so it never does.
-        assert!(!has_test_contract(Some(Lang::Python), &none));
-        assert!(
-            has_test_contract(Some(Lang::Rust), &none) && has_test_contract(Some(Lang::Go), &none)
-        );
-        assert!(!has_test_contract(None, &none), "a language nobody parsed answers nothing");
+        assert!(!has_test_contract(Some(Lang::Python)));
+        assert!(has_test_contract(Some(Lang::Rust)) && has_test_contract(Some(Lang::Go)));
+        assert!(!has_test_contract(None), "a language nobody parsed answers nothing");
 
-        // **And a repo that declared no runner has answered for its whole language.** This
-        // repo's `web/` is exactly that, and without it every TypeScript function costs a
-        // reader the question — 6.5% of the token floor to be told what `package.json` says.
+        // **Corroborated silence is worth skipping the question over and is NOT a contract.**
+        // Two different judgements: how much we know, and whether a reader could improve it.
+        // Reading a manifest that names no runner as "there are no tests" is the mistake —
+        // Deno and Bun need no dependency at all — so it only ever reaches convention
+        // strength, and it is consulted after a reader rather than instead of one.
         let said_no = Declarations { js: Some(Declares::NoTests), ..Default::default() };
-        assert!(has_test_contract(Some(Lang::TypeScript), &said_no), "the repo already said");
-        assert!(!has_test_contract(Some(Lang::Python), &said_no), "and only for that family");
+        assert!(!has_test_contract(Some(Lang::TypeScript)), "nothing was declared");
+        assert!(skip_test_ask(Some(Lang::TypeScript), &said_no), "and nothing is left to find");
+        assert!(!skip_test_ask(Some(Lang::Python), &said_no), "and only for that family");
+        assert_eq!(
+            declared_of(Lang::TypeScript, &said_no).map(|t| t.how),
+            Some(Tested::Convention),
+            "an inference from two silences is not a declaration",
+        );
     }
 
     /// **A language with no test convention says nothing rather than zero.** C++ has no
