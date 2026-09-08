@@ -126,6 +126,10 @@ pub enum Field {
     Dependents,
     /// Whether there is a doc comment on this body at all — 1 or 0, off the PARSE.
     ///
+    /// Spelled `doc_present` beside `doc_relevant`, because the pair is the whole point: one
+    /// asks whether there are WORDS and the other whether the words are any use. `has_doc`
+    /// next to `documented` read as two takes on one question rather than two questions.
+    ///
     /// **An absence is countable, and a quality is not.** `documented` is the reader's grade
     /// of how well the words explain the code, and it is right that it is graded rather than
     /// counted — but it is a bad witness to whether any words EXIST. It said `none` for
@@ -229,8 +233,11 @@ impl Field {
             "commits" | "churn" => Field::Commits,
             "read" => Field::Read,
             "surprise" => Field::Surprise,
-            "documented" | "docs" => Field::Documented,
-            "has_doc" | "doc" => Field::HasDoc,
+            // **The old spellings still parse**, the way `legible` does two lines down. A
+            // repo's `catalog.md` is a file somebody may have hand-edited, and a rename that
+            // stopped reading it would silently drop their tuning.
+            "doc_relevant" | "documented" | "docs" => Field::Documented,
+            "doc_present" | "has_doc" | "doc" => Field::HasDoc,
             "dependents" => Field::Dependents,
             "under_test" => Field::UnderTest,
             // `legible` is accepted and means the same thing: it is what this field was
@@ -261,8 +268,8 @@ impl Field {
             Field::Commits => "commits",
             Field::Read => "read",
             Field::Surprise => "surprise",
-            Field::Documented => "documented",
-            Field::HasDoc => "has_doc",
+            Field::Documented => "doc_relevant",
+            Field::HasDoc => "doc_present",
             Field::Dependents => "dependents",
             Field::UnderTest => "under_test",
             Field::Legible => "illegible",
