@@ -1344,8 +1344,11 @@ export interface Say {
  *
  *  - `flagged` — needs doing. Stays in the list and rises to the top of it.
  *  - `fine-for-now` — fine as the code stands; comes back when the code moves.
- *  - `fine-always` — fine whatever the code does. */
-export type Verdict = 'flagged' | 'fine-for-now' | 'fine-always'
+ *  - `fine-always` — fine whatever the code does.
+ *  - `false-positive` — the finding was not TRUE. Hidden until the rule changes rather than
+ *    until the code does: the rule is just as wrong tomorrow, and a rule that starts asking a
+ *    different question may be right. The two "forever" verdicts differ in who is wrong. */
+export type Verdict = 'flagged' | 'fine-for-now' | 'fine-always' | 'false-positive'
 
 /** One finding somebody has decided about. Mirrors `findings::Decision`. */
 export interface Decision {

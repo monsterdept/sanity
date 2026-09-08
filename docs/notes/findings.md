@@ -871,6 +871,21 @@ This is the part to get right before any of it ships, and the answer is already 
   every other surface's order means: how wide the body is. A flag is a note about what you mean
   to do next, not a claim about the code, so `live_hits` ranks by `rank()` alone and the panel
   and the CLI sort on `loc` alone. The flag says itself, in the tile and as `⚑` in the CLI.
+- **`false-positive` is the fourth verdict, and it is about the RULE.** The other three are
+  statements about your code; this one says the tool made a claim that was not true. Both it
+  and `fine-always` hide a finding forever from where a user stands, which is the whole
+  argument against splitting them — but they do not hide it for the same LENGTH of time, and
+  that is a behaviour rather than a label. A won't-fix outlives everything, including the rule
+  being retuned. A false positive has to survive the CODE changing, because the rule is just as
+  wrong tomorrow, and must not survive the RULE changing, because a rule asking a different
+  question may be perfectly right. `pin_asks` is exactly that line: it compares the pin's field
+  NAMES, so moving a threshold leaves the dismissal standing and swapping a clause expires it.
+  **The test that keeps the two apart is that a false positive is a claim contradicted by
+  evidence this tool already holds** — `175 callers` against one real call site, `documented:
+  none` against `Node::doc.is_some()`. A true finding nobody wants to act on is not one, and
+  confusing them turns this into a bin for disagreement. It exists because four false findings
+  shipped and were caught by blind reviewers who each wrote "the finding is false" unprompted,
+  while the archive had no way to record the difference between that and a shrug.
 - **`fine-always` does not care**, by construction. It is a statement about the subject, not
   about a version of it, and `Verdict::hides` never consults the pin for it.
 - **Deleting a rule orphans its decisions rather than deleting them.** They stay in
@@ -1215,8 +1230,14 @@ what lets a decision be taken back on a repo whose rules no longer raise the fin
 case it is most needed in. It reads the archive back rather than trusting the writes, being
 the one verb here that deletes.
 
-`just findings` is the bench: one row per RULE, with its calibrated suggestion and its
-marginal contribution. That is a question about the catalog, where the verb asks a question
+`just findings` is the bench: one row per RULE, with its calibrated suggestion, its marginal
+contribution, and **what people decided about what it said** — `wrong` and `never`, counted off
+the archive. Those two are the only columns here that are about the RULE rather than the repo:
+`hits` and `only` measure how much a rule speaks and how much of that nothing else says, and
+neither can tell you whether a word of it was worth reading. `wrong` is the number that has to
+reach zero. `never` is information about calibration and not a defect — dismissing a true
+finding is what that verdict is FOR, and `crowded-file` sitting at seven on this repo is the
+mechanism working rather than failing. That is a question about the catalog, where the verb asks a question
 about the repo, and they are deliberately not the same output.
 
 ### Where it lives

@@ -1247,7 +1247,9 @@ export function Findings({
                         ? 'flagged'
                         : d.verdict === 'fine-always'
                           ? 'always fine'
-                          : 'fine as it stood'}
+                          : d.verdict === 'false-positive'
+                            ? 'not true'
+                            : 'fine as it stood'}
                     </span>
                     <span className="text-[10px] text-[var(--muted-foreground)]">
                       {d.by ? `${d.by} · ` : ''}
@@ -1493,6 +1495,12 @@ export function Findings({
                         ['flagged', 'Flag for action', 'Stays in the list, marked'],
                         ['fine-for-now', 'Fine as it stands', 'Hidden until this code changes'],
                         ['fine-always', 'Always fine', 'Hidden whatever this code does'],
+                        // **Two ways to hide something forever, because two different things
+                        // are wrong.** `Always fine` is about the code — this file has 116
+                        // functions and nobody minds. This is about the RULE, and it is the
+                        // one verdict that says the tool made a claim that was not true. It
+                        // comes back the moment the rule asks a different question.
+                        ['false-positive', 'Not true', 'The finding is wrong. Back if the rule changes'],
                       ] as [Verdict, string, string][]
                     ).map(([verdict, label, hint]) => {
                       const on = saying?.at === at && saying.verdict === verdict

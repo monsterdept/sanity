@@ -1091,7 +1091,7 @@ pub fn live_hits<'a>(
         if let Some((verdict, pin)) =
             decided.get(f.subject.key.as_str()).and_then(|by_rule| by_rule.get(rule.id.as_str()))
         {
-            if verdict.hides(*pin == pin_of(rule, f)) {
+            if verdict.hides(*pin == pin_of(rule, f), pin_asks(pin) == pin_asks(&pin_of(rule, f))) {
                 settled += 1;
                 continue;
             }
@@ -2894,6 +2894,26 @@ pub enum Verdict {
     /// what the code looked like when somebody said so is provenance worth keeping even though
     /// nothing tests it.
     FineAlways,
+    /// The finding was not true. Hidden until the RULE changes, not until the code does.
+    ///
+    /// **A different claim from `fine-always`, and the difference is who is wrong.** Both of
+    /// them hide a finding forever from a user's point of view, which is the whole argument
+    /// against splitting them — but they do not hide it for the same LENGTH of time, and that
+    /// is a behaviour rather than a label. "This file has 116 functions and I do not care" is
+    /// about the repo and outlives everything. "This says there is no documentation on a body
+    /// with a doc comment" is about the rule, so it has to survive the code changing — the
+    /// rule is just as wrong tomorrow — and must NOT survive the rule changing, because a rule
+    /// asking a different question may be perfectly right. See [`pin_asks`].
+    ///
+    /// **The test that keeps the two apart: a false positive is a claim contradicted by
+    /// evidence this tool already holds.** `175 callers` against one real call site.
+    /// `documented: none` against `Node::doc.is_some()`. Both checkable, and both were found
+    /// by somebody reading the code rather than by any threshold. What is NOT a false positive
+    /// is a true finding nobody wants to act on; that is `fine-always`, and confusing the two
+    /// turns this into a bin for disagreement. The distinction was drawn after four of these
+    /// shipped and were caught by blind reviewers, who each said "the finding is false"
+    /// unprompted — which is the evidence that this is the state the archive was missing.
+    FalsePositive,
 }
 
 impl Verdict {
@@ -2905,6 +2925,7 @@ impl Verdict {
             Verdict::Flagged => "flagged",
             Verdict::FineForNow => "fine-for-now",
             Verdict::FineAlways => "fine-always",
+            Verdict::FalsePositive => "false-positive",
         }
     }
 
@@ -2913,16 +2934,18 @@ impl Verdict {
             "flagged" => Verdict::Flagged,
             "fine-for-now" => Verdict::FineForNow,
             "fine-always" => Verdict::FineAlways,
+            "false-positive" => Verdict::FalsePositive,
             _ => return None,
         })
     }
 
     /// Whether this verdict takes the finding out of the list, given whether its pin still holds.
-    pub fn hides(self, pin_holds: bool) -> bool {
+    pub fn hides(self, pin_holds: bool, shape_holds: bool) -> bool {
         match self {
             Verdict::Flagged => false,
             Verdict::FineForNow => pin_holds,
             Verdict::FineAlways => true,
+            Verdict::FalsePositive => shape_holds,
         }
     }
 }
@@ -2976,6 +2999,21 @@ pub fn pin_of(rule: &Rule, f: &Facts) -> String {
         })
         .collect();
     format!("{body} {}", vals.join(" "))
+}
+
+/// The FIELDS a pin was taken over, without their values — `documented callers loc`.
+///
+/// **What a `false-positive` outlives, and what it does not.** `fine-always` is a statement
+/// about the subject and consults nothing; `fine-for-now` is about a version of it and expires
+/// when any measured value moves. A false positive is a statement about neither: it says the
+/// RULE made a claim that was not true. So it has to survive the code changing — the rule is
+/// just as wrong tomorrow — and it must NOT survive the rule changing, because a rule asking a
+/// different question may be perfectly right. Comparing the field names is exactly that line:
+/// re-tuning a threshold leaves them alone, and swapping a clause does not.
+///
+/// The same shape `stale` already uses on a rule's expression, one level down.
+fn pin_asks(pin: &str) -> Vec<&str> {
+    pin.split_whitespace().skip(1).filter_map(|t| t.split_once('=')).map(|(f, _)| f).collect()
 }
 
 /// Where the archive lives. One file, not a shard per directory: readings are one per function
@@ -3591,6 +3629,31 @@ would hide the shape"
         let forever = Decision { verdict: Verdict::FineAlways, ..d.clone() };
         let (live, aside) = live_hits(&rule, &facts, &pinned(std::slice::from_ref(&forever)));
         assert_eq!((live.len(), aside), (0, 1), "always means always");
+
+        // **A false positive outlives the CODE and dies with the RULE**, which is the whole
+        // reason it is not `fine-always`. Both hide forever from where a user stands; they do
+        // not hide for the same length of time, and that is the behaviour the fourth state
+        // buys. `facts` here is the GROWN function — the body moved, which is exactly what
+        // expires a `fine-for-now` two blocks above.
+        let wrong = Decision { verdict: Verdict::FalsePositive, ..d.clone() };
+        let (live, aside) = live_hits(&rule, &facts, &pinned(std::slice::from_ref(&wrong)));
+        assert_eq!((live.len(), aside), (0, 1), "the rule is just as wrong on the new body");
+
+        // Re-tuning the threshold does not bring it back: the rule is still asking the same
+        // question, and it was still wrong about the answer.
+        let tuned = Rule { clauses: vec![Clause { value: 50.0, ..rule.clauses[0] }], ..rule.clone() };
+        let (live, aside) = live_hits(&tuned, &facts, &pinned(std::slice::from_ref(&wrong)));
+        assert_eq!((live.len(), aside), (0, 1), "a moved number is the same question");
+
+        // Changing WHICH FIELD it asks about does. A rule that measures something else may be
+        // perfectly right, and a dismissal filed against the old one must not go on hiding it.
+        // A clause GAINED, so the same subject still matches — which is what makes this a
+        // test of the pin rather than of `matches`.
+        let reworded = Rule::parse("func: loc >= 100 and read < 1").expect("parses");
+        let reworded = Rule { id: rule.id.clone(), ..reworded };
+        assert!(matches(&reworded, &facts[1]), "the fixture still answers it");
+        let (live, _) = live_hits(&reworded, &facts, &pinned(std::slice::from_ref(&wrong)));
+        assert_eq!(live.len(), 1, "a different question is not covered by the old answer");
 
         // And a flagged finding is not settled at all: it stays in the list, because somebody
         // committed to doing it.

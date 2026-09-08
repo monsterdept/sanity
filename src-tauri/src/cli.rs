@@ -1900,6 +1900,19 @@ fn decide(
             Some(id) => eprintln!("sanity: `{id}` does not raise `{key}`."),
             None => eprintln!("sanity: nothing raises `{key}` — there is no finding to decide."),
         }
+        // **A rule that cannot answer is not a rule that found nothing**, and the difference is
+        // the whole reason `blocked` exists. Without this line the message reads as "there is
+        // no such finding" to somebody looking straight at it in the window, whose project is
+        // traced where this invocation is not.
+        let dark = rules.iter().filter(|r| crate::findings::blocked(r, &facts, traced, read).is_some());
+        let names: Vec<&str> = dark.map(|r| r.title.as_str()).take(3).collect();
+        if !names.is_empty() {
+            eprintln!(
+                "       {} and others cannot answer here — add --edits or --blame if the",
+                names.join(", ")
+            );
+            eprintln!("       finding you are looking at needs history.");
+        }
         return 1;
     }
 
@@ -1961,6 +1974,9 @@ fn verdict_note(v: crate::findings::Verdict) -> &'static str {
             "Hidden until this code changes. It comes back when the numbers behind it move."
         }
         crate::findings::Verdict::FineAlways => "Hidden whatever this code does.",
+        crate::findings::Verdict::FalsePositive => {
+            "Hidden until the RULE changes. The code may do as it likes; this was not true."
+        }
     }
 }
 
@@ -2408,6 +2424,8 @@ enum Decide {
     Snooze(Decided),
     /// Always fine — hide it whatever this code does
     Allow(Decided),
+    /// Not true — the finding is wrong, not unwanted. Hidden until the rule changes
+    Wrong(Decided),
     /// Needs doing. It stays in the list
     Flag(Decided),
     /// Take a decision back, returning the finding to the list
@@ -2577,12 +2595,14 @@ pub fn main(args: &[String]) -> i32 {
             let verdict = match &what {
                 Decide::Snooze(_) => Verdict::FineForNow,
                 Decide::Allow(_) => Verdict::FineAlways,
+                Decide::Wrong(_) => Verdict::FalsePositive,
                 Decide::Flag(_) => Verdict::Flagged,
                 Decide::Clear { key, path, rule } => {
                     return clear(path, key, rule.as_deref());
                 }
             };
-            let (Decide::Snooze(d) | Decide::Allow(d) | Decide::Flag(d)) = &what else {
+            let (Decide::Snooze(d) | Decide::Allow(d) | Decide::Flag(d) | Decide::Wrong(d)) = &what
+            else {
                 unreachable!("clear returned above")
             };
             decide(&d.path, &d.key, d.rule.as_deref(), verdict, &d.reason, d.edits, d.blame)

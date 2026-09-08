@@ -29,6 +29,7 @@
 
 use sanity_lib::findings::{self, Rule};
 use sanity_lib::scan::Progress;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn main() {
@@ -209,9 +210,26 @@ fn main() {
         println!("  {set_aside} settled in .sanity/findings/decisions.md, and not counted below");
     }
 
+    // **What somebody decided about each rule, which is the only column here that is about
+    // the RULE rather than about the repo.** `hits` and `only` say how much a rule speaks and
+    // how much of that nothing else says; neither can tell you whether a word of it was worth
+    // reading. The archive can: `wrong` is a claim this rule made that was not true, and it is
+    // the number that has to reach zero. `never` is a true finding nobody wants — information
+    // about calibration and not a defect, because dismissing a true finding is what that
+    // verdict is FOR.
+    let mut wrong: HashMap<&str, usize> = HashMap::new();
+    let mut never: HashMap<&str, usize> = HashMap::new();
+    for d in &archive {
+        match d.verdict {
+            findings::Verdict::FalsePositive => *wrong.entry(d.rule.as_str()).or_default() += 1,
+            findings::Verdict::FineAlways => *never.entry(d.rule.as_str()).or_default() += 1,
+            _ => {}
+        }
+    }
+
     let head = format!(
-        "\n  {:<34} {:>7} {:>7} {:>18}   {}",
-        "rule", "hits", "only", "calibrated", "so what"
+        "\n  {:<34} {:>7} {:>7} {:>6} {:>6} {:>18}   {}",
+        "rule", "hits", "only", "wrong", "never", "calibrated", "so what"
     );
     println!("{head}");
     println!("  {}", "-".repeat(head.len() - 4));
@@ -221,11 +239,16 @@ fn main() {
         let cal = findings::calibrate(rule, &facts, target)
             .map(|v| format!("{} {}", rule.clauses[rule.calibrated].field.name(), fmt(v)))
             .unwrap_or_else(|| "—".to_string());
+        let count = |m: &HashMap<&str, usize>| {
+            m.get(rule.id.as_str()).map_or_else(|| "·".to_string(), |n| n.to_string())
+        };
         println!(
-            "  {:<34} {:>7} {:>7} {:>18}   {}",
+            "  {:<34} {:>7} {:>7} {:>6} {:>6} {:>18}   {}",
             format!("{}{}", rule.title, if rule.tier() == 2 { " ²" } else { "" }),
             hits.len(),
             only,
+            count(&wrong),
+            count(&never),
             cal,
             rule.so_what,
         );
