@@ -1263,6 +1263,12 @@ function dirNode(path: string, name: string): Node {
     resolvable: null,
     orphans: null,
     sinks: null,
+    // A frame is a past commit and the timeline carries no wiring, so all three are the
+    // absence rather than a zero — which is why Testing is a `live` lens: replayed, it says
+    // it cannot be replayed instead of drawing every wedge as untested.
+    dependents: null,
+    underTest: null,
+    tested: null,
     cloneGroup: null,
     cloneSize: null,
     comparable: null,
@@ -1733,7 +1739,13 @@ export function frameTree(
         resolvable: null,
         orphans: null,
         sinks: null,
-        cloneGroup: null,
+        // A frame is a past commit and the timeline carries no wiring, so all three are the
+    // absence rather than a zero — which is why Testing is a `live` lens: replayed, it says
+    // it cannot be replayed instead of drawing every wedge as untested.
+    dependents: null,
+    underTest: null,
+    tested: null,
+    cloneGroup: null,
         cloneSize: null,
         comparable: null,
         copied: null,

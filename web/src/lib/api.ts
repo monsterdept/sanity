@@ -206,7 +206,7 @@ export interface Node {
   /** Callers that are not this repo's own test code, or `null` where test code cannot be
    *  told apart here — see `edges::Wire::dependents`. A test is a caller and it is not a
    *  dependent, and one number cannot be both. */
-  dependents?: number | null
+  dependents: number | null
   /** Does a test call this — `null` where test code cannot be told apart at all.
    *
    *  **Three states, and the third is the point.** `false` means tests are separable here
@@ -216,14 +216,14 @@ export interface Node {
    *
    *  Never called coverage. Coverage means the line EXECUTED, which takes an instrumented
    *  run of the suite, and nothing here runs anything. */
-  under_test?: boolean | null
+  underTest: boolean | null
   /** Is this body itself test code, and on what evidence — see `model::Testness`.
    *
    *  `how` is `contract` (the toolchain says so), `reader` (a reader read the body) or
    *  `convention` (a filename or a directory). The level travels with the answer so a panel
    *  can say which it leaned on; a bare boolean would be an estimate whose accuracy is the
    *  tool's own diligence, worn as a property of the code. */
-  tested?: { is_test: boolean; how: 'contract' | 'reader' | 'convention' } | null
+  tested: { isTest: boolean; how: 'contract' | 'reader' | 'convention' } | null
   calls: number | null
   incident: number | null
   away: number | null
@@ -637,6 +637,13 @@ interface WireNode {
   /** Optional because a scan taken by an older backend does not carry them, and the absence
    *  has to arrive as `null` rather than 0 — see `Node.callers`. */
   callers?: number | null
+  /** Callers that are not test code, absent where test code cannot be told apart. */
+  dependents?: number | null
+  /** Does a test call this — absent where nothing can classify test code here. Three
+   *  states, and `null` is not `false`: see `Node.underTest`. */
+  under_test?: boolean | null
+  /** Is this body itself test code, and on what evidence — `model::Testness`. */
+  tested?: { is_test: boolean; how: 'contract' | 'reader' | 'convention' } | null
   calls?: number | null
   incident?: number | null
   away?: number | null
@@ -703,6 +710,12 @@ function toNode(w: WireNode): Node {
     loc: w.loc,
     line: w.line ?? null,
     endLine: w.end_line ?? null,
+    // **`?? null` and never `?? false`.** All three carry an absence that is not a zero:
+    // `underTest` null means test code cannot be told apart in this language, which the
+    // Testing lens draws as its own neutral rather than as "no test calls this".
+    dependents: w.dependents ?? null,
+    underTest: w.under_test ?? null,
+    tested: w.tested ? { isTest: w.tested.is_test, how: w.tested.how } : null,
     bytes: w.bytes ?? null,
     lang: w.lang ?? null,
     excluded: w.excluded ?? false,

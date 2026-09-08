@@ -1219,7 +1219,7 @@ export function colorFor(
     // Never called coverage. Coverage means the line EXECUTED; this is a fact about the call
     // graph, and borrowing the word would claim a measurement nobody took.
     if (node.kind !== 'func') return null
-    if (node.tested?.is_test) {
+    if (node.tested?.isTest) {
       return {
         fill: 'var(--structure)',
         stop: 'var(--structure)',
@@ -1229,13 +1229,13 @@ export function colorFor(
         label: `test (${node.tested.how})`,
       }
     }
-    if (node.under_test === null || node.under_test === undefined) return null
-    const fill = node.under_test ? 'var(--under-test)' : 'var(--untested)'
+    if (node.underTest === null || node.underTest === undefined) return null
+    const fill = node.underTest ? 'var(--under-test)' : 'var(--untested)'
     return {
       fill,
       stop: fill,
       ink: inkOn(fill),
-      label: node.under_test ? 'a test calls this' : 'no test calls this',
+      label: node.underTest ? 'a test calls this' : 'no test calls this',
     }
   }
   if (mode === 'traps') {
@@ -1974,15 +1974,15 @@ function contribute(
       //
       // The tests themselves are a band rather than a drop: the lens is Testing, not Tested,
       // and where a repo's tests live is half of what somebody opens it to see.
-      if (n.tested?.is_test) {
+      if (n.tested?.isTest) {
         put('test', 'test', 'var(--structure)', n)
-      } else if (n.under_test === null || n.under_test === undefined) {
+      } else if (n.underTest === null || n.underTest === undefined) {
         put(UNKNOWN, 'cannot tell', 'var(--unanalyzed)', n)
       } else {
         put(
-          n.under_test ? 'a test calls this' : 'no test calls this',
-          n.under_test ? 'a test calls this' : 'no test calls this',
-          n.under_test ? 'var(--under-test)' : 'var(--untested)',
+          n.underTest ? 'a test calls this' : 'no test calls this',
+          n.underTest ? 'a test calls this' : 'no test calls this',
+          n.underTest ? 'var(--under-test)' : 'var(--untested)',
           n,
         )
       }

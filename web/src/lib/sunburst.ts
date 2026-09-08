@@ -392,7 +392,11 @@ function aggregate(fns: Node[], filePath: string): Node {
     resolvable: null,
     orphans: null,
     sinks: null,
-    cloneGroup: null,
+    // A synthesised node stands for structure, never for a measurement.
+  dependents: null,
+  underTest: null,
+  tested: null,
+  cloneGroup: null,
     cloneSize: null,
     comparable: null,
     copied: null,
