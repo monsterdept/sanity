@@ -187,7 +187,7 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
         <Steps
           fills={[
             'var(--unanalyzed)',
-            'var(--structure)',
+            'var(--kind-code)',
             'var(--kind-header)',
             'var(--kind-test)',
             'var(--kind-generated)',
@@ -198,7 +198,9 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       measures="what this repo is made of: code somebody here wrote, headers, tests, generated code, and vendored code."
       values="code · header · test · generated · vendored"
     >
-      Your own code takes the neutral, so what stands out is what you are not on the hook for.
+      Code has a colour of its own — grey here means only that nothing could place a file,
+      the way it does on every other lens. What stands out against code is what you are not on
+      the hook for.
       A generator's own <code>DO NOT EDIT</code> banner and a <code>linguist-vendored</code>
       line in <code>.gitattributes</code> are declarations and are read as such; a path like{' '}
       <code>vendor/</code> is a convention, and the wedge says which it leaned on.{' '}

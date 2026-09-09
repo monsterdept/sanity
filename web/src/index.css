@@ -181,6 +181,14 @@
    *
    * A file nothing could place takes `--unanalyzed`, like every other absence here. "Nothing
    * placed this" must never wear the colour of "this is yours". */
+  /* Code is not grey. Grey means "we do not know" everywhere else on this map, and this is
+   * the most confident thing the lens says — a file that went through a real grammar with
+   * nothing marking it as anything else. Wearing the absence colour put the commonest real
+   * answer in the one shade reserved for having none, next to `unplaced` in the legend.
+   *
+   * Quiet enough to be most of a healthy repo without shouting, and far from the four hues
+   * that mark what is NOT yours. */
+  --kind-code: #6f7f6a;
   --kind-test: #4a7fd4;
   --kind-generated: #c8792f;
   --kind-vendored: #8b5fbf;
@@ -744,6 +752,7 @@
 
   --unanalyzed: #4a4642;
   --trap: #ff5ea1;
+  --kind-code: #8a9a84;
   --kind-test: #6a9ce8;
   --kind-generated: #d9924a;
   --kind-vendored: #a37ad4;

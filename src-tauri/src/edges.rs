@@ -1208,10 +1208,10 @@ mod tests {
             kind_of("types/api.d.ts", "", &none).map(|k| (k.kind, k.how)),
             Some((Kind::Header, Tested::Contract)),
         );
-        // **Nothing here places ordinary code, and that is deliberate**: `Kind::Code` is the
-        // residual and is applied by the caller, so this function only ever reports a
-        // POSITIVE finding about a path. A `None` from here means "none of my business",
-        // never "unplaceable".
+        // **Nothing here places ordinary code, and that is deliberate.** This function only
+        // ever reports a positive finding about a PATH; code is asserted by the caller, which
+        // is the only place that knows the file parsed. A `None` from here means "none of my
+        // business", never "unplaceable" and never "probably code".
         assert_eq!(kind_of("src/main.rs", "fn main() {}", &none), None);
     }
 

@@ -1763,12 +1763,15 @@ const UNKNOWN = '\u0000unknown'
 
 /** What each kind is painted with — see `model::Kind`.
  *
- *  **Your own code takes the structural neutral**, and that is the design rather than an
- *  omission: on a healthy repo it is most of the map, and a lens where the ordinary case
- *  shouts is a lens nobody can read. What stands out is what is NOT yours to maintain —
- *  which is the question somebody opens this to ask. */
+ *  **Code gets a colour of its own, and deliberately not the neutral.** Grey means "we do
+ *  not know" everywhere else here, and code is the most confident thing this lens says — a
+ *  file that went through a real grammar with nothing marking it otherwise. Wearing the
+ *  absence colour put the commonest real answer in the shade reserved for having none.
+ *
+ *  It stays quiet, because on a healthy repo it is most of the map and a lens where the
+ *  ordinary case shouts is one nobody can read. What stands out is what is NOT yours. */
 const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', string> = {
-  code: 'var(--structure)',
+  code: 'var(--kind-code)',
   test: 'var(--kind-test)',
   generated: 'var(--kind-generated)',
   vendored: 'var(--kind-vendored)',

@@ -1489,7 +1489,7 @@ fn score_dir(
                             // a `.cc` file is a test does not stop it being code.
                             .or(Some(crate::model::Kinded {
                                 kind: crate::model::Kind::Code,
-                                how: crate::model::Tested::Convention,
+                                how: crate::model::Tested::Parsed,
                             })),
                         calls: wire.map(|w| w.calls),
                         incident: wire.map(|w| w.incident),
@@ -1589,7 +1589,7 @@ fn score_dir(
                     tested: None,
                     code_kind: file_kind.or(Some(crate::model::Kinded {
                         kind: crate::model::Kind::Code,
-                        how: crate::model::Tested::Convention,
+                        how: crate::model::Tested::Parsed,
                     })),
                     calls: None,
                     incident: None,

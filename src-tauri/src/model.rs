@@ -344,6 +344,16 @@ pub enum Tested {
     /// `Report::test` — because it is the only source that can see a fixture living in a
     /// production file, which is the case no path and no attribute reaches.
     Reader,
+    /// **We parsed it and nothing marked it otherwise**, which is how [`Kind::Code`] is known
+    /// and is not a weaker version of the three above.
+    ///
+    /// It was labelled `Convention` for a while, which read as `code (convention)` on the
+    /// wedge and named a convention that does not exist. There is no habit being leaned on
+    /// here: the file went through a real grammar, functions somebody wrote came out, and no
+    /// banner, attribute, path or reader claimed it. That is a positive statement about a
+    /// file — the most confident one this lens makes — and calling it the leftovers was a
+    /// description of the order the checks run in rather than of what is known.
+    Parsed,
 }
 
 /// What is known about whether a body is test code, and on what evidence.
@@ -378,9 +388,8 @@ pub struct Testness {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
-    /// Somebody here wrote it and it ships. **A residual: everything none of the others
-    /// claimed**, which is a definition rather than an inference and is why it needs no
-    /// evidence of its own.
+    /// Somebody here wrote it and it ships — parsed as source, with nothing marking it as
+    /// anything else. See [`Tested::Parsed`]: that is an assertion, not a leftover.
     ///
     /// It was briefly conditional on test-ness being KNOWN false, which sounded careful and
     /// made the lens useless: C++ has no marker for a test, so nothing was ever code and

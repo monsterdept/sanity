@@ -180,7 +180,10 @@ use std::path::{Path, PathBuf};
 ///    own. A version-25 tree holds `None` on every body a language could not tell a test
 ///    from — 1,363,232 of ceph's 1.5M lines — and would draw a repo as unplaceable that this
 ///    can place.
-const VERSION: u32 = 26;
+/// 27: code is known by `Tested::Parsed` rather than mislabelled `Convention`. A version-26
+///    tree carries the old tier and a wedge would read `code (convention)`, naming a habit
+///    that does not exist.
+const VERSION: u32 = 27;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

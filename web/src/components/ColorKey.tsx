@@ -254,7 +254,7 @@ function Legend({
       ['var(--kind-generated)', 'generated'],
       ['var(--kind-test)', 'test'],
       ['var(--kind-header)', 'header'],
-      ['var(--structure)', 'code'],
+      ['var(--kind-code)', 'code'],
       ['var(--unanalyzed)', 'unplaced'],
     ]
     return (
