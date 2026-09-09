@@ -148,6 +148,20 @@ pub enum Field {
     /// found a doc comment. So a rule that claims an absence can be made to check it, and a
     /// rule built only on this one answers on a repo nobody has read.
     HasDoc,
+    /// Whether this is a declaration rather than an implementation — 1 or 0, off
+    /// [`crate::model::Kind::Header`].
+    ///
+    /// **The one kind that is still ours.** The other four either ARE the population
+    /// (`Code`, `Test`) or are already out of it (`Generated`, `Vendored` — see
+    /// [`not_ours`]), so this is the only value of `Kind` a clause can usefully name. There
+    /// is no categorical `kind` field and there is not meant to be: `Op` has `>=` and `<`
+    /// and no equality, and a 0/1 field is the idiom `trap` and `read` already use.
+    ///
+    /// It exists because a declaration is a different job from a body, and every size gate in
+    /// this catalog was written for bodies. A header's unit is two lines, so `loc >= 10`
+    /// silently excludes the whole of it — which is not a judgement that declarations are
+    /// fine, it is the catalog never having been pointed at them.
+    Header,
     /// How hard the reader found it going — **high is worse**, which is why it is not called
     /// `legible`.
     ///
@@ -169,7 +183,7 @@ pub enum Field {
     ///
     /// **And it is the shape the two held blame rules need.** A rule may not name a person —
     /// that is a rule about what a thing is CALLED, which this grammar refuses — but it can
-    /// count them: `headcount <= 1 and callers >= 20` is *load-bearing, and only one person
+    /// count them: `headcount <= 1 and dependents >= 20` is *load-bearing, and only one person
     /// has been in it*, with nobody named anywhere. See `TODO.md`.
     Headcount,
     /// How long the file this function lives in is, and how many functions it holds.
@@ -246,6 +260,7 @@ impl Field {
             "doc_present" | "has_doc" | "doc" => Field::HasDoc,
             "dependents" => Field::Dependents,
             "under_test" => Field::UnderTest,
+            "header" => Field::Header,
             // `legible` is accepted and means the same thing: it is what this field was
             // called in files written before the name was found to be backwards.
             "illegible" | "legible" => Field::Legible,
@@ -278,6 +293,7 @@ impl Field {
             Field::HasDoc => "doc_present",
             Field::Dependents => "dependents",
             Field::UnderTest => "under_test",
+            Field::Header => "header",
             Field::Legible => "illegible",
             Field::Headcount => "headcount",
             Field::FileLoc => "file_loc",
@@ -305,6 +321,7 @@ impl Field {
             // is what `fieldColor` does with `None` and is the honest answer for a field
             // whose whole point is that it reports a search rather than a state.
             Field::UnderTest => return None,
+            Field::Header => "composition",
             Field::Calls => "reach",
             Field::CloneSize => "clones",
             Field::Cognitive | Field::Tangle => "tangle",
@@ -336,9 +353,9 @@ impl Field {
     /// **The array in `Facts` is indexed by discriminant, so this must cover every variant**,
     /// not just the ones a form offers. `Trap` is absent from `ALL` and present here; a count
     /// taken from `ALL.len()` would index out of bounds the first time a trap was measured.
-    pub const COUNT: usize = 24;
+    pub const COUNT: usize = 25;
 
-    pub const ALL: [Field; 23] = [
+    pub const ALL: [Field; 24] = [
         Field::Loc,
         Field::Funcs,
         Field::Callers,
@@ -361,6 +378,7 @@ impl Field {
         Field::HasDoc,
         Field::Dependents,
         Field::UnderTest,
+        Field::Header,
         Field::Legible,
     ];
 
@@ -829,6 +847,14 @@ pub enum NotOurs {
     Excluded,
     /// Nobody wrote it, so nobody is going to split it up.
     Generated,
+    /// **Somebody else wrote it and it lives here** — `vendor/`, `node_modules/`, whatever
+    /// `.gitattributes` marks `linguist-vendored`.
+    ///
+    /// It was always excluded; it was excluded under the wrong NAME. Both paths landed in
+    /// `Generated`, so the count a reader was shown said a tool wrote code somebody had
+    /// copied in — and the two have opposite fixes: generated output is regenerated, vendored
+    /// code is upgraded or forked. The reason is the only useful half of an exclusion.
+    Vendored,
     /// **A test's job is different.** A long suite is normal, a surprising body is the point,
     /// and an undocumented one is fine — so every rule in the catalog means something else
     /// here. Findings about test code would be a different catalog, not a subset of this one.
@@ -839,18 +865,42 @@ pub enum NotOurs {
 ///
 /// Conservative on purpose: a directory called `build` is as likely to be source as output,
 /// and a false exclusion is a finding nobody is ever told about.
-pub fn not_ours(path: &str, excluded: bool) -> Option<NotOurs> {
+///
+/// **What the repo SAID comes before what the path suggests.** This used to derive everything
+/// from the string, which was the best available before the tree carried a classification and
+/// is strictly less than one now: [`crate::model::Kind`] reads a generator's own
+/// `DO NOT EDIT` banner and a `linguist-generated` line in `.gitattributes`, neither of which
+/// a path can see. A protobuf dump the author named `wire.rs` and a vendored tree declared in
+/// `.gitattributes` were both having findings raised about them — code nobody here is going
+/// to split up, at the top of a list of things to go fix.
+///
+/// The path rules stay UNDER it rather than beside it, and they are still reached. They are
+/// deliberately the more liberal half on tests: `spec/` and `e2e/` are conventions no
+/// language's own tooling enforces, so `kind_of` will not claim them and this will — a
+/// finding wrongly withheld from a test costs nothing, and one raised about a fixture costs
+/// the reader's trust in the list. Union, in that order, is the whole rule.
+pub fn not_ours(path: &str, excluded: bool, kind: Option<crate::model::Kinded>) -> Option<NotOurs> {
     if excluded {
         return Some(NotOurs::Excluded);
+    }
+    match kind.map(|k| k.kind) {
+        Some(crate::model::Kind::Generated) => return Some(NotOurs::Generated),
+        Some(crate::model::Kind::Vendored) => return Some(NotOurs::Vendored),
+        Some(crate::model::Kind::Test) => return Some(NotOurs::Test),
+        // A header is ours and so is code. Neither is an exclusion, and `None` is nothing
+        // having placed the file — which is not a statement that it is anything, so the path
+        // rules below get their turn either way.
+        Some(crate::model::Kind::Code | crate::model::Kind::Header) | None => {}
     }
     let (dirs, file) = match path.rsplit_once('/') {
         Some((d, f)) => (d, f),
         None => ("", path),
     };
     let segs: Vec<&str> = dirs.split('/').collect();
-    if segs
-        .iter()
-        .any(|s| matches!(*s, "generated" | "__generated__" | "antlr" | "vendor" | "node_modules"))
+    if segs.iter().any(|s| matches!(*s, "vendor" | "node_modules")) {
+        return Some(NotOurs::Vendored);
+    }
+    if segs.iter().any(|s| matches!(*s, "generated" | "__generated__" | "antlr"))
         || file.contains(".gen.")
         || file.contains(".pb.")
         || file.contains("_pb2.")
@@ -888,12 +938,13 @@ pub fn in_a_test_module(owner: &str) -> bool {
 pub struct Skipped {
     pub excluded: usize,
     pub generated: usize,
+    pub vendored: usize,
     pub tests: usize,
 }
 
 impl Skipped {
     pub fn any(self) -> bool {
-        self.excluded + self.generated + self.tests > 0
+        self.excluded + self.generated + self.vendored + self.tests > 0
     }
 }
 
@@ -902,9 +953,10 @@ pub fn skipped(root: &Node) -> Skipped {
     fn walk(n: &Node, out: &mut Skipped) {
         match n.kind {
             NodeKind::Dir => n.children.iter().for_each(|c| walk(c, out)),
-            NodeKind::File => match not_ours(&n.path, n.excluded) {
+            NodeKind::File => match not_ours(&n.path, n.excluded, n.code_kind) {
                 Some(NotOurs::Excluded) => out.excluded += 1,
                 Some(NotOurs::Generated) => out.generated += 1,
+                Some(NotOurs::Vendored) => out.vendored += 1,
                 Some(NotOurs::Test) => out.tests += 1,
                 None => {}
             },
@@ -939,7 +991,7 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
             // Leaving them in would put them in the medians as well — kibana's median file
             // "defines 1 function" partly because its generated clients define hundreds and
             // its tests define none — so a sentence quoting normal would be quoting them.
-            if not_ours(&node.path, node.excluded).is_some() {
+            if not_ours(&node.path, node.excluded, node.code_kind).is_some() {
                 return;
             }
             out.push(facts_of(node, &node.path, None, traced, None));
@@ -1045,7 +1097,14 @@ fn facts_of(
         // Absent where the language has no test convention worth trusting, which keeps the
         // three rules below dark there rather than answering with a number nobody computed.
         set(Field::Dependents, node.dependents.map(|d| d as f32));
-        set(Field::UnderTest, node.under_test.map(|u| f32::from(u)));
+        set(Field::UnderTest, node.under_test.map(f32::from));
+        // Absent, not zero, where nothing placed the file: `None` on `code_kind` is nobody
+        // having said, and a rule asking `header >= 1` must not be quietly false everywhere
+        // the classification never ran.
+        set(
+            Field::Header,
+            node.code_kind.map(|k| f32::from(k.kind == crate::model::Kind::Header)),
+        );
         if let Some(r) = report {
             let (predicted, documented) = r.grades();
             set(Field::Surprise, Some(predicted.surprise()));
@@ -2131,6 +2190,35 @@ pub fn catalog() -> Vec<Rule> {
             vec![lt(Field::HasDoc, 1.0), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
             1,
         ),
+        // **The same sentence, one scope down, where the size gate never let it reach.**
+        // `load-bearing-undocumented` above is the rule for a BODY, and `loc >= 10` is what
+        // makes it one — a declaration is two lines, so on a header that clause is false
+        // before anything else is asked. `< 10` here is not a second threshold to tune, it is
+        // the seam: the two rules partition by size and cannot both fire on one subject, so
+        // this adds a finding rather than doubling one.
+        //
+        // And a declaration is where an absent doc costs most, which is the argument for
+        // pointing the catalog at them at all. A body somebody cannot read can still be read;
+        // a header IS the interface, and an undocumented one leaves a caller a signature and
+        // nothing else. That asymmetry is why the size gate excluding them was a hole rather
+        // than a scoping decision.
+        rule(
+            "undocumented-declaration",
+            "A declaration with nothing but its signature",
+            "Widely depended on, and it declares without explaining.",
+            "{{dependents}} call sites are written against this declaration and there is \
+             nothing written about it. A header is the interface, so a signature is all a \
+             caller gets.",
+            "Everything written against this had to guess what it means.",
+            Pop::Func,
+            vec![
+                ge(Field::Header, 1.0),
+                lt(Field::HasDoc, 1.0),
+                ge(Field::Dependents, 10.0),
+                lt(Field::Loc, 10.0),
+            ],
+            1,
+        ),
         // **The pair reading was for.** A body a reader could not predict, that real code
         // depends on, and that no test calls: three facts from three different instruments,
         // none of which is a defect alone. Surprise says nobody can guess it, `dependents`
@@ -2314,8 +2402,8 @@ pub fn catalog() -> Vec<Rule> {
             "sole-author",
             "Load-bearing, and only one person has been in it",
             "Widely depended on, and every line of it was last touched by the same person.",
-            "{{callers}} things call this, and every line of it was last touched by the same \
-             person — out of {{repo_headcount}} who have worked on this repo.",
+            "{{dependents}} things depend on this, and every line of it was last touched by \
+             the same person — out of {{repo_headcount}} who have worked on this repo.",
             "That is fine until that person is unavailable.",
             Pop::Func,
             // **The gate comes first because it is what makes the rest of the rule true.**
@@ -2325,12 +2413,21 @@ pub fn catalog() -> Vec<Rule> {
             // edited: it is the number at which a body only one person has touched stops
             // being what everything looks like. See `Field::scope`.
             //
-            // `callers` calibrates, not `headcount` and not the gate: tightening a `<=` means
-            // lowering it and below one is nothing, and a gate cannot be calibrated at all.
+            // `dependents` calibrates, not `headcount` and not the gate: tightening a `<=`
+            // means lowering it and below one is nothing, and a gate cannot be calibrated.
+            //
+            // **`dependents`, because this rule's sentence is a dependency claim.** It asked
+            // `callers` while its own comment two rules down said it "asks who depends on this
+            // body" — the exact overclaim the four load-bearing rules were moved off. A body
+            // with two real callers and eleven of its own tests is not a bus-factor finding:
+            // the tests move with it as one edit, by the one person who is already in there.
+            // See [`Field::Dependents`]. The cost is that it goes dark in languages that give
+            // nothing to tell a test by, which `blocked` says out loud rather than answering
+            // with a count nobody computed.
             vec![
                 ge(Field::RepoHeadcount, 4.0),
                 le(Field::Headcount, 1.0),
-                ge(Field::Callers, 10.0),
+                ge(Field::Dependents, 10.0),
                 ge(Field::Loc, 10.0),
             ],
             2,
@@ -2355,7 +2452,7 @@ pub fn catalog() -> Vec<Rule> {
              the same person — out of {{repo_headcount}} who have worked on this repo.",
             "Nobody else has had to hold what it coordinates in their head.",
             Pop::Func,
-            // `calls` calibrates, for the reason `sole-author` gives about `callers`: a gate
+            // `calls` calibrates, for the reason `sole-author` gives about `dependents`: a gate
             // cannot be calibrated and tightening a `<=` means lowering it, and below one is
             // nothing.
             vec![
@@ -3309,6 +3406,92 @@ mod tests {
         let mut root = Node::dir("", "repo");
         root.children = vec![f];
         root
+    }
+
+    /// **A path is not the only thing that can say a file is not ours.**
+    ///
+    /// Both cases here are files whose NAME says nothing: a generated one the author called
+    /// `wire.rs`, and a vendored tree declared only in `.gitattributes`. Before `not_ours`
+    /// read `code_kind` both were in the findings population, in the medians, and at the top
+    /// of a list of things to go fix — invisibly, because a path rule that finds nothing looks
+    /// exactly like a path rule that had nothing to find.
+    ///
+    /// Delete the `match` on `kind` in `not_ours` and both of these come back `None`.
+    #[test]
+    fn what_the_repo_declared_beats_what_the_path_says() {
+        let kinded = |kind| Some(crate::model::Kinded { kind, how: crate::model::Tested::Contract });
+        assert_eq!(
+            not_ours("src/wire.rs", false, kinded(crate::model::Kind::Generated)),
+            Some(NotOurs::Generated),
+            "a DO NOT EDIT banner is a contract, and the path says nothing"
+        );
+        assert_eq!(
+            not_ours("third_party/zlib/deflate.c", false, kinded(crate::model::Kind::Vendored)),
+            Some(NotOurs::Vendored),
+            "`linguist-vendored` names a tree no path rule here has heard of"
+        );
+        // And the path rules are still reached, which is the half the union is for: `spec/`
+        // is a convention no language's own tooling enforces, so `kind_of` will not claim it.
+        assert_eq!(
+            not_ours("spec/models/user_spec.rb", false, kinded(crate::model::Kind::Code)),
+            Some(NotOurs::Test),
+            "the liberal path rule on tests survives the classification saying `code`"
+        );
+        assert_eq!(not_ours("src/parse.rs", false, kinded(crate::model::Kind::Code)), None);
+    }
+
+    /// **`vendor/` is not `generated/`, and the count a reader is shown says which.**
+    ///
+    /// Both were `NotOurs::Generated` for as long as this function existed, so a repo that
+    /// had copied in a dependency was told a tool had written it. The two have opposite
+    /// fixes — regenerate versus upgrade or fork — and the reason is the only useful half of
+    /// an exclusion.
+    #[test]
+    fn vendored_is_its_own_reason_for_being_left_out() {
+        assert_eq!(not_ours("node_modules/left-pad/index.js", false, None), Some(NotOurs::Vendored));
+        assert_eq!(not_ours("src/api.pb.go", false, None), Some(NotOurs::Generated));
+    }
+
+    /// **`sole-author` is a dependency claim, so it asks `dependents`.**
+    ///
+    /// It asked `callers` while its own neighbour's comment said it "asks who depends on this
+    /// body" — a body with two real callers and eleven of its own tests read as a bus-factor
+    /// finding, when the eleven move with it as one edit by the person already in there. The
+    /// four load-bearing rules were moved off `callers` for exactly this and this one was
+    /// missed. See `Field::Dependents`.
+    #[test]
+    fn sole_author_asks_who_depends_rather_than_who_calls() {
+        let r = catalog().into_iter().find(|r| r.id == "sole-author").expect("ships");
+        let fields: Vec<Field> = r.clauses.iter().map(|c| c.field).collect();
+        assert!(fields.contains(&Field::Dependents), "a bus-factor claim is about dependents");
+        assert!(!fields.contains(&Field::Callers), "a test calling it is not somebody depending on it");
+        // The sentence has to move with the number, or the rule prints a count it did not ask
+        // for — `{{callers}}` against a `dependents` clause renders whatever `callers` is.
+        assert!(r.says.contains("{{dependents}}"), "the sentence quotes the field it gated on");
+        assert!(!r.says.contains("{{callers}}"));
+    }
+
+    /// **The two undocumented rules partition by size and cannot both fire.**
+    ///
+    /// `load-bearing-undocumented` is the rule for a BODY and `loc >= 10` is what makes it
+    /// one — which is also why it never reached a declaration, whose unit is two lines. The
+    /// `< 10` on `undocumented-declaration` is that seam rather than a threshold to tune: if
+    /// the two ever overlap, every header finding is reported twice and the pair reads as the
+    /// list repeating itself.
+    #[test]
+    fn the_declaration_rule_starts_where_the_body_rule_stops() {
+        let cat = catalog();
+        let pick = |id: &str| cat.iter().find(|r| r.id == id).expect("ships").clone();
+        let body = pick("load-bearing-undocumented");
+        let decl = pick("undocumented-declaration");
+        let bound = |r: &Rule, f: Field| {
+            r.clauses.iter().find(|c| c.field == f).map(|c| (c.op, c.value)).expect("gated on it")
+        };
+        assert_eq!(bound(&body, Field::Loc), (Op::Ge, 10.0));
+        assert_eq!(bound(&decl, Field::Loc), (Op::Lt, 10.0), "the seam, not a second threshold");
+        // And the declaration rule is the only thing in the catalog that names `header`, which
+        // is what keeps it off every body in the repo.
+        assert!(decl.clauses.iter().any(|c| c.field == Field::Header));
     }
 
     /// **A gate is what makes "only one person has been in it" true in one repo and vacuous
