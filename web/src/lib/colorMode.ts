@@ -1780,7 +1780,12 @@ const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', s
   // are five kinds and there always will be, so each keeps its colour across every repo. A
   // key you can learn is worth more here than putting the biggest band in slot one.
   code: 'var(--cat-3)',
-  header: 'var(--cat-6)',
+  // **Not the slot next to code's.** Header was `--cat-6`, a sage, chosen because a header is
+  // code-adjacent — which is the wrong instinct: nearness in MEANING is not a reason for
+  // nearness in hue, and two greens side by side in a five-row key is a key you have to read
+  // twice. Five bands is few enough that maximum separation is the only thing worth
+  // optimising for, and this is the hue nothing else here wears.
+  header: 'var(--cat-4)',
   test: 'var(--cat-1)',
   generated: 'var(--cat-2)',
   vendored: 'var(--cat-5)',

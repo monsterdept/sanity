@@ -254,7 +254,7 @@ function Legend({
       ['var(--cat-5)', 'vendored'],
       ['var(--cat-2)', 'generated'],
       ['var(--cat-1)', 'test'],
-      ['var(--cat-6)', 'header'],
+      ['var(--cat-4)', 'header'],
       ['var(--cat-3)', 'code'],
       ['var(--unanalyzed)', 'unplaced'],
     ]

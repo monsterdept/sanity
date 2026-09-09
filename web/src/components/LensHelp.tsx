@@ -188,7 +188,7 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
           fills={[
             'var(--unanalyzed)',
             'var(--cat-3)',
-            'var(--cat-6)',
+            'var(--cat-4)',
             'var(--cat-1)',
             'var(--cat-2)',
             'var(--cat-5)',
