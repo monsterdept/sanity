@@ -183,7 +183,12 @@ use std::path::{Path, PathBuf};
 /// 27: code is known by `Tested::Parsed` rather than mislabelled `Convention`. A version-26
 ///    tree carries the old tier and a wedge would read `code (convention)`, naming a habit
 ///    that does not exist.
-const VERSION: u32 = 27;
+/// 28: a shell function's NAME can say it is a test — `named_of`. Every tier before it asked
+///    about the file and answered from its path, so ceph's standalone suite (256 functions,
+///    63 files) was baked into a version-27 tree as hand-written code, and its helpers carry
+///    those calls as dependents. Nothing about the records changed shape, so a warm repo
+///    would serve the old classification in silence.
+const VERSION: u32 = 28;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

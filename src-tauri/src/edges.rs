@@ -271,6 +271,7 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
             // `links::retest`, where readings live.
             let known = contract_of(file.lang, file.path, func.in_cfg_test)
                 .or_else(|| convention_of(file.lang, file.path))
+                .or_else(|| named_of(file.lang, &func.name))
                 .or_else(|| declared_of(file.lang, declared));
             // Test by CONTRACT, which is a fact about what the compiler builds rather than a
             // judgement — see the edge filter below, which is the only thing that reads it.
@@ -649,6 +650,49 @@ fn glob_ish(pattern: &str, path: &str) -> bool {
 pub fn looks_like_a_test(lang: Lang, path: &str) -> bool {
     contract_of(lang, path, false).map(|t| t.is_test).unwrap_or_default()
         || convention_of(lang, path).map(|t| t.is_test).unwrap_or_default()
+}
+
+/// What the FUNCTION is called, for languages where a harness dispatches on the name.
+///
+/// **A tier on a different axis, and the only one there.** Contract, convention and silence
+/// all ask about the FILE and all answer from its PATH, so a repo whose tests are marked by a
+/// naming rule INSIDE a file is invisible to every one of them — no glob could ever see it.
+/// ceph's standalone suite is 256 functions across 63 files, and every one of them was drawn
+/// as hand-written code.
+///
+/// **Shell only, because shell is where the name IS the dispatch.** `qa/standalone/*.sh` ends
+/// each file with a `run` that enumerates its own functions and calls every match:
+///
+/// ```sh
+/// local funcs=${@:-$(set | sed -n -e 's/^\(TEST_[0-9a-z_]*\) .*/\1/p')}
+/// for func in $funcs ; do $func $dir || return 1 ; done
+/// ```
+///
+/// Rename `TEST_foo` to `foo` and it silently stops being run. shunit2 dispatches on the same
+/// shape, so this is a shell idiom rather than one project's habit. Every other language here
+/// either has a real contract or answers from the path, and a Python function called
+/// `test_thing` outside a collected file is not one — `convention_of` returns `Some(false)`
+/// there, which stops this being reached at all. The `_ => None` languages are the only ones
+/// that fall through, which is exactly the set this should be asked about.
+///
+/// **Positive evidence only, so a miss is `None` rather than `Some(false)`.** This is the one
+/// tier that is asymmetric and it has to be: a shell function NOT called `TEST_*` is very
+/// often test support — `setup`, `teardown`, `add_something` — and answering "not a test" for
+/// those would be reading a naming rule's silence as a statement, which is the mistake this
+/// whole file is written against. It says a thing IS a test, or it says nothing.
+///
+/// **Convention and not Contract**, though the argument for Contract is real: the prefix is
+/// load-bearing, the harness breaks without it. What is missing is that nothing READ the
+/// dispatch — recognising that `sed` line would be fitting this to one repo. A name is what
+/// can be seen, and a name is a convention.
+fn named_of(lang: Lang, name: &str) -> Option<Testness> {
+    let dispatched = match lang {
+        Lang::Shell | Lang::Zsh => {
+            name.starts_with("TEST_") || name.starts_with("test_")
+        }
+        _ => false,
+    };
+    dispatched.then_some(Testness { is_test: true, how: Tested::Convention })
 }
 
 /// The weaker half: a runner's glob or a directory name. Never consulted where a contract
@@ -1237,6 +1281,60 @@ mod tests {
             Some(Some(1)),
             "the compiler says this ships, so it is a dependent"
         );
+    }
+
+    /// **A harness that dispatches on a function's NAME is invisible to every path tier.**
+    ///
+    /// ceph's standalone suite is 63 shell files whose `run` enumerates its own functions by
+    /// the `TEST_` prefix and calls each one. Nothing about the PATH says test —
+    /// `qa/standalone/scrub/osd-scrub-repair.sh` has no `test` segment — and shell has no arm
+    /// in `convention_of` at all, so 256 test functions were drawn as hand-written code and
+    /// their helpers counted those calls as dependents. See `named_of`.
+    #[test]
+    fn a_shell_harness_names_its_tests_and_the_path_never_says_so() {
+        let w = wired(&[(
+            "qa/standalone/scrub/osd-scrub-repair.sh",
+            Lang::Shell,
+            vec![
+                def("add_something", &[]),
+                def("TEST_auto_repair_bluestore", &["add_something"]),
+            ],
+        )]);
+        assert_eq!(
+            w.at(0, 0).map(|x| x.callers),
+            Some(1),
+            "a test is a caller, which is what the lens paints"
+        );
+        assert_eq!(
+            w.at(0, 0).map(|x| x.dependents),
+            Some(Some(0)),
+            "and it is not a dependent — nothing here depends on the helper but the suite"
+        );
+        assert_eq!(
+            w.tested.get(&(0, 1)).map(|t| (t.is_test, t.how)),
+            Some((true, Tested::Convention)),
+            "the prefix is what can be seen, so it is a convention"
+        );
+    }
+
+    /// **A name that says nothing is not a name that says no.**
+    ///
+    /// This is the one tier that only ever answers positively, and it has to be: `setup`,
+    /// `teardown` and `add_something` live in the same file as the tests and are test support.
+    /// Answering `false` for them would read a naming rule's silence as a statement — and
+    /// worse, it would make every shell function in every repo a decided non-test, ahead of
+    /// the reader who is the only thing that could actually tell.
+    #[test]
+    fn a_shell_function_without_the_prefix_is_unplaced_rather_than_cleared() {
+        assert_eq!(named_of(Lang::Shell, "TEST_scrub_warning").map(|t| t.is_test), Some(true));
+        assert_eq!(named_of(Lang::Shell, "test_get_last_scrub_stamp").map(|t| t.is_test), Some(true));
+        assert_eq!(named_of(Lang::Shell, "add_something"), None, "nobody said");
+        assert_eq!(named_of(Lang::Shell, "teardown"), None);
+        // Every other language either has a contract or answers from the path, and this must
+        // not reach past shell: a Python `test_helper` in a production file is not a test, and
+        // `convention_of` has already said so before this is consulted.
+        assert_eq!(named_of(Lang::Python, "test_thing"), None);
+        assert_eq!(named_of(Lang::Rust, "test_thing"), None);
     }
 
     /// **A reader outranks a convention and is outranked by a contract.**
