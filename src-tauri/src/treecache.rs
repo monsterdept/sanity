@@ -172,7 +172,11 @@ use std::path::{Path, PathBuf};
 ///    receivers nothing can name. Records unchanged again, so a version-23 tree is accepted
 ///    and serves a call graph missing every `super::` edge — which in Rust is how a unit test
 ///    calls the thing it tests.
-const VERSION: u32 = 24;
+/// 25: a node carries `code_kind` — code, test, generated or vendored, with the evidence.
+///    `#[serde(default)]`, so a version-24 tree loads it `None` everywhere, and `None` is the
+///    band that means "nothing could place this". A warm repo would draw its vendored trees
+///    and its protobuf output as unclassifiable rather than as what they are.
+const VERSION: u32 = 25;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

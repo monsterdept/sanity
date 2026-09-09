@@ -801,6 +801,44 @@ fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u3
     }
 }
 
+/// What `.gitattributes` declares about whole paths.
+///
+/// **A declaration, not a guess.** `linguist-generated` and `linguist-vendored` are lines the
+/// repo's author wrote to tell tooling what a file is — the same act as a `jest` key in
+/// `package.json`, and so the same tier. GitHub reads them to keep vendored trees out of a
+/// project's language stats; there is no reason this map should draw them at full width while
+/// GitHub knows better.
+///
+/// One file at the root. Nested `.gitattributes` are legal and rare, and reading only the top
+/// one is stated rather than silently partial: a repo that declares deeper simply gets the
+/// convention tier, which is where it was before this existed.
+fn attributes(root: &Path) -> crate::edges::Attributes {
+    let mut out = crate::edges::Attributes::default();
+    let Ok(text) = std::fs::read_to_string(root.join(".gitattributes")) else { return out };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let Some(pattern) = parts.next() else { continue };
+        for attr in parts {
+            // `-linguist-generated` turns it OFF, and reading the negation as the assertion
+            // would be worse than not reading the line at all.
+            match attr {
+                "linguist-generated" | "linguist-generated=true" => {
+                    out.generated.push(pattern.to_string())
+                }
+                "linguist-vendored" | "linguist-vendored=true" => {
+                    out.vendored.push(pattern.to_string())
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 /// What this repo's own manifests say about whether it has tests at all.
 ///
 /// **Read, never inferred.** A `jest` key, a runner in `devDependencies`, a `test` script, a
@@ -1271,6 +1309,10 @@ fn score_dir(
     copies: &crate::clones::Copies,
     // The log walk, the per-line blame and the timeline's edit counts — see `trace::Histories`.
     hist: crate::trace::Histories,
+    // What `.gitattributes` declares about whole paths, read once for the repo — see
+    // `attributes`. Passed rather than read here for the reason `wiring` is: it is a fact
+    // about the repo and a directory cannot see it.
+    attrs: &crate::edges::Attributes,
     // What counts as normal complexity for a body this size, in this repo — see `tangle`.
     bands: &crate::tangle::Bands,
     fidelity: Fidelity,
@@ -1285,6 +1327,11 @@ fn score_dir(
             // deferred trace uses, so a map drawn with git in hand and one that gets git
             // afterwards cannot come out different. See `trace::apply`.
             let file_trace = crate::trace::FileTrace::of(&file.rel_path, hist);
+            // **What this file IS, decided once and inherited by its functions.** The banner a
+            // generator writes is at the top of the file, not on any body, and a vendored tree
+            // is a path — so both are answered here and handed down. A function that is a TEST
+            // overrides it, because Rust puts its unit tests inside the file they test.
+            let file_kind = crate::edges::kind_of(&file.rel_path, &file.head, attrs);
 
             let ords = ordinals(&file.funcs);
             let children: Vec<Node> = file
@@ -1410,6 +1457,18 @@ fn score_dir(
                         dependents: wire.and_then(|w| w.dependents),
                         under_test: wire.and_then(|w| w.under_test),
                         tested: wiring.tested.get(&(base + fi, i)).copied(),
+                        // A function is whatever its FILE is, unless something said it is a
+                        // test — which is decided per body, because Rust puts its unit tests
+                        // inside the file they test. See `edges::kind_of`.
+                        code_kind: wiring
+                            .tested
+                            .get(&(base + fi, i))
+                            .filter(|t| t.is_test)
+                            .map(|t| crate::model::Kinded {
+                                kind: crate::model::Kind::Test,
+                                how: t.how,
+                            })
+                            .or(file_kind),
                         calls: wire.map(|w| w.calls),
                         incident: wire.map(|w| w.incident),
                         away: wire.map(|w| w.away),
@@ -1506,6 +1565,7 @@ fn score_dir(
                     dependents: None,
                     under_test: None,
                     tested: None,
+                    code_kind: file_kind,
                     calls: None,
                     incident: None,
                     away: None,
@@ -1893,6 +1953,7 @@ pub fn scan(
     let named: Vec<(String, Lang)> =
         flat.iter().map(|f| (f.path.to_string(), f.lang)).collect();
     let declared = declared_for(root, &named);
+    let attrs = &attributes(root);
     let wiring = crate::edges::wire_with(&flat, &declared);
     on_progress(Progress::phase("finding copies"));
     let copies = crate::clones::find(&flat);
@@ -1930,7 +1991,8 @@ pub fn scan(
         .par_iter()
         .enumerate()
         .map(|(di, parsed)| {
-            let out = score_dir(parsed, offsets[di], &wiring, &copies, hist, &bands, fidelity);
+            let out =
+                score_dir(parsed, offsets[di], &wiring, &copies, hist, attrs, &bands, fidelity);
             // After the directory rather than during it: `score_dir` is one call per
             // directory and splitting it to report inside would be reshaping the work to
             // suit the narration. At `Full` fidelity a big directory is the slow unit here,
