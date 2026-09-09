@@ -48,10 +48,17 @@ pub struct FuncDef {
     ///
     /// Names, not targets: resolving one to a definition needs every other file in the
     /// repo, which is [`crate::edges`]'s job. What the parse can honestly say is "this
-    /// body contains a call whose callee is spelled `foo`", and the receiver is
+    /// body contains a call whose callee is spelled `foo`", and the receiver's TYPE is
     /// deliberately dropped — `a.render()`, `b.render()` and `render()` all arrive as
     /// `render`, because tree-sitter cannot tell which `render` without a type checker
     /// and pretending otherwise would invent edges.
+    ///
+    /// **What is kept is how the call was spelled** — see [`Via`]. That is not the receiver
+    /// and it is not a guess about it; it is on the page. Dropping it too was what let a
+    /// private helper named `collect` collect every `.collect()` in the repo: 175 callers
+    /// reported for a function with one, and the nine functions above it in the ranking were
+    /// `new`, `len`, `is_empty`, `get` and `path`. A caller count whose top ten is the
+    /// standard library is not measuring the repo.
     ///
     /// **Empty when the language is not in [`call_sites`], which is not the same as a
     /// function that calls nothing.** `Lang::resolves_calls` is what tells those apart,
@@ -64,7 +71,7 @@ pub struct FuncDef {
     /// consistent with the body text a reader is handed, and it is confined to the
     /// languages where a named definition can nest inside another.
     #[serde(default)]
-    pub calls: Vec<String>,
+    pub calls: Vec<Call>,
     /// A structural fingerprint of the body, for finding copies of it — see [`shape_of`].
     ///
     /// `None` means "too small to say anything", never "unique": below the token floor
@@ -81,6 +88,17 @@ pub struct FuncDef {
     /// make loud. The lens paints grey on `None`, as Callers does on an unresolved language.
     #[serde(default)]
     pub cognitive: Option<u32>,
+    /// The TOOLCHAIN says this body is test code — see [`crate::model::Tested::Contract`].
+    ///
+    /// Only what the compiler or the build tool decides lands here. In Rust that is
+    /// `#[cfg(test)]`, which excludes the code from the binary; nothing else in this file is
+    /// certain enough. A module somebody NAMED `tests` is a convention and is decided outside
+    /// the parse, where the path is also known — this field is the claim that cannot be wrong.
+    ///
+    /// `false` on a language with no contract means only that no contract spoke. The absence
+    /// is turned back into an absence by `contract_of`, which knows which languages have one.
+    #[serde(default)]
+    pub in_cfg_test: bool,
 }
 
 impl FuncDef {
@@ -208,7 +226,21 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// function inside any module, which is exactly what this number exists to tell the caches.
 /// No reading expires: `reading_hash` covers the file header, the doc and the body, and
 /// `owner` is none of them.
-pub const PARSE_VERSION: u32 = 8;
+/// 9 because [`FuncDef::calls`] is a list of [`Call`] rather than a list of names: how each
+/// call was SPELLED is now recorded, and [`crate::edges::resolve`] needs it to tell
+/// `xs.collect()` from `collect()`. Every cached entry holds the old shape and would decode
+/// into a body that calls nothing. No reading expires — `reading_hash` covers the header, the
+/// doc and the body, and a call's spelling is none of them.
+/// 10 because [`MAX_CALLS`] went from 64 to 2048, so a body over the old cap now records the
+/// calls it always made. Every cached entry holds a list that was cut short, and a short list
+/// is not a wrong-looking one: it is a confident under-count of the wiring, on exactly the
+/// bodies the wiring rules fire on. No reading expires — `reading_hash` covers the header, the
+/// doc and the body, and how many of a body's calls were written down is none of them.
+/// 11 because `FuncDef` carries `in_cfg_test`, read off the `#[cfg(test)]` attribute. A cached
+/// entry has it `false` everywhere, which is not a wrong-looking value — it is "this code
+/// ships", asserted about a repo's whole test suite. No reading expires: `reading_hash` covers
+/// the header, the doc and the body, and an attribute above the item is none of them.
+pub const PARSE_VERSION: u32 = 11;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -505,6 +537,40 @@ const OWNER_KINDS: &[&str] = &[
 /// run returned `T`, so every method on a generic type was attributed to its type
 /// parameter. A cold reader caught it by predicting the doc and then reading the body,
 /// which is the entire point of the instrument, so it would be a poor joke to leave it.
+/// Is this definition inside something the compiler excludes from the build?
+///
+/// **Read off a real parse.** `#[cfg(test)]` is not a child of the item it marks — tree-sitter
+/// makes it an `attribute_item` SIBLING immediately before, and the same is true of `#[test]`
+/// on a function. So this walks up the ancestors and, at each one, looks at the previous named
+/// sibling. Guessing that the attribute hangs off the `mod_item` is the shape this would have
+/// had if it were written from memory, and it would have found nothing, silently.
+///
+/// Rust only, deliberately. It is the one language here where a marker means the code is not
+/// in the binary, and that is what makes this a contract rather than a strong hint. Go's
+/// contract is `_test.go`, which is a filename and is decided where the path is known.
+fn under_cfg_test(node: TsNode, lang: Lang, src: &str) -> bool {
+    if lang != Lang::Rust {
+        return false;
+    }
+    let mut cur = Some(node);
+    while let Some(n) = cur {
+        if let Some(prev) = n.prev_sibling() {
+            if prev.kind() == "attribute_item" {
+                let t = text(prev, src);
+                // `cfg(test)` and `cfg(all(test, …))` both say it, and whitespace inside the
+                // token tree is the author's business.
+                let flat: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+                if flat.contains("cfg(test)") || flat.contains("(test,") || flat.contains(",test)")
+                {
+                    return true;
+                }
+            }
+        }
+        cur = n.parent();
+    }
+    false
+}
+
 fn owner_of(node: TsNode, lang: Lang, src: &str) -> Option<String> {
     if lang == Lang::Go {
         let raw = text(node.child_by_field_name("receiver")?, src);
@@ -1671,7 +1737,44 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         calls,
         shape: shape_of(node, body_start, body_end),
         cognitive: cognitive_of(node, lang, src),
+        in_cfg_test: under_cfg_test(node, lang, src),
     })
+}
+
+/// How a call was SPELLED, which is the only thing a parse can honestly say about its receiver.
+///
+/// **Not the receiver's type — the shape of the words in front of the name.** `a.render()` and
+/// `render()` both yield the name `render` and always will; tree-sitter cannot tell which
+/// `render` without a type checker, and [`FuncDef::calls`] says why pretending otherwise would
+/// invent edges. But which of the two was WRITTEN is on the page, and it is evidence:
+/// `xs.collect()` cannot be a call to a free function, whatever that function is named, and
+/// `Vec::new()` cannot be a call to a method of some other type.
+///
+/// [`crate::edges::resolve`] is the only consumer and the whole argument for keeping it lives
+/// there — this half is just what the source said.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Via {
+    /// `f()` — nothing in front of the name.
+    Free,
+    /// `x.f()`, `a.b().f()`, `p->f()` — reached through a value. The qualifier is the last
+    /// segment before the dot, which is a variable name far more often than a type, so it is
+    /// kept for what it can be CHECKED against (a module, an owner) rather than trusted.
+    ///
+    /// **`None` is "there was a receiver and it has no name to check"** — `xs.iter().f()`,
+    /// `foo()[0].f()`. It is not [`Via::Free`], and the difference is the whole fix: read as
+    /// a bare name, every `.collect()` in the repo went on resolving to a free function
+    /// called `collect`. An unnamed receiver is still a receiver.
+    Dot(Option<String>),
+    /// `A::f()`, `std::mem::swap()` — reached through a name rather than a value. `None` for
+    /// the same reason as above, and it is as unresolvable.
+    Path(Option<String>),
+}
+
+/// One call site's callee, as spelled.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Call {
+    pub name: String,
+    pub via: Via,
 }
 
 /// How many tokens a body must hold before its shape is worth comparing.
@@ -2092,31 +2195,96 @@ fn name_chars(lang: Lang) -> &'static str {
 /// At most this many distinct callee names per function.
 ///
 /// A ceiling on what a cached parse costs, not a claim about code. These names ride inside
-/// `scancache`'s `FuncDef`, so an unbounded list on a 2,000-line generated dispatcher is
-/// paid on every open of every repo forever. Truncation loses edges from the one function
-/// that is already the least readable thing in the file, which is the cheapest place to
-/// lose them.
-pub(crate) const MAX_CALLS: usize = 64;
+/// `scancache`'s `FuncDef`, so an unbounded list on a generated dispatcher is paid on every
+/// open of every repo forever.
+///
+/// **It was 64, and that comment used to say truncation "loses edges from the one function
+/// that is already the least readable thing in the file, which is the cheapest place to lose
+/// them." That was exactly backwards.** The cap is a limit on OUT-edges, and an edge is a
+/// pair — so dropping App.tsx's 65th callee also removes App from the CALLER count of
+/// everything past it. It does not cost the oversized function anything a reader would
+/// notice; it costs every ordinary function that the oversized one calls. On this repo it
+/// drew 101 functions as called by nothing that something calls, which is the Reach lens's
+/// headline finding, asserted about live code. And it lands only on the largest, most tangled
+/// bodies in a repo — which is the exact population every one of these rules selects for.
+///
+/// **2048 because the tail was measured rather than guessed**, over 117,495 functions in three
+/// repos:
+///
+/// | | p50 | p99 | p99.9 | max | over 512 |
+/// |---|---|---|---|---|---|
+/// | sanity | 4 | 49 | 137 | 270 (`App`) | 0 |
+/// | VectorLand | 4 | 32 | 61 | 82 | 0 |
+/// | ceph | 2 | 29 | 63 | **790** (`main`, `radosgw-admin.cc`) | 1 |
+///
+/// The median function makes four calls. The largest hand-written body anywhere is a CLI
+/// dispatcher at 790 — real code that a cap of 512 would have quietly cut in half. 2048 is
+/// 2.6× that and 13× the 99.99th percentile, so nothing a person writes reaches it and a
+/// generated monster is still bounded. Raising it costs nothing that is not actually there:
+/// the list is as long as the body's real call count, and the constant is only a ceiling.
+pub(crate) const MAX_CALLS: usize = 2048;
 
-/// Every distinct name this function calls, in order of first appearance.
+/// Every distinct call this function makes, in order of first appearance.
 ///
 /// Deduplicated because the question downstream is "does this function depend on that one",
 /// asked once — a body that calls `push` forty times has one edge to `push`, and counting
 /// forty would let a loop outvote a subsystem.
-fn calls_in(node: TsNode, lang: Lang, name: &str, src: &str) -> Vec<String> {
+///
+/// **Distinct means the name AND the spelling** — see [`Via`]. `foo()` and `x.foo()` in one
+/// body are two different claims about what is being called, and folding them would hand the
+/// resolver a call it cannot tell the shape of, which is the state this list used to be in.
+/// Both count against [`MAX_CALLS`], which is the honest reading: the cap is on how much of
+/// one body's wiring is recorded, not on how many names it mentions.
+fn calls_in(node: TsNode, lang: Lang, name: &str, src: &str) -> Vec<Call> {
     let sites = call_sites(lang);
     if sites.is_empty() {
         return Vec::new();
     }
-    let mut out: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // A function's own name never enters its list. Recursion is not two pieces of code
+    let mut out: Vec<Call> = Vec::new();
+    let mut seen: std::collections::HashSet<Call> = std::collections::HashSet::new();
+    // A function's own name never enters its list, HOWEVER it is spelled — a recursive call
+    // written `self.f()` is as much recursion as `f()`. Recursion is not two pieces of code
     // depending on each other and [`crate::edges::wire`] drops it anyway — but a Scheme
     // definition writes its signature as `(a)`, a list indistinguishable from a call, so
     // without this the artifact would sit in the list looking exactly like an edge.
-    seen.insert(name.to_string());
-    walk_calls(node, lang, sites, skip_fields(lang), src, &mut out, &mut seen);
+    walk_calls(node, lang, sites, skip_fields(lang), src, name, &mut out, &mut seen);
     out
+}
+
+/// How a callee was written, from the text in front of the name.
+///
+/// **Read off the source rather than off node kinds.** The kinds differ per grammar — Rust
+/// says `field_expression` and `scoped_identifier`, Kotlin `navigation_expression`, the lisps
+/// nothing at all — and `callee_name` already walks all of them down to the same bare name.
+/// The separator it walked past is the one thing every one of those spellings agrees on, and
+/// it is two characters of text.
+///
+/// `->` is a dot: `p->f()` is a call through a value in exactly the way `p.f()` is, and C++
+/// writes both. A separator this does not recognise reads as [`Via::Free`], which is the tier
+/// order that was there before any of this and so the safe direction to be wrong in.
+fn via_of(callee: &str, name: &str) -> Via {
+    let Some(cut) = callee.rfind(name) else { return Via::Free };
+    let before = callee[..cut].trim_end();
+    let (sep_len, dot) = if before.ends_with("::") {
+        (2, false)
+    } else if before.ends_with("->") {
+        (2, true)
+    } else if before.ends_with('.') {
+        (1, true)
+    } else {
+        return Via::Free;
+    };
+    // The last segment before the separator, which is as far back as anything here can be
+    // checked against: `a.b.c()` is qualified by `b`, and `std::mem::swap()` by `mem`. A
+    // receiver that does not END in a name — `xs.iter()`, `v[0]` — has nothing to check, and
+    // says so. It does NOT fall back to a bare name: see [`Via::Dot`].
+    let head = before[..before.len() - sep_len].trim_end();
+    let qualifier = head
+        .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .next()
+        .filter(|q| !q.is_empty() && head.ends_with(q))
+        .map(str::to_string);
+    if dot { Via::Dot(qualifier) } else { Via::Path(qualifier) }
 }
 
 /// Depth-first in document order, so the list is the order a reader would meet the calls.
@@ -2132,14 +2300,16 @@ fn calls_in(node: TsNode, lang: Lang, name: &str, src: &str) -> Vec<String> {
 ///
 /// Unlike `collect` this descends into everything, nested definitions included, because the
 /// extent it reports on is the extent `body` covers — see [`FuncDef::calls`].
+#[allow(clippy::too_many_arguments)]
 fn walk_calls(
     root: TsNode,
     lang: Lang,
     sites: &[(&str, Option<&str>)],
     skip: &[&str],
     src: &str,
-    out: &mut Vec<String>,
-    seen: &mut std::collections::HashSet<String>,
+    own: &str,
+    out: &mut Vec<Call>,
+    seen: &mut std::collections::HashSet<Call>,
 ) {
     let mut cursor = root.walk();
     loop {
@@ -2158,8 +2328,10 @@ fn walk_calls(
                     None => node.named_child(0),
                 };
                 if let Some(name) = callee.and_then(|c| callee_name(c, lang, src, 0)) {
-                    if out.len() < MAX_CALLS && seen.insert(name.clone()) {
-                        out.push(name);
+                    let via = callee.map_or(Via::Free, |c| via_of(text(c, src), &name));
+                    let call = Call { name, via };
+                    if call.name != own && out.len() < MAX_CALLS && seen.insert(call.clone()) {
+                        out.push(call);
                     }
                 }
             }
@@ -3250,7 +3422,92 @@ mod tests {
     fn calls(lang: Lang, src: &str) -> Vec<String> {
         let fns = parse_functions(lang, src);
         assert_eq!(fns.len(), 1, "the call fixtures hold exactly one function: {lang:?}");
-        fns[0].calls.clone()
+        fns[0].calls.iter().map(|c| c.name.clone()).collect()
+    }
+
+    /// How each call in the file's single function was spelled.
+    fn spellings(lang: Lang, src: &str) -> Vec<Via> {
+        let fns = parse_functions(lang, src);
+        assert_eq!(fns.len(), 1, "the call fixtures hold exactly one function: {lang:?}");
+        fns[0].calls.iter().map(|c| c.via.clone()).collect()
+    }
+
+    /// **The receiver's TYPE is unknowable here; the fact that there WAS one is on the page.**
+    /// Reading the second as the first is what let a free function named `collect` take every
+    /// `.collect()` in the repo — see [`crate::edges::resolve`], which is what spends this.
+    ///
+    /// Read off the text in front of the name rather than off node kinds, so the cases that
+    /// matter are the separators and what is or is not a name in front of them.
+    #[test]
+    fn a_call_records_how_it_was_written() {
+        let got = spellings(
+            Lang::Rust,
+            "fn run(xs: Vec<u32>) {\n  \
+               helper();\n  \
+               xs.iter().collect();\n  \
+               store.load();\n  \
+               Store::load();\n  \
+               std::mem::swap();\n\
+             }\n",
+        );
+        assert_eq!(
+            got,
+            vec![
+                Via::Free,
+                // Two calls, and the chain is why both spellings have to exist: `xs.iter()`
+                // has a receiver with a name, and the `.collect()` hung off its result has a
+                // receiver with none. Reading that one as a BARE name is the bug.
+                //
+                // `collect` first because the walk is pre-order and the outer call ENCLOSES
+                // the inner one — document order over the tree, not left-to-right over the
+                // line, which is what "order of first appearance" has always meant here.
+                Via::Dot(None),
+                Via::Dot(Some("xs".into())),
+                Via::Dot(Some("store".into())),
+                Via::Path(Some("Store".into())),
+                // The LAST segment before the name, which is as far back as anything can be
+                // checked: `mem` is what would have to be a module here.
+                Via::Path(Some("mem".into())),
+            ],
+        );
+    }
+
+    /// **`#[cfg(test)]` is a preceding SIBLING, not a child**, and the same is true of
+    /// `#[test]` on the function. Written from memory this would have asked the `mod_item` for
+    /// an attribute child, found none, and reported a repo's whole test suite as shipping
+    /// code — silently, and in the safe-looking direction. The shape was read off a real parse.
+    ///
+    /// The nesting cases are the point: a function inside an `impl` inside the module is still
+    /// excluded from the binary, so the walk goes up the ancestors rather than looking at one.
+    #[test]
+    fn the_compiler_says_which_bodies_ship() {
+        let seen = |src: &str| -> Vec<(String, bool)> {
+            parse_functions(Lang::Rust, src).iter().map(|f| (f.name.clone(), f.in_cfg_test)).collect()
+        };
+        assert_eq!(
+            seen("fn ships() {}\n#[cfg(test)]\nmod tests {\n  fn covers() {}\n}\n"),
+            vec![("ships".to_string(), false), ("covers".to_string(), true)],
+        );
+        // Nested one level further in, which the ancestor walk exists for.
+        assert_eq!(
+            seen("#[cfg(test)]\nmod tests {\n  struct S;\n  impl S { fn deep() {} }\n}\n"),
+            vec![("deep".to_string(), true)],
+        );
+        // **A module merely NAMED `tests` is not a contract.** Nothing excludes it, so it
+        // ships — and calling it a test would be the tool overriding the compiler.
+        assert_eq!(
+            seen("mod tests {\n  fn looks_like_one() {}\n}\n"),
+            vec![("looks_like_one".to_string(), false)],
+        );
+    }
+
+    /// A pointer call is a call through a value, and C++ writes both spellings.
+    #[test]
+    fn an_arrow_is_a_dot() {
+        assert_eq!(
+            spellings(Lang::Cpp, "void run(S* s) { s->load(); }\n"),
+            vec![Via::Dot(Some("s".into()))],
+        );
     }
 
     /// One fixture per language whose call shape has been read off its grammar.
@@ -4081,3 +4338,5 @@ extension Thing {
         assert_eq!(fns.len(), 1);
     }
 }
+
+

@@ -179,6 +179,36 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       Documentation a model could reproduce from the body alone is graded <code>none</code>.
     </Lens>
   ),
+  composition: (
+    <Lens
+      name="Composition"
+      needs="Scan"
+      swatch={
+        <Steps
+          fills={[
+            'var(--unanalyzed)',
+            'var(--cat-3)',
+            'var(--cat-4)',
+            'var(--cat-1)',
+            'var(--cat-2)',
+            'var(--cat-5)',
+          ]}
+        />
+      }
+      measures="what this repo is made of: code somebody here wrote, headers, tests, generated code, and vendored code."
+      values="code · header · test · generated · vendored"
+    >
+      Code has a colour of its own — grey here means only that nothing could place a file,
+      the way it does on every other lens. What stands out against code is what you are not on
+      the hook for.
+      A generator's own <code>DO NOT EDIT</code> banner and a <code>linguist-vendored</code>
+      line in <code>.gitattributes</code> are declarations and are read as such; a path like{' '}
+      <code>vendor/</code> is a convention, and the wedge says which it leaned on.{' '}
+      <code>code</code> is what is left when none of the others claimed it — so a language
+      with no way to tell a test apart still reads as code, which it is, rather than as
+      nothing.
+    </Lens>
+  ),
   traps: (
     <Lens
       name="Traps"

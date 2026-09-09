@@ -873,6 +873,11 @@ function FindingBadge({
 
 function SunburstView({
   root,
+  // **Bumped once when the webfont lands, and read by nothing.** Every label here is placed
+  // against a measured advance, and until the face arrives those measurements are the
+  // fallback's. `memo` would otherwise hold the fallback geometry on screen for as long as
+  // nothing else changed — which is how `found 67` stayed painted as `ound 67`.
+  faceRev: _faceRev = 0,
   selected,
   onSelect,
   onDrill,
@@ -896,6 +901,8 @@ function SunburstView({
   onWantRings,
 }: {
   root: Node
+  /** See the destructuring above — a redraw signal, deliberately unused. */
+  faceRev?: number
   selected: Node | null
   onSelect: (n: Node) => void
   onDrill: (n: Node) => void

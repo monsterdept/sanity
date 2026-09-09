@@ -1033,6 +1033,13 @@ none, which is itself the finding) and the declarations in `peers`, before openi
 whether the header could have been written from the code alone. Leave `legible` and `trap` \
 unset — both are judgements about one body.";
 
+/// The one extra sentence a reading needs where no toolchain says what is a test.
+///
+/// **Sent only to the languages that have no contract**, which is the same argument
+/// [`FILE_ASK`] makes: text on the wire is multiplied by the readings it reaches, and this
+/// reaches none of a Rust or Go repo's. It is one line because it is one boolean.
+const TEST_ASK: &str = "Also set `test`: is this body test code — a test, a fixture, or a helper that exists to support them? Nothing in this language marks it, so judge what the body DOES rather than where it sits: a helper under a tests directory that production calls is not test code, and a fixture builder in a production file is.";
+
 /// A four-step ordinal, for the two things a reader can judge but not measure.
 ///
 /// Deliberately not a 0-100. A model asked for a number emits one, but 73 versus 68 is
@@ -1195,6 +1202,18 @@ pub struct Report {
     /// reader knows which it wrote, and this is it saying so.
     #[serde(default)]
     pub trap: bool,
+    /// Whether this body is test code, as the reader saw it — `None` where it was not asked.
+    ///
+    /// **Asked only where no toolchain answers**, which is why it is an `Option` rather than a
+    /// `bool` like `trap`. Rust says `#[cfg(test)]` and Go says `_test.go`, and both are facts
+    /// about what ships; asking a reader to re-derive those would spend tokens on every reading
+    /// in those repos to be told what the compiler already said. Where there IS no contract —
+    /// C++ loudest among them — a reader is the only source that can see a fixture living in a
+    /// production file, which no path and no attribute reaches.
+    ///
+    /// `None` is "nobody asked", never "not a test". See [`crate::model::Tested`].
+    #[serde(default)]
+    pub test: Option<bool>,
     /// One sentence a human can read. Optional — a correct prediction needs no note.
     #[serde(default)]
     pub note: String,
@@ -1384,6 +1403,7 @@ impl Report {
             derivable: false,
             legible: None,
             trap: false,
+            test: None,
             note: String::new(),
             cold: false,
             position: None,
@@ -1487,6 +1507,11 @@ fn collect_tasks(
     // The enclosing file's own comment, carried down so a chunk's task can hand over the
     // whole stack a reader would have rather than only the chunk's own line.
     file_doc: Option<&str>,
+    // What this repo declared about its own tests — see `edges::Declarations`. Carried down
+    // rather than stored on the tree: it is read from two small files and would otherwise be
+    // a serialized field, and a cached tree holding a stale answer to "does this project have
+    // tests" would spend a reader's question on every function of a repo that said no.
+    declared: &crate::edges::Declarations,
     out: &mut Vec<(f32, Task)>,
 ) {
     // Past the ceiling this node yields no task, on the `Node::excluded` rule below: still
@@ -1577,7 +1602,17 @@ fn collect_tasks(
                 file_doc: file_doc.unwrap_or_default().trim().to_string(),
                 lines: node.loc,
                 file: false,
-                ask: String::new(),
+                // Asked only where no toolchain answers. In Rust and Go the compiler and the
+                // build tool already say which bodies are tests, and spending a sentence per
+                // reading to be told it again buys nothing — see `Report::test`. Everywhere
+                // else a reader is the only source that can see a fixture in a production
+                // file, so the question rides on exactly the tasks that need it, which is the
+                // argument `FILE_ASK` already makes one field up.
+                ask: if crate::edges::skip_test_ask(node.lang, declared) {
+                    String::new()
+                } else {
+                    TEST_ASK.to_string()
+                },
             },
         ));
         return;
@@ -1669,7 +1704,7 @@ fn collect_tasks(
         let mut from: Vec<usize> = Vec::new();
         for (i, c) in node.children.iter().enumerate() {
             let mark = out.len();
-            collect_tasks(c, done, leased, node.doc.as_deref(), out);
+            collect_tasks(c, done, leased, node.doc.as_deref(), declared, out);
             from.extend(std::iter::repeat_n(i, out.len() - mark));
         }
         for (k, (_, t)) in out.iter_mut().skip(before).enumerate() {
@@ -1680,7 +1715,7 @@ fn collect_tasks(
         return;
     }
     for c in &node.children {
-        collect_tasks(c, done, leased, None, out);
+        collect_tasks(c, done, leased, None, declared, out);
     }
 }
 
@@ -1691,9 +1726,16 @@ fn collect_tasks(
 /// wrong thing the moment either drifted. `peers` in particular has no bound: it is every
 /// function in the file, and a 400-function file sends all 400 names to every reader that
 /// touches it.
-pub fn all_tasks(scan: &Scan) -> Vec<Task> {
+pub fn all_tasks(scan: &Scan, repo: &std::path::Path) -> Vec<Task> {
     let mut out = Vec::new();
-    collect_tasks(&scan.root, &HashMap::new(), &HashMap::new(), None, &mut out);
+    collect_tasks(
+        &scan.root,
+        &HashMap::new(),
+        &HashMap::new(),
+        None,
+        &crate::scan::declared_from_scan(repo, &scan.root),
+        &mut out,
+    );
     out.into_iter().map(|(_, t)| t).collect()
 }
 
@@ -2429,7 +2471,14 @@ struct WorkLeft {
 fn work_left(project: &Project) -> WorkLeft {
     let none = HashMap::new();
     let mut unread = Vec::new();
-    collect_tasks(&project.scan.root, &project.reports, &none, None, &mut unread);
+    collect_tasks(
+        &project.scan.root,
+        &project.reports,
+        &none,
+        None,
+        &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
+        &mut unread,
+    );
     // A lease only counts as in flight while it covers work that is still outstanding: a
     // lease over a function whose reading has since landed explains nothing, and one past
     // LEASE has already returned to the pool.
@@ -2540,7 +2589,10 @@ pub struct OfflineCounts {
 pub fn offline_counts(scan: &Scan, reports: &HashMap<String, Report>) -> OfflineCounts {
     let Counts { kept: functions, excluded, oversize } = count_funcs(scan);
     let mut unread = Vec::new();
-    collect_tasks(&scan.root, reports, &HashMap::new(), None, &mut unread);
+    // Counting only, and the declarations decide nothing but the `ask` sentence a task
+    // carries — which nothing here reads. Passing the default rather than reading two files
+    // per call to reach the same count.
+    collect_tasks(&scan.root, reports, &HashMap::new(), None, &Default::default(), &mut unread);
     let mut assessed = 0;
     each_unit(scan, &mut |node| {
         if let Some(r) = reports.get(&node.id) {
@@ -3022,7 +3074,14 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
     resync_changed(project);
 
     let mut tasks: Vec<(f32, Task)> = Vec::new();
-    collect_tasks(&project.scan.root, &project.reports, &project.leased, None, &mut tasks);
+    collect_tasks(
+        &project.scan.root,
+        &project.reports,
+        &project.leased,
+        None,
+        &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
+        &mut tasks,
+    );
     let now = Instant::now();
     let handed = spread_across_files(tasks, &project.recent_files, now, p.n);
 
@@ -3193,7 +3252,14 @@ pub fn reading_curve(state: &Shared, key: &str) -> Vec<u32> {
         return Vec::new();
     };
     let mut tasks: Vec<(f32, Task)> = Vec::new();
-    collect_tasks(&project.scan.root, &project.reports, &HashMap::new(), None, &mut tasks);
+    collect_tasks(
+        &project.scan.root,
+        &project.reports,
+        &HashMap::new(),
+        None,
+        &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
+        &mut tasks,
+    );
     let all = tasks.len();
     let order = spread_across_files(tasks, &HashMap::new(), Instant::now(), all);
     let mut out = Vec::with_capacity(order.len().div_ceil(BATCH));
@@ -4624,8 +4690,17 @@ async fn report(
     if let Some((name, path)) = named {
         project.note("read", name, path, Some(&r));
     }
+    // **A reading that classifies test code changes the wiring, and changes it now.** Only
+    // this one field can, and only where no contract already answered, so the pass is skipped
+    // entirely on a Rust or Go repo and on every reading that was never asked the question.
+    // `retest_tree` re-derives from `links.bin` beside the tree; nothing is re-parsed.
+    let reclassified = r.test.is_some();
     project.reports.insert(r.id.clone(), r);
     project.reads = project.reads.wrapping_add(1);
+    if reclassified && crate::links::retest_tree(&mut project.scan, &project.reports) {
+        // The window watches this like any other change to the tree.
+        project.scanned = project.scanned.wrapping_add(1);
+    }
     // Written through on every report. An assessment is minutes of an agent's work and
     // must not depend on the app exiting cleanly to survive.
     let write_error = save_reports(&project.repo, &project.scan, &project.reports).err();
@@ -6700,7 +6775,7 @@ pub(crate) mod tests {
         }
         root.children.push(file);
         let mut out = Vec::new();
-        collect_tasks(&root, &done, &HashMap::new(), None, &mut out);
+        collect_tasks(&root, &done, &HashMap::new(), None, &Default::default(), &mut out);
         out.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
         // The file's own header reading is in here too and is not what this is about.
         let order: Vec<&str> =
@@ -7244,7 +7319,14 @@ fn second() { println!(\"2\"); }\n",
 
         let ids: Vec<String> = {
             let mut out = Vec::new();
-            collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
+            collect_tasks(
+                &p.scan.root,
+                &p.reports,
+                &HashMap::new(),
+                None,
+                &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
+                &mut out,
+            );
             // Functions only. The file itself is queued too — see `Task::file` — and this
             // test is about what a lease does to unread work, not about which kinds exist.
             out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.id).collect()
@@ -7430,7 +7512,14 @@ fn second() { println!(\"2\"); }\n",
         let p = project_of(dir.path());
 
         let mut out = Vec::new();
-        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
+        collect_tasks(
+            &p.scan.root,
+            &p.reports,
+            &HashMap::new(),
+            None,
+            &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
+            &mut out,
+        );
         let tasks: Vec<Task> = out.into_iter().map(|(_, t)| t).filter(|t| !t.file).collect();
         assert_eq!(tasks.len(), 2);
 
@@ -7485,7 +7574,14 @@ fn second() { println!(\"2\"); }\n",
 
         // The queue works from the narrowed set.
         let mut out = Vec::new();
-        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
+        collect_tasks(
+            &p.scan.root,
+            &p.reports,
+            &HashMap::new(),
+            None,
+            &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
+            &mut out,
+        );
         let names: Vec<String> =
             out.into_iter().filter(|(_, t)| !t.file).map(|(_, t)| t.name).collect();
         assert_eq!(names, vec!["one"], "excluded functions are never handed out");
@@ -7613,7 +7709,14 @@ fn second() { println!(\"2\"); }\n",
         let p = project_of(dir.path());
 
         let mut out = Vec::new();
-        collect_tasks(&p.scan.root, &p.reports, &HashMap::new(), None, &mut out);
+        collect_tasks(
+            &p.scan.root,
+            &p.reports,
+            &HashMap::new(),
+            None,
+            &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
+            &mut out,
+        );
         let file: Vec<&Task> = out.iter().map(|(_, t)| t).filter(|t| t.file).collect();
         assert_eq!(file.len(), 1, "one file, one file reading");
         let t = file[0];

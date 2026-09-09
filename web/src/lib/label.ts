@@ -37,7 +37,7 @@
  * reference size serves every size that string is ever asked about.
  */
 
-import { FAMILY, MIN_SIZE } from './labelStyle'
+import { FAMILY, MIN_SIZE, PRIMARY } from './labelStyle'
 
 /**
  * The face labels are measured in, and — critically — the face they are DRAWN in.
@@ -60,6 +60,24 @@ const REF = 100
 let ctx: CanvasRenderingContext2D | null = null
 const widths = new Map<string, number>()
 
+/** Has the real face arrived? Part of the cache key, so a width measured against the
+ *  fallback is never handed back once the browser has the face it will actually paint. */
+const faceReady = () => {
+  try {
+    return document.fonts?.check(`400 ${REF}px ${PRIMARY}`) ? 'face' : 'fallback'
+  } catch {
+    // A browser without the API measures with whatever it has and is consistent about it,
+    // which is the case this whole key exists to distinguish from.
+    return 'face'
+  }
+}
+
+// And drop what was measured before it landed. The key alone keeps the two answers apart;
+// this stops the fallback set living for the rest of the session in a map that only grows.
+if (typeof document !== 'undefined' && document.fonts) {
+  document.fonts.ready.then(() => widths.clear()).catch(() => {})
+}
+
 /**
  * How wide a string is, per pixel of font size.
  *
@@ -71,9 +89,16 @@ const widths = new Map<string, number>()
  * being wrong in a way that throws would cost the chart.
  */
 export function widthPerPx(text: string, weight: number): number {
-  // Keyed on the FACE too. The face is now live, and a cache that ignored it would answer
-  // every question after the first with the width the first face happened to have.
-  const key = `${weight}|${text}`
+  // **Keyed on the FACE, which this claimed to be and was not.** `FAMILY` is a stack, so the
+  // string handed to `ctx.font` is identical before and after the webfont arrives while what
+  // the browser resolves it to is not — and a cache keyed only on the weight and the string
+  // answers every later question with whatever face happened to be live for the first one.
+  //
+  // The visible failure is a `textPath` cut short: the dial sizes its arc to the advance it
+  // was told, the real face is wider, and the browser clips the overflow — so `found 67`
+  // painted as `ound 67`, with the leading glyph gone and nothing anywhere reporting an
+  // error. Every label on the map is laid out through this, so it was never only the dial.
+  const key = `${faceReady()}|${weight}|${text}`
   const hit = widths.get(key)
   if (hit !== undefined) return hit
   if (ctx === null) {

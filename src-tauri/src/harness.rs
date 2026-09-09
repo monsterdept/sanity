@@ -400,14 +400,14 @@ impl Harness {
     /// no agent is installed. That failure is invisible in development, where everything
     /// is launched from a shell, and universal in distribution.
     ///
-    /// Three sources, cheapest first. The inherited PATH is right whenever Sanity was
-    /// started from a shell. Failing that, the user's LOGIN SHELL is asked, which is the
-    /// only thing that actually knows where their tools are — it reads the same profile
-    /// that put them there. The fixed list is last, for a shell that fails or is exotic.
-    ///
     /// Resolving to an absolute path rather than fixing up PATH is deliberate: the readers
     /// are then spawned by a path that does not depend on how Sanity itself was started,
     /// so a run means the same thing from the window, the CLI and a chat client.
+    ///
+    /// **This function is the memo, and [`Harness::look`] is the search** — the three sources
+    /// and the order they are tried in are documented there. Kept apart because the answer is
+    /// asked for far more often than it can change: every row of the Read dialog asks, and so
+    /// does every wave.
     pub fn resolve(self) -> Option<PathBuf> {
         // Cached: this is called for every row of the Read dialog and again before every
         // wave, and asking a login shell costs a process each time.
@@ -425,6 +425,12 @@ impl Harness {
         found
     }
 
+    /// Where this agent's binary is, asked for real — the uncached half of [`Harness::resolve`].
+    ///
+    /// Three sources, cheapest first. The inherited PATH is right whenever Sanity was
+    /// started from a shell. Failing that, the user's LOGIN SHELL is asked, which is the
+    /// only thing that actually knows where their tools are — it reads the same profile
+    /// that put them there. The fixed list is last, for a shell that fails or is exotic.
     fn look(self) -> Option<PathBuf> {
         let prog = self.program();
         if let Some(p) = which(prog) {

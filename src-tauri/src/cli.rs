@@ -1773,11 +1773,43 @@ pub fn status(path: &str) -> i32 {
 /// view, per rule with its calibration and its marginal contribution; that is a question about
 /// the CATALOG and this is a question about the repo.
 pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
+    let Survey { path, facts, rules, traced, read } = match survey(path, edits, blame) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let groups = crate::findings::report(
+        &facts,
+        traced,
+        read,
+        &rules,
+        &crate::findings::archive(&path),
+    );
+    list(&path, limit, &groups)
+}
+
+/// Everything a question about this repo's findings is answered from.
+///
+/// **One setup, because two would be two answers.** The list and the four decision verbs ask
+/// the same three things — what is in the tree, what this repo's thresholds are, and how deep
+/// the trace went — and a verb that built them differently would pin a decision against
+/// numbers the list never showed anybody. `commands::finding_pin` is the window's copy of the
+/// same three lines, for the same reason.
+struct Survey {
+    path: std::path::PathBuf,
+    facts: Vec<crate::findings::Facts>,
+    rules: Vec<crate::findings::Rule>,
+    traced: crate::findings::Traced,
+    /// Whether anything here has been read. `report` needs it to tell a rule nobody can answer
+    /// yet from one that is answered and silent.
+    read: bool,
+}
+
+fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
     let path = match std::fs::canonicalize(path) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("sanity: {path}: {e}");
-            return 2;
+            return Err(2);
         }
     };
     let scans = crate::scancache::ScanCache::open(&path);
@@ -1812,10 +1844,16 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         Ok(s) => s,
         Err(e) => {
             eprintln!("sanity: could not scan {}: {e}", path.to_string_lossy());
-            return 1;
+            return Err(1);
         }
     };
     let reports = crate::assessment::load(&path, &scan);
+    // **A reading is applied here, not inside the scan.** `wire` answers from the parse and
+    // the paths; what a reader said about which bodies are tests lands afterwards — see
+    // `links::retest_tree`. The app does this when a reading arrives; a headless verb has to
+    // do it once, on the way past, or every CLI answer is the structural half only.
+    let mut scan = scan;
+    crate::links::retest_tree(&mut scan, &reports);
     let traced = crate::findings::Traced {
         git: true,
         churned: scan.stats.churned,
@@ -1825,15 +1863,181 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
     };
     let facts = crate::findings::subjects(&scan.root, &reports, traced);
     let rules = crate::findings::rules_for(&path, &facts);
-    let groups = crate::findings::report(
-        &facts,
-        traced,
-        !reports.is_empty(),
-        &rules,
-        &crate::findings::archive(&path),
-    );
+    let read = !reports.is_empty();
+    Ok(Survey { path, facts, rules, traced, read })
+}
 
-    // Merged by subject, flagged first then widest — the panel's order, from the same numbers.
+/// Record what somebody decided about a finding — the CLI's copy of the three buttons.
+///
+/// **Every rule that raises the subject, unless one is named.** The panel merges a subject's
+/// rules into one tile and writes a decision per rule behind it, and a verb that wrote only
+/// the first would leave the others standing and the finding half-decided. `--rule` is for the
+/// case the tile cannot express: this is fine BECAUSE it is long, but the tangle still stands.
+///
+/// **A rule that cannot answer cannot be decided under.** A pin records what the rule
+/// MEASURED, so one taken while the churn rules are dark would be a pin full of absences that
+/// matches nothing ever again. Those rules are named and refused rather than written.
+fn decide(
+    path: &str,
+    key: &str,
+    rule: Option<&str>,
+    verdict: crate::findings::Verdict,
+    reason: &str,
+    edits: bool,
+    blame: bool,
+) -> i32 {
+    let Survey { path, facts, rules, traced, read } = match survey(path, edits, blame) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let Some(f) = facts.iter().find(|f| f.subject.key == key) else {
+        eprintln!("sanity: `{key}` is not on the map.");
+        eprintln!("       `sanity findings` prints the key of every finding, which is this.");
+        return 1;
+    };
+    // Only rules that RAISE it, so a decision is always about something somebody was shown.
+    let raising: Vec<&crate::findings::Rule> = rules
+        .iter()
+        .filter(|r| rule.is_none_or(|want| r.id == want))
+        .filter(|r| crate::findings::matches(r, f))
+        .collect();
+    if raising.is_empty() {
+        match rule {
+            Some(id) => eprintln!("sanity: `{id}` does not raise `{key}`."),
+            None => eprintln!("sanity: nothing raises `{key}` — there is no finding to decide."),
+        }
+        // **A rule that cannot answer is not a rule that found nothing**, and the difference is
+        // the whole reason `blocked` exists. Without this line the message reads as "there is
+        // no such finding" to somebody looking straight at it in the window, whose project is
+        // traced where this invocation is not.
+        let dark = rules.iter().filter(|r| crate::findings::blocked(r, &facts, traced, read).is_some());
+        let names: Vec<&str> = dark.map(|r| r.title.as_str()).take(3).collect();
+        if !names.is_empty() {
+            eprintln!(
+                "       {} and others cannot answer here — add --edits or --blame if the",
+                names.join(", ")
+            );
+            eprintln!("       finding you are looking at needs history.");
+        }
+        return 1;
+    }
+
+    let by = crate::assessment::who(&path);
+    let when = crate::assessment::now_iso();
+    let mut wrote = 0usize;
+    for r in &raising {
+        // Blocked is the rule's own answer to "could I have measured this repo", and it is the
+        // one thing that makes a pin meaningless — see the doc above.
+        if let Some(b) = crate::findings::blocked(r, &facts, traced, read) {
+            println!("  {} — not decided: {}", r.title, b.why);
+            continue;
+        }
+        let d = crate::findings::Decision {
+            key: key.to_string(),
+            rule: r.id.clone(),
+            title: r.title.clone(),
+            verdict,
+            pin: crate::findings::pin_of(r, f),
+            reason: reason.to_string(),
+            when: when.clone(),
+            by: by.clone(),
+        };
+        if let Err(e) = crate::findings::decide(&path, d) {
+            eprintln!("sanity: could not write the decision: {e}");
+            return 1;
+        }
+        wrote += 1;
+    }
+    if wrote == 0 {
+        return 1;
+    }
+
+    // **Read back, never trusted.** `decide` rewrites the whole archive, and an `Ok` from a
+    // write is not evidence that what came back off disk says what was meant — the migration
+    // that destroyed a project's readings is the reason this rule exists.
+    let back = crate::findings::archive(&path);
+    let filed: Vec<&crate::findings::Decision> =
+        back.iter().filter(|d| d.key == key && d.verdict == verdict).collect();
+    if filed.len() < wrote {
+        eprintln!("sanity: wrote {wrote} decisions and read {} back — nothing is settled.", filed.len());
+        return 1;
+    }
+    println!();
+    println!("{key}");
+    for d in filed {
+        println!("  {} — {}", d.title, crate::findings::Verdict::word(d.verdict));
+    }
+    println!();
+    println!("{}", verdict_note(verdict));
+    0
+}
+
+/// What the decision just made will DO, which is the half a verdict name does not say.
+fn verdict_note(v: crate::findings::Verdict) -> &'static str {
+    match v {
+        crate::findings::Verdict::Flagged => "Stays in the list. `sanity findings clear` takes it back.",
+        crate::findings::Verdict::FineForNow => {
+            "Hidden until this code changes. It comes back when the numbers behind it move."
+        }
+        crate::findings::Verdict::FineAlways => "Hidden whatever this code does.",
+        crate::findings::Verdict::FalsePositive => {
+            "Hidden until the RULE changes. The code may do as it likes; this was not true."
+        }
+    }
+}
+
+/// Take decisions back, returning the findings to the list.
+///
+/// **Every rule under that key by default**, for the reason the panel unflags every rule at
+/// once: a subject half-decided is a tile that goes on hiding findings nobody remembers
+/// deciding. No scan is needed — this is an edit to the archive, keyed by strings the archive
+/// already holds, so it works on a repo whose rules no longer raise the finding at all. That
+/// is the case it is most needed in.
+fn clear(path: &str, key: &str, rule: Option<&str>) -> i32 {
+    let path = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("sanity: {path}: {e}");
+            return 2;
+        }
+    };
+    let before = crate::findings::archive(&path);
+    let doomed: Vec<crate::findings::Decision> = before
+        .iter()
+        .filter(|d| d.key == key && rule.is_none_or(|want| d.rule == want))
+        .cloned()
+        .collect();
+    if doomed.is_empty() {
+        eprintln!("sanity: nothing is filed under `{key}`.");
+        return 1;
+    }
+    for d in &doomed {
+        if let Err(e) = crate::findings::undecide(&path, key, &d.rule) {
+            eprintln!("sanity: could not rewrite the archive: {e}");
+            return 1;
+        }
+    }
+    // Read back rather than trusting the writes: this one DELETES, which is the direction
+    // that cannot be undone by running it again.
+    let after = crate::findings::archive(&path);
+    let left = after.iter().filter(|d| d.key == key).count();
+    let want = before.iter().filter(|d| d.key == key).count() - doomed.len();
+    if left != want {
+        eprintln!("sanity: {left} decisions still stand under `{key}`, expected {want}.");
+        return 1;
+    }
+    println!();
+    println!("{key}");
+    for d in &doomed {
+        println!("  {} — back in the list", d.title);
+    }
+    0
+}
+
+/// The worklist itself, once the survey is in hand.
+fn list(path: &std::path::Path, limit: usize, groups: &[crate::findings::Group]) -> i32 {
+    // Merged by subject, widest first — the panel's order, from the same numbers. A flag does
+    // not move a row: see `findings::live_hits`.
     #[derive(Default)]
     struct Row<'a> {
         flagged: bool,
@@ -1850,9 +2054,7 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         }
     }
     let mut rows: Vec<(&str, Row)> = by_key.into_iter().collect();
-    rows.sort_by(|(ak, a), (bk, b)| {
-        b.flagged.cmp(&a.flagged).then_with(|| b.loc.cmp(&a.loc)).then_with(|| ak.cmp(bk))
-    });
+    rows.sort_by(|(ak, a), (bk, b)| b.loc.cmp(&a.loc).then_with(|| ak.cmp(bk)));
 
     let settled: usize = groups.iter().map(|g| g.dismissed).sum();
     println!();
@@ -2217,6 +2419,56 @@ pub struct Cli {
 
 // Every verb takes a path, and every one of them defaults it to the working directory:
 // these are things you run while standing in the repo you mean.
+/// The three buttons in the panel, and the one that takes them back.
+///
+/// Named for what they DO rather than for what they are stored as: `fine-for-now` is a
+/// verdict in the archive and a poor imperative, and somebody typing a command is telling the
+/// tool to do something. The words the archive keeps are `Verdict::word`'s, unchanged.
+#[derive(clap::Subcommand)]
+enum Decide {
+    /// Fine as it stands — hide it until this code changes
+    Snooze(Decided),
+    /// Always fine — hide it whatever this code does
+    Allow(Decided),
+    /// Not true — the finding is wrong, not unwanted. Hidden until the rule changes
+    Wrong(Decided),
+    /// Needs doing. It stays in the list
+    Flag(Decided),
+    /// Take a decision back, returning the finding to the list
+    Clear {
+        /// The finding, as `sanity findings` prints it — `path/to/file.rs#name`.
+        key: String,
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+        /// Just this rule's decision. Every one filed under the key, by default.
+        #[arg(long, value_name = "ID")]
+        rule: Option<String>,
+    },
+}
+
+/// What all three verdicts need. One struct, so they cannot drift into taking different flags.
+#[derive(clap::Args)]
+struct Decided {
+    /// The finding, as `sanity findings` prints it — `path/to/file.rs#name`.
+    key: String,
+    /// The repo. Defaults to where you are standing.
+    #[arg(default_value = ".")]
+    path: String,
+    /// Just this rule. Every rule that raises the finding, by default.
+    #[arg(long, value_name = "ID")]
+    rule: Option<String>,
+    /// Why. Asked for and not required, as in the panel.
+    #[arg(long, value_name = "TEXT", default_value = "")]
+    reason: String,
+    /// Read the timeline, so the churn rules can be decided under too.
+    #[arg(long)]
+    edits: bool,
+    /// Per-line blame, so the age and authorship rules can be decided under too.
+    #[arg(long)]
+    blame: bool,
+}
+
 #[derive(clap::Subcommand)]
 enum Verb {
     /// Configure agent and model for this repo
@@ -2289,6 +2541,9 @@ enum Verb {
         /// huge repo — see `docs/notes/budgets.md`, where it is 206s of a 214s cold ceph scan.
         #[arg(long)]
         blame: bool,
+        /// Decide one, instead of listing them.
+        #[command(subcommand)]
+        decide: Option<Decide>,
     },
     /// Rewrite .sanity/ in the current format
     Refresh {
@@ -2338,7 +2593,26 @@ pub fn main(args: &[String]) -> i32 {
         }
         Verb::Status { path } => status(&path),
         Verb::Summary { path } => summary(&path),
-        Verb::Findings { path, limit, edits, blame } => findings(&path, limit, edits, blame),
+        Verb::Findings { path, limit, edits, blame, decide: None } => {
+            findings(&path, limit, edits, blame)
+        }
+        Verb::Findings { decide: Some(what), .. } => {
+            use crate::findings::Verdict;
+            let verdict = match &what {
+                Decide::Snooze(_) => Verdict::FineForNow,
+                Decide::Allow(_) => Verdict::FineAlways,
+                Decide::Wrong(_) => Verdict::FalsePositive,
+                Decide::Flag(_) => Verdict::Flagged,
+                Decide::Clear { key, path, rule } => {
+                    return clear(path, key, rule.as_deref());
+                }
+            };
+            let (Decide::Snooze(d) | Decide::Allow(d) | Decide::Flag(d) | Decide::Wrong(d)) = &what
+            else {
+                unreachable!("clear returned above")
+            };
+            decide(&d.path, &d.key, d.rule.as_deref(), verdict, &d.reason, d.edits, d.blame)
+        }
         Verb::Refresh { path } => refresh(&path),
     }
 }
@@ -2366,6 +2640,51 @@ mod tests {
     }
     use super::*;
     use crate::agentapi::tests::data_home;
+
+    /// **`clear` takes back every rule under a key, and proves it off the disk.**
+    ///
+    /// The panel unflags every rule behind a tile at once, because taking back only the first
+    /// leaves the others hiding a finding nobody remembers deciding. This is the same rule on
+    /// the command line, and it is the DELETING verb — the direction that running it again
+    /// cannot undo — so it reads the archive back rather than trusting three `Ok`s.
+    ///
+    /// No scan: the archive is keyed on strings it already holds, which is what lets a
+    /// decision be taken back on a repo whose rules no longer raise the finding at all.
+    #[test]
+    fn clearing_a_finding_takes_back_every_rule_under_it() {
+        use crate::findings::{Decision, Verdict, archive, decide as file};
+        let dir = tempfile::tempdir().expect("tmp");
+        let repo = dir.path();
+        let filed = |key: &str, rule: &str| Decision {
+            key: key.into(),
+            rule: rule.into(),
+            title: rule.into(),
+            verdict: Verdict::FineForNow,
+            pin: "pin".into(),
+            reason: String::new(),
+            when: "2026-01-01T00:00:00Z".into(),
+            by: "somebody".into(),
+        };
+        for r in ["giant-function", "tangled-for-size", "crowded-file"] {
+            file(repo, filed("a.rs#run", r)).expect("writes");
+        }
+        // A second subject, which must survive every one of these.
+        file(repo, filed("b.rs#other", "giant-function")).expect("writes");
+
+        let path = repo.to_string_lossy().to_string();
+        assert_eq!(clear(&path, "a.rs#run", Some("tangled-for-size")), 0, "one rule");
+        let left = archive(repo);
+        assert_eq!(left.iter().filter(|d| d.key == "a.rs#run").count(), 2, "the named one only");
+
+        assert_eq!(clear(&path, "a.rs#run", None), 0, "the rest of them");
+        let left = archive(repo);
+        assert_eq!(left.iter().filter(|d| d.key == "a.rs#run").count(), 0);
+        assert_eq!(left.len(), 1, "the other subject is untouched");
+
+        // Nothing filed is a refusal rather than a silent success: somebody who mistypes a key
+        // must not be told the decision they meant to take back is gone.
+        assert_eq!(clear(&path, "a.rs#run", None), 1, "there is nothing left to clear");
+    }
 
     /// A flag's value is never mistaken for the repo path.
     ///

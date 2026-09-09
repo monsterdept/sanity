@@ -136,7 +136,59 @@ use std::path::{Path, PathBuf};
 ///    which at the root of a large repo is every wedge on screen — so a cached tree would go
 ///    on drawing `no blame` from the rim inwards, and the legend would go on losing the people
 ///    it names, until something unrelated dropped the cache.
-const VERSION: u32 = 18;
+/// 19: `edges::resolve` stopped letting a call through a receiver this repo cannot name reach
+///    a definition in its own file. No record changed shape, and neither did the parser — so
+///    `PARSE_VERSION` did not move and NOTHING here would have refused a version-18 tree. It
+///    would have loaded a `links.bin` full of the old answers and gone on drawing them: 19
+///    callers on a test-only `walk`, every one of them tree-sitter's `cursor.walk()`. A cached
+///    call graph is a set of numbers whose meaning changed underneath it, which is the exact
+///    shape of the failure the paragraph above this one describes, arriving through a
+///    recomputation rather than a field.
+/// 20: a function node carries `dependents` — callers that are not this repo's own test code.
+///    `#[serde(default)]`, so a version-19 tree loads it as `None` on every function, and
+///    `None` is this field's third state: *this language has no test convention worth
+///    trusting*. Three rules gate on it and would go quietly dark on every warm repo,
+///    reporting a clean bill over code they never asked about. The same shape as `headcount`
+///    at version 16, which is the paragraph this one is modelled on.
+/// 21: a function node carries `under_test` — whether a test calls it — and `tested`, what it
+///    is itself and on what evidence. Both `#[serde(default)]`, so a version-20 tree loads
+///    them `None` on every function. `None` is the state that means "test code cannot be told
+///    apart here", so a warm repo would report the honest absence over code the tool could
+///    classify perfectly well, and the lens would draw a repo with tests as one where nothing
+///    can be said about them.
+/// 22: `under_test` is what a test REACHES rather than what it directly calls, and a function
+///    node carries `Cols::testing` so a file can stand in for functions the window was never
+///    sent. A version-21 tree holds the direct answer under the same field name — no shape
+///    changed, nothing would refuse it, and it would paint every accessor beneath a tested
+///    entry point as untested. A recomputation that changes what a cached number MEANS, which
+///    is the hazard version 19 was bumped for.
+/// 23: `resolve` lets an unnameable receiver reach its own file again, and `wire` refuses any
+///    edge from production code into `#[cfg(test)]`. The records are identical in shape, so
+///    nothing refuses a version-22 tree — it serves the old call graph in silence, which is
+///    the third time this exact bump has been needed and the second time it was noticed only
+///    because a repo whose SOURCE had not changed reported numbers that had not moved either.
+///    A repo being edited hides it: its signature changes, so it rescans and looks correct.
+/// 24: `super::f()` and `crate::f()` resolve as the bare names they are rather than as
+///    receivers nothing can name. Records unchanged again, so a version-23 tree is accepted
+///    and serves a call graph missing every `super::` edge — which in Rust is how a unit test
+///    calls the thing it tests.
+/// 25: a node carries `code_kind` — code, test, generated or vendored, with the evidence.
+///    `#[serde(default)]`, so a version-24 tree loads it `None` everywhere, and `None` is the
+///    band that means "nothing could place this". A warm repo would draw its vendored trees
+///    and its protobuf output as unclassifiable rather than as what they are.
+/// 26: `code` is the residual kind rather than a conclusion, and headers are a kind of their
+///    own. A version-25 tree holds `None` on every body a language could not tell a test
+///    from — 1,363,232 of ceph's 1.5M lines — and would draw a repo as unplaceable that this
+///    can place.
+/// 27: code is known by `Tested::Parsed` rather than mislabelled `Convention`. A version-26
+///    tree carries the old tier and a wedge would read `code (convention)`, naming a habit
+///    that does not exist.
+/// 28: a shell function's NAME can say it is a test — `named_of`. Every tier before it asked
+///    about the file and answered from its path, so ceph's standalone suite (256 functions,
+///    63 files) was baked into a version-27 tree as hand-written code, and its helpers carry
+///    those calls as dependents. Nothing about the records changed shape, so a warm repo
+///    would serve the old classification in silence.
+const VERSION: u32 = 28;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

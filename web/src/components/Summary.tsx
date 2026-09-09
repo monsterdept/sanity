@@ -35,6 +35,10 @@ const GRADES: Grade[] = ['none', 'some', 'most', 'full']
 const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   legible: 'Legibility',
   docs: 'Documentation',
+  // What the rows are, not what the lens is called. It said "Tested and untested" for a
+  // while, which asserted the thing a call graph cannot know — every row here is instead a
+  // statement about what a file IS, which is answerable.
+  composition: 'What this is made of',
   traps: 'Traps',
   callers: 'Callers',
   reach: 'What it calls',

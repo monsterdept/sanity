@@ -132,7 +132,7 @@ fn main() {
         }
     };
 
-    let tasks = agentapi::all_tasks(&scanned);
+    let tasks = agentapi::all_tasks(&scanned, &path);
     if tasks.is_empty() {
         eprintln!("no functions found — nothing to weigh");
         return;

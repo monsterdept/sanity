@@ -688,6 +688,10 @@ pub(crate) fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
                     r.legible = parse_grade(v);
                 } else if let Some(v) = seg.strip_prefix("trap:") {
                     r.trap = v.trim() == "yes";
+                } else if let Some(v) = seg.strip_prefix("test:") {
+                    // Absent from the line means nobody asked, which is not the same as `no` —
+                    // see `Report::test`. Only a segment that is actually there answers.
+                    r.test = Some(v.trim() == "yes");
                 }
             }
         }
@@ -1273,7 +1277,7 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     let (predicted, documented) = r.grades();
     let doc = documented.map_or("not judged".to_string(), |g| grade_word(g).to_string());
     s.push_str(&format!(
-        "- predicted: {} · documented: {} · derivable: {} · legible: {} · trap: {}\n",
+        "- predicted: {} · documented: {} · derivable: {} · legible: {} · trap: {}{}\n",
         grade_word(predicted),
         doc,
         if r.derivable { "yes" } else { "no" },
@@ -1281,6 +1285,13 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
         // has no opinion about legibility, and printing one would invent a measurement.
         r.legible.map_or("not judged".to_string(), |g| grade_word(g).to_string()),
         if r.trap { "yes" } else { "no" },
+        // Written only when it was asked. A `test: no` on every Rust reading would be the
+        // store recording an answer nobody gave.
+        match r.test {
+            Some(true) => " · test: yes",
+            Some(false) => " · test: no",
+            None => "",
+        },
     ));
 
     if !r.note.trim().is_empty() {
@@ -1648,6 +1659,11 @@ mod tests {
         // round-trips through neither is indistinguishable from a field nobody sent.
         assert_eq!(got.legible, Some(Grade::Most), "legible did not survive the round trip");
         assert!(got.trap, "trap did not survive the round trip");
+        // **Absent means nobody asked, and that has to survive too.** `test` is written only
+        // where a reader was asked for it, so a reading that carries no `test:` segment must
+        // come back `None` — not `Some(false)`, which would be the store holding an answer
+        // nobody gave and would count a repo's tests as production code.
+        assert_eq!(got.test, None, "an unasked question is not a `no`");
         assert_eq!(got.predicted, Some(Grade::Some));
         assert_eq!(got.documented, Some(Grade::Full));
         // Where the reading sat in its reader's run. `read at`, `read by` and `reading N`
@@ -1730,6 +1746,27 @@ mod tests {
         assert!(legible_current(SPEC + 99), "a build we have never heard of");
         assert!(!legible_current(LEGIBLE_SINCE - 1), "the spec before it");
         assert!(!legible_current(0), "and everything unversioned");
+    }
+
+    /// **A reader's answer about test code survives the store, in all three states.**
+    ///
+    /// `Some(true)` and `Some(false)` are both answers somebody gave; `None` is nobody having
+    /// been asked, which is written as an absent segment rather than as a `no`. The three are
+    /// what `Tested::Reader` is worth, and a store that collapsed the last two would count a
+    /// repo's tests as the code they exercise — see `edges::Wire::dependents`.
+    #[test]
+    fn a_readers_answer_about_tests_survives_the_store() {
+        for want in [Some(true), Some(false), None] {
+            let r = Report { test: want, ..report("src/a.rs#foo@12", "a note") };
+            let mut body = String::from("\n## src/a.rs\n");
+            body.push_str(&render_entry("foo", 0, false, &r, false));
+            let text = render_shard("src", 1, 1, 1, 0, 0, &body);
+
+            let mut back = HashMap::new();
+            parse_shard(&text, &mut back);
+            let got = back.get("src/a.rs#foo").expect("survived");
+            assert_eq!(got.test, want, "`test: {want:?}` did not survive the round trip");
+        }
     }
 
     /// The spec rides on the provenance line and survives the round trip.

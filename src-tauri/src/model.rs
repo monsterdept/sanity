@@ -326,6 +326,105 @@ pub enum NodeKind {
     Func,
 }
 
+/// How we came to believe a body is test code, weakest claim last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tested {
+    /// The toolchain says so, and being wrong would break the build. `#[cfg(test)]` is
+    /// excluded from the binary by the compiler; `_test.go` is a rule of the `go` tool.
+    /// A contract answers BOTH ways — "this is test code" and "this is not" are equally
+    /// certain, which is what lets a reader be spared the question.
+    Contract,
+    /// The layout says so. `tests/`, `__tests__/`, `test_*.py` — a runner's published glob or
+    /// a directory somebody named. Usually right, and nothing enforces it: `tests` is a domain
+    /// noun in plenty of repos, vendored trees carry their own, and a fixture living under one
+    /// is a grey area by definition rather than by detection failure.
+    Convention,
+    /// A reader read the body and said so. Asked only where no contract exists — see
+    /// `Report::test` — because it is the only source that can see a fixture living in a
+    /// production file, which is the case no path and no attribute reaches.
+    Reader,
+    /// **We parsed it and nothing marked it otherwise**, which is how [`Kind::Code`] is known
+    /// and is not a weaker version of the three above.
+    ///
+    /// It was labelled `Convention` for a while, which read as `code (convention)` on the
+    /// wedge and named a convention that does not exist. There is no habit being leaned on
+    /// here: the file went through a real grammar, functions somebody wrote came out, and no
+    /// banner, attribute, path or reader claimed it. That is a positive statement about a
+    /// file — the most confident one this lens makes — and calling it the leftovers was a
+    /// description of the order the checks run in rather than of what is known.
+    Parsed,
+}
+
+/// What is known about whether a body is test code, and on what evidence.
+///
+/// **Three levels rather than a boolean, for the reason `Provenance` is four rather than
+/// two.** A number computed from this would otherwise be an estimate whose accuracy is a
+/// function of how many conventions we happened to encode — our diligence, smuggled in as if
+/// it were a property of the code. Stated, it is a claim a reader of the finding can weigh.
+///
+/// **`None` is "nobody has said", never "not a test."** A contract that answers `Some(false)`
+/// is a different fact entirely: the compiler has told us this ships.
+///
+/// Contract beats Reader beats Convention. A contract is a fact about what ships; a reader
+/// actually read the body; a convention only ever saw the path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Testness {
+    pub is_test: bool,
+    pub how: Tested,
+}
+
+/// What a body IS, which is a different question from what it does or who wrote it last.
+///
+/// **The four things a repo is made of.** A scan draws every line at the same weight, so a
+/// vendored tree and a protobuf dump arrive looking exactly like code somebody sat down and
+/// wrote — and on a large repo that is most of the picture. This is the question the map
+/// could never answer: how much of this is yours to maintain?
+///
+/// It is deliberately not a judgement. Generated code is not worse code; it is code nobody is
+/// going to split up, which is why `findings::not_ours` already refuses to raise findings
+/// about it. That classification existed and was thrown away after deciding where to point —
+/// this draws the same answer instead of computing it a second time somewhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// Somebody here wrote it and it ships — parsed as source, with nothing marking it as
+    /// anything else. See [`Tested::Parsed`]: that is an assertion, not a leftover.
+    ///
+    /// It was briefly conditional on test-ness being KNOWN false, which sounded careful and
+    /// made the lens useless: C++ has no marker for a test, so nothing was ever code and
+    /// ceph reported 1,363,232 of its 1.5M lines as unplaceable. Being unable to tell a test
+    /// from an implementation does not make a `.cc` file unplaceable — it makes it code that
+    /// might be a test, and the first half of that is worth drawing.
+    Code,
+    /// It declares rather than implements — `.h`, `.hpp`, `.d.ts`, `.pyi`.
+    ///
+    /// A header is not a smaller kind of code, it is a different job: five hundred lines of
+    /// declarations is not five hundred lines of logic, and on a C++ repo they are a serious
+    /// share of everything. `.d.ts` is the strongest case — the TypeScript compiler treats it
+    /// as declarations and emits nothing — and `.h` is the universal one.
+    Header,
+    /// It exists to check the code — see [`Testness`], which is where this one is decided.
+    Test,
+    /// A tool wrote it. `// Code generated by … DO NOT EDIT` is a contract in the strongest
+    /// sense available: the machine that made it says editing is pointless.
+    Generated,
+    /// Somebody else wrote it and it lives here. `vendor/`, `node_modules/`, and whatever
+    /// `.gitattributes` marks `linguist-vendored`.
+    Vendored,
+}
+
+/// What a body is, and on what evidence — the same three tiers [`Testness`] uses.
+///
+/// The tiers carry across unchanged, which is the argument for one classification rather than
+/// four: a `linguist-generated` line in `.gitattributes` is the repo's author writing down
+/// what a file is, exactly as a `jest` key is. A path is a convention. A reader is a reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kinded {
+    pub kind: Kind,
+    pub how: Tested,
+}
+
 /// Where an explanation came from. This is not decoration — it is the thing that keeps
 /// the map honest.
 ///
@@ -642,6 +741,31 @@ pub struct Node {
     /// path relies on.
     #[serde(default)]
     pub callers: Option<u32>,
+    /// Does a test call this, and `None` where test code cannot be told apart here.
+    ///
+    /// **"A test calls this", not "this is covered"** — see [`crate::edges::Wire::under_test`].
+    #[serde(default)]
+    pub under_test: Option<bool>,
+    /// What this body IS — code, a test, generated, or vendored — and on what evidence.
+    ///
+    /// Named `code_kind` because `kind` is taken by [`NodeKind`], which answers whether this
+    /// is a directory, a file or a function. Two different questions and the shorter name was
+    /// already spent.
+    #[serde(default)]
+    pub code_kind: Option<Kinded>,
+    /// Is this body itself test code, and on what evidence — see [`Testness`].
+    ///
+    /// Carried so the map can draw where a repo's tests are, which is a question nothing else
+    /// on the node answers: `under_test` says what a test reaches, and this says what a test
+    /// IS. `None` on a container, and on any body nothing could tell either way.
+    #[serde(default)]
+    pub tested: Option<Testness>,
+    /// Callers that are not this repo's own test code — see [`crate::edges::Wire::dependents`].
+    ///
+    /// `None` where the language offers no reliable way to tell test code apart, which is a
+    /// third state and not a zero: C++ has no test contract at all.
+    #[serde(default)]
+    pub dependents: Option<u32>,
     #[serde(default)]
     pub calls: Option<u32>,
     /// Distinct neighbours — callers and callees together, a mutual pair counted once — and
@@ -782,6 +906,17 @@ pub struct Cols {
     /// In-repo callers, `-1` where this language's calls were never parsed — the absence
     /// the Callers lens draws grey rather than as a zero.
     pub callers: Vec<i32>,
+    /// What the Composition lens paints, per function: `0` code, `1` test, `2` generated,
+    /// `3` vendored, `-1` nothing could place it.
+    ///
+    /// **Here for the same reason `tangle` is: so a FILE can stand in for functions the
+    /// window has not been sent.** Rings are fetched only for files wide enough to draw an
+    /// inside, so at the root of any real repo most files have no function nodes — and a
+    /// histogram built from the ones that happen to have arrived is a confident picture of a
+    /// biased sample, which `histogramsFor` opens by naming as the worse failure. One entry
+    /// per function rather than a share, so the distribution a directory draws is its
+    /// functions' own.
+    pub kind: Vec<i8>,
     /// In-repo calls made, with the same `-1`.
     pub calls: Vec<i32>,
     /// Size of this function's clone group, `0` for none and `-1` for a body under the
@@ -829,6 +964,17 @@ impl Cols {
             c.commits.push(commits);
             c.touched.push(touched);
             c.callers.push(f.callers.map(|v| v as i32).unwrap_or(-1));
+            c.kind.push(match f.code_kind.map(|k| k.kind) {
+                Some(Kind::Code) => 0,
+                Some(Kind::Test) => 1,
+                Some(Kind::Generated) => 2,
+                Some(Kind::Vendored) => 3,
+                Some(Kind::Header) => 4,
+                // **Absent is its own value and never `code`.** A file nothing could place is
+                // not "probably yours" — that is the shrug this lens exists to draw apart
+                // from a classification.
+                None => -1,
+            });
             c.calls.push(f.calls.map(|v| v as i32).unwrap_or(-1));
             // Three states, and the middle one is the point: `0` is "compared, no twin",
             // `-1` is "never compared". Collapsing them would let the map say a function is
@@ -876,6 +1022,10 @@ impl Node {
             score: None,
             hotspots: Vec::new(),
             callers: None,
+            dependents: None,
+            under_test: None,
+            tested: None,
+            code_kind: None,
             calls: None,
             incident: None,
             away: None,
@@ -1067,6 +1217,15 @@ impl Node {
     }
 
     /// Depth-first walk, parents before children.
+    /// The same walk, with the nodes mutable — for the passes that re-derive a field from
+    /// evidence that arrived after the scan. See [`crate::links::retest`].
+    pub fn visit_mut(&mut self, f: &mut impl FnMut(&mut Node)) {
+        f(self);
+        for c in &mut self.children {
+            c.visit_mut(f);
+        }
+    }
+
     pub fn visit<'a>(&'a self, f: &mut impl FnMut(&'a Node)) {
         f(self);
         for c in &self.children {
@@ -1129,6 +1288,10 @@ impl Node {
             // `hot_share`. `callers` and `calls` do NOT — they are one function's own counts,
             // and a file has neither.
             callers: self.callers,
+            dependents: self.dependents,
+            under_test: self.under_test,
+            tested: self.tested,
+            code_kind: self.code_kind,
             calls: self.calls,
             incident: self.incident,
             away: self.away,

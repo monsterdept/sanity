@@ -359,6 +359,24 @@ export default function App() {
    *  against the tree — see the effect that drops the function rings. */
   const [treeRev, setTreeRev] = useState(0)
 
+  /** **One redraw when the webfont lands.**
+   *
+   *  Every label on the map is laid out against a measured advance, and until the face
+   *  arrives those measurements are the fallback's — see `widthPerPx`, whose cache now keeps
+   *  the two apart. Keeping them apart is not enough on its own: nothing re-renders when a
+   *  font loads, so whatever was drawn during the wait keeps its wrong geometry until
+   *  something unrelated happens to redraw it. The dial showed it plainly, painting
+   *  `found 67` as `ound 67` — a `textPath` sized to a narrower face clips what overflows,
+   *  silently. */
+  const [faceRev, setFaceRev] = useState(0)
+  useEffect(() => {
+    let live = true
+    document.fonts?.ready.then(() => live && setFaceRev((n) => n + 1)).catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
   /** Readings, kept so a function ring can carry them the moment it lands.
    *
    *  **A tree arrives without its functions** — see `Node::slim` — so `applyAgentReports`
@@ -3187,6 +3205,7 @@ export default function App() {
                   // rings now unroll that same tiling into the pane instead. See `unroll.ts`.
                   <Sunburst
                     root={focus}
+                    faceRev={faceRev}
                     selected={selected}
                     mode={viewMode}
                     ranks={ranks}

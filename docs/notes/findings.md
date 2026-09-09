@@ -864,6 +864,28 @@ This is the part to get right before any of it ships, and the answer is already 
   correct — the decision was made about a different question — and it must be said at the
   moment of editing rather than discovered as findings reappearing. *Changing this rule's
   clauses brings back 7 findings somebody set aside.*
+- **A flag does not move a finding in the list.** `flagged` is the one verdict that keeps a
+  finding on screen, and for a while it also sorted that finding to the front — of its rule, of
+  the merged worklist and of `sanity findings`. Clicking Flag therefore made the row jump out
+  from under the pointer and reordered the list around it, and the order stopped meaning what
+  every other surface's order means: how wide the body is. A flag is a note about what you mean
+  to do next, not a claim about the code, so `live_hits` ranks by `rank()` alone and the panel
+  and the CLI sort on `loc` alone. The flag says itself, in the tile and as `⚑` in the CLI.
+- **`false-positive` is the fourth verdict, and it is about the RULE.** The other three are
+  statements about your code; this one says the tool made a claim that was not true. Both it
+  and `fine-always` hide a finding forever from where a user stands, which is the whole
+  argument against splitting them — but they do not hide it for the same LENGTH of time, and
+  that is a behaviour rather than a label. A won't-fix outlives everything, including the rule
+  being retuned. A false positive has to survive the CODE changing, because the rule is just as
+  wrong tomorrow, and must not survive the RULE changing, because a rule asking a different
+  question may be perfectly right. `pin_asks` is exactly that line: it compares the pin's field
+  NAMES, so moving a threshold leaves the dismissal standing and swapping a clause expires it.
+  **The test that keeps the two apart is that a false positive is a claim contradicted by
+  evidence this tool already holds** — `175 callers` against one real call site, `documented:
+  none` against `Node::doc.is_some()`. A true finding nobody wants to act on is not one, and
+  confusing them turns this into a bin for disagreement. It exists because four false findings
+  shipped and were caught by blind reviewers who each wrote "the finding is false" unprompted,
+  while the archive had no way to record the difference between that and a shrug.
 - **`fine-always` does not care**, by construction. It is a statement about the subject, not
   about a version of it, and `Verdict::hides` never consults the pin for it.
 - **Deleting a rule orphans its decisions rather than deleting them.** They stay in
@@ -1185,14 +1207,37 @@ problem; the reading of it was.
 ### Two views, and the CLI has both
 
 `sanity findings` is the worklist: one entry per SUBJECT, merged the way the panel merges,
-flagged first then widest, with each rule's sentence under it and the blocked rules named
+widest first, with each rule's sentence under it and the blocked rules named
 before the list rather than left as silence. It runs in process, like `refresh` and unlike
 `status` — the read verbs ask the backend because what they report is partly live, and a
 finding is not: it is the tree, the readings and the rules, all on disk. An endpoint would be
 a second answer, and findings that depended on whether the app happened to be open.
 
-`just findings` is the bench: one row per RULE, with its calibrated suggestion and its
-marginal contribution. That is a question about the catalog, where the verb asks a question
+**And the CLI decides, because a worklist you cannot answer is a report.** `sanity findings
+snooze | allow | flag | clear <KEY>` are the three buttons in the panel and the one that
+takes them back, named for what they do rather than for what the archive stores — `Verdict`
+keeps its own words. The KEY is the line the list already prints: `key_of` is `path#name`, so
+copying a finding out of the list is how you address it, and nothing has to be looked up.
+
+Two things they are careful about, both of which are the panel's rules rather than new ones.
+A verdict writes **one decision per rule that currently raises the subject** — the tile is the
+unit and writing only the first would leave a finding half-decided — with `--rule` for the
+case a tile cannot express: *this is fine BECAUSE it is long, but the tangle still stands.*
+And a rule that `blocked` says cannot answer is named and refused rather than written, because
+a pin taken while the churn rules are dark is a pin full of absences that will never match
+again. `clear` needs no scan at all: the archive is keyed on strings it already holds, which is
+what lets a decision be taken back on a repo whose rules no longer raise the finding — the
+case it is most needed in. It reads the archive back rather than trusting the writes, being
+the one verb here that deletes.
+
+`just findings` is the bench: one row per RULE, with its calibrated suggestion, its marginal
+contribution, and **what people decided about what it said** — `wrong` and `never`, counted off
+the archive. Those two are the only columns here that are about the RULE rather than the repo:
+`hits` and `only` measure how much a rule speaks and how much of that nothing else says, and
+neither can tell you whether a word of it was worth reading. `wrong` is the number that has to
+reach zero. `never` is information about calibration and not a defect — dismissing a true
+finding is what that verdict is FOR, and `crowded-file` sitting at seven on this repo is the
+mechanism working rather than failing. That is a question about the catalog, where the verb asks a question
 about the repo, and they are deliberately not the same output.
 
 ### Where it lives

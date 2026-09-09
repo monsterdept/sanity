@@ -16,7 +16,21 @@
 import { MODE_LABEL, type ColorMode } from './colorMode'
 
 /** The keys the app claims, in the order the switcher lists the lenses. */
-export const LENS_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='] as const
+export const LENS_KEYS = [
+  '`',
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '0',
+  '-',
+  '=',
+] as const
 
 /** Previous and next lens, which do not run out.
  *
@@ -25,6 +39,11 @@ export const LENS_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-',
  * selects something else. A twelfth lens therefore arrived with no way to reach it from the
  * keyboard at all — and worse, inserting one anywhere but the end SHIFTS every digit after it,
  * so the eleventh lens somebody had learned silently became unreachable.
+ *
+ * **The row now starts at the key left of `1`.** Backtick through `=` is thirteen keys for
+ * twelve lenses, so every one of them is reachable again and there is a slot in hand. This
+ * shifted every digit by one, which the paragraph above is emphatic about — done deliberately
+ * and once, rather than discovered later by somebody whose ⌘4 had moved.
  *
  * Stepping is the shape that survives a twelfth lens and a thirteenth. The digits stay for the
  * ones that have them: a key somebody has learned is not worth taking away, and these are

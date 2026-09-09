@@ -39,6 +39,7 @@ use std::collections::HashMap;
 
 use crate::clones::Copies;
 use crate::edges::{FileView, Site, Wiring};
+use crate::model::{NodeKind, Tested, Testness};
 
 /// One function, as much of it as a row in a list needs.
 ///
@@ -107,6 +108,85 @@ pub struct Links {
 }
 
 impl Links {
+    /// Re-derive what a READER changes about the wiring, from the table beside the tree.
+    ///
+    /// **The tree is what the parse can say; a reading is applied where readings live.** The
+    /// reader tier was originally an input to `edges::wire`, which meant a landed reading
+    /// changed nothing until the next scan — and while it lagged, a finding went on saying
+    /// "13 call sites depend on this" with a test among the thirteen. That is the overclaim
+    /// the tier exists to remove, deferred rather than avoided.
+    ///
+    /// Nothing here re-parses. `links.bin` is written beside the tree precisely so the edges
+    /// survive a launch that never reads a file, and this is a pass over them: for every
+    /// function, ask what its callers ARE and count the ones that are not tests. The same
+    /// trade `treecache::redraw` already makes when a trace lands.
+    ///
+    /// `is_test` returns `None` for a body whose language cannot classify tests at all, and
+    /// that absence propagates: a callee nobody can classify reports no `dependents` and no
+    /// `under_test` rather than a zero and a `false`.
+    pub fn retest(
+        &self,
+        is_test: impl Fn(u32) -> Option<bool>,
+    ) -> HashMap<u32, (Option<u32>, Option<bool>)> {
+        let mut out = HashMap::new();
+        for id in 0..self.entries.len() as u32 {
+            if is_test(id).is_none() {
+                out.insert(id, (None, None));
+                continue;
+            }
+            let mut dependents = 0u32;
+            for from in self.callers.get(&id).map(Vec::as_slice).unwrap_or_default() {
+                // A caller nobody can classify counts as a dependent, which is the reading
+                // `wire` has always taken: the claim is "this many things depend on it", and
+                // an unclassifiable caller is still one of them.
+                if is_test(*from) != Some(true) {
+                    dependents += 1;
+                }
+            }
+            out.insert(id, (Some(dependents), Some(false)));
+        }
+
+        // **Reach, not the first hop** — the same closure `edges::wire` walks, and here for
+        // the same reason: a test of `a` exercises `b` through `a`. Two implementations of
+        // one rule is how the map and a landed reading would come to disagree about the same
+        // repo, so this is deliberately the identical shape.
+        let mut reached: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut queue: Vec<u32> =
+            (0..self.entries.len() as u32).filter(|id| is_test(*id) == Some(true)).collect();
+        while let Some(at) = queue.pop() {
+            for to in self.calls.get(&at).map(Vec::as_slice).unwrap_or_default() {
+                if is_test(*to) != Some(true) && reached.insert(*to) {
+                    queue.push(*to);
+                }
+            }
+        }
+        for id in reached {
+            if let Some(slot) = out.get_mut(&id) {
+                if slot.1.is_some() {
+                    slot.1 = Some(true);
+                }
+            }
+        }
+        out
+    }
+
+    /// What this entry calls, for a walk outward over the graph.
+    pub fn calls_of(&self, id: u32) -> Vec<u32> {
+        self.calls.get(&id).cloned().unwrap_or_default()
+    }
+
+    /// The entry at this file and start line, which is how a tree node finds its edges.
+    pub fn at_line(&self, path: &str, line: u32) -> Option<u32> {
+        let file = self.files.iter().position(|f| f == path)? as u32;
+        self.index.get(&(file, line)).copied()
+    }
+
+    /// This entry's durable key, for looking a reading up — see `assessment::key_of`.
+    pub fn key_at(&self, id: u32, ord: usize) -> Option<String> {
+        let e = self.entries.get(id as usize)?;
+        Some(crate::assessment::key_of(self.files.get(e.file as usize)?, &e.name, ord))
+    }
+
     /// Fold a scan's own working state into the table the panel reads.
     ///
     /// `files` is the same flat view [`crate::edges::wire`] and [`crate::clones::find`] were
@@ -212,6 +292,162 @@ impl Links {
 }
 
 #[cfg(test)]
+mod reach_depth {
+    /// **How far a test's reach actually goes, before believing either answer.**
+    ///
+    /// `under_test` counts DIRECT callers, on the argument that a transitive closure reaches
+    /// nearly everything and stops distinguishing anything. That was an assertion. This
+    /// measures it: how many bodies a test reaches at one hop, two, three, and where it
+    /// saturates. Ignored, like `neighbours` — a measurement, not a correctness test.
+    ///
+    /// `REPO=/path cargo test --lib -- --ignored --nocapture how_far_do_tests_reach`
+    #[test]
+    #[ignore]
+    fn how_far_do_tests_reach() {
+        let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
+        let m = crate::scan::Memos::ephemeral();
+        let scan = crate::scan::scan(
+            std::path::Path::new(&repo),
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Untraced,
+        )
+        .expect("scans");
+
+        // Node id -> is it a test / can it be classified, straight off the tree.
+        let links = &scan.links;
+        let mut is_test = std::collections::HashMap::new();
+        scan.root.visit(&mut |n| {
+            if n.kind == crate::model::NodeKind::Func {
+                if let Some(line) = n.line {
+                    if let Some(id) = links.at_line(&n.path, line) {
+                        is_test.insert(id, n.tested.map(|t| t.is_test));
+                    }
+                }
+            }
+        });
+
+        let classifiable: Vec<u32> =
+            is_test.iter().filter(|(_, v)| v.is_some()).map(|(k, _)| *k).collect();
+        let tests: Vec<u32> =
+            is_test.iter().filter(|(_, v)| **v == Some(true)).map(|(k, _)| *k).collect();
+        let subjects = classifiable.len() - tests.len();
+
+        // Outward from every test, one hop at a time, over the CALLEE direction.
+        let mut depth: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+        let mut front: Vec<u32> = tests.clone();
+        let mut d = 0usize;
+        println!("  {} tests, {subjects} classifiable non-test bodies", tests.len());
+        while !front.is_empty() && d < 12 {
+            d += 1;
+            let mut next = Vec::new();
+            for from in &front {
+                for to in links.calls_of(*from) {
+                    if is_test.get(&to).copied().flatten() == Some(false)
+                        && !depth.contains_key(&to)
+                    {
+                        depth.insert(to, d);
+                        next.push(to);
+                    }
+                }
+            }
+            let reached = depth.len();
+            println!(
+                "  depth {d}: +{} newly reached, {reached} of {subjects} ({:.0}%)",
+                next.len(),
+                100.0 * reached as f64 / subjects.max(1) as f64
+            );
+            front = next;
+        }
+    }
+}
+
+#[cfg(test)]
+mod retest_tests {
+    use super::*;
+    use crate::agentapi::Report;
+
+    /// A two-function C++ file, scanned for real so the edges are the ones `wire` produces.
+    fn cpp_scan(dir: &std::path::Path) -> crate::scan::Scan {
+        std::fs::write(
+            dir.join("a.cc"),
+            "void helper() { int x = 1; }\nvoid covers() { helper(); }\n",
+        )
+        .expect("write");
+        let m = crate::scan::Memos::ephemeral();
+        crate::scan::scan(
+            dir,
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Untraced,
+        )
+        .expect("scans")
+    }
+
+    /// **A reader's answer reaches the wiring without a rescan.**
+    ///
+    /// This is the layering the split exists for. The reader tier used to be an input to
+    /// `edges::wire`, which runs inside `scan` — so a landed reading changed nothing until
+    /// somebody scanned again, and while it waited a finding said "N call sites depend on
+    /// this" with a test among the N. The overclaim was deferred rather than removed.
+    ///
+    /// C++ on purpose: no contract, and no directory convention worth trusting on a codebase
+    /// of any size, so a reader is the only thing that can classify it and before the reading
+    /// there is nothing to say.
+    #[test]
+    fn a_reading_reaches_the_wiring_without_a_rescan() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let mut scan = cpp_scan(dir.path());
+        let helper = |s: &crate::scan::Scan| -> (Option<u32>, Option<bool>) {
+            let mut got = (None, None);
+            s.root.visit(&mut |n| {
+                if n.name == "helper" && n.kind == NodeKind::Func {
+                    got = (n.dependents, n.under_test);
+                }
+            });
+            got
+        };
+
+        assert_eq!(helper(&scan), (None, None), "no evidence, so no answer either way");
+
+        // **Keyed off the tree itself, never spelled out here.** The first version of this
+        // test wrote the keys by hand in the shape the implementation happened to use, so it
+        // passed while `retest_tree` looked reports up under a key nothing produces. Taking
+        // the ids from the scan is what makes it a test of the keying rather than of my
+        // memory of it.
+        let id_of = |s: &crate::scan::Scan, want: &str| {
+            let mut id = String::new();
+            s.root.visit(&mut |n| {
+                if n.name == want && n.kind == NodeKind::Func {
+                    id = n.id.clone();
+                }
+            });
+            assert!(!id.is_empty(), "`{want}` is in the fixture");
+            id
+        };
+        let mut reports = HashMap::new();
+        reports.insert(id_of(&scan, "covers"), Report { test: Some(true), ..Report::blank() });
+        reports.insert(id_of(&scan, "helper"), Report { test: Some(false), ..Report::blank() });
+        assert!(retest_tree(&mut scan, &reports), "the tree moved");
+        assert_eq!(
+            helper(&scan),
+            (Some(0), Some(true)),
+            "a test calls it, and nothing that is not a test does",
+        );
+    }
+}
+
+#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::model::Lang;
@@ -226,9 +462,14 @@ pub(crate) mod tests {
             owner: None,
             start_line: line,
             end_line: line + 4,
-            calls: calls.iter().map(|c| c.to_string()).collect(),
+            calls: calls.iter().map(|c| crate::parse::Call {
+                name: c.to_string(),
+                via: crate::parse::Via::Free,
+            })
+            .collect(),
             shape,
             cognitive: None,
+            in_cfg_test: false,
         }
     }
 
@@ -343,6 +584,12 @@ pub(crate) mod tests {
             .enumerate()
             .map(|(i, e)| (links.callers.get(&(i as u32)).map_or(0, |v| v.len()), e))
             .collect();
+        let edges: usize = links.callers.values().map(Vec::len).sum();
+        let called = links.callers.len();
+        println!(
+            "  {edges} edges · {called} functions with a caller ({:.0}%)",
+            100.0 * called as f64 / links.len() as f64
+        );
         hot.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
         for (n, e) in hot.iter().take(10) {
             println!("  {n:>4} callers  {}  {}:{}", e.name, links.files[e.file as usize], e.line);
@@ -365,4 +612,80 @@ pub(crate) mod tests {
         assert!(links.at("src/a.rs", 40).is_none());
         assert!(links.at("src/nope.rs", 1).is_none());
     }
+}
+
+/// Apply what readers have said about test code to a tree, without re-parsing anything.
+///
+/// **The whole point of the split.** `edges::wire` answers from the parse and the paths;
+/// this answers from the readings, which arrive continuously and long after the scan. A
+/// reading that says "this body is a test" changes what depends on the bodies it CALLS, and
+/// it changes them here rather than at the next scan — which is what it used to wait for,
+/// and while it waited a finding went on saying "13 call sites depend on this" with a test
+/// among the thirteen.
+///
+/// Nothing here re-parses. `links.bin` is written beside the tree precisely so the edges
+/// survive a launch that reads no source, and this is one pass over them — the same trade
+/// `treecache::redraw` makes when a trace lands.
+///
+/// Returns whether anything moved, so a caller can skip re-banking a tree already right.
+pub fn retest_tree(
+    scan: &mut crate::scan::Scan,
+    reports: &HashMap<String, crate::agentapi::Report>,
+) -> bool {
+    let links = scan.links.clone();
+
+    // Every function's entry id, what the structure already decided, and the `ord` its
+    // reading is keyed under — twins share a name and a path and nothing else tells them
+    // apart. See `assessment::key_of`.
+    let mut structural: HashMap<u32, Option<Testness>> = HashMap::new();
+    let mut said: HashMap<u32, bool> = HashMap::new();
+    scan.root.visit(&mut |n| {
+        if n.kind != NodeKind::Func {
+            return;
+        }
+        let Some(line) = n.line else { return };
+        let Some(id) = links.at_line(&n.path, line) else { return };
+        // **Keyed by NODE ID, because that is what the map in hand is keyed by.**
+        // `assessment::load` resolves the durable key on the way in and hands back
+        // `live.id`; so does the bank path. Building `key_of` here looked right and matched
+        // nothing — and the first test written for it passed, because its fixture keys were
+        // chosen to match this code instead of to match the store.
+        let key = &n.id;
+        structural.insert(id, n.tested);
+        // **A reader outranks a convention and never a contract.** A contract is a fact about
+        // what ships; overriding it with a judgement would be the tool second-guessing the
+        // compiler. See `model::Testness`.
+        if matches!(n.tested.map(|t| t.how), Some(Tested::Contract)) {
+            return;
+        }
+        if let Some(t) = reports.get(key).and_then(|r| r.test) {
+            said.insert(id, t);
+        }
+    });
+    if said.is_empty() {
+        return false;
+    }
+
+    let tally = links
+        .retest(|id| said.get(&id).copied().or_else(|| structural.get(&id).and_then(|t| t.map(|t| t.is_test))));
+
+    let mut moved = false;
+    scan.root.visit_mut(&mut |n| {
+        if n.kind != NodeKind::Func {
+            return;
+        }
+        let Some(line) = n.line else { return };
+        let Some(id) = links.at_line(&n.path, line) else { return };
+        if let Some(t) = said.get(&id) {
+            let now = Some(Testness { is_test: *t, how: Tested::Reader });
+            moved |= n.tested != now;
+            n.tested = now;
+        }
+        if let Some((dependents, under_test)) = tally.get(&id) {
+            moved |= n.dependents != *dependents || n.under_test != *under_test;
+            n.dependents = *dependents;
+            n.under_test = *under_test;
+        }
+    });
+    moved
 }

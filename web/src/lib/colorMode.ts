@@ -43,6 +43,7 @@ export type ColorMode =
   | 'surprise'
   | 'legible'
   | 'docs'
+  | 'composition'
   | 'traps'
   | 'clones'
   | 'callers'
@@ -130,6 +131,7 @@ export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
   surprise: 'live',
   legible: 'live',
   docs: 'live',
+  composition: 'live',
   traps: 'live',
   clones: 'cost',
   callers: 'cost',
@@ -183,6 +185,11 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   // wheel is untouched: same hues, same order down the column, two lenses wearing each other's.
   age: 'Age',
   churn: 'Churn',
+  // **Appended, never inserted.** The lens digits are `Object.keys` of this record, so a lens
+  // dropped in the middle shifts every digit after it and silently takes away a key somebody
+  // had learned — `keys.ts` says so at length. Twelve is past ⌘0 and ⌘-, so Testing has no
+  // digit of its own and is reached with `[` and `]`, which is the shape that does not run out.
+  composition: 'Composition',
 }
 
 export const MODE_HINT: Record<ColorMode, string> = {
@@ -190,6 +197,9 @@ export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
   legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
+  // Not "what is tested" — what the repo is MADE of. Every band is a statement about what a
+  // file IS, which is answerable, where what a test covers is not.
+  composition: 'what this repo is made of',
   traps: 'what will bite whoever edits it next',
   callers: 'how many things call it',
   reach: 'how much it calls out to',
@@ -536,6 +546,8 @@ export function rampOf(mode: ColorMode): Ramp {
  *  are given `heat` because that is what the fall-through gave them and nothing reads it; what
  *  matters is that they are a stated `never` rather than an omission. */
 const RAMP_OF: Record<ColorMode, Ramp> = {
+  // Categorical, like Blame and Language: four kinds, coloured by slot rather than shaded.
+  composition: 'heat',
   tangle: 'tangle',
   surprise: 'heat',
   legible: 'legible',
@@ -567,6 +579,10 @@ export function modeToken(mode: ColorMode): string {
   if (mode === 'reach') return '--reach-3'
   if (mode === 'blame') return '--lens-blame'
   if (mode === 'language') return '--lens-language'
+  // Categorical like the two above, so there is no ramp to take a `-3` from. The
+  // fall-through gave it Surprise's chip and nothing said so — the strip drew two lenses in
+  // one colour and only a person looking at it could tell.
+  if (mode === 'composition') return '--lens-composition'
   return `--${rampOf(mode)}-3`
 }
 
@@ -1193,6 +1209,23 @@ export function colorFor(
     return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${DOC_WORDS[g]}` }
   }
 
+  if (mode === 'composition') {
+    // **What a body IS, which is answerable — not what a test covers, which is not.**
+    //
+    // Four kinds and a neutral. `null` is nothing having placed it, and it is emphatically
+    // not "code": where test code cannot be told apart — C++ has no marker for one — a body
+    // might be either, and reporting it as hand-written would make every C++ repo look
+    // entirely yours.
+    //
+    // The evidence rides in the label because the tiers are not equal: a generator's own
+    // `DO NOT EDIT` banner and a directory somebody named `generated` are both true and only
+    // one of them is a fact.
+    if (node.kind !== 'func') return null
+    const k = node.codeKind
+    if (!k) return null
+    const fill = KIND_FILL[k.kind]
+    return { fill, stop: fill, ink: inkOn(fill), label: `${k.kind} (${k.how})` }
+  }
   if (mode === 'traps') {
     // Two states and an absence, not a ramp: a trap is a boolean and shading it would
     // invent degrees of danger nobody reported. Read-and-clear is drawn in the structural
@@ -1563,6 +1596,9 @@ export function churnLabel(commits: number, days: number): string {
  *  A `Record` for the same reason everything on this page is one now: it was a chain of
  *  `mode !== …` and the twelfth lens was not in it. */
 const FROM_COLS: Record<ColorMode, boolean> = {
+  // `Cols::kind` carries one entry per function, so a file stands in with its functions' own
+  // values rather than with a single point of its own — the same thing `tangle` does.
+  composition: true,
   churn: true,
   age: true,
   tangle: true,
@@ -1608,6 +1644,10 @@ const FROM_COLS: Record<ColorMode, boolean> = {
  *  it was missed from; the others were the band order and the ramp. A `Record` over
  *  `ColorMode` fails the build instead of the picture. */
 const STANDS_IN: Record<ColorMode, boolean> = {
+  // A file stands in for functions the window was never sent, out of `Cols::kind`. Without it
+  // the rim draws over whichever rings happened to arrive, which at a repo's root is a
+  // confident picture of a biased sample.
+  composition: true,
   // A file's own tangle is the mean over ALL its functions, computed in Rust rather than over
   // whichever rings happen to have arrived, so it is complete by construction exactly as churn
   // and age are — and `Cols::tangle` carries the per-function values so the distribution is
@@ -1725,6 +1765,36 @@ type Put = (key: string, label: string, fill: string, n: Node, ramp?: number) =>
  *  with nothing failing. Identical at runtime, legible in the source. */
 const UNKNOWN = '\u0000unknown'
 
+/** What each kind is painted with — see `model::Kind`.
+ *
+ *  **Code gets a colour of its own, and deliberately not the neutral.** Grey means "we do
+ *  not know" everywhere else here, and code is the most confident thing this lens says — a
+ *  file that went through a real grammar with nothing marking it otherwise. Wearing the
+ *  absence colour put the commonest real answer in the shade reserved for having none. */
+/** `Cols::kind`'s integers, in the order the backend writes them. */
+export const KIND_ORDER = ['code', 'test', 'generated', 'vendored', 'header'] as const
+
+export const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', string> = {
+  // The categorical palette, the same one Blame and Language spend — one set of slots for
+  // every lens that colours by category rather than by degree. It is already the palette the
+  // CVD margin was measured against, and a second hand-mixed set beside it would be a second
+  // thing to check every time either moved.
+  //
+  // FIXED slots rather than ranked ones, which is the one way this differs from Blame: there
+  // are five kinds and there always will be, so each keeps its colour across every repo. A
+  // key you can learn is worth more here than putting the biggest band in slot one.
+  code: 'var(--cat-3)',
+  // **Not the slot next to code's.** Header was `--cat-6`, a sage, chosen because a header is
+  // code-adjacent — which is the wrong instinct: nearness in MEANING is not a reason for
+  // nearness in hue, and two greens side by side in a five-row key is a key you have to read
+  // twice. Five bands is few enough that maximum separation is the only thing worth
+  // optimising for, and this is the hue nothing else here wears.
+  header: 'var(--cat-4)',
+  test: 'var(--cat-1)',
+  generated: 'var(--cat-2)',
+  vendored: 'var(--cat-5)',
+}
+
 function contribute(
   n: Node,
   outOfScope: boolean,
@@ -1780,6 +1850,11 @@ function contribute(
       kind: 'func'
       loc: number
       score?: Score
+      /** The Testing lens reads both, and a stand-in that omitted them would report every
+       *  ring-less file as unclassifiable — the confident-wrong-colour failure this whole
+       *  stand-in exists to avoid. */
+      tested?: { isTest: boolean; how: 'contract' | 'reader' | 'convention' } | null
+      underTest?: boolean | null
       children: Node[]
     } = { synthetic: true, kind: 'func', loc: 0, children: [] }
     if (mode === 'language' || mode === 'blame') {
@@ -1912,6 +1987,17 @@ function contribute(
         put(g, HEAT_WORDS[g], heatColor(GRADE_SURPRISE[g]), n)
       } else {
         put(UNKNOWN, 'unread', 'var(--structure)', n)
+      }
+    } else if (mode === 'composition') {
+      // Not read off a reading: a file's kind comes from what the repo declared and what its
+      // path says, so the absence here is "nothing placed this" rather than "nobody has read
+      // it". It takes the unanalyzed neutral for the reason Callers goes grey where calls
+      // were never parsed.
+      const k = n.codeKind
+      if (!k) {
+        put(UNKNOWN, 'unplaced', 'var(--unanalyzed)', n)
+      } else {
+        put(k.kind, k.kind, KIND_FILL[k.kind], n)
       }
     } else if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
       // Both are read straight off the reading, so both share one absence: a function
@@ -2066,6 +2152,9 @@ function contributeCols(
     kind: 'func'
     loc: number
     score?: Score
+      /** Composition reads this, and a stand-in that omitted it would report every ring-less
+       *  file as unplaced — the confident wrong colour this stand-in exists to avoid. */
+      codeKind?: Node['codeKind']
     callers?: number
     calls?: number
     cloneSize?: number
@@ -2108,6 +2197,22 @@ function contributeCols(
             lastTouchedDays: c.touched[i] < 0 ? null : c.touched[i],
           })
     stand.callers = c.callers[i] < 0 ? undefined : c.callers[i]
+    // **`null` for the absence, never `undefined`.** The Testing arm reads `underTest` and
+    // treats undefined and null alike, but `tested` has to come back a real object for a
+    // body that IS one — the band is `test`, not `cannot tell`, and a stand-in that dropped
+    // it would report a repo's test files as unclassifiable.
+    //
+    // `how` is `convention` because a column carries the answer and not the evidence for it.
+    // That is honest rather than lazy: this is a stand-in, and the panel that wants to say
+    // which tier decided has the function node in front of it by then.
+    // `how` is `convention` because a column carries the answer and not the evidence for it.
+    // Honest rather than lazy: this is a stand-in, and anything wanting to name the tier has
+    // the function node in front of it by then.
+    const k = c.kind?.[i] ?? -1
+    stand.codeKind =
+      k >= 0 && k < KIND_ORDER.length
+        ? { kind: KIND_ORDER[k], how: 'convention' as const }
+        : null
     stand.calls = c.calls[i] < 0 ? undefined : c.calls[i]
     stand.comparable = c.clones[i] < 0 ? undefined : 1
     stand.cloneSize = c.clones[i] > 0 ? c.clones[i] : undefined
@@ -2205,6 +2310,23 @@ const BUCKET_ORDER: Record<ColorMode, 'lines' | (() => readonly string[])> = {
   // Traps first: it is the only row anybody opens this lens to find. One name rather than a
   // full list, which works because an unlisted key now sorts LAST — see `rank`.
   traps: () => ['trap'],
+  // Loud end leading, like every other lens: what somebody opens Testing for is what nothing
+  // exercises. `no test calls this` is the finding, `a test calls this` is the reassurance,
+  // and the tests themselves are context under both.
+  //
+  // **`test` is listed rather than left out.** An unlisted key is `indexOf` −1, which sorts
+  // BEFORE index 0 — so omitting it would have put the tests at the top of the panel, which
+  // is precisely the opposite of what the comment above claimed. `cannot tell` stays
+  // unlisted on purpose: it is the absence bucket every lens keeps at the end.
+  // By lines, like Blame and Language and for the same reason the entry above this one
+  // gives: the row PRINTS lines, and a column of numbers not in their own order reads as a
+  // bug. It was a fixed order for a while — what is not yours at the top — which put ceph's
+  // 1,178,464 lines of code underneath its 1,469 of generated.
+  //
+  // The LEGEND keeps its fixed order deliberately. That is a key rather than a table: it
+  // carries no numbers to be out of order, and a key whose rows move between repos is one
+  // nobody can learn.
+  composition: 'lines',
   // Most-called first. It was fewest-first, on the argument that the sparse end is what people
   // sweep for — true, and outweighed by the rule now holding every lens together: one
   // direction, loud end leading, so a rim can be compared with the rim beside it and with the
@@ -2561,6 +2683,29 @@ export function histogramsFor(
 
 /** The distinct values present, for a legend. Categorical modes need one; ramps don't. */
 export function legendFor(root: Node, mode: ColorMode, read: BlameRead = 'touched'): string[] {
+  // **Composition lists the kinds that are actually there.** Its colours are fixed per kind
+  // rather than handed out by rank, so this is used only to say what EXISTS — the key keeps
+  // its own order. A legend naming `vendored` over a repo with none is a swatch for a colour
+  // nothing on screen is wearing, which is the same failure a merged rim band makes.
+  if (mode === 'composition') {
+    const seen = new Set<string>()
+    const walk = (n: Node) => {
+      // The absence is a band like any other and has to be able to appear in the key: a repo
+      // holding something nothing could place should say so, and one holding none should not
+      // advertise the swatch.
+      if (n.kind === 'func') seen.add(n.codeKind?.kind ?? 'unplaced')
+      // A file stands in for functions the window was never sent — `Cols::kind` carries them,
+      // and without this the key on a large repo lists whatever rings happened to arrive.
+      if (n.kind === 'file' && n.cols) {
+        for (const k of n.cols.kind ?? []) {
+          seen.add(k >= 0 && k < KIND_ORDER.length ? KIND_ORDER[k] : 'unplaced')
+        }
+      }
+      n.children.forEach(walk)
+    }
+    walk(root)
+    return [...seen]
+  }
   if (mode !== 'blame' && mode !== 'language') return []
   const seen = new Map<string, number>()
   const walk = (n: Node) => {

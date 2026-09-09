@@ -219,6 +219,16 @@
    * distinction. */
   --lens-blame: #25b9c9;
   --lens-language: #3cbda3;
+  /* Composition, for the same reason the two above have one: it colours by category and has
+   * no ramp to take a `-3` from. Without it the fall-through handed it `--heat-3` — Surprise's
+   * own chip — so ⌘1 and ⌘= were not merely close, they were the same swatch.
+   *
+   * The paragraph above is right that the ring is full: twelve hues around the wheel average
+   * thirty degrees apart, so a thirteenth lands inside somebody's neighbourhood wherever it
+   * goes. This takes the widest gap left — 224 to 278, between Callers and Clones — and
+   * separates from both by lightness as well: Callers is a pale periwinkle at 73, this is a
+   * deep indigo at 55. */
+  --lens-composition: #5b53c9;
   /* A replay's two flashes: `--birth` when a wedge first appears, `--touch` when one is
    * edited.
    *

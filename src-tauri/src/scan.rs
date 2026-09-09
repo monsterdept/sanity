@@ -801,6 +801,194 @@ fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u3
     }
 }
 
+/// What `.gitattributes` declares about whole paths.
+///
+/// **A declaration, not a guess.** `linguist-generated` and `linguist-vendored` are lines the
+/// repo's author wrote to tell tooling what a file is — the same act as a `jest` key in
+/// `package.json`, and so the same tier. GitHub reads them to keep vendored trees out of a
+/// project's language stats; there is no reason this map should draw them at full width while
+/// GitHub knows better.
+///
+/// One file at the root. Nested `.gitattributes` are legal and rare, and reading only the top
+/// one is stated rather than silently partial: a repo that declares deeper simply gets the
+/// convention tier, which is where it was before this existed.
+fn attributes(root: &Path) -> crate::edges::Attributes {
+    let mut out = crate::edges::Attributes::default();
+    let Ok(text) = std::fs::read_to_string(root.join(".gitattributes")) else { return out };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let Some(pattern) = parts.next() else { continue };
+        for attr in parts {
+            // `-linguist-generated` turns it OFF, and reading the negation as the assertion
+            // would be worse than not reading the line at all.
+            match attr {
+                "linguist-generated" | "linguist-generated=true" => {
+                    out.generated.push(pattern.to_string())
+                }
+                "linguist-vendored" | "linguist-vendored=true" => {
+                    out.vendored.push(pattern.to_string())
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// What this repo's own manifests say about whether it has tests at all.
+///
+/// **Read, never inferred.** A `jest` key, a runner in `devDependencies`, a `test` script, a
+/// `pytest.ini` — each is the author writing down how their tests are found, and the absence
+/// of every one of them is the author saying there are none. See [`crate::edges::Declares`].
+///
+/// Deliberately conservative: anything unrecognised leaves the answer absent, and absent falls
+/// through to convention and then to a reader exactly as before. The only claim made here is
+/// the one a file supports.
+/// [`declared_for`], corroborated against a scan that already exists.
+///
+/// The queue path has a tree and no file list, and the alternative was walking the repo again
+/// per request. One in-memory walk instead.
+pub fn declared_from_scan(repo: &Path, root: &Node) -> crate::edges::Declarations {
+    let mut files: Vec<(String, Lang)> = Vec::new();
+    root.visit(&mut |n| {
+        if n.kind == NodeKind::File {
+            if let Some(l) = n.lang {
+                files.push((n.path.clone(), l));
+            }
+        }
+    });
+    declared_for(repo, &files)
+}
+
+pub fn declared_for(root: &Path, files: &[(String, Lang)]) -> crate::edges::Declarations {
+    let mut out = crate::edges::Declarations::default();
+
+    // The JS family. `package.json` is the manifest, and any of three things in it — or a
+    // runner's own config file beside it — means tests are configured somewhere.
+    let manifests = ["package.json", "web/package.json", "app/package.json", "ui/package.json"];
+    let configs = [
+        "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs",
+        "jest.config.json", "vitest.config.ts", "vitest.config.js", "vitest.config.mts",
+        ".mocharc.json", ".mocharc.yml", ".mocharc.js", "karma.conf.js",
+    ];
+    let any_config = |dir: &Path| configs.iter().any(|c| dir.join(c).exists());
+    let mut saw_manifest = false;
+    let mut saw_runner = false;
+    for m in manifests {
+        let path = root.join(m);
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        saw_manifest = true;
+        if let Some(dir) = path.parent() {
+            saw_runner |= any_config(dir);
+        }
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+            // A manifest we could not read is not a manifest that said no.
+            saw_runner = true;
+            continue;
+        };
+        saw_runner |= json.get("jest").is_some() || json.get("vitest").is_some();
+        saw_runner |= json
+            .get("scripts")
+            .and_then(|s| s.get("test"))
+            .and_then(|t| t.as_str())
+            .is_some_and(|t| !t.trim().is_empty() && !t.contains("no test specified"));
+        for section in ["devDependencies", "dependencies"] {
+            if let Some(deps) = json.get(section).and_then(|d| d.as_object()) {
+                saw_runner |= deps.keys().any(|k| {
+                    matches!(k.as_str(), "jest" | "vitest" | "mocha" | "ava" | "jasmine" | "karma")
+                        || k.starts_with("@jest/")
+                });
+            }
+        }
+    }
+    // **One silence is not a statement; two independent ones are worth acting on.** A
+    // manifest that never mentions a runner has said nothing about tests — Deno and Bun ship
+    // their own and need no dependency, a justfile can invoke a global one, and a monorepo
+    // declares it next door. So the manifest only counts when nothing in the tree is shaped
+    // like a test either, which is the silence Deno's `foo_test.ts` and unittest's
+    // `test_*.py` both break.
+    if saw_manifest && !saw_runner && !any_test_shaped(files, is_js) {
+        out.js = Some(crate::edges::Declares::NoTests);
+    }
+
+    // Python. Any of these files configuring pytest is a declaration that tests exist; there
+    // is no manifest that is always present, so silence here stays silence.
+    let py_configs = ["pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "conftest.py"];
+    let py_any = py_configs.iter().any(|c| {
+        std::fs::read_to_string(root.join(c))
+            .is_ok_and(|t| t.contains("pytest") || t.contains("[tool:pytest]") || c == &"conftest.py")
+    });
+    if root.join("pyproject.toml").exists()
+        && !py_any
+        && !any_test_shaped(files, |l| l == Lang::Python)
+    {
+        out.python = Some(crate::edges::Declares::NoTests);
+    }
+    out
+}
+
+/// Does anything in this language look like a test, by any convention we know?
+///
+/// The second silence. Cheap — it is a filename match over a list the caller already has —
+/// and it is what keeps a repo whose tests nobody declared from being reported as having
+/// none. `unittest`, `deno test` and `bun test` all need no configuration whatsoever, so the
+/// filenames are the only thing that speaks for them.
+fn any_test_shaped(files: &[(String, Lang)], want: impl Fn(Lang) -> bool) -> bool {
+    files.iter().filter(|(_, l)| want(*l)).any(|(path, lang)| {
+        crate::edges::looks_like_a_test(*lang, path)
+    })
+}
+
+fn is_js(l: Lang) -> bool {
+    matches!(l, Lang::TypeScript | Lang::Tsx | Lang::JavaScript)
+}
+
+#[cfg(test)]
+mod declared_tests {
+    use super::*;
+
+    fn write(dir: &Path, rel: &str, body: &str) {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().expect("parent")).expect("mkdir");
+        std::fs::write(p, body).expect("write");
+    }
+
+    /// **A manifest that never mentions a runner has said nothing, not "no".**
+    ///
+    /// Deno and Bun ship test runners and need no dependency and no config, `unittest` is in
+    /// Python's standard library, and a justfile can call a globally installed jest. So the
+    /// manifest's silence only counts when the tree is silent too — and the moment one file
+    /// is shaped like a test, this repo is one that has tests nobody declared.
+    #[test]
+    fn silence_needs_seconding_before_it_means_no() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let root = dir.path();
+        write(root, "package.json", r#"{"name":"x","scripts":{"build":"tsc"}}"#);
+
+        let plain = [("src/app.ts".to_string(), Lang::TypeScript)];
+        assert_eq!(
+            declared_for(root, &plain).js,
+            Some(crate::edges::Declares::NoTests),
+            "no runner named and nothing shaped like a test",
+        );
+
+        // One Deno-style test file, declared nowhere, and the claim has to go away.
+        let with_tests = [
+            ("src/app.ts".to_string(), Lang::TypeScript),
+            ("src/app_test.ts".to_string(), Lang::TypeScript),
+        ];
+        assert_eq!(declared_for(root, &with_tests).js, None, "the tree says otherwise");
+
+        // And a manifest that DOES name one never gets there in the first place.
+        write(root, "package.json", r#"{"devDependencies":{"vitest":"^1"}}"#);
+        assert_eq!(declared_for(root, &plain).js, None, "a runner is configured");
+    }
+}
+
 /// Just the files — for callers that only need the list, such as a signature or a size.
 pub(crate) fn collect_files(root: &Path) -> Vec<(PathBuf, Lang)> {
     walk_files(root).files
@@ -1107,6 +1295,29 @@ pub enum Fidelity {
 /// `heuristic::distinctiveness`), so without the directory fallback every
 /// one-function-per-file codebase — which is most React frontends — would have its
 /// strongest signal switched off.
+/// The facts a directory cannot see for itself, gathered once for the repo.
+///
+/// **One argument because they are one KIND of argument.** Every field here is repo-wide by
+/// construction — a call graph, a clone relation, a git history, a `.gitattributes` line, a
+/// complexity band — and each was passed down separately until there were more of them than
+/// the scoring pass's own inputs. Grouping them says which half of `score_dir`'s signature is
+/// the subject and which half is the context.
+#[derive(Clone, Copy)]
+pub(crate) struct RepoWide<'a> {
+    pub(crate) wiring: &'a crate::edges::Wiring,
+    /// A copy is a relation between two functions usually in different directories, so it
+    /// cannot be found from inside one.
+    pub(crate) copies: &'a crate::clones::Copies,
+    /// The log walk, the per-line blame and the timeline's edit counts — see
+    /// `trace::Histories`.
+    pub(crate) hist: crate::trace::Histories<'a>,
+    /// What `.gitattributes` declares about whole paths, read once for the repo — see
+    /// `attributes`.
+    pub(crate) attrs: &'a crate::edges::Attributes,
+    /// What counts as normal complexity for a body this size, in this repo — see `tangle`.
+    pub(crate) bands: &'a crate::tangle::Bands,
+}
+
 fn score_dir(
     files: &[ParsedFile],
     // Index of this directory's first file in the flat list [`edges::wire`] was given.
@@ -1114,17 +1325,10 @@ fn score_dir(
     // scoring pass is per directory: a directory cannot know its own offset, and a second
     // flattening here would be a second chance to disagree with the first.
     base: usize,
-    wiring: &crate::edges::Wiring,
-    // Repo-wide for the same reason the wiring is: a copy is a relation between two
-    // functions that are usually in different directories, so it cannot be found from
-    // inside one.
-    copies: &crate::clones::Copies,
-    // The log walk, the per-line blame and the timeline's edit counts — see `trace::Histories`.
-    hist: crate::trace::Histories,
-    // What counts as normal complexity for a body this size, in this repo — see `tangle`.
-    bands: &crate::tangle::Bands,
+    repo: RepoWide<'_>,
     fidelity: Fidelity,
 ) -> Vec<(String, Node)> {
+    let RepoWide { wiring, copies, hist, attrs, bands } = repo;
     let dir_prints: Vec<&Fingerprint> = files.iter().flat_map(|f| f.prints.iter()).collect();
 
     files
@@ -1135,6 +1339,11 @@ fn score_dir(
             // deferred trace uses, so a map drawn with git in hand and one that gets git
             // afterwards cannot come out different. See `trace::apply`.
             let file_trace = crate::trace::FileTrace::of(&file.rel_path, hist);
+            // **What this file IS, decided once and inherited by its functions.** The banner a
+            // generator writes is at the top of the file, not on any body, and a vendored tree
+            // is a path — so both are answered here and handed down. A function that is a TEST
+            // overrides it, because Rust puts its unit tests inside the file they test.
+            let file_kind = crate::edges::kind_of(&file.rel_path, &file.head, attrs);
 
             let ords = ordinals(&file.funcs);
             let children: Vec<Node> = file
@@ -1257,6 +1466,43 @@ fn score_dir(
                         // reads as "nothing calls this", which is the finding this lens
                         // exists to make, asserted about code nobody looked at.
                         callers: wire.map(|w| w.callers),
+                        dependents: wire.and_then(|w| w.dependents),
+                        under_test: wire.and_then(|w| w.under_test),
+                        tested: wiring.tested.get(&(base + fi, i)).copied(),
+                        // **Vendored and generated first, then test, then code — and code is
+                        // asserted rather than assumed.**
+                        //
+                        // A vendored library's own tests are vendored: what matters about
+                        // them is that nobody here maintains either. Generated the same. Only
+                        // after those does the per-body question apply, because Rust puts its
+                        // unit tests inside the file they test.
+                        //
+                        // `Code` needs test-ness to be KNOWN false. Where nothing can tell a
+                        // test apart — C++ has no marker — a body is not "probably yours", it
+                        // is unplaced, and the lens draws that as its own neutral. Collapsing
+                        // the two would report every C++ repo as entirely hand-written code.
+                        code_kind: file_kind
+                            .or_else(|| {
+                                wiring.tested.get(&(base + fi, i)).map(|t| crate::model::Kinded {
+                                    kind: if t.is_test {
+                                        crate::model::Kind::Test
+                                    } else {
+                                        crate::model::Kind::Code
+                                    },
+                                    how: t.how,
+                                })
+                            })
+                            // **Code is the residual, and it is always available.** Nothing
+                            // claimed this body, so it is code somebody here wrote — a
+                            // definition rather than a guess. Making it conditional on
+                            // test-ness being known false sounded careful and made the lens
+                            // useless: C++ has no marker for a test, so ceph reported
+                            // 1,363,232 of its 1.5M lines as unplaceable. Not knowing whether
+                            // a `.cc` file is a test does not stop it being code.
+                            .or(Some(crate::model::Kinded {
+                                kind: crate::model::Kind::Code,
+                                how: crate::model::Tested::Parsed,
+                            })),
                         calls: wire.map(|w| w.calls),
                         incident: wire.map(|w| w.incident),
                         away: wire.map(|w| w.away),
@@ -1350,6 +1596,13 @@ fn score_dir(
                     // are — and for the same reason, that a mean over a container's leaves
                     // converges on the repo's mean and says nothing.
                     callers: None,
+                    dependents: None,
+                    under_test: None,
+                    tested: None,
+                    code_kind: file_kind.or(Some(crate::model::Kinded {
+                        kind: crate::model::Kind::Code,
+                        how: crate::model::Tested::Parsed,
+                    })),
                     calls: None,
                     incident: None,
                     away: None,
@@ -1728,7 +1981,17 @@ pub fn scan(
     // These two are single passes over what is already in memory and are over in moments;
     // they get a name rather than a count because there is nothing to divide.
     on_progress(Progress::phase("wiring the call graph"));
-    let wiring = crate::edges::wire(&flat);
+    // **What a reader has already said about which bodies are tests**, for the languages
+    // where nothing else can say — see `edges::contract_of`. Read from the store here rather
+    // than taken as an argument: `wire` runs inside the scan and every caller loads the
+    // readings AFTER it, so the alternative was an eleventh parameter on a signature a
+    // reviewer has already called the awkward part of this function. It costs one pass over
+    // `.sanity/readings/` on a repo that has any, and nothing at all on one that does not.
+    let named: Vec<(String, Lang)> =
+        flat.iter().map(|f| (f.path.to_string(), f.lang)).collect();
+    let declared = declared_for(root, &named);
+    let attrs = &attributes(root);
+    let wiring = crate::edges::wire_with(&flat, &declared);
     on_progress(Progress::phase("finding copies"));
     let copies = crate::clones::find(&flat);
     // Where each directory's files start in `flat`. A prefix sum over the same iteration
@@ -1765,7 +2028,14 @@ pub fn scan(
         .par_iter()
         .enumerate()
         .map(|(di, parsed)| {
-            let out = score_dir(parsed, offsets[di], &wiring, &copies, hist, &bands, fidelity);
+            let repo = RepoWide {
+                wiring: &wiring,
+                copies: &copies,
+                hist,
+                attrs,
+                bands: &bands,
+            };
+            let out = score_dir(parsed, offsets[di], repo, fidelity);
             // After the directory rather than during it: `score_dir` is one call per
             // directory and splitting it to report inside would be reshaping the work to
             // suit the narration. At `Full` fidelity a big directory is the slow unit here,
@@ -2421,6 +2691,7 @@ mod tests {
                 body: format!("{{ {i} }}"),
                 doc: None,
                 owner: None,
+                in_cfg_test: false,
                 start_line: i as u32 * 3 + 1,
                 end_line: i as u32 * 3 + 2,
                 shape: None,

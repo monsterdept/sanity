@@ -203,6 +203,33 @@ export interface Node {
    *  The two COUNTS travel rather than the ratio they make, so a container can sum them —
    *  see `wiringShare`. */
   callers: number | null
+  /** Callers that are not this repo's own test code, or `null` where test code cannot be
+   *  told apart here — see `edges::Wire::dependents`. A test is a caller and it is not a
+   *  dependent, and one number cannot be both. */
+  dependents: number | null
+  /** Does a test call this — `null` where test code cannot be told apart at all.
+   *
+   *  **Three states, and the third is the point.** `false` means tests are separable here
+   *  and none of this body's callers is one; `null` means nothing could classify them —
+   *  C++ has no test contract, so on a repo like ceph the whole language is `null`. The two
+   *  must not paint alike: one is a finding, the other is an absence.
+   *
+   *  Never called coverage. Coverage means the line EXECUTED, which takes an instrumented
+   *  run of the suite, and nothing here runs anything. */
+  underTest: boolean | null
+  /** What this body IS — code, a test, generated, or vendored — and on what evidence.
+   *
+   *  `null` is not "code": it is nothing having placed it. On a language where test code
+   *  cannot be told apart, a body might be either, and the Composition lens draws that as
+   *  its own neutral rather than reporting the repo as entirely hand-written. */
+  codeKind: { kind: 'code' | 'test' | 'generated' | 'vendored' | 'header'; how: 'contract' | 'reader' | 'convention' | 'parsed' } | null
+  /** Is this body itself test code, and on what evidence — see `model::Testness`.
+   *
+   *  `how` is `contract` (the toolchain says so), `reader` (a reader read the body) or
+   *  `convention` (a filename or a directory). The level travels with the answer so a panel
+   *  can say which it leaned on; a bare boolean would be an estimate whose accuracy is the
+   *  tool's own diligence, worn as a property of the code. */
+  tested: { isTest: boolean; how: 'contract' | 'reader' | 'convention' | 'parsed' } | null
   calls: number | null
   incident: number | null
   away: number | null
@@ -466,6 +493,14 @@ export interface Cols {
   tangle: [number, number][]
   touched: number[]
   callers: number[]
+  /** What the Composition lens paints, per function: `0` code, `1` test, `2` generated,
+   *  `3` vendored, `-1` nothing could place it.
+   *
+   *  Carried so a FILE can stand in for functions the window was never sent. Rings arrive
+   *  only for files wide enough to draw an inside, so at a repo's root most files have none,
+   *  and a histogram over the ones that happened to arrive is a confident picture of a
+   *  biased sample. */
+  kind: number[]
   calls: number[]
   clones: number[]
 }
@@ -616,6 +651,15 @@ interface WireNode {
   /** Optional because a scan taken by an older backend does not carry them, and the absence
    *  has to arrive as `null` rather than 0 — see `Node.callers`. */
   callers?: number | null
+  /** Callers that are not test code, absent where test code cannot be told apart. */
+  dependents?: number | null
+  /** Does a test call this — absent where nothing can classify test code here. Three
+   *  states, and `null` is not `false`: see `Node.underTest`. */
+  under_test?: boolean | null
+  /** Is this body itself test code, and on what evidence — `model::Testness`. */
+  tested?: { is_test: boolean; how: 'contract' | 'reader' | 'convention' | 'parsed' } | null
+  /** What this body is — see `Node.codeKind`. */
+  code_kind?: { kind: 'code' | 'test' | 'generated' | 'vendored' | 'header'; how: 'contract' | 'reader' | 'convention' | 'parsed' } | null
   calls?: number | null
   incident?: number | null
   away?: number | null
@@ -682,6 +726,13 @@ function toNode(w: WireNode): Node {
     loc: w.loc,
     line: w.line ?? null,
     endLine: w.end_line ?? null,
+    // **`?? null` and never `?? false`.** All three carry an absence that is not a zero:
+    // `underTest` null means test code cannot be told apart in this language, which the
+    // Testing lens draws as its own neutral rather than as "no test calls this".
+    dependents: w.dependents ?? null,
+    underTest: w.under_test ?? null,
+    tested: w.tested ? { isTest: w.tested.is_test, how: w.tested.how } : null,
+    codeKind: w.code_kind ?? null,
     bytes: w.bytes ?? null,
     lang: w.lang ?? null,
     excluded: w.excluded ?? false,
@@ -1344,8 +1395,11 @@ export interface Say {
  *
  *  - `flagged` — needs doing. Stays in the list and rises to the top of it.
  *  - `fine-for-now` — fine as the code stands; comes back when the code moves.
- *  - `fine-always` — fine whatever the code does. */
-export type Verdict = 'flagged' | 'fine-for-now' | 'fine-always'
+ *  - `fine-always` — fine whatever the code does.
+ *  - `false-positive` — the finding was not TRUE. Hidden until the rule changes rather than
+ *    until the code does: the rule is just as wrong tomorrow, and a rule that starts asking a
+ *    different question may be right. The two "forever" verdicts differ in who is wrong. */
+export type Verdict = 'flagged' | 'fine-for-now' | 'fine-always' | 'false-positive'
 
 /** One finding somebody has decided about. Mirrors `findings::Decision`. */
 export interface Decision {

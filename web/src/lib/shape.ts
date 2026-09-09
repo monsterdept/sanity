@@ -72,7 +72,12 @@ function dirNode(path: string, name: string, kind: 'dir' | 'file'): Node {
     resolvable: null,
     orphans: null,
     sinks: null,
-    cloneGroup: null,
+    // A synthesised node stands for structure, never for a measurement.
+  dependents: null,
+  underTest: null,
+  tested: null,
+  codeKind: null,
+  cloneGroup: null,
     cloneSize: null,
     comparable: null,
     copied: null,
