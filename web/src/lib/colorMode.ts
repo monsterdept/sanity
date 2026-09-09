@@ -1766,16 +1766,21 @@ const UNKNOWN = '\u0000unknown'
  *  **Code gets a colour of its own, and deliberately not the neutral.** Grey means "we do
  *  not know" everywhere else here, and code is the most confident thing this lens says — a
  *  file that went through a real grammar with nothing marking it otherwise. Wearing the
- *  absence colour put the commonest real answer in the shade reserved for having none.
- *
- *  It stays quiet, because on a healthy repo it is most of the map and a lens where the
- *  ordinary case shouts is one nobody can read. What stands out is what is NOT yours. */
+ *  absence colour put the commonest real answer in the shade reserved for having none. */
 const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', string> = {
-  code: 'var(--kind-code)',
-  test: 'var(--kind-test)',
-  generated: 'var(--kind-generated)',
-  vendored: 'var(--kind-vendored)',
-  header: 'var(--kind-header)',
+  // The categorical palette, the same one Blame and Language spend — one set of slots for
+  // every lens that colours by category rather than by degree. It is already the palette the
+  // CVD margin was measured against, and a second hand-mixed set beside it would be a second
+  // thing to check every time either moved.
+  //
+  // FIXED slots rather than ranked ones, which is the one way this differs from Blame: there
+  // are five kinds and there always will be, so each keeps its colour across every repo. A
+  // key you can learn is worth more here than putting the biggest band in slot one.
+  code: 'var(--cat-3)',
+  header: 'var(--cat-6)',
+  test: 'var(--cat-1)',
+  generated: 'var(--cat-2)',
+  vendored: 'var(--cat-5)',
 }
 
 function contribute(

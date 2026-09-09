@@ -167,32 +167,6 @@
    * and Traps cannot be confused at a glance. Hot pink is louder than any ramp end here,
    * which is the point: this is the one lens where the answer is "look at these". */
   --trap: #ff4f95;
-  /* Composition is a SET, not a ramp: four kinds with no order between them, so they are
-   * named colours rather than stops on a scale.
-   *
-   * **Your own code is not in this list.** It takes the structural neutral, because on a
-   * healthy repo it is most of the map and a lens where the ordinary case shouts is one
-   * nobody can read. These three are what stands out — what is NOT yours to maintain, which
-   * is what somebody opens this to ask.
-   *
-   * Blue for tests, amber for generated, violet for vendored: three hues far enough apart to
-   * survive a rim of sub-pixel bands, and none of them `--trap`'s hot pink. `--clone` is also
-   * violet and does not collide, because no wedge is ever painted by both lenses at once.
-   *
-   * A file nothing could place takes `--unanalyzed`, like every other absence here. "Nothing
-   * placed this" must never wear the colour of "this is yours". */
-  /* Code is not grey. Grey means "we do not know" everywhere else on this map, and this is
-   * the most confident thing the lens says — a file that went through a real grammar with
-   * nothing marking it as anything else. Wearing the absence colour put the commonest real
-   * answer in the one shade reserved for having none, next to `unplaced` in the legend.
-   *
-   * Quiet enough to be most of a healthy repo without shouting, and far from the four hues
-   * that mark what is NOT yours. */
-  --kind-code: #6f7f6a;
-  --kind-test: #4a7fd4;
-  --kind-generated: #c8792f;
-  --kind-vendored: #8b5fbf;
-  --kind-header: #3f8f96;
   /* A copy gets a mark, not a ramp — see `--trap` above and the paragraph under `--birth`
    * for the idiom. "This body appears seven times" is a fact somebody can go and check, not
    * a degree of anything, so it sits off every scale exactly as a reported trap does. The
@@ -752,11 +726,6 @@
 
   --unanalyzed: #4a4642;
   --trap: #ff5ea1;
-  --kind-code: #8a9a84;
-  --kind-test: #6a9ce8;
-  --kind-generated: #d9924a;
-  --kind-vendored: #a37ad4;
-  --kind-header: #58a9b0;
   /* Lifted off the ink the way --trap is. Worst case: 33.9 from --structure, 28.8 from
    * --unanalyzed, 17.6 from --trap, 15.3 from --callers-4. */
   --clone: #bd5cff;

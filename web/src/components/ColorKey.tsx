@@ -18,6 +18,7 @@ import {
 import { useLayoutEffect, useRef, useState } from 'react'
 import { heatColor, type Ramp } from '../lib/api'
 import { inkOn } from '../lib/ink'
+import { LENS_KEYS } from '../lib/keys'
 
 /** A padlock, for a lens with nothing in it yet.
  *
@@ -250,11 +251,11 @@ function Legend({
   // with no way to tell a test apart is a different sentence and the honest one.
   if (mode === 'composition') {
     const kinds: [string, string][] = [
-      ['var(--kind-vendored)', 'vendored'],
-      ['var(--kind-generated)', 'generated'],
-      ['var(--kind-test)', 'test'],
-      ['var(--kind-header)', 'header'],
-      ['var(--kind-code)', 'code'],
+      ['var(--cat-5)', 'vendored'],
+      ['var(--cat-2)', 'generated'],
+      ['var(--cat-1)', 'test'],
+      ['var(--cat-6)', 'header'],
+      ['var(--cat-3)', 'code'],
       ['var(--unanalyzed)', 'unplaced'],
     ]
     return (
@@ -369,14 +370,16 @@ function Legend({
 /**
  * The key that reaches this lens, or `null` where the shortcuts have run out.
  *
- * Nine digits, then ⌘0 for the tenth as every tab strip does, then ⌘- for the eleventh —
- * which is the position the old `(i + 1) % 10` wrapped at, so Age advertised ⌘1, a key that
- * selects Surprise. A twelfth lens gets no shortcut and says nothing about one, because a
- * tooltip naming a key that does something else is worse than a tooltip naming none. The
- * keys themselves live in `App`'s listener; this is the only place they are written down.
+ * **Read from `LENS_KEYS`, which is the list the handler dispatches on.** This was a second
+ * copy — nine digits, then `0`, then `-`, then `=` — under a comment claiming to be the only
+ * place the keys were written down, which it had not been for as long as `keys.ts` existed.
+ * The row moving one key to the left would have left the tooltips advertising the old
+ * position: every lens naming the key of the one before it, silently, and the guard that
+ * presses every key in every state cannot see a label.
+ *
+ * A lens past the end says nothing rather than naming a key that does something else.
  */
-const shortcut = (i: number) =>
-  i < 9 ? `${i + 1}` : i === 9 ? '0' : i === 10 ? '-' : i === 11 ? '=' : null
+const shortcut = (i: number) => LENS_KEYS[i] ?? null
 
 /** What the menu says at the bottom.
  *

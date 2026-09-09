@@ -37,10 +37,10 @@ console.log('the lens digits answer, and answer with the right lens')
   // the digits. Tab opens the pane, and the pane being open is a state the digits pass
   // through untouched.
   const open: Where = { ...idle, finding: true }
-  check('⌘1 still works with the find pane open', lens(actOf(cmd('1'), open)) === 'tangle')
-  check('⌘- still works with the find pane open', lens(actOf(cmd('-'), open)) === 'age')
+  check('⌘` still works with the find pane open', lens(actOf(cmd('`'), open)) === 'tangle')
+  check('⌘- still works with the find pane open', lens(actOf(cmd('-'), open)) === 'churn')
   const typed: Where = { ...idle, typing: true }
-  check('⌘1 still works with a field focused', lens(actOf(cmd('1'), typed)) === 'tangle')
+  check('⌘` still works with a field focused', lens(actOf(cmd('`'), typed)) === 'tangle')
 }
 
 console.log('Tab opens the finder, and only where Tab is free')
@@ -64,7 +64,7 @@ console.log('the two keys that are not lenses')
   check('⌘f is refused under another panel', actOf(cmd('f'), { ...idle, covered: true }) === null)
   check(
     'but the digits are not — the map behind a panel is still yours to recolour',
-    lens(actOf(cmd('1'), { ...idle, covered: true })) === 'tangle',
+    lens(actOf(cmd('`'), { ...idle, covered: true })) === 'tangle',
   )
   check('⌘+ toggles history', actOf(cmd('+'), idle)?.do === 'history')
   // `+` is Shift-`=`, so a handler that refuses Shift never sees it — and the way back out
@@ -84,15 +84,19 @@ console.log('the keyboard does what the strip does, and never less')
   // readings ⌘1 was dead while clicking Surprise worked. A shortcut that is live in one place
   // and dead in the other is a shortcut that lies.
   //
-  // **⌘2, because Surprise moved.** Complexity took the first row — it is the one lens that
-  // paints a repo nobody has read — and Complexity is rarely the locked one, so checking ⌘1
-  // here would have quietly stopped testing what this was written for. The lens that CAN have
-  // nothing in it is the one to press.
-  check('⌘2 reaches a lens with nothing in it', lens(actOf(cmd('2'), idle)) === 'surprise')
-  check('⌘- reaches one during a replay', lens(actOf(cmd('-'), idle)) === 'age')
+  // **The lens that CAN have nothing in it is the one to press.** Complexity took the first
+  // row — it is the one lens that paints a repo nobody has read — and is rarely the locked
+  // one, so pressing the first key here would quietly stop testing what this was written for.
+  // Surprise is the one to reach, and it is ⌘1 now that the row starts a key to the left.
+  check('⌘1 reaches a lens with nothing in it', lens(actOf(cmd('1'), idle)) === 'surprise')
+  check('⌘0 reaches one during a replay', lens(actOf(cmd('0'), idle)) === 'age')
   check('an unrelated ⌘ key is not ours', actOf(cmd('k'), idle) === null)
   check('a bare digit is a character', actOf({ ...cmd('1'), meta: false }, idle) === null)
+  check('a bare backtick is a character', actOf({ ...cmd('`'), meta: false }, idle) === null)
   check('⌥⌘1 is not ours', actOf({ ...cmd('1'), alt: true }, idle) === null)
+  // The row is thirteen keys for thirteen lenses, so the last one is reachable again —
+  // Composition arrived with no key at all under the old row.
+  check('⌘= reaches the last lens', lens(actOf(cmd('='), idle)) === 'composition')
 }
 
 console.log('stepping, because the digits ran out')
