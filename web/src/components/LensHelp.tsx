@@ -188,21 +188,23 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
           fills={[
             'var(--unanalyzed)',
             'var(--structure)',
+            'var(--kind-header)',
             'var(--kind-test)',
             'var(--kind-generated)',
             'var(--kind-vendored)',
           ]}
         />
       }
-      measures="what this repo is made of: code somebody here wrote, tests, generated code, and vendored code."
-      values="unplaced · code · test · generated · vendored"
+      measures="what this repo is made of: code somebody here wrote, headers, tests, generated code, and vendored code."
+      values="code · header · test · generated · vendored"
     >
       Your own code takes the neutral, so what stands out is what you are not on the hook for.
       A generator's own <code>DO NOT EDIT</code> banner and a <code>linguist-vendored</code>
       line in <code>.gitattributes</code> are declarations and are read as such; a path like{' '}
       <code>vendor/</code> is a convention, and the wedge says which it leaned on.{' '}
-      <code>unplaced</code> means nothing could say — a language with no way to tell a test
-      apart leaves its bodies there rather than calling them yours.
+      <code>code</code> is what is left when none of the others claimed it — so a language
+      with no way to tell a test apart still reads as code, which it is, rather than as
+      nothing.
     </Lens>
   ),
   traps: (

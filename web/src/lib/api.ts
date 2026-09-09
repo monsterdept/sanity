@@ -222,7 +222,7 @@ export interface Node {
    *  `null` is not "code": it is nothing having placed it. On a language where test code
    *  cannot be told apart, a body might be either, and the Composition lens draws that as
    *  its own neutral rather than reporting the repo as entirely hand-written. */
-  codeKind: { kind: 'code' | 'test' | 'generated' | 'vendored'; how: 'contract' | 'reader' | 'convention' } | null
+  codeKind: { kind: 'code' | 'test' | 'generated' | 'vendored' | 'header'; how: 'contract' | 'reader' | 'convention' } | null
   /** Is this body itself test code, and on what evidence — see `model::Testness`.
    *
    *  `how` is `contract` (the toolchain says so), `reader` (a reader read the body) or
@@ -659,7 +659,7 @@ interface WireNode {
   /** Is this body itself test code, and on what evidence — `model::Testness`. */
   tested?: { is_test: boolean; how: 'contract' | 'reader' | 'convention' } | null
   /** What this body is — see `Node.codeKind`. */
-  code_kind?: { kind: 'code' | 'test' | 'generated' | 'vendored'; how: 'contract' | 'reader' | 'convention' } | null
+  code_kind?: { kind: 'code' | 'test' | 'generated' | 'vendored' | 'header'; how: 'contract' | 'reader' | 'convention' } | null
   calls?: number | null
   incident?: number | null
   away?: number | null

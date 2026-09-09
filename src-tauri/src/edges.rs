@@ -585,6 +585,18 @@ pub fn kind_of(path: &str, head: &str, declared: &Attributes) -> Option<Kinded> 
     {
         return by(Kind::Generated, Tested::Contract);
     }
+    // Declarations rather than an implementation. `.d.ts` is contract-grade — the TypeScript
+    // compiler emits nothing for one — and the rest are the universal spelling in their
+    // ecosystems. Checked before the vendored and generated paths deliberately: a generated
+    // header is more usefully drawn as generated, so this is only reached when neither of
+    // those claimed it, which is why it sits after their contract checks and before their
+    // conventions.
+    if file.ends_with(".d.ts") {
+        return by(Kind::Header, Tested::Contract);
+    }
+    if [".h", ".hpp", ".hh", ".hxx", ".pyi", ".idl"].iter().any(|e| file.ends_with(e)) {
+        return by(Kind::Header, Tested::Convention);
+    }
     if seg("vendor") || seg("node_modules") || seg("third_party") || seg("Godeps") {
         return by(Kind::Vendored, Tested::Convention);
     }
@@ -1186,9 +1198,20 @@ mod tests {
             kind_of("deps/foo/bar.rs", "", &said).map(|k| (k.kind, k.how)),
             Some((Kind::Vendored, Tested::Contract)),
         );
-        // **Everything else is code, and says nothing rather than guessing.** A file this
-        // cannot place is not "probably yours" — `None` is what lets the lens draw the
-        // difference between a classification and a shrug.
+        // Declarations rather than an implementation, and `.d.ts` is the contract: the
+        // TypeScript compiler emits nothing for one.
+        assert_eq!(
+            kind_of("src/os/bluestore/BlueStore.h", "", &none).map(|k| (k.kind, k.how)),
+            Some((Kind::Header, Tested::Convention)),
+        );
+        assert_eq!(
+            kind_of("types/api.d.ts", "", &none).map(|k| (k.kind, k.how)),
+            Some((Kind::Header, Tested::Contract)),
+        );
+        // **Nothing here places ordinary code, and that is deliberate**: `Kind::Code` is the
+        // residual and is applied by the caller, so this function only ever reports a
+        // POSITIVE finding about a path. A `None` from here means "none of my business",
+        // never "unplaceable".
         assert_eq!(kind_of("src/main.rs", "fn main() {}", &none), None);
     }
 

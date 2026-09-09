@@ -176,7 +176,11 @@ use std::path::{Path, PathBuf};
 ///    `#[serde(default)]`, so a version-24 tree loads it `None` everywhere, and `None` is the
 ///    band that means "nothing could place this". A warm repo would draw its vendored trees
 ///    and its protobuf output as unclassifiable rather than as what they are.
-const VERSION: u32 = 25;
+/// 26: `code` is the residual kind rather than a conclusion, and headers are a kind of their
+///    own. A version-25 tree holds `None` on every body a language could not tell a test
+///    from — 1,363,232 of ceph's 1.5M lines — and would draw a repo as unplaceable that this
+///    can place.
+const VERSION: u32 = 26;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

@@ -253,6 +253,7 @@ function Legend({
       ['var(--kind-vendored)', 'vendored'],
       ['var(--kind-generated)', 'generated'],
       ['var(--kind-test)', 'test'],
+      ['var(--kind-header)', 'header'],
       ['var(--structure)', 'code'],
       ['var(--unanalyzed)', 'unplaced'],
     ]

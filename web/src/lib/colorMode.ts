@@ -1767,11 +1767,12 @@ const UNKNOWN = '\u0000unknown'
  *  omission: on a healthy repo it is most of the map, and a lens where the ordinary case
  *  shouts is a lens nobody can read. What stands out is what is NOT yours to maintain —
  *  which is the question somebody opens this to ask. */
-const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored', string> = {
+const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', string> = {
   code: 'var(--structure)',
   test: 'var(--kind-test)',
   generated: 'var(--kind-generated)',
   vendored: 'var(--kind-vendored)',
+  header: 'var(--kind-header)',
 }
 
 function contribute(
@@ -2187,9 +2188,10 @@ function contributeCols(
     // `how` is `convention` because a column carries the answer and not the evidence for it.
     // Honest rather than lazy: this is a stand-in, and anything wanting to name the tier has
     // the function node in front of it by then.
-    const kinds = ['code', 'test', 'generated', 'vendored'] as const
+    const kinds = ['code', 'test', 'generated', 'vendored', 'header'] as const
     const k = c.kind?.[i] ?? -1
-    stand.codeKind = k >= 0 && k < 4 ? { kind: kinds[k], how: 'convention' as const } : null
+    stand.codeKind =
+      k >= 0 && k < kinds.length ? { kind: kinds[k], how: 'convention' as const } : null
     stand.calls = c.calls[i] < 0 ? undefined : c.calls[i]
     stand.comparable = c.clones[i] < 0 ? undefined : 1
     stand.cloneSize = c.clones[i] > 0 ? c.clones[i] : undefined
@@ -2298,8 +2300,9 @@ const BUCKET_ORDER: Record<ColorMode, 'lines' | (() => readonly string[])> = {
   // Loud end leading, like every other lens — but here the loud end is what is NOT yours.
   // Somebody opens Composition to find out how much of a repo they are actually on the hook
   // for, so the answer they came for is at the top and their own code sits under it.
-  // `unplaced` stays unlisted: it is the absence bucket every lens keeps at the end.
-  composition: () => ['vendored', 'generated', 'test', 'code'],
+  // `unplaced` stays unlisted and is now rare by construction: `code` is the residual, so
+  // only a node the scan never placed at all can land there.
+  composition: () => ['vendored', 'generated', 'test', 'header', 'code'],
   // Most-called first. It was fewest-first, on the argument that the sparse end is what people
   // sweep for — true, and outweighed by the rule now holding every lens together: one
   // direction, loud end leading, so a rim can be compared with the rim beside it and with the

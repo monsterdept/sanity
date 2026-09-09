@@ -1469,16 +1469,28 @@ fn score_dir(
                         // test apart — C++ has no marker — a body is not "probably yours", it
                         // is unplaced, and the lens draws that as its own neutral. Collapsing
                         // the two would report every C++ repo as entirely hand-written code.
-                        code_kind: file_kind.or_else(|| {
-                            wiring.tested.get(&(base + fi, i)).map(|t| crate::model::Kinded {
-                                kind: if t.is_test {
-                                    crate::model::Kind::Test
-                                } else {
-                                    crate::model::Kind::Code
-                                },
-                                how: t.how,
+                        code_kind: file_kind
+                            .or_else(|| {
+                                wiring.tested.get(&(base + fi, i)).map(|t| crate::model::Kinded {
+                                    kind: if t.is_test {
+                                        crate::model::Kind::Test
+                                    } else {
+                                        crate::model::Kind::Code
+                                    },
+                                    how: t.how,
+                                })
                             })
-                        }),
+                            // **Code is the residual, and it is always available.** Nothing
+                            // claimed this body, so it is code somebody here wrote — a
+                            // definition rather than a guess. Making it conditional on
+                            // test-ness being known false sounded careful and made the lens
+                            // useless: C++ has no marker for a test, so ceph reported
+                            // 1,363,232 of its 1.5M lines as unplaceable. Not knowing whether
+                            // a `.cc` file is a test does not stop it being code.
+                            .or(Some(crate::model::Kinded {
+                                kind: crate::model::Kind::Code,
+                                how: crate::model::Tested::Convention,
+                            })),
                         calls: wire.map(|w| w.calls),
                         incident: wire.map(|w| w.incident),
                         away: wire.map(|w| w.away),
@@ -1575,7 +1587,10 @@ fn score_dir(
                     dependents: None,
                     under_test: None,
                     tested: None,
-                    code_kind: file_kind,
+                    code_kind: file_kind.or(Some(crate::model::Kinded {
+                        kind: crate::model::Kind::Code,
+                        how: crate::model::Tested::Convention,
+                    })),
                     calls: None,
                     incident: None,
                     away: None,

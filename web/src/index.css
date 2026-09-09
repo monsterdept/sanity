@@ -184,6 +184,7 @@
   --kind-test: #4a7fd4;
   --kind-generated: #c8792f;
   --kind-vendored: #8b5fbf;
+  --kind-header: #3f8f96;
   /* A copy gets a mark, not a ramp — see `--trap` above and the paragraph under `--birth`
    * for the idiom. "This body appears seven times" is a fact somebody can go and check, not
    * a degree of anything, so it sits off every scale exactly as a reported trap does. The
@@ -746,6 +747,7 @@
   --kind-test: #6a9ce8;
   --kind-generated: #d9924a;
   --kind-vendored: #a37ad4;
+  --kind-header: #58a9b0;
   /* Lifted off the ink the way --trap is. Worst case: 33.9 from --structure, 28.8 from
    * --unanalyzed, 17.6 from --trap, 15.3 from --callers-4. */
   --clone: #bd5cff;
