@@ -2132,10 +2132,11 @@ pub fn catalog() -> Vec<Rule> {
         // coverage would be borrowing a word that means the line executed.
         rule(
             "load-bearing-untested",
-            "Load-bearing, surprising, and no test calls it",
-            "Depended on, unpredictable, and nothing exercises it.",
+            "Load-bearing, surprising, and no test found",
+            "Depended on, unpredictable, and no test was found to reach it.",
             "{{dependents}} call sites depend on this, a reader could not predict it, and no \
-             test in this repo calls it.",
+             test was found that reaches it. Calls are followed only where a name resolves, \
+             and a suite that drives this from outside the language is not in the graph.",
             "This is among the code here most likely to break quietly.",
             Pop::Func,
             vec![

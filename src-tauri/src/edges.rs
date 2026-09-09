@@ -86,9 +86,17 @@ pub struct Wire {
     /// any depth, and the closure is the discriminating answer rather than the vacuous one.
     /// See `links::reach_depth::how_far_do_tests_reach`.
     ///
-    /// **It undercounts, and only in the safe direction for the green band.** The call graph
-    /// refuses every edge it cannot name, so a body reached through an unresolvable call is
-    /// reported as unreached. `no test reaches this` is therefore an upper bound.
+    /// **It reports a SEARCH, and the search is incomplete by construction.** Calls are
+    /// followed only in languages `resolves_calls` parses and only where a name resolves, so
+    /// a body reached through a refused edge reports as unreached — and a suite written in
+    /// shell that drives a binary from outside contributes nothing at all. flox has 19,065
+    /// lines of `.bats` doing exactly that.
+    ///
+    /// Which is why every word on this band says what was FOUND. `no test found` is true;
+    /// `untested` would be a claim about the world that a call graph cannot make, and each
+    /// time this was got wrong the map looked plausible while saying it. `super::f()` — how a
+    /// Rust unit test calls the thing it tests — was thrown away for a week under exactly
+    /// that heading.
     ///
     /// The absence is the important half: `None` means test code is not separable here (C++,
     /// GDScript, anything with no contract and nothing read), and it must render as "we
@@ -645,6 +653,16 @@ fn resolve(
 
     let (through, qualifier) = match &call.via {
         crate::parse::Via::Free => (false, None),
+        // **`super::f()` and `crate::f()` name a SCOPE, not a receiver.** There is nothing to
+        // resolve the qualifier against and nothing to refuse: they say "the same crate,
+        // further out", which is what a bare name already means here. Read as an unnameable
+        // receiver they were thrown away — and `super::thing()` is precisely how a Rust unit
+        // test calls the thing it tests, so `parse.rs`'s `forks_at` read as reached by no test
+        // while two tests called it by name, four lines apart.
+        //
+        // `self` and `Self` are NOT in this list: they name the enclosing type, which is a
+        // real and knowable receiver, and they are resolved as one below.
+        crate::parse::Via::Path(Some(q)) if q == "super" || q == "crate" => (false, None),
         crate::parse::Via::Dot(q) | crate::parse::Via::Path(q) => (true, q.as_deref()),
     };
     // **`self` is the one receiver whose type is knowable**, and it is knowable exactly
@@ -914,6 +932,29 @@ mod tests {
             "only the caller that is itself excluded from the build",
         );
         assert_eq!(w.at(0, 1).map(|x| x.calls), Some(0), "production reaches nothing sealed");
+    }
+
+    /// **`super::f()` names a scope, not a receiver**, and is how a Rust unit test calls the
+    /// thing it tests. Read as a receiver nothing can name, every one of those edges was
+    /// thrown away: `parse.rs`'s `forks_at` reported that no test reached it while two tests
+    /// called it by name four lines apart.
+    #[test]
+    fn super_and_crate_are_scopes_rather_than_receivers() {
+        let scoped = |q: &str| crate::parse::Call {
+            name: "forks_at".to_string(),
+            via: crate::parse::Via::Path(Some(q.to_string())),
+        };
+        let w = wired(&[(
+            "src/parse.rs",
+            Lang::Rust,
+            vec![
+                def("forks_at", &[]),
+                test_fn("covers_forks", &[scoped("super")]),
+                test_fn("covers_again", &[scoped("crate")]),
+            ],
+        )]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(2), "both tests reach it");
+        assert_eq!(w.at(0, 0).map(|x| x.under_test), Some(Some(true)));
     }
 
     /// **`self.f()` is the one call through a receiver whose type is not a guess**, because it

@@ -35,9 +35,10 @@ const GRADES: Grade[] = ['none', 'some', 'most', 'full']
 const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
   legible: 'Legibility',
   docs: 'Documentation',
-  // What the rows are, not what the lens is called: the lens is Testing, and the rows
-  // underneath it are the bodies split by what a test reaches.
-  testing: 'Tested and untested',
+  // What the rows are, not what the lens is called. "Tested and untested" was the first
+  // heading and it asserted the thing this cannot know: a call graph reports what it FOUND,
+  // and a repo's shell suite is invisible to it entirely.
+  testing: 'What tests were found to reach',
   traps: 'Traps',
   callers: 'Callers',
   reach: 'What it calls',

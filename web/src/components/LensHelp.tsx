@@ -188,13 +188,15 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
           fills={['var(--unanalyzed)', 'var(--is-test)', 'var(--under-test)', 'var(--untested)']}
         />
       }
-      measures="which bodies a test calls, and which bodies are the tests."
-      values="cannot tell · test · a test calls this · no test calls this"
+      measures="which bodies a test was found to reach, and which bodies are the tests."
+      values="cannot tell · test · a test reaches this · no test found"
     >
-      <code>no test calls this</code> is a fact about the call graph, not about whether the code
-      ran: nothing here executes your suite, so this is never coverage. A body nothing could
-      classify stays neutral — C++ has no marker for a test, so on a repo like ceph most of it
-      says nothing rather than saying <code>untested</code>.
+      <code>no test found</code> means exactly that — a search of the call graph came back
+      empty. It is not proof that nothing tests this. Calls are followed only in languages this
+      parses and only where a name resolves, so a suite written in shell that drives your CLI
+      is invisible here, and every edge the resolver refuses is a test it cannot see. Nor is any
+      of this coverage: nothing here runs your suite, so a green wedge means a test path
+      reaches the body, not that the body executed.
     </Lens>
   ),
   traps: (

@@ -199,7 +199,7 @@ export const MODE_HINT: Record<ColorMode, string> = {
   docs: 'what nobody has explained',
   // **Testing, not Tests.** The lens is the tests AND what they reach — a lens that only
   // showed where the tests are would answer half the question somebody opens it with.
-  testing: 'what the tests reach, and what they are',
+  testing: 'what tests were found to reach, and what the tests are',
   traps: 'what will bite whoever edits it next',
   callers: 'how many things call it',
   reach: 'how much it calls out to',
@@ -1235,7 +1235,12 @@ export function colorFor(
       fill,
       stop: fill,
       ink: inkOn(fill),
-      label: node.underTest ? 'a test calls this' : 'no test calls this',
+      // **What we FOUND, not what exists.** The call graph sees resolvable calls in
+      // languages it parses: `super::f()` was invisible until it was fixed, a shell suite is
+      // invisible permanently, and every refused edge is a test this cannot see. So the red
+      // band reports a search that came back empty, which is true, rather than an absence of
+      // tests, which this cannot know.
+      label: node.underTest ? 'a test reaches this' : 'no test found',
     }
   }
   if (mode === 'traps') {
@@ -1986,8 +1991,8 @@ function contribute(
         put(UNKNOWN, 'cannot tell', 'var(--unanalyzed)', n)
       } else {
         put(
-          n.underTest ? 'a test calls this' : 'no test calls this',
-          n.underTest ? 'a test calls this' : 'no test calls this',
+          n.underTest ? 'a test reaches this' : 'no test found',
+          n.underTest ? 'a test reaches this' : 'no test found',
           n.underTest ? 'var(--under-test)' : 'var(--untested)',
           n,
         )
@@ -2308,7 +2313,7 @@ const BUCKET_ORDER: Record<ColorMode, 'lines' | (() => readonly string[])> = {
   // BEFORE index 0 — so omitting it would have put the tests at the top of the panel, which
   // is precisely the opposite of what the comment above claimed. `cannot tell` stays
   // unlisted on purpose: it is the absence bucket every lens keeps at the end.
-  testing: () => ['no test calls this', 'a test calls this', 'test'],
+  testing: () => ['no test found', 'a test reaches this', 'test'],
   // Most-called first. It was fewest-first, on the argument that the sparse end is what people
   // sweep for — true, and outweighed by the rule now holding every lens together: one
   // direction, loud end leading, so a rim can be compared with the rim beside it and with the

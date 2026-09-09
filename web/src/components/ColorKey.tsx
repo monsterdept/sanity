@@ -243,8 +243,8 @@ function Legend({
   // nobody graded, and a two-ended label would ask the reader to find the middle of a set
   // with no middle. One filled bar in the color the map is actually using, named once.
   // **A set, not a scale.** Four named states with no order between them: a gradient would
-  // say there is a middle, and there is nothing between "a test calls this" and "no test
-  // calls this" to be halfway along. Same argument Traps makes below, with four swatches
+  // say there is a middle, and there is nothing between "a test reaches this" and "no test
+  // found" to be halfway along. Same argument Traps makes below, with four swatches
   // instead of one because none of these is the default the others are read against.
   //
   // `cannot tell` is listed rather than left to the unread swatch under the ramp, because on
@@ -252,8 +252,8 @@ function Legend({
   // is a different sentence and the one most of a C++ repo will be wearing.
   if (mode === 'testing') {
     const states: [string, string][] = [
-      ['var(--untested)', 'no test calls this'],
-      ['var(--under-test)', 'a test calls this'],
+      ['var(--untested)', 'no test found'],
+      ['var(--under-test)', 'a test reaches this'],
       ['var(--is-test)', 'test'],
       ['var(--unanalyzed)', 'cannot tell'],
     ]

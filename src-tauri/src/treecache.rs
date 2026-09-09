@@ -168,7 +168,11 @@ use std::path::{Path, PathBuf};
 ///    the third time this exact bump has been needed and the second time it was noticed only
 ///    because a repo whose SOURCE had not changed reported numbers that had not moved either.
 ///    A repo being edited hides it: its signature changes, so it rescans and looks correct.
-const VERSION: u32 = 23;
+/// 24: `super::f()` and `crate::f()` resolve as the bare names they are rather than as
+///    receivers nothing can name. Records unchanged again, so a version-23 tree is accepted
+///    and serves a call graph missing every `super::` edge — which in Rust is how a unit test
+///    calls the thing it tests.
+const VERSION: u32 = 24;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
