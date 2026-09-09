@@ -240,6 +240,10 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
     // Which sites are test code, and which FILES we were able to ask about at all — kept per
     // file rather than per language so nothing has to be hashed that is not already.
     let mut tests: HashSet<Site> = HashSet::new();
+    // Bodies the toolchain excludes from the build. A subset of `tests`, and the distinction
+    // matters: a convention says where tests probably live, a contract says what does not
+    // ship, and only the second can rule an edge impossible.
+    let mut sealed: HashSet<Site> = HashSet::new();
     let mut tested: HashMap<Site, Testness> = HashMap::new();
     let mut told: Vec<bool> = vec![false; files.len()];
     let mut resolvable = 0u64;
@@ -260,6 +264,13 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
             let known = contract_of(file.lang, file.path, func.in_cfg_test)
                 .or_else(|| convention_of(file.lang, file.path))
                 .or_else(|| declared_of(file.lang, declared));
+            // Test by CONTRACT, which is a fact about what the compiler builds rather than a
+            // judgement — see the edge filter below, which is the only thing that reads it.
+            if contract_of(file.lang, file.path, func.in_cfg_test)
+                .is_some_and(|t| t.is_test)
+            {
+                sealed.insert((fi, gi));
+            }
             if let Some(t) = known {
                 if t.is_test {
                     tests.insert((fi, gi));
@@ -301,6 +312,18 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
                 }
                 resolved += 1;
                 for to in hits {
+                    // **Nothing outside `#[cfg(test)]` can call into it.** The compiler does
+                    // not build that code, so the edge is not merely unlikely — it cannot
+                    // exist, and this is the one place a name collision can be ruled out by a
+                    // fact rather than by a guess about a receiver.
+                    //
+                    // It is what lets the file tier stay open for everything else: 19 callers
+                    // on `parse.rs`'s test-only `walk`, all of them `cursor.walk()` in
+                    // production code, are refused here rather than by closing a tier that
+                    // every trait impl needs.
+                    if sealed.contains(&to) && !tests.contains(&from) {
+                        continue;
+                    }
                     // Recursion is not wiring between two pieces of code, and it would put
                     // every self-referential helper one caller up the ranking for nothing.
                     if to != from {
@@ -658,24 +681,31 @@ fn resolve(
         }
     }
 
-    // **A receiver this repo cannot name reaches nothing, its own file included.** The file
-    // tier was left open here at first, on the argument that an impl and the code using it sit
-    // together — and it put 19 callers on `parse.rs`'s test-only `walk`, every one of them
-    // tree-sitter's `cursor.walk()` written in the same file. A big file that uses a common
-    // method name it also defines is exactly where that argument fails, and a big file is
-    // where a wrong caller count does the most damage. `self` is handled above, which is the
-    // case the file tier was really standing in for.
-    if !local {
-        return Vec::new();
-    }
+    // **Its own file, even through a receiver this repo cannot name.** An impl and the code
+    // using it do sit together, and closing this tier cost the thing it was closed to
+    // protect: every method of `impl Environment for ManagedEnvironment` read as untested
+    // while the tests calling `env.install(…)` sat beside them in the same file.
+    //
+    // It was closed because `cursor.walk()` in `parse.rs` landed on that file's test-only
+    // `walk`. That is now refused where it belongs — in `wire`, on the ground that a body
+    // outside `#[cfg(test)]` cannot call one inside it, which is a fact about what the
+    // compiler builds rather than a guess about a receiver.
+    //
+    // Worth knowing how sharp the old edge was: whether `env.install(…)` resolved depended on
+    // whether some file in the repo happened to be named `env.rs`, because that would make
+    // the receiver a module name and reopen every tier. An accident of naming deciding a real
+    // edge is worse than either answer.
     let here: Vec<Site> = reachable.iter().filter(|d| d.site.0 == file).map(|d| d.site).collect();
     if !here.is_empty() {
         return here;
     }
-    // Repo-uniqueness is real evidence about a NAME and none at all about a receiver's type:
-    // `as_str`, `lock` and `count` are each defined exactly once here and each of them still
-    // collected every standard-library call spelled the same way. The file tier survives
-    // because `self.f()` is written next to the impl it belongs to; nothing below it does.
+    // Past its own file an unnameable receiver has nothing left to offer: repo-uniqueness is
+    // evidence about a NAME and none at all about a type. `as_str`, `lock` and `count` are
+    // each defined exactly once here and each collected every standard-library call spelled
+    // the same way.
+    if !local {
+        return Vec::new();
+    }
     let near: Vec<Site> = reachable.iter().filter(|d| d.dir == dir).map(|d| d.site).collect();
     if !near.is_empty() {
         return near;
@@ -830,20 +860,20 @@ mod tests {
         assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "a module qualifier is not a receiver");
     }
 
-    /// **A receiver this repo cannot name reaches nothing, and its own file is not an
-    /// exception.**
+    /// **An unnameable receiver reaches its own file, and no further.**
     ///
-    /// The file tier was left open for these at first, on the argument that an impl and the
-    /// code using it sit together. It put 19 callers on `parse.rs`'s test-only `walk`, all of
-    /// them tree-sitter's `cursor.walk()` written in the same file — and a big file using a
-    /// common method name it also defines is both where that argument fails and where a wrong
-    /// count does the most damage.
+    /// The file tier was closed for a while, because `cursor.walk()` in `parse.rs` landed on
+    /// that file's test-only `walk` and put 19 callers on it. Closing it cost more than it
+    /// saved: every method of a trait impl read as uncalled while the tests invoking them
+    /// through a variable sat in the same file. The `walk` case is refused by
+    /// `a_production_body_cannot_call_into_cfg_test` instead — a fact about what the compiler
+    /// builds, where this was a guess about a receiver.
     ///
-    /// `self` is what the file tier was standing in for, and it is handled exactly: not by
-    /// locality but by knowing what the CALLER is defined in, which is the one receiver type
-    /// that is never a guess. The test below this one pins that half.
+    /// How sharp the old edge was is the argument against it: whether `env.install(…)`
+    /// resolved depended on whether the repo happened to contain a file called `env.rs`,
+    /// which would make the receiver a module name and reopen every tier at once.
     #[test]
-    fn an_unnameable_receiver_reaches_nothing() {
+    fn an_unnameable_receiver_reaches_its_own_file_and_no_further() {
         let w = wired(&[
             // The receiver is deliberately not spelled like either file: a qualifier that
             // names a module here is a different case, and it is the test above this one.
@@ -854,8 +884,36 @@ mod tests {
             ),
             ("src/b.rs", Lang::Rust, vec![spells("far", &[dot("held", "len")])]),
         ]);
-        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(0), "not even from its own file");
-        assert_eq!(w.at(1, 0).map(|x| x.calls), Some(0), "and not from the next one over");
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "its own file, where the impl is");
+        assert_eq!(w.at(1, 0).map(|x| x.calls), Some(0), "and not the next file over");
+    }
+
+    /// **A body outside `#[cfg(test)]` cannot call one inside it**, because the compiler does
+    /// not build that code. Not unlikely — impossible, which is the only kind of thing that
+    /// can rule out a name collision without guessing at a receiver.
+    ///
+    /// This is what `parse.rs` needed: a test-only `walk` collecting every `cursor.walk()`
+    /// written in production code in the same file. Refusing it here leaves the file tier
+    /// open for the trait impls that need it.
+    #[test]
+    fn a_production_body_cannot_call_into_cfg_test() {
+        let w = wired(&[(
+            "src/parse.rs",
+            Lang::Rust,
+            vec![
+                // A test-only helper, and a production body that writes the same name against
+                // something else entirely.
+                test_fn("walk", &[]),
+                spells("collect", &[dot("cursor", "walk")]),
+                test_fn("covers", &[dot("cursor", "walk")]),
+            ],
+        )]);
+        assert_eq!(
+            w.at(0, 0).map(|x| x.callers),
+            Some(1),
+            "only the caller that is itself excluded from the build",
+        );
+        assert_eq!(w.at(0, 1).map(|x| x.calls), Some(0), "production reaches nothing sealed");
     }
 
     /// **`self.f()` is the one call through a receiver whose type is not a guess**, because it

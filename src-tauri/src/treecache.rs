@@ -162,7 +162,13 @@ use std::path::{Path, PathBuf};
 ///    changed, nothing would refuse it, and it would paint every accessor beneath a tested
 ///    entry point as untested. A recomputation that changes what a cached number MEANS, which
 ///    is the hazard version 19 was bumped for.
-const VERSION: u32 = 22;
+/// 23: `resolve` lets an unnameable receiver reach its own file again, and `wire` refuses any
+///    edge from production code into `#[cfg(test)]`. The records are identical in shape, so
+///    nothing refuses a version-22 tree — it serves the old call graph in silence, which is
+///    the third time this exact bump has been needed and the second time it was noticed only
+///    because a repo whose SOURCE had not changed reported numbers that had not moved either.
+///    A repo being edited hides it: its signature changes, so it rescans and looks correct.
+const VERSION: u32 = 23;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.
