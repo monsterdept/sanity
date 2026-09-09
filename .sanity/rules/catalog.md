@@ -14,7 +14,6 @@ dropped rather than left overriding the new rule.
 
 - `giant-function`; func: loc >= 339 and cognitive >= 10; was: func: loc >= 200 and cognitive >= 10
 - `crowded-file`; file: funcs >= 46; was: file: funcs >= 40
-- `knotty-load-bearing`; func: tangle >= 0.8 and callers >= 13 and loc >= 10; was: func: tangle >= 0.8 and callers >= 10 and loc >= 10
 - `surprising-changing`; func: surprise >= 0.6 and commits >= 7 and loc >= 10; was: func: surprise >= 0.6 and commits >= 4 and loc >= 10
 - `surprising-far-reaching`; func: surprise >= 0.6 and calls >= 31 and loc >= 10; was: func: surprise >= 0.6 and calls >= 10 and loc >= 10
 - `tangled-for-size`; func: tangle >= 0.8 and loc >= 98; was: func: tangle >= 0.8 and loc >= 40

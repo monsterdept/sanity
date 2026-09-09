@@ -82,9 +82,9 @@ Written by sanity. Editing it by hand is fine; it is parsed back.
 
 ## web/src/App.tsx#App
 
-- rule `giant-function`; called `Giant function`; verdict `flagged`; pin `f7f6a8de278a loc=3309 cognitive=377`; when 2026-09-06T19:29:24Z; by ross@rossturk.com; reason: the biggest thing in the repo and known, breaking it up is its own job
-- rule `surprising-changing`; called `Surprising and changing`; verdict `flagged`; pin `f7f6a8de278a surprise=0.62 commits=13 loc=3309`; when 2026-09-06T19:29:24Z; by ross@rossturk.com; reason: the biggest thing in the repo and known, breaking it up is its own job
-- rule `tangled-for-size`; called `Tangled for its size`; verdict `flagged`; pin `f7f6a8de278a tangle=1 loc=3309`; when 2026-09-06T19:29:24Z; by ross@rossturk.com; reason: the biggest thing in the repo and known, breaking it up is its own job
+- rule `giant-function`; called `Giant function`; verdict `flagged`; pin `f7f6a8de278a loc=3309 cognitive=377`; when 2026-09-06T19:36:39Z; by ross@rossturk.com; reason: 
+- rule `surprising-changing`; called `Surprising and changing`; verdict `flagged`; pin `f7f6a8de278a surprise=0.62 commits=13 loc=3309`; when 2026-09-06T19:36:39Z; by ross@rossturk.com; reason: 
+- rule `tangled-for-size`; called `Tangled for its size`; verdict `flagged`; pin `f7f6a8de278a tangle=1 loc=3309`; when 2026-09-06T19:36:39Z; by ross@rossturk.com; reason: 
 
 ## web/src/components/CodeView.tsx#CodeView
 
