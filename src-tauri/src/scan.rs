@@ -1295,6 +1295,29 @@ pub enum Fidelity {
 /// `heuristic::distinctiveness`), so without the directory fallback every
 /// one-function-per-file codebase — which is most React frontends — would have its
 /// strongest signal switched off.
+/// The facts a directory cannot see for itself, gathered once for the repo.
+///
+/// **One argument because they are one KIND of argument.** Every field here is repo-wide by
+/// construction — a call graph, a clone relation, a git history, a `.gitattributes` line, a
+/// complexity band — and each was passed down separately until there were more of them than
+/// the scoring pass's own inputs. Grouping them says which half of `score_dir`'s signature is
+/// the subject and which half is the context.
+#[derive(Clone, Copy)]
+pub(crate) struct RepoWide<'a> {
+    pub(crate) wiring: &'a crate::edges::Wiring,
+    /// A copy is a relation between two functions usually in different directories, so it
+    /// cannot be found from inside one.
+    pub(crate) copies: &'a crate::clones::Copies,
+    /// The log walk, the per-line blame and the timeline's edit counts — see
+    /// `trace::Histories`.
+    pub(crate) hist: crate::trace::Histories<'a>,
+    /// What `.gitattributes` declares about whole paths, read once for the repo — see
+    /// `attributes`.
+    pub(crate) attrs: &'a crate::edges::Attributes,
+    /// What counts as normal complexity for a body this size, in this repo — see `tangle`.
+    pub(crate) bands: &'a crate::tangle::Bands,
+}
+
 fn score_dir(
     files: &[ParsedFile],
     // Index of this directory's first file in the flat list [`edges::wire`] was given.
@@ -1302,21 +1325,10 @@ fn score_dir(
     // scoring pass is per directory: a directory cannot know its own offset, and a second
     // flattening here would be a second chance to disagree with the first.
     base: usize,
-    wiring: &crate::edges::Wiring,
-    // Repo-wide for the same reason the wiring is: a copy is a relation between two
-    // functions that are usually in different directories, so it cannot be found from
-    // inside one.
-    copies: &crate::clones::Copies,
-    // The log walk, the per-line blame and the timeline's edit counts — see `trace::Histories`.
-    hist: crate::trace::Histories,
-    // What `.gitattributes` declares about whole paths, read once for the repo — see
-    // `attributes`. Passed rather than read here for the reason `wiring` is: it is a fact
-    // about the repo and a directory cannot see it.
-    attrs: &crate::edges::Attributes,
-    // What counts as normal complexity for a body this size, in this repo — see `tangle`.
-    bands: &crate::tangle::Bands,
+    repo: RepoWide<'_>,
     fidelity: Fidelity,
 ) -> Vec<(String, Node)> {
+    let RepoWide { wiring, copies, hist, attrs, bands } = repo;
     let dir_prints: Vec<&Fingerprint> = files.iter().flat_map(|f| f.prints.iter()).collect();
 
     files
@@ -2016,8 +2028,14 @@ pub fn scan(
         .par_iter()
         .enumerate()
         .map(|(di, parsed)| {
-            let out =
-                score_dir(parsed, offsets[di], &wiring, &copies, hist, attrs, &bands, fidelity);
+            let repo = RepoWide {
+                wiring: &wiring,
+                copies: &copies,
+                hist,
+                attrs,
+                bands: &bands,
+            };
+            let out = score_dir(parsed, offsets[di], repo, fidelity);
             // After the directory rather than during it: `score_dir` is one call per
             // directory and splitting it to report inside would be reshaping the work to
             // suit the narration. At `Full` fidelity a big directory is the slow unit here,
