@@ -1,5 +1,6 @@
 import {
   CALLER_KEY,
+  KIND_FILL,
   REACH_KEY,
   MODE_HINT,
   MODE_LABEL,
@@ -116,6 +117,51 @@ function Legend({
   // No padding between the two any more — the key is not a box — so the float's own
   // coordinates and the pane's measurement of the key are the same origin.
   const edge = card
+  // **Before the ranked key, because Composition has categories too.** This branch used to
+  // sit below it and was therefore never reached: the generic categorical key handed out
+  // slots by RANK, so code took slot one's blue while the map painted it `--cat-3` green —
+  // the key and the map disagreeing about the same wedge, with the key sounding the more
+  // authoritative. Composition is the one categorical lens whose colours are FIXED per
+  // value rather than ranked, so it cannot share the ranked path.
+  // **A set, not a scale.** Four kinds with no order between them: a gradient would say
+  // there is a middle, and there is nothing halfway between `generated` and `vendored`.
+  //
+  // `unplaced` is listed rather than left to the unread swatch, because here it does not mean
+  // "nobody has read it" — it means nothing could say what this file IS, which on a language
+  // with no way to tell a test apart is a different sentence and the honest one.
+  if (mode === 'composition') {
+    // Colours off `KIND_FILL`, never restated here: this list held its own copy of the five
+    // slots, which is a second hand-mixed set beside the one the map spends and a second
+    // thing to get wrong every time either moves. Only the ORDER is this key's own.
+    const present: [string, string][] = [
+      [KIND_FILL.vendored, 'vendored'],
+      [KIND_FILL.generated, 'generated'],
+      [KIND_FILL.test, 'test'],
+      [KIND_FILL.header, 'header'],
+      [KIND_FILL.code, 'code'],
+      ['var(--unanalyzed)', 'unplaced'],
+    ]
+    // **Only what is on the map.** A swatch for a colour nothing on screen is wearing is the
+    // same failure a merged rim band makes — the key promises a thing to look for and there
+    // is nothing to find. `legendFor` says which kinds a repo actually holds; the ORDER stays
+    // fixed, because a key whose rows move between repos is one nobody can learn.
+    const kinds = present.filter(([, label]) => categories.includes(label))
+    if (kinds.length === 0) return null
+    return (
+      <div className={`${RIBBON} flex flex-wrap items-center gap-x-3 gap-y-1`}>
+        {kinds.map(([fill, label]) => (
+          <span key={label} className="inline-flex items-center gap-1.5">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+              style={{ background: fill }}
+            />
+            <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
+          </span>
+        ))}
+      </div>
+    )
+  }
+
   if (categories.length > 0) {
     // **In slot order, not in this frame's order.** With a held rank map the two can differ —
     // a person who is second today may be the only author in the frame on screen — and a
@@ -243,41 +289,6 @@ function Legend({
   // boolean somebody either reported or did not. Shading it would invent degrees of danger
   // nobody graded, and a two-ended label would ask the reader to find the middle of a set
   // with no middle. One filled bar in the color the map is actually using, named once.
-  // **A set, not a scale.** Four kinds with no order between them: a gradient would say
-  // there is a middle, and there is nothing halfway between `generated` and `vendored`.
-  //
-  // `unplaced` is listed rather than left to the unread swatch, because here it does not mean
-  // "nobody has read it" — it means nothing could say what this file IS, which on a language
-  // with no way to tell a test apart is a different sentence and the honest one.
-  if (mode === 'composition') {
-    const present: [string, string][] = [
-      ['var(--cat-5)', 'vendored'],
-      ['var(--cat-2)', 'generated'],
-      ['var(--cat-1)', 'test'],
-      ['var(--cat-4)', 'header'],
-      ['var(--cat-3)', 'code'],
-      ['var(--unanalyzed)', 'unplaced'],
-    ]
-    // **Only what is on the map.** A swatch for a colour nothing on screen is wearing is the
-    // same failure a merged rim band makes — the key promises a thing to look for and there
-    // is nothing to find. `legendFor` says which kinds a repo actually holds; the ORDER stays
-    // fixed, because a key whose rows move between repos is one nobody can learn.
-    const kinds = present.filter(([, label]) => categories.includes(label))
-    if (kinds.length === 0) return null
-    return (
-      <div className={`${RIBBON} flex flex-wrap items-center gap-x-3 gap-y-1`}>
-        {kinds.map(([fill, label]) => (
-          <span key={label} className="inline-flex items-center gap-1.5">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-              style={{ background: fill }}
-            />
-            <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
-          </span>
-        ))}
-      </div>
-    )
-  }
 
   if (mode === 'traps') {
     return (

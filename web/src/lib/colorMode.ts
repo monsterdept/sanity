@@ -1774,7 +1774,7 @@ const UNKNOWN = '\u0000unknown'
 /** `Cols::kind`'s integers, in the order the backend writes them. */
 export const KIND_ORDER = ['code', 'test', 'generated', 'vendored', 'header'] as const
 
-const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', string> = {
+export const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', string> = {
   // The categorical palette, the same one Blame and Language spend — one set of slots for
   // every lens that colours by category rather than by degree. It is already the palette the
   // CVD margin was measured against, and a second hand-mixed set beside it would be a second
