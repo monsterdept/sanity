@@ -1767,6 +1767,9 @@ const UNKNOWN = '\u0000unknown'
  *  not know" everywhere else here, and code is the most confident thing this lens says — a
  *  file that went through a real grammar with nothing marking it otherwise. Wearing the
  *  absence colour put the commonest real answer in the shade reserved for having none. */
+/** `Cols::kind`'s integers, in the order the backend writes them. */
+export const KIND_ORDER = ['code', 'test', 'generated', 'vendored', 'header'] as const
+
 const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'header', string> = {
   // The categorical palette, the same one Blame and Language spend — one set of slots for
   // every lens that colours by category rather than by degree. It is already the palette the
@@ -2196,10 +2199,11 @@ function contributeCols(
     // `how` is `convention` because a column carries the answer and not the evidence for it.
     // Honest rather than lazy: this is a stand-in, and anything wanting to name the tier has
     // the function node in front of it by then.
-    const kinds = ['code', 'test', 'generated', 'vendored', 'header'] as const
     const k = c.kind?.[i] ?? -1
     stand.codeKind =
-      k >= 0 && k < kinds.length ? { kind: kinds[k], how: 'convention' as const } : null
+      k >= 0 && k < KIND_ORDER.length
+        ? { kind: KIND_ORDER[k], how: 'convention' as const }
+        : null
     stand.calls = c.calls[i] < 0 ? undefined : c.calls[i]
     stand.comparable = c.clones[i] < 0 ? undefined : 1
     stand.cloneSize = c.clones[i] > 0 ? c.clones[i] : undefined
@@ -2670,6 +2674,29 @@ export function histogramsFor(
 
 /** The distinct values present, for a legend. Categorical modes need one; ramps don't. */
 export function legendFor(root: Node, mode: ColorMode, read: BlameRead = 'touched'): string[] {
+  // **Composition lists the kinds that are actually there.** Its colours are fixed per kind
+  // rather than handed out by rank, so this is used only to say what EXISTS — the key keeps
+  // its own order. A legend naming `vendored` over a repo with none is a swatch for a colour
+  // nothing on screen is wearing, which is the same failure a merged rim band makes.
+  if (mode === 'composition') {
+    const seen = new Set<string>()
+    const walk = (n: Node) => {
+      // The absence is a band like any other and has to be able to appear in the key: a repo
+      // holding something nothing could place should say so, and one holding none should not
+      // advertise the swatch.
+      if (n.kind === 'func') seen.add(n.codeKind?.kind ?? 'unplaced')
+      // A file stands in for functions the window was never sent — `Cols::kind` carries them,
+      // and without this the key on a large repo lists whatever rings happened to arrive.
+      if (n.kind === 'file' && n.cols) {
+        for (const k of n.cols.kind ?? []) {
+          seen.add(k >= 0 && k < KIND_ORDER.length ? KIND_ORDER[k] : 'unplaced')
+        }
+      }
+      n.children.forEach(walk)
+    }
+    walk(root)
+    return [...seen]
+  }
   if (mode !== 'blame' && mode !== 'language') return []
   const seen = new Map<string, number>()
   const walk = (n: Node) => {

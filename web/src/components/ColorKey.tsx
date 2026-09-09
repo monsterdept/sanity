@@ -250,7 +250,7 @@ function Legend({
   // "nobody has read it" — it means nothing could say what this file IS, which on a language
   // with no way to tell a test apart is a different sentence and the honest one.
   if (mode === 'composition') {
-    const kinds: [string, string][] = [
+    const present: [string, string][] = [
       ['var(--cat-5)', 'vendored'],
       ['var(--cat-2)', 'generated'],
       ['var(--cat-1)', 'test'],
@@ -258,6 +258,12 @@ function Legend({
       ['var(--cat-3)', 'code'],
       ['var(--unanalyzed)', 'unplaced'],
     ]
+    // **Only what is on the map.** A swatch for a colour nothing on screen is wearing is the
+    // same failure a merged rim band makes — the key promises a thing to look for and there
+    // is nothing to find. `legendFor` says which kinds a repo actually holds; the ORDER stays
+    // fixed, because a key whose rows move between repos is one nobody can learn.
+    const kinds = present.filter(([, label]) => categories.includes(label))
+    if (kinds.length === 0) return null
     return (
       <div className={`${RIBBON} flex flex-wrap items-center gap-x-3 gap-y-1`}>
         {kinds.map(([fill, label]) => (
