@@ -20,7 +20,14 @@
  *  resolve keywords independently, and measuring in one face while drawing in another is
  *  how every label in the app came to overrun its wedge. `widthPerPx` and `WedgeLabel`
  *  both read THIS string. */
-export const FAMILY = '"LINE Seed JP", system-ui, -apple-system, sans-serif'
+/** The face the map is set in, alone — for asking whether it has actually LOADED.
+ *
+ *  `FAMILY` is a stack, so `document.fonts.check(FAMILY)` is true the moment `system-ui`
+ *  answers, which is always. Only the primary can say whether the metrics a measurement got
+ *  are the metrics the browser will paint with. */
+export const PRIMARY = '"LINE Seed JP"'
+
+export const FAMILY = `${PRIMARY}, system-ui, -apple-system, sans-serif`
 
 /** One weight for all three kinds of label.
  *
