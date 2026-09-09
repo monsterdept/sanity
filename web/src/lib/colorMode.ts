@@ -2300,12 +2300,15 @@ const BUCKET_ORDER: Record<ColorMode, 'lines' | (() => readonly string[])> = {
   // BEFORE index 0 — so omitting it would have put the tests at the top of the panel, which
   // is precisely the opposite of what the comment above claimed. `cannot tell` stays
   // unlisted on purpose: it is the absence bucket every lens keeps at the end.
-  // Loud end leading, like every other lens — but here the loud end is what is NOT yours.
-  // Somebody opens Composition to find out how much of a repo they are actually on the hook
-  // for, so the answer they came for is at the top and their own code sits under it.
-  // `unplaced` stays unlisted and is now rare by construction: `code` is the residual, so
-  // only a node the scan never placed at all can land there.
-  composition: () => ['vendored', 'generated', 'test', 'header', 'code'],
+  // By lines, like Blame and Language and for the same reason the entry above this one
+  // gives: the row PRINTS lines, and a column of numbers not in their own order reads as a
+  // bug. It was a fixed order for a while — what is not yours at the top — which put ceph's
+  // 1,178,464 lines of code underneath its 1,469 of generated.
+  //
+  // The LEGEND keeps its fixed order deliberately. That is a key rather than a table: it
+  // carries no numbers to be out of order, and a key whose rows move between repos is one
+  // nobody can learn.
+  composition: 'lines',
   // Most-called first. It was fewest-first, on the argument that the sparse end is what people
   // sweep for — true, and outweighed by the rule now holding every lens together: one
   // direction, loud end leading, so a rim can be compared with the rim beside it and with the
