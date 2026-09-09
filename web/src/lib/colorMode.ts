@@ -579,6 +579,10 @@ export function modeToken(mode: ColorMode): string {
   if (mode === 'reach') return '--reach-3'
   if (mode === 'blame') return '--lens-blame'
   if (mode === 'language') return '--lens-language'
+  // Categorical like the two above, so there is no ramp to take a `-3` from. The
+  // fall-through gave it Surprise's chip and nothing said so — the strip drew two lenses in
+  // one colour and only a person looking at it could tell.
+  if (mode === 'composition') return '--lens-composition'
   return `--${rampOf(mode)}-3`
 }
 
