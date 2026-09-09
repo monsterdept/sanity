@@ -242,24 +242,23 @@ function Legend({
   // boolean somebody either reported or did not. Shading it would invent degrees of danger
   // nobody graded, and a two-ended label would ask the reader to find the middle of a set
   // with no middle. One filled bar in the color the map is actually using, named once.
-  // **A set, not a scale.** Four named states with no order between them: a gradient would
-  // say there is a middle, and there is nothing between "a test reaches this" and "no test
-  // found" to be halfway along. Same argument Traps makes below, with four swatches
-  // instead of one because none of these is the default the others are read against.
+  // **A set, not a scale.** Four kinds with no order between them: a gradient would say
+  // there is a middle, and there is nothing halfway between `generated` and `vendored`.
   //
-  // `cannot tell` is listed rather than left to the unread swatch under the ramp, because on
-  // this lens it is not "nobody has read it" — it is "this language has no way to say", which
-  // is a different sentence and the one most of a C++ repo will be wearing.
-  if (mode === 'testing') {
-    const states: [string, string][] = [
-      ['var(--untested)', 'no test found'],
-      ['var(--under-test)', 'a test reaches this'],
-      ['var(--is-test)', 'test'],
-      ['var(--unanalyzed)', 'cannot tell'],
+  // `unplaced` is listed rather than left to the unread swatch, because here it does not mean
+  // "nobody has read it" — it means nothing could say what this file IS, which on a language
+  // with no way to tell a test apart is a different sentence and the honest one.
+  if (mode === 'composition') {
+    const kinds: [string, string][] = [
+      ['var(--kind-vendored)', 'vendored'],
+      ['var(--kind-generated)', 'generated'],
+      ['var(--kind-test)', 'test'],
+      ['var(--structure)', 'code'],
+      ['var(--unanalyzed)', 'unplaced'],
     ]
     return (
       <div className={`${RIBBON} flex flex-wrap items-center gap-x-3 gap-y-1`}>
-        {states.map(([fill, label]) => (
+        {kinds.map(([fill, label]) => (
           <span key={label} className="inline-flex items-center gap-1.5">
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-[2px]"

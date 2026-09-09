@@ -1457,18 +1457,28 @@ fn score_dir(
                         dependents: wire.and_then(|w| w.dependents),
                         under_test: wire.and_then(|w| w.under_test),
                         tested: wiring.tested.get(&(base + fi, i)).copied(),
-                        // A function is whatever its FILE is, unless something said it is a
-                        // test — which is decided per body, because Rust puts its unit tests
-                        // inside the file they test. See `edges::kind_of`.
-                        code_kind: wiring
-                            .tested
-                            .get(&(base + fi, i))
-                            .filter(|t| t.is_test)
-                            .map(|t| crate::model::Kinded {
-                                kind: crate::model::Kind::Test,
+                        // **Vendored and generated first, then test, then code — and code is
+                        // asserted rather than assumed.**
+                        //
+                        // A vendored library's own tests are vendored: what matters about
+                        // them is that nobody here maintains either. Generated the same. Only
+                        // after those does the per-body question apply, because Rust puts its
+                        // unit tests inside the file they test.
+                        //
+                        // `Code` needs test-ness to be KNOWN false. Where nothing can tell a
+                        // test apart — C++ has no marker — a body is not "probably yours", it
+                        // is unplaced, and the lens draws that as its own neutral. Collapsing
+                        // the two would report every C++ repo as entirely hand-written code.
+                        code_kind: file_kind.or_else(|| {
+                            wiring.tested.get(&(base + fi, i)).map(|t| crate::model::Kinded {
+                                kind: if t.is_test {
+                                    crate::model::Kind::Test
+                                } else {
+                                    crate::model::Kind::Code
+                                },
                                 how: t.how,
                             })
-                            .or(file_kind),
+                        }),
                         calls: wire.map(|w| w.calls),
                         incident: wire.map(|w| w.incident),
                         away: wire.map(|w| w.away),

@@ -217,6 +217,12 @@ export interface Node {
    *  Never called coverage. Coverage means the line EXECUTED, which takes an instrumented
    *  run of the suite, and nothing here runs anything. */
   underTest: boolean | null
+  /** What this body IS — code, a test, generated, or vendored — and on what evidence.
+   *
+   *  `null` is not "code": it is nothing having placed it. On a language where test code
+   *  cannot be told apart, a body might be either, and the Composition lens draws that as
+   *  its own neutral rather than reporting the repo as entirely hand-written. */
+  codeKind: { kind: 'code' | 'test' | 'generated' | 'vendored'; how: 'contract' | 'reader' | 'convention' } | null
   /** Is this body itself test code, and on what evidence — see `model::Testness`.
    *
    *  `how` is `contract` (the toolchain says so), `reader` (a reader read the body) or
@@ -487,14 +493,14 @@ export interface Cols {
   tangle: [number, number][]
   touched: number[]
   callers: number[]
-  /** What the Testing lens paints, per function: `1` a test calls this, `0` none does, `2`
-   *  this body IS a test, `-1` the absence — test code cannot be told apart here.
+  /** What the Composition lens paints, per function: `0` code, `1` test, `2` generated,
+   *  `3` vendored, `-1` nothing could place it.
    *
    *  Carried so a FILE can stand in for functions the window was never sent. Rings arrive
    *  only for files wide enough to draw an inside, so at a repo's root most files have none,
    *  and a histogram over the ones that happened to arrive is a confident picture of a
    *  biased sample. */
-  testing: number[]
+  kind: number[]
   calls: number[]
   clones: number[]
 }
@@ -652,6 +658,8 @@ interface WireNode {
   under_test?: boolean | null
   /** Is this body itself test code, and on what evidence — `model::Testness`. */
   tested?: { is_test: boolean; how: 'contract' | 'reader' | 'convention' } | null
+  /** What this body is — see `Node.codeKind`. */
+  code_kind?: { kind: 'code' | 'test' | 'generated' | 'vendored'; how: 'contract' | 'reader' | 'convention' } | null
   calls?: number | null
   incident?: number | null
   away?: number | null
@@ -724,6 +732,7 @@ function toNode(w: WireNode): Node {
     dependents: w.dependents ?? null,
     underTest: w.under_test ?? null,
     tested: w.tested ? { isTest: w.tested.is_test, how: w.tested.how } : null,
+    codeKind: w.code_kind ?? null,
     bytes: w.bytes ?? null,
     lang: w.lang ?? null,
     excluded: w.excluded ?? false,

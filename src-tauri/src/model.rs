@@ -882,9 +882,8 @@ pub struct Cols {
     /// In-repo callers, `-1` where this language's calls were never parsed — the absence
     /// the Callers lens draws grey rather than as a zero.
     pub callers: Vec<i32>,
-    /// What the Testing lens paints, per function: `1` a test calls this, `0` no test calls
-    /// this, `2` this body IS a test, and `-1` for the absence — test code cannot be told
-    /// apart in this language at all.
+    /// What the Composition lens paints, per function: `0` code, `1` test, `2` generated,
+    /// `3` vendored, `-1` nothing could place it.
     ///
     /// **Here for the same reason `tangle` is: so a FILE can stand in for functions the
     /// window has not been sent.** Rings are fetched only for files wide enough to draw an
@@ -893,7 +892,7 @@ pub struct Cols {
     /// biased sample, which `histogramsFor` opens by naming as the worse failure. One entry
     /// per function rather than a share, so the distribution a directory draws is its
     /// functions' own.
-    pub testing: Vec<i8>,
+    pub kind: Vec<i8>,
     /// In-repo calls made, with the same `-1`.
     pub calls: Vec<i32>,
     /// Size of this function's clone group, `0` for none and `-1` for a body under the
@@ -941,13 +940,15 @@ impl Cols {
             c.commits.push(commits);
             c.touched.push(touched);
             c.callers.push(f.callers.map(|v| v as i32).unwrap_or(-1));
-            // Order matters: a body that IS a test is that first. `under_test` is a question
-            // about what CALLS it, and asking it of a test says nothing anybody wants.
-            c.testing.push(match (f.tested.map(|t| t.is_test), f.under_test) {
-                (Some(true), _) => 2,
-                (_, Some(true)) => 1,
-                (_, Some(false)) => 0,
-                _ => -1,
+            c.kind.push(match f.code_kind.map(|k| k.kind) {
+                Some(Kind::Code) => 0,
+                Some(Kind::Test) => 1,
+                Some(Kind::Generated) => 2,
+                Some(Kind::Vendored) => 3,
+                // **Absent is its own value and never `code`.** A file nothing could place is
+                // not "probably yours" — that is the shrug this lens exists to draw apart
+                // from a classification.
+                None => -1,
             });
             c.calls.push(f.calls.map(|v| v as i32).unwrap_or(-1));
             // Three states, and the middle one is the point: `0` is "compared, no twin",

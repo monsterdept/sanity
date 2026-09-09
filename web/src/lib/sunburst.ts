@@ -396,6 +396,7 @@ function aggregate(fns: Node[], filePath: string): Node {
   dependents: null,
   underTest: null,
   tested: null,
+  codeKind: null,
   cloneGroup: null,
     cloneSize: null,
     comparable: null,

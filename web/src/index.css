@@ -167,26 +167,23 @@
    * and Traps cannot be confused at a glance. Hot pink is louder than any ramp end here,
    * which is the point: this is the one lens where the answer is "look at these". */
   --trap: #ff4f95;
-  /* Testing is a SET, not a ramp: four states with no order between them, so they are named
-   * colours rather than stops on a scale.
+  /* Composition is a SET, not a ramp: four kinds with no order between them, so they are
+   * named colours rather than stops on a scale.
    *
-   * Red, green and blue because the reading is the one everybody already has — red is what
-   * nothing exercises, green is what a test reaches, blue is the tests themselves. Blue for
-   * the tests keeps them legible as a third thing rather than a shade of either answer, which
-   * matters because a test file is neither good news nor bad.
+   * **Your own code is not in this list.** It takes the structural neutral, because on a
+   * healthy repo it is most of the map and a lens where the ordinary case shouts is one
+   * nobody can read. These three are what stands out — what is NOT yours to maintain, which
+   * is what somebody opens this to ask.
    *
-   * None of them is `--trap`'s hot pink or `--clone`'s violet: two loud lenses that look
-   * alike is how a glance goes wrong.
+   * Blue for tests, amber for generated, violet for vendored: three hues far enough apart to
+   * survive a rim of sub-pixel bands, and none of them `--trap`'s hot pink. `--clone` is also
+   * violet and does not collide, because no wedge is ever painted by both lenses at once.
    *
-   * Red and green together is the classic colour-vision pair, and it is legal here for the
-   * reason the categorical palette is: the label always names the value, so identity is never
-   * carried by colour alone. The two also differ in lightness, not only in hue.
-   *
-   * A body nothing could classify takes `--unanalyzed` — grey, like every other absence on
-   * this map. "We could not look" must never wear the colour of "nothing tests this". */
-  --untested: #d1483f;
-  --under-test: #57a05f;
-  --is-test: #4a7fd4;
+   * A file nothing could place takes `--unanalyzed`, like every other absence here. "Nothing
+   * placed this" must never wear the colour of "this is yours". */
+  --kind-test: #4a7fd4;
+  --kind-generated: #c8792f;
+  --kind-vendored: #8b5fbf;
   /* A copy gets a mark, not a ramp — see `--trap` above and the paragraph under `--birth`
    * for the idiom. "This body appears seven times" is a fact somebody can go and check, not
    * a degree of anything, so it sits off every scale exactly as a reported trap does. The
@@ -746,9 +743,9 @@
 
   --unanalyzed: #4a4642;
   --trap: #ff5ea1;
-  --untested: #e3665c;
-  --under-test: #6fb877;
-  --is-test: #6a9ce8;
+  --kind-test: #6a9ce8;
+  --kind-generated: #d9924a;
+  --kind-vendored: #a37ad4;
   /* Lifted off the ink the way --trap is. Worst case: 33.9 from --structure, 28.8 from
    * --unanalyzed, 17.6 from --trap, 15.3 from --callers-4. */
   --clone: #bd5cff;

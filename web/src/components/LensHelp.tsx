@@ -179,24 +179,30 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       Documentation a model could reproduce from the body alone is graded <code>none</code>.
     </Lens>
   ),
-  testing: (
+  composition: (
     <Lens
-      name="Testing"
+      name="Composition"
       needs="Scan"
       swatch={
         <Steps
-          fills={['var(--unanalyzed)', 'var(--is-test)', 'var(--under-test)', 'var(--untested)']}
+          fills={[
+            'var(--unanalyzed)',
+            'var(--structure)',
+            'var(--kind-test)',
+            'var(--kind-generated)',
+            'var(--kind-vendored)',
+          ]}
         />
       }
-      measures="which bodies a test was found to reach, and which bodies are the tests."
-      values="cannot tell · test · a test reaches this · no test found"
+      measures="what this repo is made of: code somebody here wrote, tests, generated code, and vendored code."
+      values="unplaced · code · test · generated · vendored"
     >
-      <code>no test found</code> means exactly that — a search of the call graph came back
-      empty. It is not proof that nothing tests this. Calls are followed only in languages this
-      parses and only where a name resolves, so a suite written in shell that drives your CLI
-      is invisible here, and every edge the resolver refuses is a test it cannot see. Nor is any
-      of this coverage: nothing here runs your suite, so a green wedge means a test path
-      reaches the body, not that the body executed.
+      Your own code takes the neutral, so what stands out is what you are not on the hook for.
+      A generator's own <code>DO NOT EDIT</code> banner and a <code>linguist-vendored</code>
+      line in <code>.gitattributes</code> are declarations and are read as such; a path like{' '}
+      <code>vendor/</code> is a convention, and the wedge says which it leaned on.{' '}
+      <code>unplaced</code> means nothing could say — a language with no way to tell a test
+      apart leaves its bodies there rather than calling them yours.
     </Lens>
   ),
   traps: (

@@ -43,7 +43,7 @@ export type ColorMode =
   | 'surprise'
   | 'legible'
   | 'docs'
-  | 'testing'
+  | 'composition'
   | 'traps'
   | 'clones'
   | 'callers'
@@ -131,7 +131,7 @@ export const REPLAY: Record<ColorMode, 'live' | 'cost'> = {
   surprise: 'live',
   legible: 'live',
   docs: 'live',
-  testing: 'live',
+  composition: 'live',
   traps: 'live',
   clones: 'cost',
   callers: 'cost',
@@ -189,7 +189,7 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   // dropped in the middle shifts every digit after it and silently takes away a key somebody
   // had learned — `keys.ts` says so at length. Twelve is past ⌘0 and ⌘-, so Testing has no
   // digit of its own and is reached with `[` and `]`, which is the shape that does not run out.
-  testing: 'Testing',
+  composition: 'Composition',
 }
 
 export const MODE_HINT: Record<ColorMode, string> = {
@@ -197,9 +197,9 @@ export const MODE_HINT: Record<ColorMode, string> = {
   surprise: 'what a reader didn’t see coming',
   legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
-  // **Testing, not Tests.** The lens is the tests AND what they reach — a lens that only
-  // showed where the tests are would answer half the question somebody opens it with.
-  testing: 'what tests were found to reach, and what the tests are',
+  // Not "what is tested" — what the repo is MADE of. Every band is a statement about what a
+  // file IS, which is answerable, where what a test covers is not.
+  composition: 'what this repo is made of',
   traps: 'what will bite whoever edits it next',
   callers: 'how many things call it',
   reach: 'how much it calls out to',
@@ -546,8 +546,8 @@ export function rampOf(mode: ColorMode): Ramp {
  *  are given `heat` because that is what the fall-through gave them and nothing reads it; what
  *  matters is that they are a stated `never` rather than an omission. */
 const RAMP_OF: Record<ColorMode, Ramp> = {
-  // Categorical, like Blame and Language: four states, coloured by slot rather than shaded.
-  testing: 'heat',
+  // Categorical, like Blame and Language: four kinds, coloured by slot rather than shaded.
+  composition: 'heat',
   tangle: 'tangle',
   surprise: 'heat',
   legible: 'legible',
@@ -1205,43 +1205,22 @@ export function colorFor(
     return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${DOC_WORDS[g]}` }
   }
 
-  if (mode === 'testing') {
-    // **Four states, and the fourth is the whole reason this is not three.**
+  if (mode === 'composition') {
+    // **What a body IS, which is answerable — not what a test covers, which is not.**
     //
-    // A test, a body a test calls, a body no test calls, and — separately — a body nothing
-    // could classify. `under_test === null` means test code is not separable in this
-    // language: C++ has no contract, googletest is a library rather than a build rule, so on
-    // a repo like ceph the entire C++ half arrives null. Painting that the same as "no test
-    // calls this" would assert `untested` over code nobody could look at, which is the
-    // failure every other lens here is written against — Callers goes grey on a language
-    // whose calls were never parsed, and this is the same absence.
+    // Four kinds and a neutral. `null` is nothing having placed it, and it is emphatically
+    // not "code": where test code cannot be told apart — C++ has no marker for one — a body
+    // might be either, and reporting it as hand-written would make every C++ repo look
+    // entirely yours.
     //
-    // Never called coverage. Coverage means the line EXECUTED; this is a fact about the call
-    // graph, and borrowing the word would claim a measurement nobody took.
+    // The evidence rides in the label because the tiers are not equal: a generator's own
+    // `DO NOT EDIT` banner and a directory somebody named `generated` are both true and only
+    // one of them is a fact.
     if (node.kind !== 'func') return null
-    if (node.tested?.isTest) {
-      return {
-        fill: 'var(--is-test)',
-        stop: 'var(--is-test)',
-        ink: inkOn('var(--is-test)'),
-        // The evidence travels with the answer, because "the compiler says so" and "a
-        // filename says so" are not the same claim — see `model::Testness`.
-        label: `test (${node.tested.how})`,
-      }
-    }
-    if (node.underTest === null || node.underTest === undefined) return null
-    const fill = node.underTest ? 'var(--under-test)' : 'var(--untested)'
-    return {
-      fill,
-      stop: fill,
-      ink: inkOn(fill),
-      // **What we FOUND, not what exists.** The call graph sees resolvable calls in
-      // languages it parses: `super::f()` was invisible until it was fixed, a shell suite is
-      // invisible permanently, and every refused edge is a test this cannot see. So the red
-      // band reports a search that came back empty, which is true, rather than an absence of
-      // tests, which this cannot know.
-      label: node.underTest ? 'a test reaches this' : 'no test found',
-    }
+    const k = node.codeKind
+    if (!k) return null
+    const fill = KIND_FILL[k.kind]
+    return { fill, stop: fill, ink: inkOn(fill), label: `${k.kind} (${k.how})` }
   }
   if (mode === 'traps') {
     // Two states and an absence, not a ramp: a trap is a boolean and shading it would
@@ -1613,10 +1592,9 @@ export function churnLabel(commits: number, days: number): string {
  *  A `Record` for the same reason everything on this page is one now: it was a chain of
  *  `mode !== …` and the twelfth lens was not in it. */
 const FROM_COLS: Record<ColorMode, boolean> = {
-  // `Cols::testing` carries one entry per function, so a file stands in with its functions'
-  // own values rather than with a single point of its own — the same thing `tangle` does, and
-  // the reason both of these are true rather than false.
-  testing: true,
+  // `Cols::kind` carries one entry per function, so a file stands in with its functions' own
+  // values rather than with a single point of its own — the same thing `tangle` does.
+  composition: true,
   churn: true,
   age: true,
   tangle: true,
@@ -1662,10 +1640,10 @@ const FROM_COLS: Record<ColorMode, boolean> = {
  *  it was missed from; the others were the band order and the ramp. A `Record` over
  *  `ColorMode` fails the build instead of the picture. */
 const STANDS_IN: Record<ColorMode, boolean> = {
-  // A file stands in for functions the window was never sent, out of `Cols::testing`. Without
-  // it the rim draws over whichever rings happened to arrive, which at a repo's root is a
+  // A file stands in for functions the window was never sent, out of `Cols::kind`. Without it
+  // the rim draws over whichever rings happened to arrive, which at a repo's root is a
   // confident picture of a biased sample.
-  testing: true,
+  composition: true,
   // A file's own tangle is the mean over ALL its functions, computed in Rust rather than over
   // whichever rings happen to have arrived, so it is complete by construction exactly as churn
   // and age are — and `Cols::tangle` carries the per-function values so the distribution is
@@ -1782,6 +1760,19 @@ type Put = (key: string, label: string, fill: string, n: Node, ramp?: number) =>
  *  round-trip would have dropped the byte and folded the absence row into a real category
  *  with nothing failing. Identical at runtime, legible in the source. */
 const UNKNOWN = '\u0000unknown'
+
+/** What each kind is painted with — see `model::Kind`.
+ *
+ *  **Your own code takes the structural neutral**, and that is the design rather than an
+ *  omission: on a healthy repo it is most of the map, and a lens where the ordinary case
+ *  shouts is a lens nobody can read. What stands out is what is NOT yours to maintain —
+ *  which is the question somebody opens this to ask. */
+const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored', string> = {
+  code: 'var(--structure)',
+  test: 'var(--kind-test)',
+  generated: 'var(--kind-generated)',
+  vendored: 'var(--kind-vendored)',
+}
 
 function contribute(
   n: Node,
@@ -1976,26 +1967,16 @@ function contribute(
       } else {
         put(UNKNOWN, 'unread', 'var(--structure)', n)
       }
-    } else if (mode === 'testing') {
-      // **Not read off a reading, unlike the three below it.** Test-ness is answered by the
-      // parse and the paths first — a contract, then a convention — and only asks a reader
-      // where nothing else can say. So the absence here is not "nobody has read this", it is
-      // "nothing could classify this language", and it takes the unanalyzed neutral for the
-      // same reason Callers goes grey where calls were never parsed.
-      //
-      // The tests themselves are a band rather than a drop: the lens is Testing, not Tested,
-      // and where a repo's tests live is half of what somebody opens it to see.
-      if (n.tested?.isTest) {
-        put('test', 'test', 'var(--is-test)', n)
-      } else if (n.underTest === null || n.underTest === undefined) {
-        put(UNKNOWN, 'cannot tell', 'var(--unanalyzed)', n)
+    } else if (mode === 'composition') {
+      // Not read off a reading: a file's kind comes from what the repo declared and what its
+      // path says, so the absence here is "nothing placed this" rather than "nobody has read
+      // it". It takes the unanalyzed neutral for the reason Callers goes grey where calls
+      // were never parsed.
+      const k = n.codeKind
+      if (!k) {
+        put(UNKNOWN, 'unplaced', 'var(--unanalyzed)', n)
       } else {
-        put(
-          n.underTest ? 'a test reaches this' : 'no test found',
-          n.underTest ? 'a test reaches this' : 'no test found',
-          n.underTest ? 'var(--under-test)' : 'var(--untested)',
-          n,
-        )
+        put(k.kind, k.kind, KIND_FILL[k.kind], n)
       }
     } else if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
       // Both are read straight off the reading, so both share one absence: a function
@@ -2150,11 +2131,9 @@ function contributeCols(
     kind: 'func'
     loc: number
     score?: Score
-      /** The Testing lens reads both, and a stand-in that omitted them would report every
-       *  ring-less file as unclassifiable — the confident wrong colour this stand-in exists
-       *  to avoid. */
-      tested?: { isTest: boolean; how: 'contract' | 'reader' | 'convention' } | null
-      underTest?: boolean | null
+      /** Composition reads this, and a stand-in that omitted it would report every ring-less
+       *  file as unplaced — the confident wrong colour this stand-in exists to avoid. */
+      codeKind?: Node['codeKind']
     callers?: number
     calls?: number
     cloneSize?: number
@@ -2205,9 +2184,12 @@ function contributeCols(
     // `how` is `convention` because a column carries the answer and not the evidence for it.
     // That is honest rather than lazy: this is a stand-in, and the panel that wants to say
     // which tier decided has the function node in front of it by then.
-    const testing = c.testing?.[i] ?? -1
-    stand.tested = testing === 2 ? { isTest: true, how: 'convention' as const } : null
-    stand.underTest = testing === 1 ? true : testing === 0 ? false : null
+    // `how` is `convention` because a column carries the answer and not the evidence for it.
+    // Honest rather than lazy: this is a stand-in, and anything wanting to name the tier has
+    // the function node in front of it by then.
+    const kinds = ['code', 'test', 'generated', 'vendored'] as const
+    const k = c.kind?.[i] ?? -1
+    stand.codeKind = k >= 0 && k < 4 ? { kind: kinds[k], how: 'convention' as const } : null
     stand.calls = c.calls[i] < 0 ? undefined : c.calls[i]
     stand.comparable = c.clones[i] < 0 ? undefined : 1
     stand.cloneSize = c.clones[i] > 0 ? c.clones[i] : undefined
@@ -2313,7 +2295,11 @@ const BUCKET_ORDER: Record<ColorMode, 'lines' | (() => readonly string[])> = {
   // BEFORE index 0 — so omitting it would have put the tests at the top of the panel, which
   // is precisely the opposite of what the comment above claimed. `cannot tell` stays
   // unlisted on purpose: it is the absence bucket every lens keeps at the end.
-  testing: () => ['no test found', 'a test reaches this', 'test'],
+  // Loud end leading, like every other lens — but here the loud end is what is NOT yours.
+  // Somebody opens Composition to find out how much of a repo they are actually on the hook
+  // for, so the answer they came for is at the top and their own code sits under it.
+  // `unplaced` stays unlisted: it is the absence bucket every lens keeps at the end.
+  composition: () => ['vendored', 'generated', 'test', 'code'],
   // Most-called first. It was fewest-first, on the argument that the sparse end is what people
   // sweep for — true, and outweighed by the rule now holding every lens together: one
   // direction, loud end leading, so a rim can be compared with the rim beside it and with the

@@ -105,6 +105,12 @@ pub enum Field {
     /// most likely to take at face value. What this says is exactly what it knows: a test
     /// calls this, or no test calls this, or we cannot tell tests apart here.
     ///
+    /// **A findings input and not a lens.** It was drawn on the map for a day and every
+    /// picture of it needed an hour of explanation: a call graph reports a SEARCH, and colouring
+    /// thirty thousand lines by one reads as a verdict on the repo. As a finding it points at
+    /// one body and the sentence carries its own caveat, which is a claim somebody can check in
+    /// ten seconds. What the map draws instead is `Kind` — what a file IS, which is answerable.
+    ///
     /// Direct callers only — see [`crate::edges::Wire::under_test`] for why a transitive
     /// closure would reach nearly everything and distinguish nothing.
     UnderTest,
@@ -295,7 +301,10 @@ impl Field {
         Some(match self {
             Field::Loc | Field::Funcs => "size",
             Field::Callers | Field::Dependents => "callers",
-            Field::UnderTest => "tests",
+            // No lens paints it any more; a finding that cites it takes the neutral, which
+            // is what `fieldColor` does with `None` and is the honest answer for a field
+            // whose whole point is that it reports a search rather than a state.
+            Field::UnderTest => return None,
             Field::Calls => "reach",
             Field::CloneSize => "clones",
             Field::Cognitive | Field::Tangle => "tangle",

@@ -76,6 +76,7 @@ function dirNode(path: string, name: string, kind: 'dir' | 'file'): Node {
   dependents: null,
   underTest: null,
   tested: null,
+  codeKind: null,
   cloneGroup: null,
     cloneSize: null,
     comparable: null,
