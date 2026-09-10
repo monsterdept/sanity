@@ -20,7 +20,7 @@
  * same shape `replay-check` takes and for the same reason.
  */
 import { rimRuns } from '../src/lib/rim'
-import { OTHER, bucketsFor, histogramsFor, sortBuckets } from '../src/lib/colorMode'
+import { OTHER, VIEWS_DEFAULT, bucketsFor, histogramsFor, sortBuckets } from '../src/lib/colorMode'
 import type { Slice } from '../src/lib/colorMode'
 import type { Node } from '../src/lib/api'
 
@@ -161,6 +161,7 @@ console.log('absence — a band says what it knows, not what the repo is')
     churn: { windows: [30, 60, 90, 180] as [number, number, number, number], at: 2, measured: true },
     tangle: 'weighted' as const,
     blame: 'touched' as const,
+    derivable: 'none' as const,
   }
   for (const mode of ['age', 'churn'] as const) {
     const rows = bucketsFor(dir([file([func(100, null), func(50, null)])]), mode, undefined, walked)
@@ -397,6 +398,7 @@ console.log('a container draws its distribution, not its mean')
     churn: { windows: [30, 60, 90, 180] as [number, number, number, number], at: 2, measured: true },
     tangle: 'weighted' as const,
     blame: 'touched' as const,
+    derivable: 'none' as const,
   })
   const slices = hist.get('d') ?? []
   check(
@@ -498,6 +500,7 @@ console.log('columns — a file whose ring never arrived still bands, and does n
       churn: { ...ladder, at },
       tangle: 'weighted' as const,
     blame: 'touched' as const,
+    derivable: 'none' as const,
     }
     const rows = bucketsFor(dir([file]), 'churn', undefined, views)
     check(
@@ -522,6 +525,7 @@ console.log('columns — a file whose ring never arrived still bands, and does n
       churn: { ...ladder, at },
       tangle: 'weighted' as const,
     blame: 'touched' as const,
+    derivable: 'none' as const,
     }
     const rows = bucketsFor(dir([file]), 'churn', undefined, views)
     return rows.find((b) => b.lines === 100)?.label
@@ -567,6 +571,7 @@ console.log('roll-ups — and the time tally puts a folded file in its own band'
     churn: { ...ladder, windows: [...ladder.windows] as [number, number, number, number] },
     tangle: 'weighted' as const,
     blame: 'touched' as const,
+    derivable: 'none' as const,
   })
 
   const aged = bucketsFor(dir([folded]), 'age', undefined, views('newest'))
@@ -621,6 +626,35 @@ console.log('roll-ups — and the time tally puts a folded file in its own band'
   const early = churn.find((b) => b.label === '1–2 commits')
   check('and an opening-state file is still banded by its commits',
     early?.lines === 200, churn.map((b) => [b.label, b.lines]))
+}
+
+console.log('docs — the derivable switch decides what a useless comment is painted as')
+{
+  // A function whose doc a reader graded `some` and then judged derivable. The rim bands it
+  // as `none` or as `full`, never at `some`: the two readings differ only by the switch, so a
+  // surface that stops consulting it draws the same row twice and fails here.
+  const doc = (derivable: boolean): Node =>
+    ({
+      kind: 'func',
+      loc: 100,
+      children: [],
+      excluded: false,
+      agent: { derivable, documented: 'some' },
+      agentStale: false,
+      score: { commits: [0, 0, 0, 0], churn: [0, 0, 0, 0], ageDays: 1, lastTouchedDays: 1 },
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', loc: 0, excluded: false, children: kids }) as unknown as Node
+  const file = (kids: Node[]): Node =>
+    ({ kind: 'file', loc: 0, excluded: false, funcs: 0, children: kids }) as unknown as Node
+  const lines = (derivable: boolean, derived: 'none' | 'full', grade: string) =>
+    bucketsFor(dir([file([doc(derivable)])]), 'docs', undefined, {
+      ...VIEWS_DEFAULT,
+      derivable: derived,
+    }).find((b) => b.key === grade)?.lines
+  check('`none` bands a derivable doc as none', lines(true, 'none', 'none') === 100)
+  check('`full` bands it as full', lines(true, 'full', 'full') === 100)
+  check('and a doc nobody judged derivable keeps its grade', lines(false, 'full', 'some') === 100)
 }
 
 if (failed > 0) {

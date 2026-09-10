@@ -71,7 +71,10 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
   }
   const table: HistoryFunc[] = []
   for (let f = 0; f < funcs; f++) {
-    table.push({ path: f % files, name: `fn${f}`, owner: null, ord: 0 })
+    // Every kind, every tier, and a tenth nothing placed — so a fold that dropped the tally
+    // on a backward seek would render a different `folded[...]`.
+    const kind = f % 10 === 9 ? 255 : ((f % 5) << 2) | (f % 4)
+    table.push({ path: f % files, name: `fn${f}`, owner: null, ord: 0, kind })
   }
   const authors = ['ada', 'grace', 'alan', 'edsger', 'barbara']
   const deltas: Delta[] = []
@@ -214,6 +217,7 @@ function render(node: Node, out: string[], depth = 0): void {
       `loc=${node.loc}`,
       `rest=${node.rest ?? '-'}`,
       `lang=${node.lang ?? '-'}`,
+      `code=${node.codeKind ? `${node.codeKind.kind}/${node.codeKind.how}` : '-'}`,
       `by=${node.lastAuthor ?? '-'}`,
       `birthBelow=${node.birthBelow ?? '-'}`,
       `touchBelow=${node.touchBelow ?? '-'}`,
@@ -231,7 +235,7 @@ function render(node: Node, out: string[], depth = 0): void {
       node.folded
         ? `folded[${node.folded.lang.map(([k, v]) => `${k}:${v}`).join(',')}|${node.folded.author
             .map(([k, v]) => `${k}:${v}`)
-            .join(',')}|${node.folded.time.join(',')}|${node.folded.tangle.join(',')}]`
+            .join(',')}|${node.folded.kind.map(([k, v]) => `${k}:${v}`).join(',')}|${node.folded.time.join(',')}|${node.folded.tangle.join(',')}]`
         : 'folded=-',
     ].join(' '),
   )

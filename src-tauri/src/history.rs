@@ -119,6 +119,21 @@ pub struct HistoryFunc {
     /// `(path, owner, name, ord)`. Without this the cache could only ever be all-or-
     /// nothing, and a single new commit would cost a whole re-parse.
     pub ord: u32,
+    /// What this body is and how that was decided, packed `kind << 2 | how` — see [`place`].
+    ///
+    /// **The kind its LATEST version was placed as**, rewritten each time the walk parses
+    /// it, so the frame at HEAD reads what the live map does. Per identity rather than per
+    /// frame: a body that turns into a generated one partway through a story is rare enough
+    /// that a delta array for it would be a checkpoint field carrying almost nothing.
+    #[serde(default = "unplaced")]
+    pub kind: u8,
+}
+
+/// A body nothing placed — every function of a timeline walked before `kind` existed.
+const UNPLACED: u8 = 255;
+
+fn unplaced() -> u8 {
+    UNPLACED
 }
 
 /// One function's identity as a string — the key the walk diffs on.
@@ -373,6 +388,9 @@ struct FuncAt {
     /// It costs no extra parse. `parse_functions` already computes it for the live map, and
     /// the walk was throwing it away.
     cognitive: Option<u32>,
+    /// What this version is — see [`place`]. Handed to `Funcs::intern`, which keeps the
+    /// latest one on the function.
+    kind: u8,
 }
 
 /// One file's functions at one moment, in file order.
@@ -395,8 +413,10 @@ struct Funcs {
 
 impl Funcs {
     fn intern(&mut self, path_idx: u32, path: &str, f: &FuncAt) -> u32 {
-        if let Some(i) = self.index.get(&f.key) {
-            return *i;
+        if let Some(&i) = self.index.get(&f.key) {
+            // The latest version's kind wins — see `HistoryFunc::kind`.
+            self.list[i as usize].kind = f.kind;
+            return i;
         }
         let i = self.list.len() as u32;
         self.list.push(HistoryFunc {
@@ -404,6 +424,7 @@ impl Funcs {
             name: f.name.clone(),
             owner: f.owner.clone(),
             ord: f.ord,
+            kind: f.kind,
         });
         self.index.insert(f.key.clone(), i);
         self.by_reading.insert(reading_key(path, f), i);
@@ -411,13 +432,83 @@ impl Funcs {
     }
 }
 
+/// What the repo says about its files, read once per walk and applied to every version.
+///
+/// **From the working tree as it is now**, the way `Tables::excluded` reads `.sanityignore`:
+/// reading `.gitattributes` and the manifests as they stood at each commit would move a body
+/// between kinds because somebody edited a config, which is a story about the config.
+#[derive(Default)]
+struct Placing {
+    attrs: crate::edges::Attributes,
+    declared: crate::edges::Declarations,
+}
+
+impl Placing {
+    fn of(repo: &Path) -> Placing {
+        let files: Vec<(String, Lang)> = tree_of(repo, "HEAD")
+            .into_iter()
+            .filter_map(|(p, _)| lang_of(&p).map(|l| (p, l)))
+            .collect();
+        Placing {
+            attrs: crate::scan::attributes(repo),
+            declared: crate::scan::declared_for(repo, &files),
+        }
+    }
+}
+
+/// What one body is, packed for [`HistoryFunc::kind`]: `kind << 2 | how`.
+///
+/// **The live scan's order, step for step** — see `score_dir`: the file's own kind, then
+/// test-ness where the language's calls are resolved (the only files `wire` asks about),
+/// then code, which is asserted rather than assumed. A reader's answer about a test is
+/// applied to the live tree afterwards and never reaches a replay; that tier is the one place
+/// the two can disagree. The kind order is `Cols::kind`'s and `KIND_ORDER`'s.
+fn place(
+    file_kind: Option<crate::model::Kinded>,
+    lang: Lang,
+    path: &str,
+    f: &parse::FuncDef,
+    declared: &crate::edges::Declarations,
+) -> u8 {
+    use crate::model::{Kind, Kinded, Tested};
+    let k = file_kind
+        .or_else(|| {
+            parse::resolves_calls(lang)
+                .then(|| crate::edges::testness(lang, path, f.in_cfg_test, &f.name, declared))
+                .flatten()
+                .map(|t| Kinded {
+                    kind: if t.is_test { Kind::Test } else { Kind::Code },
+                    how: t.how,
+                })
+        })
+        .unwrap_or(Kinded { kind: Kind::Code, how: Tested::Parsed });
+    let kind = match k.kind {
+        Kind::Code => 0,
+        Kind::Test => 1,
+        Kind::Generated => 2,
+        Kind::Vendored => 3,
+        Kind::Header => 4,
+    };
+    let how = match k.how {
+        Tested::Contract => 0,
+        Tested::Reader => 1,
+        Tested::Convention => 2,
+        Tested::Parsed => 3,
+    };
+    (kind << 2) | how
+}
+
 /// Parse one file version into its functions, keyed for identity across commits.
 ///
 /// `ord` disambiguates same-named siblings by position, exactly as `assessment::key_of`
 /// does. Without it a file's twelve `parse`s are one wedge, and the twelfth one's
 /// arrival looks like the first one changing size.
-fn functions_of(path: &str, lang: Lang, src: &str) -> FileState {
+fn functions_of(path: &str, lang: Lang, src: &str, placing: &Placing) -> FileState {
     let mut seen: BTreeMap<(Option<String>, String), u32> = BTreeMap::new();
+    // What the FILE is, decided once from its own head — the same slice `scan` hands
+    // `kind_of`, so a banner further down is invisible to both rather than to one.
+    let head = src.lines().take(crate::scan::CONTEXT_HEAD_LINES).collect::<Vec<_>>().join("\n");
+    let file_kind = crate::edges::kind_of(path, &head, &placing.attrs);
     parse::parse_functions(lang, src)
         .into_iter()
         .map(|f| {
@@ -435,7 +526,8 @@ fn functions_of(path: &str, lang: Lang, src: &str) -> FileState {
             std::hash::Hash::hash(&f.body, &mut h);
             let hash = Some(std::hash::Hasher::finish(&h));
             let cognitive = f.cognitive;
-            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner, hash, cognitive }
+            let kind = place(file_kind, lang, path, &f, &placing.declared);
+            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner, hash, cognitive, kind }
         })
         .collect()
 }
@@ -775,6 +867,7 @@ fn prefetch(
     log: &[RawCommit],
     at: usize,
     total: usize,
+    placing: &Placing,
     progress: &dyn Fn(Progress),
 ) -> Parsed {
     let mut want: Vec<(String, String)> = Vec::new();
@@ -794,7 +887,7 @@ fn prefetch(
     let keys = want.clone();
     // The phase word from the batch, the numbers from the walk.
     let held = |p: Progress| progress(Progress::counting(&p.phase, "traced", at, total));
-    parse_batch(blobs, want, &held)
+    parse_batch(blobs, want, placing, &held)
         .into_iter()
         .zip(keys)
         .map(|((_, state), (path, sha))| ((path, sha), state))
@@ -852,6 +945,7 @@ fn on_pool<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 fn parse_batch(
     blobs: &mut Blobs,
     want: Vec<(String, String)>,
+    placing: &Placing,
     progress: &dyn Fn(Progress),
 ) -> Vec<(String, FileState)> {
     // A refused blob still comes back, as an EMPTY state rather than as nothing at all.
@@ -886,7 +980,7 @@ fn parse_batch(
                 .map(|(path, src)| {
                     let state = src
                         .take()
-                        .map(|(lang, text)| functions_of(path, lang, &text))
+                        .map(|(lang, text)| functions_of(path, lang, &text, placing))
                         .unwrap_or_default();
                     (std::mem::take(path), state)
                 })
@@ -917,6 +1011,9 @@ struct Replayer {
     /// be the quadratic thing this module exists to avoid. Kept per SHARD rather than merged,
     /// so a deleted shard can retire exactly its own entries.
     shards: BTreeMap<String, BTreeMap<String, u16>>,
+    /// What every parsed version is placed against — see [`Placing`]. Empty until the caller
+    /// that has the repo fills it in; neither constructor does.
+    placing: Placing,
     out: HistoryScan,
 }
 
@@ -927,6 +1024,7 @@ impl Replayer {
             funcs: Funcs::default(),
             state: BTreeMap::new(),
             shards: BTreeMap::new(),
+            placing: Placing::default(),
             out: HistoryScan {
                 base_read: Vec::new(),
                 base_cog: Vec::new(),
@@ -984,6 +1082,7 @@ impl Replayer {
                 // old side of the diff is never asked for it.
                 hash: None,
                 cognitive: None,
+                kind: def.kind,
             };
             r.state.entry(path).or_default().push(at);
         }
@@ -1016,7 +1115,7 @@ impl Replayer {
         // opening frame would claim a repo that had never read itself.
         let (shards, sources): (Vec<_>, Vec<_>) =
             tree.into_iter().partition(|(path, _)| is_shard(path));
-        for (path, state_of) in parse_batch(blobs, sources, progress) {
+        for (path, state_of) in parse_batch(blobs, sources, &self.placing, progress) {
             let pi = self.path_idx(&path);
             for f in &state_of {
                 let fi = self.funcs.intern(pi, &path, f);
@@ -1152,7 +1251,7 @@ impl Replayer {
         // Whatever the window's prefetch did not cover: a handful of blobs per commit, so
         // there is nothing here worth reporting and a tick per commit would fight the walk's
         // own count for the same line.
-        states.extend(parse_batch(blobs, missing, &|_| {}));
+        states.extend(parse_batch(blobs, missing, &self.placing, &|_| {}));
 
         for (path, next) in states {
             let pi = self.path_idx(&path);
@@ -1368,6 +1467,7 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
     let Some(mut blobs) = Blobs::open(repo) else {
         return r.finish();
     };
+    r.placing = Placing::of(repo);
 
     let total = log.len() + 1;
     // **Named and united, because the log now counts too.** Both phases report a fraction of
@@ -1390,7 +1490,7 @@ pub fn read(repo: &Path, limit: usize, progress: &dyn Fn(Progress)) -> HistorySc
     // A window's file versions are read and parsed together, then its commits are applied
     // one at a time — see `WINDOW`. Frames stay per commit; only the parsing is batched.
     'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
-        let ready = prefetch(&mut blobs, window, w * WINDOW + 2, total, progress);
+        let ready = prefetch(&mut blobs, window, w * WINDOW + 2, total, &r.placing, progress);
         for (n, commit) in window.iter().enumerate() {
             if cancelled() {
                 break 'walk;
@@ -1565,9 +1665,10 @@ fn extend(repo: &Path, cached: HistoryScan, limit: usize, progress: &dyn Fn(Prog
     let banked = at;
     let mut checkpoint = Checkpoint::new();
     let mut r = Replayer::resume(cached);
+    r.placing = Placing::of(repo);
     let total = banked + log.len();
     'walk: for (w, window) in log.chunks(WINDOW).enumerate() {
-        let ready = prefetch(&mut blobs, window, banked + w * WINDOW, total, progress);
+        let ready = prefetch(&mut blobs, window, banked + w * WINDOW, total, &r.placing, progress);
         for (n, commit) in window.iter().enumerate() {
             if cancelled() {
                 break 'walk;
@@ -1817,7 +1918,12 @@ fn is_ancestor(repo: &Path, sha: &str) -> bool {
 /// replay a repo whose every function was in a language nobody had taught the parser — a
 /// perfectly plausible-looking picture, in the structural neutral, of a repo that is mostly
 /// Rust. Then, being EXTENDED, it would append real ones on the end.
-const CACHE_VERSION: u32 = 6;
+///
+/// 7 because a function now carries `kind` — what Composition paints, which until this drew
+/// every replayed body as unplaced. It is `#[serde(default)]`, so a stored timeline would load
+/// with every body unplaced and, being EXTENDED, place only the functions later commits
+/// happened to touch: a repo that looks half-classified for no reason anyone could see.
+const CACHE_VERSION: u32 = 7;
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
@@ -2031,10 +2137,39 @@ mod tests {
     #[test]
     fn same_named_functions_in_one_file_stay_apart() {
         let src = "impl A { fn new() -> A { A } }\nimpl B { fn new() -> B { B } }\n";
-        let state = functions_of("src/lib.rs", Lang::Rust, src);
+        let state = functions_of("src/lib.rs", Lang::Rust, src, &Placing::default());
         let keys: Vec<&str> = state.iter().map(|f| f.key.as_str()).collect();
         assert_eq!(keys.len(), 2, "both `new`s are present");
         assert_ne!(keys[0], keys[1], "and they are not the same function");
+    }
+
+    /// **A replayed body is placed by the rule the live map places it by.** Composition drew
+    /// every replayed body as unplaced until the walk carried a kind; this pins the tiers a
+    /// parse alone can answer, packed as `place` packs them — `kind << 2 | how`.
+    #[test]
+    fn a_replayed_body_is_placed_as_the_live_map_places_it() {
+        let none = Placing::default();
+        let kinds = |path: &str, lang: Lang, src: &str| -> Vec<(String, u8)> {
+            functions_of(path, lang, src, &none).into_iter().map(|f| (f.name, f.kind)).collect()
+        };
+        let rust = "fn run() {}\n#[cfg(test)]\nmod tests {\n    fn runs() { super::run() }\n}\n";
+        assert_eq!(
+            kinds("src/lib.rs", Lang::Rust, rust),
+            vec![("run".to_string(), 0), ("runs".to_string(), 1 << 2)],
+            "code and test, both on the compiler's word"
+        );
+        let banner = "// Code generated by protoc. DO NOT EDIT.\nfn made() {}\n";
+        assert_eq!(
+            kinds("src/wire.rs", Lang::Rust, banner),
+            vec![("made".to_string(), 2 << 2)],
+            "a generator's banner places the whole file"
+        );
+        let ts = "export function checks() { return 1 }\n";
+        assert_eq!(
+            kinds("web/src/a.test.ts", Lang::TypeScript, ts),
+            vec![("checks".to_string(), (1 << 2) | 2)],
+            "a runner's filename is a convention, and says so"
+        );
     }
 
     /// **A stopped walk must not overwrite the timeline it was resuming.**

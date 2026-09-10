@@ -269,10 +269,7 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
             // which comes last of the three because it is about a whole language rather than
             // one file. A reader's answer belongs to none of these tiers and is applied by
             // `links::retest`, where readings live.
-            let known = contract_of(file.lang, file.path, func.in_cfg_test)
-                .or_else(|| convention_of(file.lang, file.path))
-                .or_else(|| named_of(file.lang, &func.name))
-                .or_else(|| declared_of(file.lang, declared));
+            let known = testness(file.lang, file.path, func.in_cfg_test, &func.name, declared);
             // Test by CONTRACT, which is a fact about what the compiler builds rather than a
             // judgement — see the edge filter below, which is the only thing that reads it.
             if contract_of(file.lang, file.path, func.in_cfg_test)
@@ -466,6 +463,24 @@ fn contract_of(lang: Lang, path: &str, in_cfg_test: bool) -> Option<Testness> {
         Lang::Go => yes(file.ends_with("_test.go")),
         _ => None,
     }
+}
+
+/// Whether a body is a test, on structural evidence alone, strongest tier first.
+///
+/// **One chain with two callers**: `wire`, which places a body on the live map, and
+/// `history::place`, which places the same body in a replay. Spelled out twice, the frame at
+/// HEAD could call a body a test that the live map beside it calls code.
+pub(crate) fn testness(
+    lang: Lang,
+    path: &str,
+    in_cfg_test: bool,
+    name: &str,
+    declared: &Declarations,
+) -> Option<Testness> {
+    contract_of(lang, path, in_cfg_test)
+        .or_else(|| convention_of(lang, path))
+        .or_else(|| named_of(lang, name))
+        .or_else(|| declared_of(lang, declared))
 }
 
 /// What the REPO says about its own tests, read from the files its author wrote.

@@ -812,7 +812,7 @@ fn stamp_unparsed(tree: &mut Node, by_dir: &std::collections::HashMap<String, u3
 /// One file at the root. Nested `.gitattributes` are legal and rare, and reading only the top
 /// one is stated rather than silently partial: a repo that declares deeper simply gets the
 /// convention tier, which is where it was before this existed.
-fn attributes(root: &Path) -> crate::edges::Attributes {
+pub(crate) fn attributes(root: &Path) -> crate::edges::Attributes {
     let mut out = crate::edges::Attributes::default();
     let Ok(text) = std::fs::read_to_string(root.join(".gitattributes")) else { return out };
     for line in text.lines() {
@@ -1009,7 +1009,7 @@ fn rel(root: &Path, path: &Path) -> String {
 /// Lines of the file head handed to the model as context. Imports and top-level type
 /// declarations live here in every language sanity parses, and they are most of what
 /// tells a reader (or a model) what this file is even about.
-const CONTEXT_HEAD_LINES: usize = 40;
+pub(crate) const CONTEXT_HEAD_LINES: usize = 40;
 
 /// Complete sibling functions shown to the model, and how much of each.
 ///

@@ -826,6 +826,8 @@ export interface Views {
   tangle: TangleRead
   /** Which of Blame's two readings — see `BlameRead`. */
   blame: BlameRead
+  /** What Docs paints a doc a reader judged `derivable` as — see `DerivableRead`. */
+  derivable: DerivableRead
 }
 
 /** Which of Blame's two readings the lens paints.
@@ -845,6 +847,18 @@ export interface Views {
  *  The third reduction — how many people's lines are here — is not a reading, because it is a
  *  COUNT and this lens paints names. It is a findings field instead: see `Field::Headcount`. */
 export type BlameRead = 'touched' | 'lines'
+
+/** What Docs paints a doc a reader judged `derivable` — regenerable from the body it sits on.
+ *
+ *  **Two opinions, and neither is a measurement.** `none`, the default, is the metric's: a
+ *  doc a model could write from the body explains nothing that was not already there, so it
+ *  must not paint a wedge as covered. `full` is the other honest reading — the doc does say
+ *  what the code does, completely, and a function carrying one is not undocumented. Which
+ *  matters depends on whether you are asking what a newcomer learns or what is written down.
+ *
+ *  Lens only. `reportGrades` counts a derivable doc as `none` whatever this says, so no score
+ *  and nothing a reader is told moves with it. */
+export type DerivableRead = 'none' | 'full'
 
 /** Whose name a categorical wedge is keyed on.
  *
@@ -893,6 +907,7 @@ export const VIEWS_DEFAULT: Views = {
   churn: { windows: [30, 60, 90, 180], at: CHURN_DEFAULT_WINDOW, measured: false },
   tangle: 'weighted',
   blame: 'touched',
+  derivable: 'none',
 }
 
 
@@ -991,13 +1006,15 @@ function opaqueShare(node: Node): number | null {
 
 /** The reader's documentation grade for one function, or undefined.
  *
- *  **`derivable` forces it to `none`.** A doc a model could write from the body explains
- *  nothing that was not already there, so it must not paint a wedge as covered — the same
- *  rule `reportGrades` applies to the number, applied here to the color, because a lens
- *  that disagreed with the breakdown beside it would be two answers to one question. */
-function docGrade(n: Node): Grade | undefined {
+ *  **`derivable` replaces it with `derived`** — `none` by default, the same rule
+ *  `reportGrades` applies to the number, or `full`; see `DerivableRead`. Whatever grade the
+ *  reader also gave the words is not consulted: the judgement that they are regenerable is
+ *  the finding, and both readings of it are about that. Every Docs surface asks here with
+ *  the same `Views`, because a lens that disagreed with the breakdown beside it would be two
+ *  answers to one question. */
+function docGrade(n: Node, derived: DerivableRead): Grade | undefined {
   if (!n.agent || n.agentStale) return undefined
-  return n.agent.derivable ? 'none' : (n.agent.documented ?? undefined)
+  return n.agent.derivable ? derived : (n.agent.documented ?? undefined)
 }
 
 /**
@@ -1020,12 +1037,12 @@ function docGrade(n: Node): Grade | undefined {
  * `null` when nothing underneath has been graded, which the caller paints gray — absence
  * stated, never filled in.
  */
-function undocShare(node: Node): number | null {
+function undocShare(node: Node, derived: DerivableRead): number | null {
   let graded = 0
   let bare = 0
   const walk = (n: Node) => {
     if (n.kind === 'file' || n.kind === 'func') {
-      const g = docGrade(n)
+      const g = docGrade(n, derived)
       if (g) {
         graded += 1
         if (g === 'some' || g === 'none') bare += 1
@@ -1165,6 +1182,7 @@ export function colorFor(
   }
 
   if (mode === 'docs') {
+    const derived = views?.derivable ?? VIEWS_DEFAULT.derivable
     // Opacity's twin, and deliberately built the same way: both are a reader's four-step
     // grade on a function and a share of graded lines on a container.
     //
@@ -1180,7 +1198,7 @@ export function colorFor(
     // split Blame draws: a file's band is its own last author, not a mixture of its
     // functions'. A directory has no header, so it stays the share.
     if (node.kind === 'file') {
-      const own = docGrade(node)
+      const own = docGrade(node, derived)
       // `header: none` rather than "covers none": the word is a rung on a ladder, and a
       // sentence built round it has to bend for the bottom one.
       if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header: ${DOC_WORDS[own]}` }
@@ -1190,7 +1208,7 @@ export function colorFor(
       return null
     }
     if (showsShare(node)) {
-      const share = undocShare(node)
+      const share = undocShare(node, derived)
       if (share === null) return null
       const n = Math.round(share * 100)
       // LINEAR, not `shareRamp`. That curve is `min(1, share/0.25)^0.7` and its band is a
@@ -1204,7 +1222,7 @@ export function colorFor(
       // directory reads as fine.
       return { ...ramped(share, 'docs'), label: `${n}% undescribed` }
     }
-    const g = docGrade(node)
+    const g = docGrade(node, derived)
     if (!g) return null
     return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${DOC_WORDS[g]}` }
   }
@@ -1866,6 +1884,20 @@ function contribute(
       }
       return
     }
+    if (mode === 'composition') {
+      // The same two answers the function branch below gives, a kind or `unplaced`, in the
+      // same colours — so a folded body and a drawn one cannot land in different rows.
+      for (const [key, lines] of held.kind) {
+        stand.loc = lines
+        if (key === 'unplaced') {
+          put(UNKNOWN, 'unplaced', 'var(--unanalyzed)', stand as unknown as Node)
+        } else {
+          const k = key as (typeof KIND_ORDER)[number]
+          put(k, k, KIND_FILL[k], stand as unknown as Node)
+        }
+      }
+      return
+    }
     if (mode === 'age' || mode === 'churn') {
       // **Through `contribute` itself, so a folded file and a drawn one cannot fall in
       // different bands.** The tally is a `TimeRow` per file and the branches below already
@@ -1963,7 +1995,7 @@ function contribute(
     }
   }
   if (n.kind === 'file' && !outOfScope && mode === 'docs') {
-    const g = docGrade(n)
+    const g = docGrade(n, view.derivable)
     if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
     else put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
   }
@@ -2022,7 +2054,7 @@ function contribute(
           )
         }
       } else if (mode === 'docs') {
-        const g = docGrade(n)
+        const g = docGrade(n, view.derivable)
         if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
         else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
       } else if (legibleOf(r)) {
@@ -2430,6 +2462,7 @@ export function bucketsFor(
     churn: views?.churn ?? VIEWS_DEFAULT.churn,
     tangle: views?.tangle ?? VIEWS_DEFAULT.tangle,
     blame: views?.blame ?? VIEWS_DEFAULT.blame,
+    derivable: views?.derivable ?? VIEWS_DEFAULT.derivable,
   }
   const bucket = new Map<string, Bucket>()
   /** Ramp inputs per bucket, kept only long enough to average them into a fill. */
@@ -2560,6 +2593,7 @@ export function histogramsFor(
     churn: views?.churn ?? VIEWS_DEFAULT.churn,
     tangle: views?.tangle ?? VIEWS_DEFAULT.tangle,
     blame: views?.blame ?? VIEWS_DEFAULT.blame,
+    derivable: views?.derivable ?? VIEWS_DEFAULT.derivable,
   }
 
   interface Tally {
@@ -2693,7 +2727,12 @@ export function legendFor(root: Node, mode: ColorMode, read: BlameRead = 'touche
       // The absence is a band like any other and has to be able to appear in the key: a repo
       // holding something nothing could place should say so, and one holding none should not
       // advertise the swatch.
-      if (n.kind === 'func') seen.add(n.codeKind?.kind ?? 'unplaced')
+      // A replay's roll-up has no kind of its own and lists what it folded — see `Folded.kind`.
+      if (n.folded) {
+        for (const [k] of n.folded.kind) seen.add(k)
+      } else if (n.kind === 'func') {
+        seen.add(n.codeKind?.kind ?? 'unplaced')
+      }
       // A file stands in for functions the window was never sent — `Cols::kind` carries them,
       // and without this the key on a large repo lists whatever rings happened to arrive.
       if (n.kind === 'file' && n.cols) {

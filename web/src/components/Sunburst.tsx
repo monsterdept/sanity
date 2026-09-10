@@ -897,7 +897,6 @@ function SunburstView({
   rimShare = 0,
   spacing = SPACING_DEFAULT,
   markers = true,
-  derivable = true,
   onWantRings,
 }: {
   root: Node
@@ -1013,18 +1012,6 @@ function SunburstView({
    *  and a clone still wears its colour. Those are the reading; these are the pointer to
    *  where the reading is. */
   markers?: boolean
-  /** Whether a doc that says nothing the code didn't is marked — see `.derivable-pulse`.
-   *
-   *  Docs only, and it exists because that lens cannot say this with colour. `derivable`
-   *  forces `documented` to `none` (`reportGrades`), so a comment a model could regenerate
-   *  from the body is painted in the same tone as no comment at all — which is right for the
-   *  ramp, since neither explains anything, and wrong for a reader, because the two want
-   *  different work. One needs writing; the other needs deleting and then writing.
-   *
-   *  On by default. The distinction is one the lens is otherwise failing to make, so the
-   *  quiet default would be the one that keeps something hidden; the switch is there for a
-   *  repo where enough of the map qualifies that the movement is the loudest thing on it. */
-  derivable?: boolean
   /** Which files the map has somewhere to draw the insides of.
    *
    *  A file's ring of functions is fetched on demand, and the window decided which by a
@@ -2677,19 +2664,7 @@ function SunburstView({
                       />
                     )}
                     <path
-                      // **The file's own header is a reading too**, so a file whose doc comment
-                      // says nothing the code didn't breathes exactly as a function does. Under
-                      // Docs a file IS a row in the breakdown — see `contributeHeld` — and
-                      // marking only the functions would leave the one doc a reader is most
-                      // likely to have written unmarked.
-                      className={clsx(
-                        'wedge',
-                        mode === 'docs' &&
-                          derivable &&
-                          w.node.agent?.derivable === true &&
-                          !w.node.agentStale &&
-                          'derivable-pulse',
-                      )}
+                      className="wedge"
                       // A file occupies exactly ONE band, like a directory. Its functions are
                       // inset inside that band, so the file's own fill shows as a rim around
                       // them — the containment is drawn, not implied by adjacency.
@@ -2868,17 +2843,6 @@ function SunburstView({
                           // The same breath for the same reason — copies are 1–8% of a repo, which
                           // is the density where a colour alone means hunting. See `--clone`.
                           mode === 'clones' && slot.node.cloneSize != null && 'trap-pulse',
-                          // A doc that adds nothing, on the lens that paints it as no doc at
-                          // all. Its own class rather than the trap's, because this one has no
-                          // colour underneath it to survive reduced motion — see
-                          // `.derivable-pulse`. Stale readings are left alone, the same rule
-                          // the trap breath follows: a grade describing a body that has since
-                          // changed does not get to mark the body that is there now.
-                          mode === 'docs' &&
-                            derivable &&
-                            slot.node.agent?.derivable === true &&
-                            !slot.node.agentStale &&
-                            'derivable-pulse',
                         )}
                         d={d}
                         fill={c ? c.fill : 'var(--unanalyzed)'}

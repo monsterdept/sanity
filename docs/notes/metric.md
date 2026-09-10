@@ -25,7 +25,11 @@ model can predict from its context.** Everything below defends that.
   never hot. The degenerate failure this prevents: run an LLM over the repo, everything
   turns green, the map is a liar. There is deliberately no `Provenance` variant with
   weight for model-written docs — and the agent path asks the question outright, as
-  `derivable`, which is the one form of it a lexical score could never evaluate.
+  `derivable`, which is the one form of it a lexical score could never evaluate. A
+  derivable doc counts as `none` in the score always. The Docs lens has a reading beside it
+  that paints one as `none` (the default) or as `full` — the opinion that a complete
+  description is documentation however obvious — and it moves colour only. It was a pulse
+  over the `none` colour until that proved louder than the question.
 - **Surprise alone can't tell brilliance from mess.** Both are unpredictable. Age and
   churn (`churn.rs`) are the second axis; the four quadrants come from the pair. A repo
   with no git history gets a visible warning, never a confident-looking half-verdict.

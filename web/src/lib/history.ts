@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { GRADE_DOCUMENTED, GRADE_SURPRISE, churnSaturation } from './api'
-import { tangleRamp } from './colorMode'
+import { KIND_ORDER, tangleRamp } from './colorMode'
 import type {
   AgentReport,
   ChurnWindows,
@@ -46,6 +46,10 @@ export interface HistoryFunc {
    *  timeline can be RESUMED in Rust rather than recomputed — see `history::warm`. Not
    *  used here; present so the two shapes stay one shape. */
   ord: number
+  /** What this body is and how that was decided, packed `kind << 2 | how` — see `placeOf`.
+   *  The kind its latest version was placed as, so the frame at HEAD reads what the live map
+   *  does. */
+  kind?: number
 }
 
 /** One commit, as the difference it made to the picture. Deltas, not snapshots — see
@@ -970,6 +974,24 @@ function gradeAt(packed: number, shift: number): Grade | undefined {
   return GRADES[(packed >> shift) & 7]
 }
 
+/** A body's kind out of `HistoryFunc.kind` — see `history::place`. The kind order is
+ *  `KIND_ORDER`, which `Cols::kind` already uses; the evidence rides in the low two bits. */
+const HOW = ['contract', 'reader', 'convention', 'parsed'] as const
+const UNPLACED = 255
+function placeOf(packed: number | undefined): Node['codeKind'] {
+  if (packed === undefined || packed === UNPLACED) return null
+  const kind = KIND_ORDER[packed >> 2]
+  return kind ? { kind, how: HOW[packed & 3] } : null
+}
+
+/** Where a body's lines land in its file's per-kind totals: its kind, or the slot past the
+ *  last one for a body nothing placed. */
+const KIND_SLOTS = KIND_ORDER.length + 1
+function kindSlot(packed: number | undefined): number {
+  const k = packed === undefined || packed === UNPLACED ? -1 : packed >> 2
+  return k >= 0 && k < KIND_ORDER.length ? k : KIND_ORDER.length
+}
+
 /** The reading this frame holds for a function, in the shape the map already reads.
  *
  *  **A synthesised report, not a stored one.** What crosses the wire is four answers packed
@@ -1669,6 +1691,12 @@ export function frameTree(
   const fileTan0 = new Float64Array(hist.paths.length)
   const fileTan1 = new Float64Array(hist.paths.length)
   const fileTanLoc = new Float64Array(hist.paths.length)
+  // **Composition's answer at FILE resolution, for the same reason.** Lines by kind, one run
+  // of `KIND_SLOTS` per path: Rust keeps its tests in the file they test, so a file is a mix
+  // and the fold has to carry the mix rather than one kind. `restKind` is the same for the
+  // thin functions a drawn file's stand-in holds.
+  const fileKind = new Float64Array(hist.paths.length * KIND_SLOTS)
+  const restKind = new Float64Array(hist.paths.length * KIND_SLOTS)
   const drawn = new Map<number, Node[]>()
 
   // In interned order — see `Frame.order`, which is kept that way as commits land rather
@@ -1681,6 +1709,8 @@ export function frameTree(
     // they are dropped here, where the picture is built. See `Tables.excluded`.
     if (hist.excluded[def.path]) continue
     fileLoc[def.path] += loc
+    const ks = def.path * KIND_SLOTS + kindSlot(def.kind)
+    fileKind[ks] += loc
     const score = frame.cog[f]
     if (score !== NO_COG) {
       const [w0, w1] = tangleRamp(bands, loc, score)
@@ -1694,6 +1724,7 @@ export function frameTree(
     // stand-in below, so a file is the size it is whatever its inside looks like.
     if (loc < (inScope && inScope.has(def.path) ? scopeMin : minLoc)) {
       restLoc[def.path] += loc
+      restKind[ks] += loc
       restCount[def.path] += 1
       const bornAt = frame.bornAt[f]
       const editAt = frame.editedAt[f]
@@ -1746,7 +1777,9 @@ export function frameTree(
     dependents: null,
     underTest: null,
     tested: null,
-    codeKind: null,
+    // Not wiring: what the body IS, placed by the walk from its own latest version — see
+    // `HistoryFunc.kind`.
+    codeKind: placeOf(def.kind),
     cloneGroup: null,
         cloneSize: null,
         comparable: null,
@@ -1886,7 +1919,7 @@ export function frameTree(
     // rules for one kind of node, and the one it reached for would depend on which sort of
     // roll-up had been built. One rule, one field.
     const t = tallyOf()
-    add(t, p, lines)
+    add(t, p, lines, restKind)
     stand.folded = settle(t)
     return stand
   }
@@ -1944,11 +1977,21 @@ export function frameTree(
   const tallyOf = () => ({
     lang: new Map<string, number>(),
     author: new Map<string, number>(),
+    kind: new Map<string, number>(),
     time: [] as number[],
     tangle: [] as number[],
   })
   type Tally = ReturnType<typeof tallyOf>
-  const add = (t: Tally, p: number, lines: number) => {
+  /** `kinds` is `fileKind` for a whole file and `restKind` for a drawn file's stand-in —
+   *  the run that sums to `lines`. */
+  const add = (t: Tally, p: number, lines: number, kinds: Float64Array) => {
+    const kb = p * KIND_SLOTS
+    for (let k = 0; k < KIND_SLOTS; k++) {
+      const n = kinds[kb + k]
+      if (n <= 0) continue
+      const key = k < KIND_ORDER.length ? KIND_ORDER[k] : 'unplaced'
+      t.kind.set(key, (t.kind.get(key) ?? 0) + n)
+    }
     // Complexity first, because it is the shortest: the file's own mean and sum, or the
     // absence, in the same `TangleRow` shape `contribute` bands a drawn file by.
     const measured = fileTanLoc[p]
@@ -1996,13 +2039,14 @@ export function frameTree(
   const foldDir = (t: Tally, d: number): void => {
     for (const p of shape.files[d]) {
       const lines = fileLoc[p]
-      if (lines > 0) add(t, p, lines)
+      if (lines > 0) add(t, p, lines, fileKind)
     }
     for (const k of shape.kids[d]) foldDir(t, k)
   }
   const settle = (t: Tally): Folded => ({
     lang: [...t.lang.entries()],
     author: [...t.author.entries()],
+    kind: [...t.kind.entries()],
     time: t.time,
     tangle: t.tangle,
   })
@@ -2040,7 +2084,7 @@ export function frameTree(
       }
       restLines += lines
       restFiles += 1
-      add(rest, p, lines)
+      add(rest, p, lines, fileKind)
       const born = frame.pathBornAt[p]
       restB = restB || restBirth[p] === 1 || (born !== NO_AT && inStep(born, since, frame.at))
       restE = restE || restEdit[p] === 1

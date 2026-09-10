@@ -6,6 +6,7 @@ import { PAPER } from '../lib/ink'
 import { FAMILY } from '../lib/labelStyle'
 import {
   TANGLE_EDGES,
+  VIEWS_DEFAULT,
   slotColor,
   tangleBandOf,
   type ColorMode,
@@ -153,7 +154,14 @@ export function LensPane({
     case 'legible':
       return <LegibleSection report={r} stale={stale} />
     case 'docs':
-      return <DocsSection node={node} report={r} stale={stale} />
+      return (
+        <DocsSection
+          node={node}
+          report={r}
+          stale={stale}
+          derived={views?.derivable ?? VIEWS_DEFAULT.derivable}
+        />
+      )
     case 'traps':
       return <TrapsSection node={node} repoKey={repoKey} siblings={siblings} onJump={onJump} />
     case 'callers':
@@ -850,17 +858,21 @@ function DocsSection({
   node,
   report,
   stale,
+  derived,
 }: {
   node: Node
   report?: AgentReport
   stale: boolean
+  /** What the lens paints a derivable doc as — `Views.derivable`. The pane says what the map
+   *  beside it is painting. */
+  derived: 'none' | 'full'
 }) {
-  const graded = report && !stale ? report.documented : undefined
   const derivable = report?.derivable === true
+  const graded = report && !stale ? (derivable ? derived : report.documented) : undefined
   return (
     <Block
       label={node.kind === 'file' ? 'File header' : 'Docs'}
-      aside={graded && !derivable ? DOC_WORDS[graded] : derivable ? 'derivable' : undefined}
+      aside={graded ? DOC_WORDS[graded] : undefined}
     >
       {stale && <StaleNote />}
       {/* **Grade, then scale, then the thing itself — the order Legibility already had.**
@@ -875,7 +887,7 @@ function DocsSection({
           rungs={DOC_RUNGS}
           ramp="docs"
           at={DOC_GAP}
-          dated={stale || derivable}
+          dated={stale}
         />
       ) : (
         <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
@@ -889,9 +901,9 @@ function DocsSection({
             Derivable
           </span>{' '}
           — the reader judged that this says nothing it could not have worked out from the code
-          alone, so it counts as <span className="mono">none</span> whatever grade it was given.
-          Documentation a model could regenerate from the body explains nothing that was not already
-          there.
+          alone, so the score counts it as <span className="mono">none</span> whatever grade it
+          was given. The map is painting it as <span className="mono">{derived}</span>, which is
+          the reading beside the lens.
         </p>
       )}
       <div className="mt-3">

@@ -260,6 +260,15 @@ second metric, and the line between those is the whole design.
   stand-ins are the whole picture. It takes the file's own last committer, which is the claim a
   file wedge makes one ring in; the warning against a file's author standing in for a FUNCTION
   is about a real function, and this node IS the file.
+- **Composition replays because the walk places every body it parses.** It was marked `live`
+  and drew every replayed wedge as unplaced: frames were built with `codeKind: null`. Each
+  `HistoryFunc` now carries `kind` (`kind << 2 | how`), set by `history::place` from the
+  version just parsed, in `score_dir`'s order — the file's own kind, then `edges::testness`
+  (the chain `wire` uses), then code — and the latest version wins, so the frame at HEAD
+  places a body where the live map does. `.gitattributes` and manifests are read from the
+  working tree, as `.sanityignore` is. Two honest gaps: a reader's answer about a test never
+  reaches a replay, and a body is one kind for its whole story. The roll-up tallies lines by
+  kind per FILE (`Folded.kind`), because a Rust file holds its own tests.
 - `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
   answers from a file is not a run of the thing being checked. `--files` prints per-file
   totals to reconcile against the app, which is how the mascot bundle was found.

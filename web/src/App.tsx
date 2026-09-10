@@ -107,6 +107,7 @@ import {
   type AgeRead,
   type TangleRead,
   type BlameRead,
+  type DerivableRead,
   type Views,
   type ColorMode,
 } from './lib/colorMode'
@@ -130,7 +131,7 @@ import {
   BlameReading,
   ChurnWindow,
   ColorCount,
-  DerivableToggle,
+  DerivableReading,
   MarkerToggle,
   RingCount,
 } from './components/Rings'
@@ -537,15 +538,14 @@ export default function App() {
    *  the one the lens is drawing. The marks are an aid to FINDING, and finding is something
    *  you start doing, so the switch beside the lens is where it starts. */
   const [markers, setMarkers] = useState(false)
-  /** Whether Docs marks a doc that says nothing the code didn't — see `DerivableToggle`.
-   *  Session state, like the marks above: it is something you turn on to look for a moment,
+  /** What Docs paints a doc that says nothing the code didn't — see `DerivableRead`. Session
+   *  state, like the marks above: the other reading is something you switch to look again,
    *  not a way you keep the app.
    *
-   *  **Off by default, on the same argument the marks are.** The breath it adds is a second
-   *  encoding laid over a map that is already saying something, before anybody has asked the
-   *  question it answers. The wedges are painted correctly either way — a derivable doc is
-   *  undocumented, and it reads as undocumented with this off. */
-  const [derivable, setDerivable] = useState(false)
+   *  **`none` by default, because `none` is the metric.** `reportGrades` counts a derivable
+   *  doc as `none` whatever this says; `full` is the lens agreeing, for a moment, with the
+   *  opinion that a complete description is documentation however obvious it was. */
+  const [derivable, setDerivable] = useState<DerivableRead>('none')
   /** **TEMPORARY** — whether a replay flashes what each commit touched. See `HistoryBar`'s
    *  own button, and `frameTree`, which is where it takes effect: with the flashes off the
    *  frame carries no event at all, so the map, the roll-up stand-ins and the escalation all
@@ -2391,6 +2391,7 @@ export default function App() {
         churn: VIEWS_DEFAULT.churn,
         tangle: tangleRead,
         blame: blameRead,
+        derivable: VIEWS_DEFAULT.derivable,
       })
       if (ends) {
         return {
@@ -2472,13 +2473,14 @@ export default function App() {
         measured: scan?.stats.churned ?? false,
       },
       tangle: tangleRead,
+      derivable,
     }),
     // **The stats it reads, not the scan it reads them off.** A landed reading replaces the
     // `Scan` to carry a new tree and leaves `stats` exactly where it was, so depending on the
     // scan handed a fresh `Views` to the map and the panel several times a minute during a
     // reading pass — a new object saying what the old one said, which is what every memo
     // below reads as a reason to rebuild.
-    [ageSpan, ageRead, churnAt, tangleRead, blameRead, scan?.stats.churnWindows, scan?.stats.churned],
+    [ageSpan, ageRead, churnAt, tangleRead, blameRead, derivable, scan?.stats.churnWindows, scan?.stats.churned],
   )
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
@@ -3153,11 +3155,11 @@ export default function App() {
                   <BlameReading read={blameRead} onRead={setBlameRead} />
                 )}
                 {/* **The fourth lens control, in the same slot and on the same rule.** What it
-                    changes is what a colour MEANS on this lens — specifically, that one of
-                    Docs' colours is standing for two different findings. Keyed off `viewMode`
-                    like the others, and it works in a replay: the frames carry the readings
-                    the repo held at each commit, `derivable` among them. */}
-                {viewMode === 'docs' && <DerivableToggle on={derivable} onToggle={setDerivable} />}
+                    changes is what a colour MEANS on this lens — whether a doc a reader judged
+                    derivable is painted as none or as full. Keyed off `viewMode` like the
+                    others, and it works in a replay: the frames carry the readings the repo
+                    held at each commit, `derivable` among them. */}
+                {viewMode === 'docs' && <DerivableReading read={derivable} onRead={setDerivable} />}
                 {/* **With the lens, because the horizon is what the colour MEANS.** Churn is a
                     rate, and a rate without a window named is a number with no unit — the
                     thing this bar already refuses to print. Offered even before the timeline
@@ -3344,7 +3346,6 @@ export default function App() {
                     // so it has no marks to suppress, and a prop that can never matter is a
                     // second place to keep in step for nothing.
                     markers={markers}
-                    derivable={derivable}
                     onWantRings={wantRings}
                     sortBy={headOrder}
                     onSelect={pick}

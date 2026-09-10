@@ -433,6 +433,10 @@ export interface Folded {
   /** Lines by last author, for Blame. `null` keys — a file git has never seen — are left out
    *  rather than folded into a name, the same way the live walk treats them. */
   author: [string, number][]
+  /** Lines by what the body is, for Composition. Totalled per FUNCTION and carried per file,
+   *  because a file is a mix — Rust keeps its tests beside the code they test. `unplaced` is a
+   *  body nothing placed, which the live map draws in the same neutral. */
+  kind: [string, number][]
   /** Age and Churn, as flat runs of `TIME_STRIDE` numbers — `TimeRow`, one per folded FILE.
    *
    *  The churn ramp rides along rather than being derived where it is read: it is

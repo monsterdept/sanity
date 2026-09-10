@@ -493,7 +493,8 @@ export function MarkerToggle({ on, onToggle }: { on: boolean; onToggle: (v: bool
 }
 
 /**
- * The segmented track two lenses pick a reading in — see `AgeReading` and `BlameReading`.
+ * The segmented track a lens picks a reading in — see `AgeReading`, `BlameReading` and
+ * `DerivableReading`.
  *
  * **One shape, because the row has already paid for the alternative.** `LensToggle` exists
  * because three on/off controls were written separately and drifted into three shapes; a
@@ -609,41 +610,47 @@ export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRea
 }
 
 /**
- * Whether a doc that says nothing the code didn't is marked — see `.derivable-pulse`.
+ * What Docs paints a doc a reader judged derivable as — see `DerivableRead`.
  *
- * **A switch on the one thing the Docs ramp cannot say.** A reader who judges a comment
- * `derivable` — regenerable from the body it sits on — has that grade forced to `none`
- * (`reportGrades`), which is right: it explains nothing that was not already there, so it
- * cools no wedge. What it costs is the difference between a function nobody has documented
- * and one somebody has documented uselessly, and those want different work. The first needs
- * a sentence written. The second needs one deleted first, by whoever can tell that it is
- * safe to delete — which is more work, not less, and the map was drawing it as the same job.
+ * **Two opinions about one judgement.** A comment a model could regenerate from the body it
+ * sits on explains nothing that was not already there, which is `none` and the metric's
+ * reading; it also describes the code completely, which is `full`. The wedges that change
+ * colour when you flip it are exactly the derivable ones. Lens only — the score counts them as
+ * `none` either way.
  *
- * The same shape as `MarkerToggle` next door, because it is the same kind of control: a
- * yes/no about one lens, sitting beside the lens, drawing what it does rather than naming it.
+ * It was a `LensToggle` that left the colour at `none` and laid a breath over those wedges,
+ * and a second encoding animating a third of a map was louder than the question it answered.
  */
-export function DerivableToggle({ on, onToggle }: { on: boolean; onToggle: (v: boolean) => void }) {
+export function DerivableReading({
+  read,
+  onRead,
+}: {
+  read: 'none' | 'full'
+  onRead: (r: 'none' | 'full') => void
+}) {
   return (
-    <LensToggle
-      on={on}
-      onToggle={onToggle}
-      word="derivable"
-      title={
-        on
-          ? 'Stop marking docs that say nothing the code didn’t. They keep the undocumented colour either way — this only drops the breath that tells them apart from a function nobody has written about.'
-          : 'Mark docs a reader judged derivable — regenerable from the body they sit on. They are painted as undocumented, correctly, and this is the only thing on the map that says a comment is there at all.'
-      }
-    >
-      {/* The glyph breathes when the marking is on, on the same class the wedges take — so the
-          control is a sample of the thing it switches rather than a word about it. Under
-          reduced motion it settles exactly as they do, which is the whole point of that rule
-          living on the class and not on the wedge. */}
-      <svg width="14" height="9" viewBox="0 0 14 9" aria-hidden className={on ? 'derivable-pulse' : undefined}>
-        <rect x="0" y="0.5" width="14" height="1.6" rx="0.8" fill="currentColor" />
-        <rect x="0" y="3.7" width="10" height="1.6" rx="0.8" fill="currentColor" opacity={0.75} />
-        <rect x="0" y="6.9" width="12" height="1.6" rx="0.8" fill="currentColor" opacity={0.5} />
-      </svg>
-    </LensToggle>
+    <ReadingSwitch
+      read={read}
+      onRead={onRead}
+      tint="--docs-4"
+      opts={[
+        {
+          key: 'none',
+          word: 'none',
+          // The noun rides on the pressed segment only — see `AgeReading`.
+          said: 'derivable → none',
+          title:
+            'Paint a doc a reader judged derivable as no doc at all. It could be regenerated from the body it sits on, so it explains nothing that was not already there — and this is how the score counts it either way.',
+        },
+        {
+          key: 'full',
+          word: 'full',
+          said: 'derivable → full',
+          title:
+            'Paint a doc a reader judged derivable as fully documented. Obvious or not, it describes the code completely. The score still counts it as none.',
+        },
+      ]}
+    />
   )
 }
 
