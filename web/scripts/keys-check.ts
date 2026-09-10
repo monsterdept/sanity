@@ -8,7 +8,7 @@
  * Run it with `just keys-check`.
  */
 import { actOf, LENS_KEYS, type Act, type Where } from '../src/lib/keys'
-import { MODE_LABEL, type ColorMode } from '../src/lib/colorMode'
+import { FAMILIES, MODE_LABEL, type ColorMode } from '../src/lib/colorMode'
 
 let failed = 0
 function check(what: string, ok: boolean, saw?: unknown) {
@@ -38,7 +38,7 @@ console.log('the lens digits answer, and answer with the right lens')
   // through untouched.
   const open: Where = { ...idle, finding: true }
   check('⌘` still works with the find pane open', lens(actOf(cmd('`'), open)) === 'tangle')
-  check('⌘- still works with the find pane open', lens(actOf(cmd('-'), open)) === 'churn')
+  check('⌘- still works with the find pane open', lens(actOf(cmd('-'), open)) === 'docs')
   const typed: Where = { ...idle, typing: true }
   check('⌘` still works with a field focused', lens(actOf(cmd('`'), typed)) === 'tangle')
 }
@@ -87,16 +87,26 @@ console.log('the keyboard does what the strip does, and never less')
   // **The lens that CAN have nothing in it is the one to press.** Complexity took the first
   // row — it is the one lens that paints a repo nobody has read — and is rarely the locked
   // one, so pressing the first key here would quietly stop testing what this was written for.
-  // Surprise is the one to reach, and it is ⌘1 now that the row starts a key to the left.
-  check('⌘1 reaches a lens with nothing in it', lens(actOf(cmd('1'), idle)) === 'surprise')
-  check('⌘0 reaches one during a replay', lens(actOf(cmd('0'), idle)) === 'age')
+  // Surprise is the one to reach, and it is ⌘9 now that Assessment closes the menu.
+  check('⌘9 reaches a lens with nothing in it', lens(actOf(cmd('9'), idle)) === 'surprise')
+  check('⌘7 reaches one during a replay', lens(actOf(cmd('7'), idle)) === 'age')
   check('an unrelated ⌘ key is not ours', actOf(cmd('k'), idle) === null)
   check('a bare digit is a character', actOf({ ...cmd('1'), meta: false }, idle) === null)
   check('a bare backtick is a character', actOf({ ...cmd('`'), meta: false }, idle) === null)
   check('⌥⌘1 is not ours', actOf({ ...cmd('1'), alt: true }, idle) === null)
-  // The row is thirteen keys for thirteen lenses, so the last one is reachable again —
-  // Composition arrived with no key at all under the old row.
-  check('⌘= reaches the last lens', lens(actOf(cmd('='), idle)) === 'composition')
+  // The row is thirteen keys for thirteen lenses, so the last one is reachable — Traps, which
+  // closes Assessment now.
+  check('⌘= reaches the last lens', lens(actOf(cmd('='), idle)) === 'traps')
+}
+
+console.log('the menu is four families, in the order the keys count')
+{
+  // `FAMILIES` draws the dividers and `MODE_LABEL` numbers the keys. A lens moved in one and not
+  // the other draws a divider through the middle of a family, and nothing on screen calls that
+  // wrong — the map still looks like a map.
+  const modes = Object.keys(MODE_LABEL) as ColorMode[]
+  const flat = FAMILIES.flatMap((f) => f.modes)
+  check('the families hold every lens once, in menu order', flat.join() === modes.join(), flat)
 }
 
 console.log('stepping, because the digits ran out')

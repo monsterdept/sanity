@@ -57,12 +57,16 @@ export type ColorMode =
  * The order on screen, and therefore the ⌘-digits — the switcher, its tooltips and the key
  * handler all read this one list, so there is nothing for them to drift from.
  *
- * **The right-hand end is a widening time window.** Churn is a 90-day span, age is unbounded,
- * and History — past the end of the row — is the whole timeline. Entering it is then a
- * continuation of the gesture rather than a mode change out of nowhere. Blame is a point in
- * time as well (who touched each line last), but it is drawn like Language rather than like
- * these two, and it sits with the lens it resembles rather than with the ones it neighbours
- * in meaning.
+ * **Grouped by where an answer comes from, in the order a new user can get one.** Code shape
+ * needs only the scan; interconnectivity needs a grammar that reads calls; activity needs a
+ * trace; assessment needs a read, which nobody runs until another lens has convinced them to. So the lenses that answer on first open come first and the ones that cost the most
+ * come last. See `FAMILIES`, which the menu draws as four groups and the palette paints as
+ * four arcs.
+ *
+ * **What this gave up: the row no longer ends on a widening time window.** Churn and Age used
+ * to lead into History — ninety days, unbounded, the whole story — and that was a real reason
+ * for an order. It lost to a better one: assessment cannot come first, and the only place the
+ * palette can hold it, with Surprise's amber and the trap's pink where they are, is last.
  *
  * Named for the SUBJECT, and the color carries the direction. This tab was `Opacity` for a
  * while, on the rule that a lens should be named for its bright end — and that rule cost more
@@ -75,14 +79,9 @@ export type ColorMode =
  * The mode KEY stays `legible`, matching `Report.legible` — the wire field and the committed
  * store both say `legible: full`, and renaming the display word must never reach them.
  *
- * The FOUR lenses painted from a reader's report lead, because Surprise is what the app is
- * for and Traps is read out of the same report — three grades and a mark, contiguous, so the
- * part of the row that costs a reading is one run rather than two with the wiring in between.
- * Clones travels with Traps because the two behave alike on the map. Then the two CATEGORICAL
- * lenses sit together — Blame and Language are the pair with palette slots instead of a ramp,
- * so a reader who has just learned that colour means owner meets the other lens that works
- * the same way next — and the row closes on the widening time window: churn is ninety days,
- * age is unbounded, History is the whole story.
+ * **Every digit moved once when this order arrived, and on purpose.** `keys.ts` is emphatic
+ * that dropping a lens into the middle shifts the keys after it; this was a regroup of the
+ * whole row, done once and deliberately, rather than a lens slipped in.
  */
 /** What each lens can say about a PAST commit, which is not the same question as what it
  *  can say about the code in front of you.
@@ -153,44 +152,52 @@ export function replayNote(mode: ColorMode): string | null {
 }
 
 export const MODE_LABEL: Record<ColorMode, string> = {
-  // **First, because it is the only lens that paints on a repo nobody has done anything to.**
-  // The row used to open on Surprise, which is the best reading here and is locked until
-  // somebody has paid for readers — so the app's first impression was a grey map behind a
-  // lens that could not draw it. Complexity needs no reader, no git and no trace: it is read
-  // off the same parse that finds the functions.
+  // **Code shape first: the lenses a scan answers on its own.** No reader, no git, no trace,
+  // so a first-time user opens the menu on lenses that already have something to say — and
+  // that is the only argument this app gets to make before anybody has paid for readers.
   //
-  // It also sets up the lens below it rather than competing with it. The two are independent
-  // — 0.05 and 0.06 against the real grades — so a body that is knotty and predictable, or
-  // smooth and baffling, is visible as a DISAGREEMENT the moment readings land. That is the
-  // argument for paying for them, drawn rather than asserted.
+  // **Complexity leads them.** It paints a repo nobody has done anything to, and it sets up
+  // the reading lenses at the other end of the menu: the two are independent — 0.05 and 0.06
+  // against the real grades — so a body that is knotty and predictable, or smooth and
+  // baffling, is visible as a DISAGREEMENT the moment readings land. That is the argument for
+  // paying for them, drawn rather than asserted.
   tangle: 'Complexity',
+  composition: 'Composition',
+  language: 'Language',
+  clones: 'Clones',
+  // **Interconnectivity** — the call graph, which the scan also answers, for the languages whose
+  // calls it reads.
+  callers: 'Callers',
+  reach: 'Reach',
+  // **Activity: what git says**, which needs a trace, so it follows the lenses that need
+  // nothing. Blame sits here rather than beside Language, where it was for looking like it —
+  // both are coloured by slot — because the menu is grouped by where an answer comes from now,
+  // and Blame's comes from git. Age before Churn, the two time lenses adjacent.
+  blame: 'Blame',
+  age: 'Age',
+  churn: 'Churn',
+  // **Assessment LAST, and that is the point of the order.** They are the best lenses
+  // here and the only ones that cost a read — and a first-time user has not run one, and will
+  // not until another lens has convinced them it is worth it. A menu that opened on four
+  // locked rows sold nothing. Traps is read out of the same report, so it closes the run.
   surprise: 'Surprise',
   legible: 'Legibility',
   docs: 'Docs',
-  // **The two flashpoint lenses sit next to the reading ones, and the wiring pair follows.**
-  // Traps and Clones behave alike — a mark, no ramp, no roll-up, a breathing wedge — so they
-  // travel together wherever they go; what moved is which side of Callers and Reach they sit
-  // on. Read left to right the strip runs: what reading this code was like, then the marks
-  // saying go and look at THIS, then how it is wired, then the seam, then a widening window
-  // of time. The four lenses a reader's report paints are now contiguous, which is the
-  // grouping somebody scanning the row is most likely to be looking for.
   traps: 'Traps',
-  clones: 'Clones',
-  callers: 'Callers',
-  reach: 'Reach',
-  blame: 'Blame',
-  language: 'Language',
-  // **Age before Churn.** The two time lenses stay adjacent — that is the thing about them
-  // worth preserving — and hue follows the menu, so trading rows traded their greens too. The
-  // wheel is untouched: same hues, same order down the column, two lenses wearing each other's.
-  age: 'Age',
-  churn: 'Churn',
-  // **Appended, never inserted.** The lens digits are `Object.keys` of this record, so a lens
-  // dropped in the middle shifts every digit after it and silently takes away a key somebody
-  // had learned — `keys.ts` says so at length. Twelve is past ⌘0 and ⌘-, so Testing has no
-  // digit of its own and is reached with `[` and `]`, which is the shape that does not run out.
-  composition: 'Composition',
 }
+
+/** The menu's four groups, in menu order — what a lens's answer comes from.
+ *
+ *  **The palette follows these, not just the rows.** Each family takes one arc of the wheel
+ *  with a step between arcs, so the menu reads as four groups before a name is read — see the
+ *  palette note in `index.css`. `keys-check` holds this to `MODE_LABEL`'s order, so a lens
+ *  moved in one and not the other fails there rather than drawing a divider through a family. */
+export const FAMILIES: { label: string; modes: ColorMode[] }[] = [
+  { label: 'Code shape', modes: ['tangle', 'composition', 'language', 'clones'] },
+  { label: 'Interconnectivity', modes: ['callers', 'reach'] },
+  { label: 'Activity', modes: ['blame', 'age', 'churn'] },
+  { label: 'Assessment', modes: ['surprise', 'legible', 'docs', 'traps'] },
+]
 
 export const MODE_HINT: Record<ColorMode, string> = {
   tangle: 'how complex it is for its size',
@@ -562,28 +569,40 @@ const RAMP_OF: Record<ColorMode, Ramp> = {
   churn: 'churn',
 }
 
+/** Which stop of its ramp a lens's chip quotes.
+ *
+ *  **Stepped inside each family, so its members come apart by lightness as well as hue.** A
+ *  family shares one arc of the wheel on purpose, and at one lightness that arc left
+ *  Complexity, Composition and Language 5.1–5.4 apart — one lilac. Stepping 3 / 2 / 4 down each
+ *  family takes the closest chips to 10.8, and every family boundary stays louder than every
+ *  step inside a family, so the menu still reads as four groups first. The map is untouched:
+ *  only the chrome quotes these. Blame, Language and Composition take the same steps in their
+ *  `--lens-*` tokens, and the marks quote themselves. */
+const CHIP_STOP: Partial<Record<ColorMode, 2 | 3 | 4>> = {
+  tangle: 3,
+  callers: 3,
+  reach: 2,
+  age: 2,
+  churn: 4,
+  surprise: 3,
+  legible: 2,
+  docs: 4,
+}
+
 /** The one colour that stands for a lens, as a custom-property name.
  *
- *  **Stop 3 rather than stop 4 for the ramped lenses.** The hot end is the loudest colour in
- *  the app and it is spent on the wedges that need it; a chip wearing it competes with the
- *  map it is labelling. One stop down is the same hue and reads as chrome.
- *
- *  Blame and Language have nothing on the map to quote — their wedges come out of the
- *  categorical palette, and one slot out of it would paint the lens in whichever author
- *  sorted first. They get a colour of their own instead, spent on the chrome only; see
- *  `--lens-blame` in index.css for where the two hues come from. */
+ *  A ramped lens quotes the stop `CHIP_STOP` gives it — never by default the hot end, which is
+ *  the loudest colour in the app and belongs to the wedges. Blame, Language and Composition
+ *  have nothing on the map to quote: their wedges come out of a categorical palette, and one
+ *  slot would paint the lens in whichever value sorted first. Each gets a chrome colour of its
+ *  own instead; see `--lens-blame` in index.css for where they come from. */
 export function modeToken(mode: ColorMode): string {
   if (mode === 'traps') return '--trap'
   if (mode === 'clones') return '--clone'
-  if (mode === 'callers') return '--callers-3'
-  if (mode === 'reach') return '--reach-3'
   if (mode === 'blame') return '--lens-blame'
   if (mode === 'language') return '--lens-language'
-  // Categorical like the two above, so there is no ramp to take a `-3` from. The
-  // fall-through gave it Surprise's chip and nothing said so — the strip drew two lenses in
-  // one colour and only a person looking at it could tell.
   if (mode === 'composition') return '--lens-composition'
-  return `--${rampOf(mode)}-3`
+  return `--${rampOf(mode)}-${CHIP_STOP[mode] ?? 3}`
 }
 
 /** The name git puts on a line that is in the working tree and not in a commit.

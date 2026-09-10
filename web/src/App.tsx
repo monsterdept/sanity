@@ -2006,9 +2006,9 @@ export default function App() {
   //
   // Derived from `MODE_LABEL`'s key order rather than a second list, so the digit always
   // matches the position on screen — the two cannot drift because there is only one order.
-  // The cost is that reordering renumbers: the row is grouped by what paints it — readings,
-  // then language, then the git-derived three in widening time windows — so the digits
-  // follow meaning rather than history. See `MODE_LABEL`.
+  // The cost is that reordering renumbers: the row is grouped by where an answer comes from —
+  // code shape, interconnectivity, activity, assessment — so the digits follow meaning
+  // rather than history. See `MODE_LABEL` and `FAMILIES`.
   //
   // The whole app is one geometry under seven encodings, and the question you are asking
   // changes far more often than anything else you can do here — reaching for the mouse

@@ -8,6 +8,7 @@ import {
   NAMED,
   shared,
   rampEnds,
+  FAMILIES,
   VIEWS_DEFAULT,
   type Views,
   rampOf,
@@ -427,6 +428,11 @@ const STEP_HINT = 'or ⌘[ and ⌘] to step'
  * means. A fixed minimum width holds it still: `Age` and `Legibility` are five characters
  * apart, and a bar that resized as you switched lens would move everything beside it.
  */
+/** The family a lens OPENS, for the heading drawn above it — see `FAMILIES`. */
+const FAMILY_AT: Partial<Record<ColorMode, string>> = Object.fromEntries(
+  FAMILIES.map((f) => [f.modes[0], f.label]),
+)
+
 export function ModeSwitcher({
   mode,
   onMode,
@@ -497,7 +503,20 @@ export function ModeSwitcher({
               const on = mode === k
               const lock = locked[k]
               const key = shortcut(i)
-              return (
+              const family = FAMILY_AT[k]
+              return [
+                // **The menu is four groups, and says so** — see `FAMILIES`. A rule and a name
+                // before each family's first lens is what lets thirteen rows read as four things
+                // first. The keys still count down the whole list, so a digit is its row.
+                family && (
+                  <div
+                    key={`family-${k}`}
+                    role="presentation"
+                    className={`px-3 pb-0.5 pt-1.5 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--muted-foreground)]${i ? ' mt-1 border-t border-[var(--border)]' : ''}`}
+                  >
+                    {family}
+                  </div>
+                ),
                 <button
                   key={k}
                   role="option"
@@ -549,8 +568,8 @@ export function ModeSwitcher({
                   >
                     {key && `⌘${key}`}
                   </span>
-                </button>
-              )
+                </button>,
+              ]
             })}
             <div
               className="mt-1 border-t border-[var(--border)] px-3 pb-0.5 pt-1.5 text-[10px] text-[var(--muted-foreground)]"

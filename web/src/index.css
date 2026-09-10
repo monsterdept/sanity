@@ -182,7 +182,9 @@
    * --cat-8's neighbour --cat-5, the violet Blame slot. Candidates that failed on exactly
    * that last pair: #9b30ff at 7.6 and #8b2fe8 at 3.1, both indistinguishable from a Blame
    * author for a deuteranope. */
-  --clone: #b026ff;
+  /* Moved 309° → 307° with the family ordering, inside the violet window its dichromacy
+   * margins were set in. Re-measured before and after, they moved by 0.3 or less. */
+  --clone: #ad2cff;
   /* Two lenses whose colour lives only in the chrome.
    *
    * Blame and Language paint their wedges out of the categorical palette, so neither has a
@@ -192,43 +194,27 @@
    * against the other CHIPS rather than against the wedges, which is a different budget
    * from the ramps', not a lighter one.
    *
-   * **They sit ON the ring the ramps make, not beside it, and they take their place in
-   * the menu's run.** The first pair were an indigo and a forest green picked by eye for
-   * whatever gaps looked free, and measured they were in neither: 283° was 15° off callers,
-   * 144° was 26° off reach, and both were far darker and more saturated than any chip
-   * beside them — L .51 and .58 at C .18 and .14, against a ramp stop's L .72 at C .117.
-   * They read as two mistakes in a wheel rather than two more colours in it, which is
-   * exactly what they were.
+   * **They sit ON the ring the ramps make, and in their family's arc.** The first pair were
+   * an indigo and a forest green picked by eye for whatever gaps looked free; measured, they
+   * were far darker and more saturated than any chip beside them and read as two mistakes in
+   * a wheel. So these are built exactly as a ramp's chip is — the ramps' own profile at their
+   * family's step — with h from the family solve: Composition at 322° (stop 2) and Language
+   * at 308° (stop 4) inside code shape, Blame at 163° (stop 3) opening activity. The closest
+   * any of them comes to another chip is 10.8 (Composition, against Complexity above it) and
+   * 11.3 (Blame against Age).
    *
-   * So both are `oklch(0.721 0.117 h)` — the ramps' own third stop, which is the level a
-   * chip quotes — and h comes from the ordering solve above rather than from a hunt for
-   * gaps: blame 206° and language 177° are menu positions 8 and 9, and they land in the
-   * cool arc between callers and churn. The pair sits adjacent on the wheel because it
-   * sits adjacent in the menu, which is the one place the colour has a job to do — the
-   * two lenses with palette slots instead of a ramp now look like a pair. Worst case
-   * against the other nine chips is 13.3 (reach against callers, not either of these).
-   *
-   * **Scored in normal vision only, and that is not an oversight.** The chips are not
-   * dichromacy-separated and cannot be: eleven hues at one lightness collapse under any
-   * dichromacy. That is safe here for the reason it is not safe in the categorical palette:
-   * a lens chip is never alone. It carries its name beside it on the trigger and in the
-   * menu, and the menu is a list with a checked row. The author slots have only their
-   * colour, which is why they are held to the all-pairs dichromacy rule and these are not.
-   * Held to it, the best any free hue on this ring can reach against the others is 3.5 —
-   * the ring is full, and pretending otherwise would buy a number rather than a
-   * distinction. */
-  --lens-blame: #25b9c9;
-  --lens-language: #3cbda3;
-  /* Composition, for the same reason the two above have one: it colours by category and has
-   * no ramp to take a `-3` from. Without it the fall-through handed it `--heat-3` — Surprise's
-   * own chip — so ⌘1 and ⌘= were not merely close, they were the same swatch.
-   *
-   * The paragraph above is right that the ring is full: twelve hues around the wheel average
-   * thirty degrees apart, so a thirteenth lands inside somebody's neighbourhood wherever it
-   * goes. This takes the widest gap left — 224 to 278, between Callers and Clones — and
-   * separates from both by lightness as well: Callers is a pale periwinkle at 73, this is a
-   * deep indigo at 55. */
-  --lens-composition: #5b53c9;
+   * **Scored in normal vision only, and that is not an oversight.** Thirteen chips at three
+   * lightnesses still collapse under any dichromacy. That is safe here for the reason it is
+   * not safe in the categorical palette: a lens chip is never alone. It carries its name
+   * beside it on the trigger and in the menu, and the menu is a list with a checked row. The
+   * author slots have only their colour, which is why they are held to the all-pairs
+   * dichromacy rule and these are not. */
+  --lens-blame: #54bc90;
+  --lens-language: #d6a8ff;
+  /* Composition, categorical like the two above, so there is no ramp to take a stop from.
+   * Without a token of its own the fall-through handed it Surprise's chip, and two lenses
+   * wore one swatch. */
+  --lens-composition: #a375aa;
   /* A replay's two flashes: `--birth` when a wedge first appears, `--touch` when one is
    * edited.
    *
@@ -306,66 +292,45 @@
    * go. Barring 170–240° and searching the rest of the wheel put docs on a WARM hue
    * and took the closest hot pair to 27.2.
    *
-   * THE HUES NOW RUN IN MENU ORDER, AND THAT IS THE CONSTRAINT THAT CHOSE THEM.
-   * Eleven lenses live in one pulldown and each wears its hue on its row, which
-   * makes that menu the only place the palette is ever seen as a set — and a set
-   * whose colours arrive in no order reads as a wheel with two of them wedged in.
-   * The rule now: going down the menu, hue descends once around the wheel and does
-   * not double back. The menu ORDER is not up for grabs — it is semantic and argued
-   * in `colorMode.ts` (report lenses first, the categorical pair together, a widening
-   * time window last) — so the assignment is what moves.
+   * THE MENU IS FOUR FAMILIES, AND THE HUES FOLLOW THE FAMILIES. Thirteen lenses live in
+   * one pulldown, grouped by where an answer comes from — code shape, interconnectivity,
+   * activity, assessment — and each wears its hue on its row, so that menu is the only
+   * place the palette is ever seen as a set. Thirteen hues at one lightness sat 28° apart
+   * and read as a wheel with colours wedged into it. So the rule has two halves: going down
+   * the menu, hue descends once around the wheel and never doubles back; and each family
+   * takes one arc, with every step ACROSS a family boundary louder than every step inside
+   * one. The menu reads as four groups before a single name is read.
    *
-   * Five hues are pinned to exactly where they are: heat 74° because it must read as
-   * heat, trap 358° because an alarm is pink, clone 309°, callers 268°, age 114°. The
-   * other six are solved — `scripts/palette-search.py order`, coordinate ascent from
-   * the free hues spread across the arcs the pins leave. Legibility and docs move into
-   * the warm arc between heat and trap (47° and 17°), which puts the three lenses read
-   * out of ONE reader's report in one family; reach, blame, language and churn spread
-   * over the cool arc between callers and age (236, 206, 177, 145), which puts the two
-   * call-graph lenses in a blue family and the two categorical lenses in a teal one.
-   * The grouping the menu already had is now visible in the colour.
+   * The ORDER is semantic and argued in `colorMode.ts`: code shape first because a scan
+   * answers it on first open, assessment last because nobody runs a read until another lens
+   * has sold it. Two hues are pinned — heat 74° because it must read as heat, trap 358°
+   * because an alarm is pink — and the clone is held to its violet (285–325°), where its
+   * dichromacy margins against the Blame slots were set. Everything else is solved:
+   * `scripts/palette-search.py order`, coordinate ascent under a whole-turn check. The first
+   * solve checked each hue against its neighbours only, let one lap the wheel, and put three
+   * chips 0.4 apart; the whole-turn check is why that cannot happen quietly again.
    *
-   * WHAT ORDERING COSTS, MEASURED: the cold ends fall from 12.9 to 8.2, and three
-   * pairs sit within .1 of that — churn/age, legibility/docs, heat/legibility. That is
-   * the whole bill and it is not small: hue used to answer one question, "which lens
-   * is this", and it now answers two. Hot ends hold at 13.5 (reach against callers)
-   * and the CHIPS — the level the menu quotes, stop 3 — hold at 13.3, which is the
-   * number this reordering exists to protect, because the chips are the thing being
-   * looked at as a set.
+   * **Assessment can only go last.** Heat and the trap pin that family to the warm arc, and
+   * whatever follows it down the menu has to take the violets after the pink. With activity
+   * there, the clone has nowhere violet to stand and the families stop reading (15.2 across a
+   * boundary against 15.0 inside one). Last, the wheel wraps from the trap's pink straight
+   * into code shape's violets at the top — which is also what puts Complexity ON the wheel:
+   * it opens the menu, and the arc above it is the pink the menu closes on rather than a gold
+   * above heat.
    *
-   * THE TWELFTH LENS IS NOT ON THE WHEEL, AND THAT IS THE WHOLE OF IT. Complexity opens the
-   * menu, because it is the only lens that paints a repo nobody has read. Hue follows the
-   * menu, so the ordering rule puts it in the arc above heat — and heat is pinned to amber
-   * because it must read as heat, so that arc is 74-114 and everything in it is gold. The
-   * colour was a THEOREM, not a choice: three constraints, one of which had to give.
+   * CHIPS ARE STEPPED. A family shares an arc, and at one lightness that left Complexity,
+   * Composition and Language 5.1–5.4 apart — one lilac. Each chip quotes stop 3, 2 or 4 by
+   * its place in its family (`CHIP_STOP` in `colorMode.ts`, `CHIP_STEP` in the solver),
+   * which takes the closest chips to 10.8 (Complexity against Composition) and leaves the
+   * family step at 25.1 across against 22.2 inside. No wedge sees a step; only chrome quotes
+   * a chip.
    *
-   * Unpinning age was tried and it works — `age` closes the menu and its pin was a
-   * convenience rather than a meaning — but it only widens the arc, so the first lens stays
-   * a yellow-green and the whole cool half of the palette moves to buy it: chips 13.3 to
-   * 12.4, hot 13.5 to 13.2, and six ramps recoloured under everybody who had learned them.
-   *
-   * So Complexity sits OUTSIDE the ordering instead, at 329. The eleven keep the hues they
-   * shipped with, every margin above is unchanged, and the cost is one row of the menu whose
-   * colour does not continue the run. That is a real cost and it is the smaller one: the rule
-   * exists so a set of eleven reads as ordered, and eleven of them still do. The exempt row is
-   * the DEFAULT lens — the one somebody is in most of the time — which is the row that earns
-   * being told apart rather than blended into a sequence.
-   *
-   * Chosen by scanning all 360 with the eleven held fixed, against the scorer and against both
-   * marks: 329 holds 16.0 to the clone violet and 14.5 to the trap pink.
-   *
-   * The arc's other candidates, 313 and 299, were rejected here for sitting four and ten
-   * degrees off the clone mark — and that was measured wrong. `palette-search.py` scores both
-   * marks now and puts those two at 14.0 and 14.4, above its floor and in line with the 13.3
-   * this palette already holds against the trap. Hue degrees are not perceptual distance once
-   * lightness and chroma differ, and a saturated mark is nothing like a ramp stop. They would
-   * have been fine. 329 stays because it reads more clearly against its neighbours, not
-   * because the others were disqualified.
-   *
-   * The floors all still hold, and one of them moved: docs is now the tight one
-   * against --trap at 16.6, down from 20.5, because rose at 17° is the closest a ramp
-   * has come to the alarm pink. Cold-vs-unanalyzed is unchanged at 11.5 (heat), and
-   * every stop clears 14.3 from --structure.
+   * WHAT IT COSTS, MEASURED: cold ends 7.7 (legibility against docs, with age/churn and
+   * reach/callers at 7.9), down from 8.2; hot ends 11.1 (reach against callers), down from
+   * 13.5. Hue now answers three questions — which lens, in what order, in which family — and
+   * the ends pay for the third. The floors hold: cold against --unanalyzed 11.5 (heat), any
+   * stop against --structure 14.3 (heat's cold end), and the tight one is Complexity's stop 3
+   * against the dark trap at 12.1, over a floor of 12. Docs' hot end clears the trap by 17.3.
    *
    * WHAT THE OLD SOLVE SAID, kept because it is why the floors are where they are.
    * There were seven, and the bar came off to get them. Callers and reach are
@@ -408,39 +373,32 @@
   --heat-3: #d09949;
   --heat-4: #f4b04a;
 
-  /* churn — olive-green, 114°, and it CLOSES the menu. It was the green at 145° and traded
-   * with age when the two swapped rows: hue follows the menu here, so a swap up there IS a
-   * swap in the palette, and nothing else on the wheel moved for it. Both were blue at 224°
-   * before the ordering solve, which is a colour nobody had to relearn and the real cost of
-   * ordering; what it bought is the pair — churn and age are the two time lenses, ninety days
-   * and unbounded, and they read as one family whichever way round they sit. Neither has a
-   * claim on its particular green, which is exactly what makes trading them free.
-   *
-   * Also no longer the gamut-clamped ramp: blue ran out of sRGB around C .106 at L .804 and
-   * the hot end was pale for it. Reach inherited the clamp instead. */
-  --churn-0: #535737;
-  --churn-1: #6d7341;
-  --churn-2: #878f49;
-  --churn-3: #a4ad51;
-  --churn-4: #bec955;
+  /* churn — olive, 120°, and it closes activity. The two time lenses sit together at the end
+   * of that family, and hue follows the menu, so the pair takes the arc that runs down into
+   * Surprise's amber: age the green, churn the olive under it. The two have traded greens
+   * before and neither has a claim on its particular one. Its cold end is 7.9 from age's,
+   * and its chip quotes stop 4 — the brightest chip in the family, which is what sets it
+   * apart from age's darker one. */
+  --churn-0: #505739;
+  --churn-1: #697444;
+  --churn-2: #81914d;
+  --churn-3: #9cb057;
+  --churn-4: #b4cc5d;
 
-  /* tangle — orchid, 329°, and deliberately OFF the ordering wheel — see the note above,
-   * which carries the reasoning and the numbers. How much more complex a body is than others its
-   * size.
+  /* tangle — orchid, 337°, and it opens the menu and code shape's arc. How much more
+   * complex a body is than others its size.
    *
-   * A purple that no ramp is near: the two things within 30° of it are the trap's pink and the
-   * clone's violet, and both are MARKS with their own lightness and chroma rather than ramps
-   * climbing beside it. It holds 16.0 to clone and 14.5 to trap, checked by hand because the
-   * search scores neither.
-   *
-   * **It is the first lens, so it is the one somebody sees first**, and the ordering rule was
-   * going to make that gold — the only arc left above a pinned amber. Being outside the run is
-   * what buys a first impression that is not mustard, and it costs the other eleven nothing. */
-  --tangle-0: #624a61;
-  --tangle-1: #855f82;
-  --tangle-2: #a873a4;
-  --tangle-3: #cd8ac9;
-  --tangle-4: #f09deb;
+   * It sat OFF the ordering wheel at 329° for as long as it was the one lens above Surprise,
+   * because the rule would have made the first row gold. The families put assessment last
+   * instead, the wheel wraps from the trap's pink into this arc, and the first lens gets an
+   * orchid by the rule rather than by exemption. It is the ramp nearest both marks — 12.1
+   * from the dark trap at its stop 3, over a floor of 12, and 18.0 from the clone — and its
+   * chip is the one nearest another chip, 10.8 from Composition's. */
+  --tangle-0: #65495d;
+  --tangle-1: #895e7d;
+  --tangle-2: #ad729d;
+  --tangle-3: #d488c0;
+  --tangle-4: #f89be0;
 
   /* legible — warm orange, 47°. Its own hue, not surprise's amber, and that is the whole point:
    * the pair is meant to be TOGGLED, and a blink comparison between two identically
@@ -448,9 +406,9 @@
    * violet at 322° and the ordering solve brought it between surprise and docs, because
    * the menu puts it there and hue follows the menu — so the three lenses read out of one
    * reader's report are now one warm family, which the row was already saying and the
-   * colour was not. The cost is named in the solve above: this ramp's cold end is 8.0 from
-   * docs's — one of three cold pairs inside .1 of the palette's floor. It holds because
-   * the bright ends stay 15.4 apart, because the lightness climb is shared, and because no two lenses are ever on
+   * colour was not. The cost is named in the solve above: this ramp's cold end is 7.7 from
+   * docs's — the tightest cold pair in the palette, with two more at 7.9. It holds because
+   * the bright ends stay 15.0 apart, because the lightness climb is shared, and because no two lenses are ever on
    * screen at once — but it is the number to watch if anything here moves again. It
    * takes the same dark→light climb as the others, which is what carries the reading for
    * anyone who cannot separate the hues. Same direction as heat, too: bright means harder,
@@ -461,37 +419,36 @@
   --legible-3: #e18d63;
   --legible-4: #ffa67a;
 
-  /* docs — rose, 17°, and the one ramp whose bright end is an ABSENCE. Surprise,
+  /* docs — rose, 19°, and the one ramp whose bright end is an ABSENCE. Surprise,
    * legibility, churn and age all brighten toward more of the thing they measure; this one
    * brightens toward LESS, because the invariant the map keeps is not "more is brighter",
    * it is "bright is the thing you have to do something about" — and what you do something
    * about is the undocumented end. So the input is the gap, never the coverage.
    *
    * It was cyan once, and cyan is what wrecked the palette: 40° from churn's blue, two
-   * lenses reading as one colour. It went warm at 26° and has now gone 8° warmer still, to
-   * sit below legibility in the menu's descending run. The binding constraint on this ramp
-   * is --trap, and the move tightened it: a rose bright end is the closest thing in the
-   * palette to hot pink and it clears 16.6, down from 20.5. That is the margin that keeps
-   * "nobody has described this" from reading as "this will bite you", and it is the
-   * second-tightest number here after legibility's cold end.
+   * lenses reading as one colour. It went warm at 26°, then to 17° with the first ordering and 19° with the families,
+   * below legibility in assessment's descending run. The constraint it has always answered
+   * to is --trap: a rose bright end is the closest a ramp comes to hot pink. It clears 17.3 —
+   * the margin that keeps "nobody has described this" from reading as "this will bite you" —
+   * and it is no longer the tightest against the trap; Complexity's orchid is.
    * Re-solve, don't eyeball. */
-  --docs-0: #6c494a;
-  --docs-1: #935d5f;
-  --docs-2: #ba7074;
-  --docs-3: #e5858a;
-  --docs-4: #ffa1a5;
+  --docs-0: #6c4949;
+  --docs-1: #935d5e;
+  --docs-2: #ba7072;
+  --docs-3: #e58688;
+  --docs-4: #ffa1a2;
 
-  --age-0: #435b43; /* age — green, 144.8°, and it was the olive at 114° until Churn took the
-                     * last row. Traded rather than re-solved: the sequence of hues down the
-                     * menu is exactly what it was, and two lenses that were already a family
-                     * are wearing each other's greens. Its neighbours are language's teal
-                     * above and churn's olive below, and neither margin moved. */
-  --age-1: #547954;
-  --age-2: #639764;
-  --age-3: #74b876;
-  --age-4: #82d785;
+  --age-0: #405b45; /* age — green, 150°, in activity between
+                     * Blame's jade chip and Churn's olive. It has traded greens with churn
+                     * once already; the family ordering moved both 5–6° and kept the pair.
+                     * Its chip quotes stop 2, the darker green, which is what reads it apart
+                     * from Blame's above it (11.3). */
+  --age-1: #4f7a58;
+  --age-2: #5d986a;
+  --age-3: #6bb97d;
+  --age-4: #77d88e;
 
-  /* reach — blue, 236°, and it was the jade at 170°. What a function calls: four bands at
+  /* reach — blue, 230°, and it was the jade at 170°. What a function calls: four bands at
    * the leaf, and above it the share of the functions underneath that call anything at all,
    * summed rather than averaged so an inner ring reports a share and not how many small
    * functions a directory holds.
@@ -499,17 +456,18 @@
    * **The hue outlived the lens it was solved for, and then the ordering solve took it.**
    * The jade was Locality's — how much of a wedge's wiring left its own directory — which
    * measured the filing as much as the code, and reach inherited the hue rather than a new
-   * one being solved. Menu order has since moved reach to 236°, into the blue arc beside
-   * callers at 268°, so the two call-graph lenses read as the family they are. This is the
+   * one being solved. Menu order has since moved reach to 230°, into the blue arc beside
+   * callers at 255°, so the two interconnectivity lenses read as the family they are. This is the
    * ramp that now pays the gamut clamp churn used to: sRGB runs out of blue near the top of
-   * the lightness climb, so the hot end is a shade paler than the profile asks for. */
-  --reach-0: #39586b;
-  --reach-1: #437492;
-  --reach-2: #4a91ba;
-  --reach-3: #52b0e4;
-  --reach-4: #70caff;
+   * the lightness climb, so the hot end is a shade paler than the profile asks for. Its hot end is the palette's
+   * tightest, 11.1 from callers', and its chip quotes stop 2 to sit apart from theirs. */
+  --reach-0: #365969;
+  --reach-1: #3e7690;
+  --reach-2: #4393b6;
+  --reach-3: #47b2e0;
+  --reach-4: #5dcdff;
 
-  /* callers — periwinkle, 268°, PINNED. How many things call it. Four bands at the leaf and a
+  /* callers — periwinkle, 255°, and it opens interconnectivity. How many things call it. Four bands at the leaf and a
    * share at the container, both climbing the same way: brighter is more callers, and the
    * quiet end is where nothing in the repo calls it. It is not five stops of a continuous
    * scale because a caller count is a power law — the zero bucket holds 22–56% across four
@@ -519,15 +477,16 @@
    * test rather than a ramp one: `no in-repo caller` and `this language's calls were never
    * resolved` are two different absences the map exists to be able to tell apart, and one
    * of them is a finding. --callers-0 separates from --unanalyzed on lightness alone, so it
-   * survives all three dichromacies. The bright end clears 27.0 from --structure. The flat
+   * survives all three dichromacies. The bright end clears 26.3 from --structure. The flat
    * jade this lens shipped with cleared 4.2 against --unanalyzed: for a deuteranope, found
    * dead code and never looked were one colour. Re-solve under `worst`, not `plain`, if
-   * this hue ever moves. */
-  --callers-0: #48536e;
-  --callers-1: #5c6d98;
-  --callers-2: #7086c2;
-  --callers-3: #85a2ef;
-  --callers-4: #a4bdff;
+   * this hue ever moves — it moved 13° with the families (268° → 255°) and was re-measured
+   * under `worst`: 15.8 from the dark neutral, unchanged, and 37.1 from the light one. */
+  --callers-0: #41556e;
+  --callers-1: #527097;
+  --callers-2: #618bc0;
+  --callers-3: #71a8ed;
+  --callers-4: #93c2ff;
 
   /* ── Categorical: owner, language ─────────────────────────────────────────────
    *
@@ -736,9 +695,10 @@
 
   --unanalyzed: #4a4642;
   --trap: #ff5ea1;
-  /* Lifted off the ink the way --trap is. Worst case: 33.9 from --structure, 28.8 from
-   * --unanalyzed, 17.6 from --trap, 15.3 from --callers-4. */
-  --clone: #bd5cff;
+  /* Lifted off the ink the way --trap is. Worst case across every viewer, re-measured with
+   * palette-search's `worst` after the family ordering moved it 2°: 37.6 from --structure,
+   * 32.8 from --unanalyzed, 16.7 from --trap, 15.3 from --callers-4. */
+  --clone: #b960ff;
   /* The ground is dark here, so the pair climbs to white rather than descending to ink —
      same construction, mirrored, which is what makes one rule work in both themes. */
   --birth: #ffffff;

@@ -30,13 +30,16 @@ tight one at 20.5 against --trap — and prints them beside what the file claims
 matching, this script is wrong and nothing it recommends can be trusted.
 
 WHAT IT CONSTRAINS.
-  - Hue runs in MENU ORDER, descending once around the wheel and never doubling back. Eleven
-    lenses share one pulldown and each wears its hue on its row, so that menu is the only
-    place the palette is ever seen as a set — and a set arriving in no order reads as a wheel
-    with colours wedged into it. This is what `order` solves and it costs the cold ends: 12.9
-    when hue only had to answer "which question", 8.2 once it also has to answer "in what
-    order". The 170-240 bar is gone twice over now — it was barred for a cyan that left, and
-    the ordering fills that arc on purpose.
+  - The menu is FOUR FAMILIES, and hue runs down it in order. Thirteen lenses share one
+    pulldown grouped by where an answer comes from — code shape, interconnectivity, activity,
+    assessment — and each wears its hue on its row, so that menu is the only place the
+    palette is ever seen as a set. Hue descends once around the wheel down the menu and never
+    doubles back (checked as a whole turn, not neighbour by neighbour: a hue that slips past
+    its neighbour quietly spends a second lap, and the first solve that trusted neighbours
+    reported nonsense). Each family takes one arc: a step across a family boundary must be
+    louder than any step inside a family, which is what lets thirteen read as four.
+  - Chips are STEPPED inside each family (3 / 2 / 4 by position), because a family's arc at
+    one lightness left three code-shape chips 5.1-5.4 apart. `CHIP_STEP` is that table.
   - Surprise is pinned to amber. It has to read as heat.
   - Every cold end clears dE 10 from --unanalyzed in both themes. Draining to neutral would
     put "cold" on top of "nobody has looked at this", which is the one distinction this app
@@ -44,7 +47,7 @@ WHAT IT CONSTRAINS.
   - Every hot end clears dE 15 from --trap, which is drawn over the same wedges.
 
   Usage:  palette-search.py verify        reproduce the shipped ramps and their margins
-          palette-search.py order         re-solve all eleven under the menu's hue ordering
+          palette-search.py order         re-solve all thirteen in families under the menu order
           palette-search.py add N         hold the shipped hues, search N more
           palette-search.py flat          one standalone accent, for a lens that is not a ramp
 """
@@ -234,13 +237,14 @@ C_PROFILE = [0.048, 0.071, 0.094, 0.117, 0.140]
 # clipping channels — clipping would move lightness and hue and break the shared profile
 # silently. Churn used to be the clamped one; it was blue then.
 SHIPPED = {
+    "tangle": 337.0,
     "heat": 74.0,
     "legible": 47.0,
-    "docs": 17.0,
-    "churn": 144.8,
-    "age": 114.0,
-    "reach": 236.4,
-    "callers": 268.0,
+    "docs": 19.0,
+    "age": 150.0,
+    "churn": 120.0,
+    "reach": 230.0,
+    "callers": 255.0,
 }
 
 # What `index.css` actually holds, so `verify` compares against the file rather than against a
@@ -248,38 +252,50 @@ SHIPPED = {
 # stops that differ are the ones where sRGB runs out of gamut, and a single channel of rounding
 # there is the whole discrepancy.
 SHIPPED_STOPS = {
+    "tangle": ["#65495d", "#895e7d", "#ad729d", "#d488c0", "#f89be0"],
     "heat": ["#634f35", "#87683d", "#aa7f43", "#d09949", "#f4b04a"],
     "legible": ["#6a4b3c", "#90614a", "#b77656", "#e18d63", "#ffa67a"],
-    "docs": ["#6c494a", "#935d5f", "#ba7074", "#e5858a", "#ffa1a5"],
-    "churn": ["#435b43", "#547954", "#639764", "#74b876", "#82d785"],
-    "age": ["#535737", "#6d7341", "#878f49", "#a4ad51", "#bec955"],
-    "reach": ["#39586b", "#437492", "#4a91ba", "#52b0e4", "#70caff"],
-    "callers": ["#48536e", "#5c6d98", "#7086c2", "#85a2ef", "#a4bdff"],
+    "docs": ["#6c4949", "#935d5e", "#ba7072", "#e58688", "#ffa1a2"],
+    "age": ["#405b45", "#4f7a58", "#5d986a", "#6bb97d", "#77d88e"],
+    "churn": ["#505739", "#697444", "#81914d", "#9cb057", "#b4cc5d"],
+    "reach": ["#365969", "#3e7690", "#4393b6", "#47b2e0", "#5dcdff"],
+    "callers": ["#41556e", "#527097", "#618bc0", "#71a8ed", "#93c2ff"],
 }
 
-# The MENU is the constraint now, and it is what `order` solves. Eleven lenses live in one
-# pulldown, each wearing its hue on its row, and that menu is the only place the palette is
-# ever seen as a set. So hue descends once around the wheel as you go down it and never
-# doubles back — the order itself is semantic and fixed in `colorMode.ts`, so the assignment
-# is the only thing free. Five hues are pinned where they already were (heat must read as
-# heat, trap must read as an alarm, and clone/callers/age had no reason to move); the other
-# six are solved. Two of the eleven are not ramps at all: trap and clone are marks, and blame
-# and language are chrome-only chips at the ramps' fourth stop.
-# **Eleven, not twelve.** Complexity is deliberately outside this — see `--tangle` in
-# `index.css`. Hue follows the menu, and the first row's arc is bounded by a pinned amber, so
-# every hue the ordering could give it is gold. Adding it here and re-solving works and costs
-# the set: chips 13.3 to 12.4 and six ramps recoloured. Leaving it off costs one menu row whose
-# colour does not continue the run.
-MENU = ["heat", "legible", "docs", "trap", "clone", "callers", "reach", "blame", "language",
-        "age", "churn"]
-PINNED = {"heat": 74.0, "trap": 358.0, "clone": 309.0, "callers": 268.0, "churn": 114.0}
-# The two chips with no ramp under them: the level a chip quotes is stop 3.
+# **Four families, in menu order, and they are the constraint now.** Thirteen lenses in one
+# pulldown, grouped by where an answer comes from. Code shape leads because a scan answers it on
+# first open; assessment closes the menu because nobody runs a read until another lens has
+# sold it. The order is semantic and fixed in `colorMode.ts` (`MODE_LABEL`, `FAMILIES`); the
+# assignment is what moves.
+#
+# **Why assessment can only go last.** Surprise's amber and the trap's pink pin that family
+# to the warm arc, and whatever follows it down the menu has to take the violets after the pink.
+# Put activity there and the clone mark has nowhere violet to stand: solved with it free it lands
+# on a green, and the families stop reading (15.2 across a boundary against 15.0 inside one).
+# Last, the wheel wraps from the pink straight into code shape's violets at the top.
+FAMILIES = [
+    ("code shape", ["tangle", "composition", "language", "clone"]),
+    ("interconnectivity", ["callers", "reach"]),
+    ("activity", ["blame", "age", "churn"]),
+    ("assessment", ["heat", "legible", "docs", "trap"]),
+]
+MENU = [k for _, ks in FAMILIES for k in ks]
+PINNED = {"heat": 74.0, "trap": 358.0}
+# The clone was chosen against the Blame slots under dichromacy, so it may move but not leave
+# violet — and the solve starts it where it shipped rather than wherever even spacing drops it.
+WINDOWS = {"clone": (285.0, 325.0)}
+CLONE_START = 309.0
+# The level a chip quotes, stepped 3 / 2 / 4 inside each family. Marks quote themselves.
+CHIP_STEP = {"tangle": 3, "composition": 2, "language": 4, "clone": 3, "callers": 3, "reach": 2,
+             "blame": 3, "age": 2, "churn": 4, "heat": 3, "legible": 2, "docs": 4, "trap": 3}
 CHIP_L, CHIP_C = L_PROFILE[3], C_PROFILE[3]
-CHROME = {"blame": 206.4, "language": 176.8}
+# The chips with no ramp under them, solved on the wheel like everything else.
+CHROME = {"blame": 163.0, "language": 308.0, "composition": 322.0}
 # The marks keep their lightness and chroma and only their hue is placed — a trap is meant to
 # be the loudest thing in its lens, so it does not join the ramps' chroma.
 MARKS = {"trap": {"light": "#ff4f95", "dark": "#ff5ea1"},
-         "clone": {"light": "#b026ff", "dark": "#bd5cff"}}
+         "clone": {"light": "#ad2cff", "dark": "#b960ff"}}
+SHIPPED_MARKS = {"trap": 358.0, "clone": 307.0}
 
 BARRED = None
 # Drawn over the same wedges as every ramp, so these are floors rather than preferences.
@@ -297,7 +313,7 @@ TRAP = {"light": "#ff4f95", "dark": "#ff5ea1"}
 # ramp stop: judging that by eye off the wheel was the error, not the search.
 #
 # The gap is still real and still worth closing. It just did not cost what it was accused of.
-CLONE = {"light": "#b026ff", "dark": "#bd5cff"}
+CLONE = {"light": "#ad2cff", "dark": "#b960ff"}
 # The directory fill IS drawn over the same wedges as every ramp, so it is a floor — it was
 # missing from the first version of this search, which duly recommended a colour one step from
 # a thing the map already draws. A constraint you forget is not a constraint the picture
@@ -422,23 +438,21 @@ def flat():
     return 0
 
 
-def chips(hues):
-    """What the MENU shows: one colour per lens, at the level a chip quotes.
+def chips(hues, stepped=True):
+    """What the MENU shows: one colour per lens.
 
-    A ramp lens quotes its fourth stop. The two marks quote themselves — they keep their own
-    lightness and chroma, because a trap is meant to be louder than any ramp — and the two
-    chrome-only lenses are built at the ramps' fourth stop so they sit ON the ring rather than
-    beside it. Dark-mode marks, because that is the theme the menu was drawn against first and
-    the light ones are a shade further from everything."""
+    A lens quotes the stop `CHIP_STEP` gives it when `stepped`, stop 3 when not — the SOLVE
+    places hues on unstepped chips and the steps are laid over the result, so that a step can
+    never be what bought a hue its place. The two marks quote themselves, in their dark-theme
+    values, because that is the theme the menu was drawn against first."""
     out = {}
     for k, h in hues.items():
         if k in MARKS:
             L, C, _ = hex_to_oklch(MARKS[k]["dark"])
             out[k] = oklch_to_hex(L, C, h)
-        elif k in CHROME:
-            out[k] = oklch_to_hex(CHIP_L, CHIP_C, h)
         else:
-            out[k] = oklch_to_hex(L_PROFILE[3], C_PROFILE[3], h)
+            s = CHIP_STEP.get(k, 3) if stepped else 3
+            out[k] = oklch_to_hex(L_PROFILE[s], C_PROFILE[s], h)
     return out
 
 
@@ -448,41 +462,48 @@ def chips(hues):
 MARK_FLOOR = 12.0
 
 
-def ordered_score(hues):
-    """(objective, cold, hot, chip) for one assignment.
+def _family_of():
+    return {k: name for name, ks in FAMILIES for k in ks}
 
-    Three worst-pairs rather than two, because the menu added a third place two lenses can be
-    confused: the chip column. They are weighted rather than summed — the cold ends are what
-    the ordering constraint actually squeezes, so they lead, and the other two are held above
-    their floors rather than optimised."""
+
+def family_step(c):
+    """(quietest step across a family boundary, loudest step inside a family) down the menu."""
+    fam = _family_of()
+    steps = [(plain(c[a], c[b]), fam[a] != fam[b]) for a, b in zip(MENU, MENU[1:])]
+    return min(d for d, cross in steps if cross), max(d for d, cross in steps if not cross)
+
+
+def ordered_score(hues):
+    """(objective, cold, hot, chip, boundary, inner) for one assignment of all thirteen hues.
+
+    Three worst-pairs weighted as `order` always weighted them — cold ends lead, hot ends and
+    chips are held above their share — less penalties for every floor a map depends on, for a
+    family boundary that is not half again louder than the loudest step inside a family, and for
+    cold or hot ends falling under what the palette held before families (8.2 and 11.0).
+
+    Scored on WHOLE degrees. The start spreads hues fractionally, and scoring those as they
+    are sends the ascent up a different path to a neighbouring optimum 2-9 degrees away — so
+    `order` failed to reproduce the palette it had chosen, for no reason in the palette."""
+    hues = {k: round(v) % 360 for k, v in hues.items()}
     ramps = {k: ramp(h) for k, h in hues.items() if k not in MARKS and k not in CHROME}
     ks = list(ramps)
     cold = min(plain(ramps[a][0], ramps[b][0]) for i, a in enumerate(ks) for b in ks[i + 1:])
     hot = min(plain(ramps[a][4], ramps[b][4]) for i, a in enumerate(ks) for b in ks[i + 1:])
-    c = chips(hues)
-    cs = list(c)
-    chip = min(plain(c[a], c[b]) for i, a in enumerate(cs) for b in cs[i + 1:])
-    # **The marks, which this scored against not at all.** `ordered_score` compared ramps with
-    # each other and nothing else, so a ramp could sit four degrees from the clone violet and
-    # come back as the best assignment on the board — which is exactly what it did. The floors
-    # are what `margins` has always enforced for `add`; ordering had its own scorer and quietly
-    # did without them.
-    #
-    # A FLOOR rather than a term: below it an assignment is not worth ranking, and above it a
-    # further degree of separation from a mark buys nothing the ramps themselves need. Weighted
-    # in would let a very good spread pay for hiding one lens under a mark.
-    marks = min(
-        plain(stop, m)
-        for r in ramps.values()
-        for stop in r
-        for m in list(TRAP.values()) + list(CLONE.values())
-    )
-    obj = min(cold, hot * 0.75, chip * 0.6)
-    return (obj if marks >= MARK_FLOOR else obj - (MARK_FLOOR - marks)), cold, hot, chip
+    c = chips(hues, stepped=False)
+    chip = min(plain(c[a], c[b]) for i, a in enumerate(MENU) for b in MENU[i + 1:])
+    boundary, inner = family_step(c)
+    unread = min(plain(r[0], n) for r in ramps.values() for n in NEUTRAL.values())
+    marks = min(plain(x, m) for r in ramps.values() for x in r for m in list(TRAP.values()) + list(CLONE.values()))
+    struct = min(plain(x, v) for r in ramps.values() for x in r for v in STRUCTURE.values())
+    pen = max(0, COLD_FLOOR - unread) + max(0, MARK_FLOOR - marks) + max(0, STRUCTURE_FLOOR - struct)
+    pen += 0.5 * max(0, 1.5 * inner - boundary)
+    obj = min(cold, hot * 0.75, chip * 0.6) - 2 * pen
+    obj -= 3 * (max(0, 8.2 - cold) + max(0, 11.0 - hot))
+    return obj, cold, hot, chip, boundary, inner
 
 
-def descending(hues):
-    """The menu's hues, unwrapped onto a falling line so ordering is a plain comparison."""
+def unwrap(hues):
+    """The menu's hues on a falling line, so ordering is a plain comparison."""
     out, prev = [], None
     for k in MENU:
         h = hues[k]
@@ -493,113 +514,113 @@ def descending(hues):
     return out
 
 
-def start_from_pins():
-    """Where the ascent begins: the free hues spread evenly across the arcs the pins leave.
+def one_turn(hues):
+    """Every step down the menu falls, and all of them together fall by less than a turn.
 
-    Equal spacing over all eleven was the first start and it converges half a point worse —
-    it walks every free hue across a pin's arc before it finds the room, and ascent stops at
-    the first ridge. Spacing WITHIN each arc starts the search where the constraint already
-    put it, and the pins are what define the arcs, so this is the same solve stated in the
-    order the problem has.
+    Holding each hue between its two neighbours is NOT this: a hue can pass one, the unwrap
+    spends a second lap without a word, and the first solve that trusted neighbours put three
+    code-shape chips 0.4 apart and called it a result."""
+    u = unwrap(hues)
+    return all(0 < a - b < 180 for a, b in zip(u, u[1:])) and u[0] - u[-1] < 360
 
-    Done on the unwrapped line rather than on the circle: the menu descends through 0 exactly
-    once, so subtracting the wrap from every pin turns "between these two pins" into ordinary
-    interpolation and the modulo goes back on at the end."""
-    # **The anchor is the first PINNED lens, not the first menu row.** Unwrapping needs a hue
-    # to measure from and only a pin has one; assuming the menu opens on a pin held for as long
-    # as it did because it always had, and broke the moment a free lens went to the top.
-    first = next(k for k in MENU if k in PINNED)
-    line = {k: PINNED[first] - (PINNED[first] - h) % 360 for k, h in PINNED.items()}
-    line[first] = PINNED[first]
-    at = [i for i, k in enumerate(MENU) if k in PINNED]
+
+def in_window(k, h):
+    lo, hi = WINDOWS.get(k, (0.0, 360.0))
+    return lo <= h <= hi
+
+
+def spread(pins):
+    """The start: free hues spread evenly across the arcs the pins leave, in menu order."""
+    first = next(i for i, k in enumerate(MENU) if k in pins)
+    order_ = MENU[first:] + MENU[:first]
+    line, prev = {}, pins[order_[0]]
+    for k in order_:
+        if k in pins:
+            h = pins[k]
+            while h > prev:
+                h -= 360
+            line[k] = h
+            prev = h
+    at = [i for i, k in enumerate(order_) if k in pins] + [len(order_)]
+    end = pins[order_[0]] - 360
     hues = {}
-    # The arc after the LAST pin closes back onto the first one a turn further down the line,
-    # and it is where a lens sitting outside every pin lives — above the first pin or below the
-    # last, which are the same arc once the menu is read as the circle it is.
-    n = len(MENU)
-    for lo, hi in zip(at, at[1:] + [at[0] + n]):
-        a = line[MENU[lo]]
-        b = line[MENU[hi % n]] - (360 if hi >= n else 0)
-        span = MENU[lo + 1:] + MENU[:hi % n] if hi >= n else MENU[lo + 1:hi]
-        for j, k in enumerate(span, 1):
-            hues[k] = (a + (b - a) * j / (hi - lo)) % 360
-    hues.update(PINNED)
+    for a, b in zip(at, at[1:]):
+        ha = line[order_[a]]
+        hb = line[order_[b]] if b < len(order_) else end
+        for j in range(a + 1, b):
+            hues[order_[j]] = (ha + (hb - ha) * (j - a) / (b - a)) % 360
+    hues.update(pins)
     return hues
 
 
 def order():
-    """Solve the eleven hues under the menu's ordering constraint.
+    """Solve the thirteen hues in families under the menu order.
 
-    Coordinate ascent rather than exhaustive search, and the difference matters: eleven hues
-    on a 1-degree grid is 360**11 assignments, and the constraint that makes the problem
-    tractable — each hue is boxed between its two neighbours in the menu — is the same one
-    that makes ascent from a sensible start reliable here. The start is equal spacing, which
-    is what the ordering asks for when nothing is pinned, so the search only has to move hues
-    toward the room the pins leave.
+    Coordinate ascent over whole degrees from a spread start and five perturbed ones, every
+    candidate held to one turn and to the clone's window. Deterministic: the perturbations are
+    seeded, so `order` either reproduces what shipped or says it does not."""
+    import random
 
-    What it reports is the bill, because the bill is the point: ordering costs the cold ends,
-    and it costs them where three warm lenses now share the arc two used to have."""
-    hues = start_from_pins()
-    cur = ordered_score(hues)
-    for _ in range(12):
-        moved = False
-        for i, k in enumerate(MENU):
-            if k in PINNED:
-                continue
-            u = descending(hues)
-            lo = (u[i + 1] if i + 1 < len(MENU) else u[0] - 360) + 4
-            hi = (u[i - 1] if i else u[-1] + 360) - 4
-            best, at = cur, hues[k]
-            h = lo
-            while h <= hi:
-                trial = dict(hues)
-                trial[k] = h % 360
-                sc = ordered_score(trial)
-                if sc[0] > best[0] + 1e-9:
-                    best, at = sc, h % 360
-                h += 1
-            if at != hues[k]:
-                hues[k], cur, moved = at, best, True
-        if not moved:
-            break
-    obj, cold, hot, chip = cur
-    print(f"worst cold pair {cold:.1f}   worst hot pair {hot:.1f}   worst chip pair {chip:.1f}\n")
+    start = spread({**PINNED, "clone": CLONE_START})
+    assert one_turn(start), "the pins leave no one-turn start"
+    best = None
+    for seed in range(6):
+        random.seed(70 + seed)
+        s0 = dict(start)
+        if seed:
+            for _ in range(40):
+                trial = {k: (v + (0 if k in PINNED else random.uniform(-6, 6))) % 360 for k, v in start.items()}
+                if one_turn(trial) and all(in_window(k, trial[k]) for k in WINDOWS):
+                    s0 = trial
+                    break
+        hues, cur = dict(s0), ordered_score(s0)[0]
+        for _ in range(16):
+            moved = False
+            for k in MENU:
+                if k in PINNED:
+                    continue
+                top, at = cur, hues[k]
+                for hh in range(360):
+                    if not in_window(k, hh):
+                        continue
+                    t = dict(hues)
+                    t[k] = float(hh)
+                    if not one_turn(t):
+                        continue
+                    sc = ordered_score(t)[0]
+                    if sc > top + 1e-9:
+                        top, at = sc, float(hh)
+                if at != hues[k]:
+                    hues[k], cur, moved = at, top, True
+            if not moved:
+                break
+        if best is None or cur > best[1]:
+            best = (hues, cur)
+    hues = {k: round(v) % 360 for k, v in best[0].items()}
+    _, cold, hot, chip, boundary, inner = ordered_score(hues)
     c = chips(hues)
-    for i, k in enumerate(MENU):
-        pin = " PINNED" if k in PINNED else ""
-        print(f"  {i + 1:>2}. {k:<9} {hues[k]:>5.1f}deg  {c[k]}{pin}")
-    print("\nramps:")
-    for k in MENU:
-        if k in MARKS or k in CHROME:
-            continue
-        print(f"  {k:<9} " + " ".join(ramp(hues[k])))
-    print("\nchrome chips:")
-    for k in CHROME:
-        print(f"  --lens-{k}: {oklch_to_hex(CHIP_L, CHIP_C, hues[k])};")
-    print("\nmarks (light / dark):")
-    for k in MARKS:
-        L, C, _ = hex_to_oklch(MARKS[k]["light"])
-        Ld, Cd, _ = hex_to_oklch(MARKS[k]["dark"])
-        print(f"  --{k}: {oklch_to_hex(L, C, hues[k])};  dark {oklch_to_hex(Ld, Cd, hues[k])};")
-    return 0
+    sb, si = family_step(c)
+    sw = min(plain(c[a], c[b]) for i, a in enumerate(MENU) for b in MENU[i + 1:])
+    print(f"cold {cold:.1f}  hot {hot:.1f}  chips unstepped {chip:.1f}, stepped {sw:.1f}  "
+          f"family step {sb:.1f} / {si:.1f}\n")
+    for name, ks in FAMILIES:
+        print(f"  {name}")
+        for k in ks:
+            print(f"    {k:<12} {hues[k]:>3}deg  {c[k]}  (stop {CHIP_STEP[k]})")
+    shipped = {**SHIPPED, **CHROME, **SHIPPED_MARKS}
+    diff = {k: (shipped[k], hues[k]) for k in MENU if round(shipped[k]) % 360 != hues[k]}
+    print("\n" + ("REPRODUCES the shipped hues." if not diff else f"DIFFERS from shipped: {diff}"))
+    return 0 if not diff else 1
 
 
 def verify():
     """Reproduce the shipped palette, and say so or fail.
 
-    Seven ramps since the wiring lenses got hues of their own, and all of them now placed by
-    `order` rather than by the free assignment `add` searches — the menu's hue ordering is the
-    binding constraint and it is a stronger one, so `add` is kept for the question it still
-    answers (is there room at all) rather than as the thing that chose these.
-
-    The check is against the STOPS, not against the margins. A margin is one number summarising
-    twenty-five colors and two of those colors could be wrong without moving it; and the tightest
-    margin here (docs against --trap) is driven by a single channel at the gamut boundary, so
-    comparing margins to one decimal would fail on rounding while comparing them loosely would
-    pass on nonsense. Channel-exact-to-one is the property that actually says this script models
-    the palette."""
+    The check is against the STOPS, not the margins: a margin is one number summarising
+    forty colours, and two of them could be wrong without moving it. Margins are printed
+    beside it because they are what `index.css` quotes."""
     cold, hot, vn, vt, vc, vs, vm = margins(SHIPPED)
-    print(f"shipped {len(SHIPPED)}:")
+    print(f"shipped {len(SHIPPED)} ramps:")
     worst_step = 0
     for k, h in SHIPPED.items():
         got, want = ramp(h), SHIPPED_STOPS[k]
@@ -610,14 +631,24 @@ def verify():
         worst_step = max(worst_step, max(steps))
         flag = "" if max(steps) == 0 else f"   <- off by {max(steps)}/255"
         print(f"  {k:<8} {h:>5.0f}deg  {' '.join(got)}{flag}")
-    print(f"\nworst cold pair      {cold:.1f}   (index.css says 8.2, churn against age)")
-    print(f"worst hot pair       {hot:.1f}   (index.css says 13.5, reach against callers)")
-    print(f"cold vs unanalyzed   {vn:.1f}   (index.css says worst 11.5, heat)")
-    print(f"any stop vs trap     {vt:.1f}   (floor {MARK_FLOOR}; a mark is drawn over a wedge)")
-    print(f"any stop vs clone    {vc:.1f}   (floor {MARK_FLOOR}; it was not scored at all before)")
+    hues = {**SHIPPED, **CHROME, **SHIPPED_MARKS}
+    c = chips(hues)
+    sw = min((plain(c[a], c[b]), a, b) for i, a in enumerate(MENU) for b in MENU[i + 1:])
+    sb, si = family_step(c)
+    print("\nchips (stepped):")
+    for name, ks in FAMILIES:
+        print(f"  {name}: " + "  ".join(f"{k} {c[k]}" for k in ks))
+    print(f"\nworst cold pair       {cold:.1f}")
+    print(f"worst hot pair        {hot:.1f}")
+    print(f"worst chip pair       {sw[0]:.1f}   ({sw[1]} / {sw[2]})")
+    print(f"family step           {sb:.1f} across / {si:.1f} inside   (across must be louder)")
+    print(f"cold vs unanalyzed    {vn:.1f}   (floor {COLD_FLOOR})")
+    print(f"any stop vs trap      {vt:.1f}   (floor {MARK_FLOOR}; a mark is drawn over a wedge)")
+    print(f"any stop vs clone     {vc:.1f}   (floor {MARK_FLOOR})")
     print(f"any stop vs structure {vs:.1f}   (floor {STRUCTURE_FLOOR}; --structure is on the map)")
     print(f"any stop vs agent-mark {vm:.1f}   (reported, NOT a floor — see MARK)")
-    ok = worst_step <= 1
+    print(f"one turn down the menu: {one_turn(hues)}")
+    ok = worst_step <= 1 and one_turn(hues) and sb > si
     print("\n" + (f"REPRODUCES the shipped palette (worst stop off by {worst_step}/255)."
                    if ok else f"DOES NOT REPRODUCE — worst stop off by {worst_step}/255."))
     return 0 if ok else 1
