@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1254 of 1254 read · 230 surprising
+1259 of 1259 read · 232 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -2570,11 +2570,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `list` — QUIRKY
-- spec 3 · read at `bbda66e7929a` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:06:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A CLI subcommand handler that prints the findings groups as a readable worklist to stdout — for each group, its title/count/lenses, then up to limit individual hits with file:line locations — and returns an exit code (likely 0 if no findings, nonzero if there are findings) so it composes in shell scripts/CI.
-- found: Merges findings by subject key (widest-first, since one function can be flagged by multiple rules), prints a header with total/ignored counts, summarizes blocked rules grouped by their 'need' fix, then prints up to `limit` rows each showing every rule that fired on that subject with wrapped prose (printing a rule's background paragraph only the first time it appears), and a '...N more' footer. Always returns 0 — not an exit-code-encodes-findings convention as I guessed.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: Always returns 0 regardless of findings count, so it is not usable as a CI gate the way exit codes usually are for lint-style tools.
+- spec 3 · read at `a36281662a44` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:44:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Reads the survey/worklist for the repo at `path`, filters or organizes entries by the given `groups`, prints up to `limit` items (likely the not-yet-assessed functions) to stdout in a human-readable worklist format, and returns an exit code (0 on success, nonzero if e.g. no survey exists yet).
+- found: Merges findings across rule groups by subject key into rows (tracking flagged status and loc), sorts by loc descending, prints a header with total findings/ignored count, then prints a summary of "blocked" rules (rules that couldn't run and why, deduped and sorted by frequency), then prints up to `limit` rows each showing the finding text per rule group (with each rule's background note shown once), and finally a "…and N more" hint if truncated. Returns 0 always.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
 
 ### `wrap`
 - spec 3 · read at `b2cf6ea9c697` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3089,11 +3088,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/edges.rs
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `f55a46d8d0f7` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:05:40Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a call graph over parsed functions — resolving call expressions (bare names, method/receiver calls, qualified paths) back to callee definitions, with name-resolution heuristics (local shadows distant, ambiguous names resolve to nothing globally or credit every local candidate). Computes two derived per-function facts: dependent/caller counts (wiring) and share of calls leaving its own directory (locality gap). Also handles language-family grouping (C/C++ counted together) and a separate sub-concern of detecting test functions by per-language convention/contract, deciding what's "under test" without git or a model.
-- found: Core prediction was right: call-graph resolution with a tiered name-resolution scheme (owner/self beats locality, own-file beats directory beats repo-unique, ambiguous-globally resolves to nothing), producing callers/calls/incident/away and locality_gap. But the file also does much more than predicted: a fully separate file-classification subsystem (kind_of/Attributes) detecting generated/vendored/header files via .gitattributes contracts, banner sniffing, and path conventions; a `dependents`/`under_test` distinction from raw `callers` (tests count as callers but not dependents, and under_test is a transitive reachability walk from test functions through the call graph, not just direct calls); and sealed #[cfg(test)] edges that production code structurally cannot reach.
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The file-kind/generated/vendored detection (kind_of, Attributes, glob_ish) is a fully separate concern bolted onto the same file and isn't mentioned anywhere in the header doc, which only advertises call-edge wiring and locality.
+- spec 3 · served in 3 parts · read at `fddf1b9a13d5` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This module reconstructs the call graph from parsed functions (without a full compiler/linker) to compute two cheap, deterministic, model-free facts per function: how many other functions call it (callers/wiring), and what share of its calls/callers cross outside its own directory (locality). It resolves call names to definitions with tiered disambiguation (local file/owner beats same-directory beats global, ambiguous names either credit every candidate or resolve to nothing), respecting language "families" so e.g. C and C++ headers count as one. A second responsibility bundled in the same file is test detection/classification: deciding whether a function is a test (by naming convention, a test-runner contract, or explicit declaration) and, via the call graph, which functions are "under test" — reached by a test's calls — versus merely called by one. The large `tests` module at the bottom is unit tests covering these resolution-tier and test-classification edge cases directly (not exported production code).
+- found: Builds a tiered, deliberately conservative call-name resolver (owner beats file beats directory beats global-unique) respecting language families, producing per-function caller/callee/locality counts, plus a separate `dependents` count that excludes the repo's own tests and a transitive `under_test` reachability walk from test entry points — both kept three-valued (yes/no/unknown) rather than defaulting to false when a language's test code can't be told apart. A second bundled concern, `kind_of`/`Attributes`/`Declarations`, classifies whole files as generated/vendored/header code from gitattributes, banner text, or path convention, and layered test detection (contract > convention > name-dispatch > declared-absence) feeds both. Nearly half the file (~400 lines) is a `tests` module pinning specific resolver bugs found on real repos (ceph, flox) — receiver-vs-free-function confusion, cfg(test) sealing, super/crate scoping, shell TEST_ prefix dispatch, etc.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `locality_gap`
 - spec 3 · read at `2d7696bf7f63` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3133,12 +3131,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The docs describe the three-pass algorithm as if `wire` does it, but the actual work is in `wire_with`; `wire` itself is just the default-args entry point.
 
-### `wire_with`
-- spec 3 · read at `6d934a76083b` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:07:25Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Already seen in full during the earlier edges.rs file read: three passes — index every definition by name/owner/module, resolve every call in every function against that index (skipping edges into sealed #[cfg(test)] code from non-test callers, dropping recursive self-edges), then fold the deduplicated edge set into per-function Wire counts (callers, calls, dependents via a BFS-style transitive under_test reach from test functions, incident/away for locality), returning a Wiring with the per-site map plus resolved/unresolved/resolvable totals and the sorted edge list.
-- found: Matches exactly what I already saw during the earlier edges.rs file read: three-pass build (index defs, resolve calls with sealed-test-edge and recursion filtering, fold into per-function Wire counts including a BFS-based transitive under_test walk and locality incident/away).
-- predicted: full · documented: most · derivable: no · legible: most · trap: no
-- note: Another warm re-read from the earlier full-file fetch — cold:false, not a genuine blind prediction.
+### `wire_with` — QUIRKY — TANGLED
+- spec 3 · read at `c703ffffc8dc` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the core orchestration function that builds the Wiring result: for each file/function it extracts call sites, resolves each call target against the declared items (using naming/path conventions like stem_of, convention_of, kind_of) to find which function is actually being called, and accumulates counts. It computes, per function, how many callers it has (fan-in) and what fraction of its outgoing calls leave its own directory (locality gap), handling ambiguous or unresolved calls by skipping or falling back to heuristics like looks_like_a_test/glob_ish.
+- found: Builds the full Wiring struct in several passes: collects definitions/owners/modules and test/contract classification per function, resolves every call site to candidate definitions (respecting sealed #[cfg(test)]-only visibility and excluding recursion) into a deduped edge set, seeds a Wire per resolvable site, tallies calls/callers/dependents, does a BFS from test sites over the edge graph to mark everything transitively reached by a test (under_test), computes per-site locality (incident/away neighbour counts), and returns everything sorted for stable output.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: The transitive test-reach BFS and the sealed/#[cfg(test)] edge-filtering are the load-bearing subtleties; neither is visible from the signature or the short doc excerpt shown before the body.
 
 ### `contract_of`
 - spec 3 · read at `94332b1260f1` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:06:06Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3146,6 +3144,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Matches exactly what I already saw: Rust is test-contract-true if in_cfg_test or under a tests/ path, Go if the filename ends in _test.go, everything else None.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: I had already read this function's body in full while fetching src-tauri/src/edges.rs as file task #5, so this was a warm/recall reading rather than a genuine cold prediction — reporting cold:false accordingly rather than claiming a fresh guess.
+
+### `testness`
+- spec 3 · read at `e07911cf4082` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:49:30Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Runs through structural signals for whether a function is test code, strongest first: if `in_cfg_test` is true (Rust's #[cfg(test)]), returns the highest-confidence Testness immediately. Otherwise falls through weaker tiers using `path`/`name` — checking file path conventions (glob_ish/stem_of, e.g. a tests directory or _test suffix) and naming conventions (looks_like_a_test/convention_of) via `declared`, returning a Testness variant for whichever tier matched, or None if nothing indicates a test.
+- found: A fallback chain of four tiers, strongest evidence first: contract_of (cfg(test)/path contract), then convention_of, then named_of, then declared_of — returns the first Some(Testness), or None if none match.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `of`
 - spec 3 · read at `8f83a3772dfe` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:10:40Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -4758,10 +4762,17 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/history.rs
 
 ### the file itself
-- spec 3 · served in 5 parts · read at `f2a2393b202e` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:58Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Backend replay engine turning git commit history into the "how did the map get like this" scan: parses commits/diffs into per-function deltas (arrivals, edits, deletions, renames/copies), folds them incrementally via a Replayer (seed/fold/apply/snapshot/resume) into Frames, manages blob reads and a disk cache with checkpoints ("banking") so backward seeks don't require replaying from scratch, plus log-reading/cancellation plumbing. Also includes a large test suite covering diff-parsing edge cases and cache/checkpoint correctness invariants, given the many snake_case test-name peers.
-- found: Confirms the predicted replay engine (git log streaming, Blobs pipe reader, Replayer::seed/apply/fold/resume/snapshot, checkpointed disk caching with CACHE_VERSION/parse-version invalidation, extend/Carry for incremental catch-up, cancellation via a global flag, per-repo Tracing claims to prevent concurrent walks, warm/forget/bank helpers) plus an extensive test module. But it also contains a second major piece not anticipated: a paged transport/serving layer (Tables, LogRow, with_loaded/unload/LOADED cache, funcs/log/scoped/deltas/touches) that lets the frontend page through a huge timeline (tens of MB on large repos) without shipping it whole — this pagination/windowed-serving concern is roughly a third of the file and wasn't part of the prediction.
+- spec 3 · served in 5 parts · read at `e9d197a4808d` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:47:04Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This module implements the "replay history" feature: it walks a repo's git commit log, reads blobs for changed files, parses them into per-file function states (using the same parse/placing logic as a normal scan), and folds each commit's diff into a running Replayer that tracks which functions are alive at each point in time — building frames the frontend can play back to show the tree's shape growing commit by commit. It also handles caching/persisting computed timelines to disk (bank/save_cache/load_cache), resuming a prior run rather than rescanning from scratch, cancellation of long-running walks, and coordinating exclusive access (Tracing/claim) so only one replay runs at a time. A large test suite at the bottom validates diff parsing (renames, copies, deletions), identity stability, caching/extension correctness, and cancellation behavior.
+- found: A full commit-by-commit history replayer: streams the git log, batches blob reads/parses in windows on a dedicated thread pool, folds each commit's diff (function set/del, complexity, readings from committed .sanity/ shards) into a Replayer that tracks live function state; supports resumable/extendable/cancellable/checkpointed walks persisted to a versioned on-disk cache (with an elaborate CACHE_VERSION history documenting past migrations); enforces one-walk-per-repo via a Tracing claim guard; and exposes a paginated serving layer (Tables/LogRow/funcs/log/deltas/scoped) so the frontend never has to receive the whole multi-hundred-megabyte timeline at once.
 - predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: The frontend-facing pagination/serving layer (Tables, LogRow, funcs/log/deltas/scoped) and the checkpointing/versioned-cache-extension machinery are the two biggest surprises the file-doc header gives no hint of.
+
+### `unplaced`
+- spec 3 · read at `21b85db99a49` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:49:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns a fixed sentinel u8 constant (likely 0xFF/255) representing "no placement/kind assigned" in the packed byte encoding, matching the UNPLACED sentinel used on the TS side's decoder.
+- found: Trivial wrapper function that just returns the module constant UNPLACED, presumably to expose it (e.g. across an FFI/serialization boundary) without exposing the constant itself.
+- predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `key_of`
 - spec 2 · read at `19a1795e6717` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -4813,16 +4824,27 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: none · documented: none · derivable: yes · legible: full · trap: no
 
 ### `intern`
-- spec 3 · read at `2b37076c9aba` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:24Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Looks up or creates a stable u32 id for the function described by `f` at the given path, keyed by something like path_idx plus the function's name/signature; if already present in an internal map it returns the existing id, otherwise it pushes a new entry (probably into a Vec) and inserts the new id into the map before returning it — a classic string/entity interner pattern for deduplicating function identities across commits.
-- found: Interner: returns existing id from `self.index` keyed by `f.key` if present; otherwise pushes a new HistoryFunc (path, name, owner, ord) onto `self.list`, inserts the new id into `self.index`, ALSO inserts into a second map `self.by_reading` keyed by `reading_key(path, f)`, and returns the new id.
+- spec 3 · read at `9975bee96cbf` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:18Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A method on Funcs that looks up or creates a stable numeric id for the function described by f at path/path_idx — computing a lookup key (likely via key_of or reading_key), checking an internal map for an existing entry, returning its index if found, otherwise pushing a new entry and returning the newly assigned u32 index. This is the interning step that gives each function a persistent identity across commits in the replay.
+- found: If f.key is already indexed, updates that entry's kind to the latest and returns its existing index; otherwise pushes a new HistoryFunc, inserts into both `index` (by f.key) and `by_reading` (by reading_key(path, f)), and returns the new index.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The only docs available were the file-level module doc, not a doc for this specific function.
+
+### `of`
+- spec 3 · read at `28c5189e45ae` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:47:43Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Reads whatever repo-level configuration is needed to classify files/functions during replay — likely `.gitattributes` (for generated/vendored declarations, i.e. `edges::Attributes`) and test-runner manifests (for `edges::Declarations`, e.g. whether JS/Python declare no tests) — from the given repo path, bundling them into a `Placing` struct that `functions_of`/`place` consult later so this expensive-ish filesystem read happens once per replay rather than per commit or per file.
+- found: Walks the tree at HEAD to get the repo's file/language list, then bundles `crate::scan::attributes(repo)` (gitattributes) and `crate::scan::declared_for(repo, &files)` (manifest-declared test conventions) into a `Placing`, computed once per replay rather than per commit/file.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `place`
+- spec 3 · read at `040aa4c3e284` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:48:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes a classification code for a function: derives a "kind" (e.g. test vs production code) using file_kind, lang, path heuristics and possibly language-specific test-detection logic via declared/f, and a "how" value indicating confidence/certainty of that determination (asserted vs assumed), then packs them together as kind << 2 | how into a u8.
+- found: Determines a Kinded{kind,how} value: uses file_kind if given, otherwise (only when the language resolves calls) computes testness via crate::edges::testness, falling back to Kind::Code/Tested::Parsed. Then maps the 5-variant Kind enum and 4-variant Tested enum to small integers and packs as kind << 2 | how into a u8.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `functions_of`
-- spec 3 · read at `3a88b8344fef` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Parses `src` for `lang` (via tree-sitter or similar), walks the resulting functions in order, and for each computes a stable key using `path`, name, and an `ord` disambiguator for same-named siblings (like `key_of`), plus its loc and cognitive complexity. Returns a FileState listing these functions keyed for identity tracking across commits.
-- found: Parses via `parse::parse_functions`, disambiguates same-name siblings with a per-(owner,name) counter for `ord`, builds a key string, and hashes signature+body (not a whitespace-collapsing hash) to detect whether a commit actually touched the function. My prediction got the ord/key idea right but missed the specific hash-based change detection and its distinction from reading_hash.
+- spec 3 · read at `498d20779dc9` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:27Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Parses the given file source text (`src`) for language `lang` into its list of functions (likely via parse_raw), then builds a stable identity key for each function — combining name and an `ord` disambiguator for same-named siblings, matching `assessment::key_of`'s scheme — and uses `placing` to classify/place each function (e.g. its kind). Returns a `FileState` capturing this file version's functions (name, key, loc, maybe cognitive complexity) for later diffing/folding across commits.
+- found: Determines the file's own kind once from its head lines (via edges::kind_of), then parses functions and assigns each a stable key of path#owner::name#ord (ord counting same-named siblings), plus a content hash over signature+body (distinct from the whitespace-insensitive reading_hash, since this one is about whether the commit touched the function at all) and a placement via `place`, collecting it all into FuncAt entries forming the FileState.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `parse_raw`
@@ -4866,10 +4888,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: Expected git2 crate + actual blob content; it's actually a CLI subprocess call returning blob hashes, not contents.
 
 ### `prefetch`
-- spec 3 · read at `01c1058403af` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:17:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Iterates the given slice of RawCommits, collecting all (path, blob) pairs referenced across their file changes, deduplicating so a blob seen multiple times (e.g. reverted or shared across commits) is only read and parsed once. For each unique pair it reads the blob via Blobs, parses it into a function list, and drops the source text immediately after parsing to save memory. It reports progress via the `progress` callback using the passed-in `at`/`total` (the window's file count) rather than computing its own fraction, and returns a Parsed collection mapping blobs to their parsed function lists.
-- found: Collects unique (path, blob-sha) pairs from the commit slice's changes, skipping paths with no recognized language, then delegates actual reading/parsing to parse_batch, and zips results back with their keys into a Parsed map. Progress is forwarded using the batch's phase word but the walk's own at/total counters.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `666de3c1a853` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:44:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the commits in `log`, collecting the set of (path, blob) pairs touched, deduplicating so reverted or repeated content is only read/parsed once. For each unique blob it reads the file content, parses it into a function list, then drops the text, building up a `Parsed` structure mapping blobs to their function lists. It reports progress via the `progress` callback using the passed-through `at`/`total` (the window's file-version count), not recomputing them, per the docs about not driving the two counters together.
+- found: Collects deduplicated (path, blob-sha) pairs from the commit log, filtered to recognized languages via lang_of, then delegates the actual read/parse work to parse_batch. It rebuilds a progress callback that reports the walk-level at/total (not batch-local counts) so the progress bar's denominator doesn't jump around, then zips the parsed results back up with their (path, sha) keys into the returned map.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `pool`
 - spec 3 · read at `b73167f08d55` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:04:32Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -4884,25 +4906,25 @@ What this is and how to add to it: [README.md](README.md)
 - found: Checks pool() for an available thread pool; if present runs work via p.install(work), otherwise just calls work() directly.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `parse_batch` — TRAP
-- spec 3 · read at `8c57302ef5c6` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:46:54Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Sequentially reads each (path, blob-sha) pair in `want` from `blobs` (a single git cat-file --batch process/pipe) to collect raw source bytes, then hands the whole batch off to a parallel parse step (e.g. via a thread pool/rayon) that runs tree-sitter parsing per file into a FileState. It calls `progress` periodically as items complete, and returns the resulting Vec of (path, FileState) pairs — deliberately not interleaving the sequential git reads with the parallel parsing to avoid serializing the CPU-bound work behind the pipe.
-- found: Sequentially reads each wanted blob from `blobs`, skipping unknown languages and refusing (as None) any blob with an overlong line (minified), while reporting read progress; then processes sources in PARSE_CHUNK-sized chunks on a dedicated thread pool, parsing each chunk in parallel via rayon into FileState (empty for refused/skipped sources), reporting parse progress per chunk, and returns all (path, FileState) pairs — treating the read+parse as one combined progress count of total*2.
-- predicted: most · documented: most · derivable: no · legible: most · trap: yes
-- note: A refused/unparseable/minified blob is kept as an explicit empty FileState rather than dropped from the output — dropping it would silently leave a file's stale functions live forever since no later commit could ever remove them from the map.
+### `parse_batch`
+- spec 3 · read at `eac4959fb1de` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Sequentially reads the raw bytes for each (path, blob-sha) pair in `want` from the shared `blobs` reader (one git process, no parallelism here since it's a pipe), then hands the collected raw contents off to a parallel (rayon) parse pass that turns each into a FileState according to `placing` (language detection etc.), reporting progress as it goes, and returns the (path, FileState) pairs.
+- found: Sequentially reads each blob's bytes (skipping unrecognized languages, filtering out minified content but keeping an empty FileState placeholder rather than dropping the file), then processes in chunks on a dedicated thread pool, parsing each chunk in parallel via rayon, reporting progress across both the read and parse halves as one combined two-phase counter.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the chunked (PARSE_CHUNK) progress reporting and the deliberate choice to keep an empty FileState for a refused/minified blob instead of dropping it, which prevents stale functions from lingering in the replayed state.
 
 ### `empty`
-- spec 3 · read at `06a2c0932583` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:17Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A basic constructor that builds a fresh Replayer with all its fields initialized to empty/default values: empty state map, empty funcs interner, a fresh/default HistoryScan for `out`, and any other bookkeeping fields zeroed, ready to start replaying commits from the beginning.
-- found: Straightforward constructor building a fresh Replayer with all fields (paths, funcs, state, shards, out/HistoryScan) at empty/default values, exactly as predicted.
+- spec 3 · read at `3f6bdb77d4db` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:29Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A plain constructor that returns a Replayer with every field initialized empty/default: empty state map, empty paths/funcs indices, an empty/default output HistoryScan, ready to have commits folded into it from scratch.
+- found: Plain constructor returning a Replayer with every field (paths, funcs, state, shards, placing, out) initialized empty/default.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `resume`
-- spec 3 · read at `6f726c837a6c` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:20Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Reconstructs a Replayer from a previously produced HistoryScan by starting from an empty/seed state and folding over the scan's stored frames (via Replayer::fold or similar) to rebuild the derived parse state, rather than restoring any serialized state directly. Ends by establishing a checkpoint/cursor so replay can continue forward from where the scan left off.
-- found: Rebuilds path/func indices from the scan's paths and funcs lists, then folds each commit's set/del entries into a BTreeMap of live (func_idx -> loc) starting from scan.base, and finally constructs FuncAt entries (with hash and cognitive left None, since those are only computed by parsing, not folding) for each live function, grouped by path.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: No checkpoint/cursor is set up here; the doc's "derived not stored" rationale matches but doesn't mention the manual set/del folding mechanics.
+### `resume` — QUIRKY
+- spec 3 · read at `c0f03fad13ff` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:51Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Creates an empty/seed Replayer and then folds every commit frame already present in `scan` into it in order (using the same fold/apply logic the frontend uses to build state from frames), so the returned Replayer's derived parse state matches exactly where the prior run left off — without storing or trusting any separately-persisted state snapshot. It likely returns the Replayer positioned to continue processing new commits after the last frame in `scan`.
+- found: Rebuilds path/func indices from the stored scan, then directly replays the set/del diffs of every commit (starting from `scan.base`) to compute which functions are alive at the end and at what line, populating `state` per path with `FuncAt` entries (hash/cognitive left None since nothing was parsed), and stashes the original scan as `out` before returning.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: It does not go through the general fold/apply machinery listed among the peers — it replays the set/del diffs inline itself, which a reader expecting reuse of `fold`/`apply` here would miss.
 
 ### `path_idx`
 - spec 2 · read at `d5a1043f2ce2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:15Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -4911,9 +4933,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `seed` — QUIRKY
-- spec 3 · read at `098837c4d30c` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the tree (path, blob-hash pairs), fetches each blob's content from `blobs`, parses it into functions, and populates the Replayer's opening state (paths, functions, line counts) representing everything before the replay window starts. Calls `progress` periodically since this is a potentially large one-time scan over the whole tree.
-- found: Splits the tree into coverage shards and normal source files. Parses the sources in a batch (via parse_batch, which handles progress reporting), interning each function found and recording its base line count (and cognitive complexity if present) into self.out, and storing per-path parsed state. Then, separately and afterward (deliberately last, since shard readings join to functions by key), reads each shard's blob and folds it via fold_shard, treating everything as an arrival since nothing has been read yet at seed time.
+- spec 3 · read at `1bd274828ada` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:53Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Given the full list of (path, blob) pairs making up the tree at the start of the replay window, it parses each blob (likely via parse_batch, reporting progress along the way) and installs the resulting function lists into the Replayer's own state (e.g. its path/function maps), establishing the "everything before the window" baseline that later commits get folded onto incrementally. It does not compute any temperature/surprise reading for this initial state, consistent with the file's rule that surprise is only measured against current code.
+- found: Partitions the tree into ordinary source files and reading shards, parses the sources first via parse_batch and interns each function (recording base loc/cognitive stats and per-path state) so shards folded afterward have something to join to by key — then folds each shard's readings (with no "retired" entries since nothing has been seen yet) into the base_read output.
 - predicted: some · documented: none · derivable: yes · legible: most · trap: no
 
 ### `fold_shard`
@@ -4922,12 +4944,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Parses the shard text (or nothing if deleted) into packed readings, diffs against the previously carried map for that shard path, pushes (func_index, packed) for changed entries into `read` and func_index for dropped entries into `unread` (looking up indices via funcs.by_reading, skipping unjoined keys), and replaces the carried state — but only stores it back if the new set is non-empty.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `apply` — TANGLED
-- spec 3 · read at `d7534583755c` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Takes one commit's already-parsed function set (ready: &Parsed) plus the mutable blobs cache, diffs it against the replayer's current per-path function state to find added/changed/removed functions, computes hashes/cognitive complexity for the new ones, and appends a frame to self.out.commits recording the set/del deltas — while also updating self.state, self.paths, and self.funcs indices to reflect the new snapshot. Given its length, it likely also handles renames/moves and path bookkeeping via blobs.
-- found: Builds a HistoryCommit frame: first retires deleted/renamed-from paths (removing their functions as dels), then folds any .sanity/ shard changes in this commit into read/unread stats, then for each changed source file diffs the new parse against the previous per-path function state by hash (not just presence) to record only functions that actually changed as `set` (plus cognitive complexity deltas), and records functions no longer present as `del`; finally updates self.state and pushes the frame.
-- predicted: most · documented: none · derivable: yes · legible: some · trap: no
-- note: Missed the shard (.sanity/) read/unread folding and the rename/delete retirement pass entirely in the prediction.
+### `apply` — QUIRKY
+- spec 3 · read at `1b5fac186a96` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:15Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Takes one parsed commit's diff and folds it into the Replayer's running state — updating each touched function's lastTouchedDays/churn count, marking newly-appeared functions with a birth stamp, removing deleted functions/files, updating path/blob bookkeeping — then appends a new frame (a snapshot of the tree state at this commit) to the replay's stored sequence of frames.
+- found: Builds a HistoryCommit frame for one commit: retires renamed/deleted paths first, folds any .sanity/ reading shards touched by this commit, parses (or reuses prefetched) changed file states, diffs each file's functions by hash against the previous state to record only functions that actually changed (`set`) plus deleted ones (`del`) and cognitive-complexity deltas (`cog`), then appends the finished frame to `self.out.commits` and updates `self.out.head`.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Function identity/change detection is by content hash keyed on function key, not by position — inserting a function at the top of a file does not mark everything below it as changed.
 
 ### `fold` — QUIRKY
 - spec 3 · read at `03cd3ef4e536` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:33Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -4972,12 +4994,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The self-tuning `every` interval (scaled by actual write cost, clamped) is the load-bearing trick here and isn't hinted at by the signature or file doc at all.
 
-### `read` #2 — QUIRKY
-- spec 3 · read at `c0355cf47082` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:28Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Orchestrates the full history replay: tries to resume from a cached partial timeline (read_cached/extend) keyed by the last-applied commit (head), walks the remaining git log commit-by-commit feeding each into a Replayer (seed/fold_shard/apply/fold/finish) to build frames, periodically checkpoints to disk via Checkpoint::maybe (time-bounded), reports progress via the progress callback, checks cancelled() to bail early, and returns the HistoryScan, handling a repo with no git history gracefully with an empty timeline rather than erroring.
-- found: This overload just walks the commit log directly (via `commits()` with CommitRange::Last(limit)) rather than resuming from a cache (that logic must live in a different `read`/wrapper, not this one). It opens Blobs, seeds Replayer state from the tree just before the truncation boundary if the log was truncated, then processes commits in WINDOW-sized batches — prefetching/parsing each window's blobs together but applying commits one at a time to keep frames per-commit — checkpointing periodically and reporting two distinct progress phases (byte-level log parsing vs per-commit replay).
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: The doc block describing caching/resume (read_cached/extend/head) applies to a sibling `read` overload, not this one — this one always walks the full requested range from scratch.
+### `read` #2
+- spec 3 · read at `7afd54f1d3fa` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:07Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Performs a full walk of repo's git log from the beginning (fresh, not resuming from a cache), replaying commits one at a time through a Replayer up to `limit`, checkpointing periodically to disk in a time-bounded way (capped so no more than ~2 minutes of work is ever lost), reporting progress via the callback, honoring cancellation, and returning the resulting HistoryScan — gracefully producing an empty scan for a repo with no git history rather than erroring.
+- found: Fetches up to `limit` commits (with truncation info), returns an empty finished scan for a repo with no commits or unreadable blobs. If the window is truncated, seeds the replayer's opening state from the tree just before the window. Then walks commits in chunks (windows), prefetching/batch-parsing each window's file versions, applying commits one at a time with progress reporting and cancellation checks, checkpointing periodically, and returns the finished HistoryScan.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `read_cached`
 - spec 3 · read at `eb07ab35410e` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:52:51Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -5006,11 +5027,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `extend`
-- spec 3 · read at `dcea5dc05fde` · commit `7e1842f` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:18:04Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Given a previously cached HistoryScan, check whether the repo's current state is still compatible with it (e.g. the cached tip commit is still an ancestor of HEAD, via `is_ancestor`). If so, walk forward from the cached tip up to `limit` new commits, reporting progress via the callback, and return a Carry variant (like Carry::Grew) wrapping the extended scan. If the cache is stale/incompatible (history rewritten, branch changed), return a different Carry variant explaining why the cache can't be reused, without doing any walking.
-- found: Checks cached.head is still an ancestor of HEAD (else Refused), re-derives the log and verifies the cached tip's position/sha still match (else Refused), returns Carry::Same if nothing new or the log read was cancelled, refuses if more than `limit` commits ahead, otherwise walks the new commits in prefetch windows with checkpointing and returns Carry::Grew with the extended scan.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Missed the Carry::Same short-circuit for cancellation/already-current, and the windowed prefetch+checkpoint machinery — only guessable once inside the body.
+- spec 3 · read at `97b9057c75da` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:46Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether `cached` (a previous HistoryScan) is still valid for the current state of `repo` — e.g. verifying its recorded head is an ancestor of the current HEAD — and if so, replays only the new commits since the cache's tip (up to `limit`), reporting progress via the callback, returning a Carry variant indicating success (with the extended scan) or a specific reason it couldn't be extended (cache stale/diverged/repo changed).
+- found: Refuses if cached.head isn't an ancestor of HEAD (rewritten history) or the log doesn't line up with the cache's recorded position; if log reading was cancelled, returns Same(cached) rather than losing the timeline; if there's nothing new, returns Same; if too many new commits (>limit), refuses (send caller to full replay); otherwise resumes a Replayer from the cached scan, replays the new commits in windows with prefetching, checkpointing periodically, honoring cancellation mid-walk, then folds and returns Carry::Grew with the extended scan.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `tracing`
 - spec 3 · read at `d167270bd003` · commit `71003bd` · read by claude-sonnet-5 · via claude · when 2026-08-23T05:39:24Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -5130,11 +5150,17 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `same_named_functions_in_one_file_stay_apart`
-- spec 2 · read at `64630814eb97` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:46Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A test that constructs a synthetic repo/commit history where a file contains two functions with the same name, runs it through the history replay logic, and asserts the two functions remain tracked as separate identities rather than merging into one — so the second one's arrival doesn't read as the first one changing size.
-- found: A single-commit (not multi-commit history) test: two impl blocks (A::new, B::new) with the same method name `new` in one file, parsed via functions_of, asserting two distinct keys are produced and they differ — i.e. identity keys disambiguate by owner type, not just name.
+- spec 3 · read at `63f849b6c21b` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:21Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test that replays a small fixture history where a file has two functions with the same name (e.g. two `impl` blocks each defining `go`), then asserts the replayer assigns them distinct ordinal-based keys/identities rather than merging them into one — so that the arrival of the second same-named function shows up as a new function appearing rather than the first one's size changing.
+- found: Directly calls `functions_of` on a two-impl-block source string with two `new` functions and asserts the resulting state has two distinct keys, rather than going through a full commit-history replay.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I expected a multi-commit replay scenario given the file's history-replay theme, but it's actually a single-snapshot test of functions_of's key uniqueness — no commit replay involved.
+- note: Predicted a full history-replay fixture; the actual test is a direct unit check on `functions_of` alone, one layer below the replayer.
+
+### `a_replayed_body_is_placed_as_the_live_map_places_it` — OBSCURE
+- spec 3 · read at `1b80a0d722ce` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:48:48Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This test builds a small repo/commit history, replays it through the history-walking code to get a placed node, and asserts that its packed `place` value (kind << 2 | how) matches what the live (non-historical) map would compute for equivalent code — verifying the replay path uses the same placement rule as the live map, even though a parse-only pass can't know as much as a full walk.
+- found: Tests `functions_of` (a single-parse extraction, no commit replay at all) against Rust and TypeScript snippets to check the packed kind byte correctly marks test code (via #[cfg(test)] or filename convention), generated code (via a banner comment), and plain code, asserting the `kind << 2 | how` packing matches expectations for each.
+- predicted: none · documented: some · derivable: no · legible: most · trap: no
 
 ### `a_cancelled_walk_does_not_erase_a_banked_timeline`
 - spec 3 · read at `6fd5f2857551` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T05:04:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -6718,12 +6744,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/scan.rs
 
-### the file itself — QUIRKY
-- spec 3 · served in 5 parts · read at `e6af3060f3dc` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:06:07Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Top-level orchestration module that walks a repo's filesystem (respecting .gitignore), detects nested/sibling repos, parses each file into functions, computes scores, collapses single-child directory chains for the sunburst, and assembles/streams the resulting Node tree with progress reporting — the entry point (scan) tying together parse, score, and edges/declared-test machinery into what the UI renders. Handles degenerate cases: empty directories, unparseable files, repos with no git history, incremental re-scans priced off a previous run.
-- found: Much larger than the one-line doc suggests: besides walking/parsing/scoring/collapsing into a tree, it handles a treecache signature short-circuit for unchanged repos, multi-depth git history (log/blame/edits-timeline) each independently gateable, .gitattributes/manifest-based test-declaration detection, vendored/NOT_CODE extension filtering with counted (not silent) exclusions, repo-wide call-graph wiring and clone detection before per-directory scoring, a priority-ordered streaming model-scoring pass with per-function caching, and a large test suite pinning identity-stability, fidelity-equivalence, and unparsed-file accounting edge cases.
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
-- note: The file-level doc comment is accurate but drastically undersells the module — most of its real complexity (caching, git depths, model streaming, declared-test heuristics) is invisible from the one-line summary and only found by reading the body.
+### the file itself
+- spec 3 · served in 5 parts · read at `e2499ed509c5` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This is the top-level orchestrator for a repo scan: it walks the filesystem (git-aware, respecting gitignore, detecting nested repos), parses each file, computes declared conventions/tests, scores directories and files (blending structural signals with optional model-produced scores), and assembles everything into the nested Node tree the sunburst renders — including collapsing single-child directory chains and producing stable ordinals/identities for functions across edits. It also emits progress events during the walk/parse/score phases for the UI, and builds the neighbour/edges table alongside the tree. The large test module at the bottom exercises correctness of identity stability, gitignore exclusion, doc-comment grading, and incremental pricing behavior.
+- found: The full scan pipeline: git-aware file walk with vendored/oversize/not-code filtering, cached parsing (with treecache short-circuit on unchanged repos), test-declaration detection from manifests, per-directory scoring blending call-graph wiring, clone detection, churn/blame/edit history, and cognitive-complexity bands into a proxy surprise score; tree assembly with directory-chain collapsing and stable function-identity ordinals; then an optional priority-ordered, streamed, cancellable, cached model-scoring pass that upgrades the proxy tree; plus progress-event plumbing throughout and an extensive test suite covering identity stability, gitignore, unparsed-file counting, and streaming correctness.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: The one-line file doc barely hints at the scope; nearly every mechanism (caching, model streaming, cost estimation, identity ordinals, chain collapsing) is undocumented at the file-doc level and only explained inline near its own code.
 
 ### `git_root`
 - spec 2 · read at `bfbf34880a2f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:12Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded

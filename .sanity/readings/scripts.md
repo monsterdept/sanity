@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-35 of 35 read · 5 surprising
+39 of 39 read · 4 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -86,12 +86,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## scripts/palette-search.py
 
-### the file itself — QUIRKY
-- spec 3 · read at `62037ae600f0` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:31:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A standalone script that performs a constrained search to derive the hue/chroma values for five color ramps ("lenses") used in a sunburst chart, using perceptual color math (OKLab/OKLCH conversions, CIEDE2000 distance) and colorblindness simulation to score candidate palettes against distinguishability/contrast constraints, then outputs/prints the winning ramp so the derivation is reproducible instead of hand-picked.
-- found: A CLI script with four subcommands (verify/order/add/flat) that solves hues for the sunburst's lens ramps in OKLCH space. It shares one lightness/chroma profile across all ramps (hue is the only free variable), scores ramps under normal vision only (unlike the categorical palette which scores across colorblindness simulations too, since a ramp's reading survives via the shared lightness climb), enforces a hue-ordering constraint matching a fixed menu, pins certain hues, and validates against floors relative to neutral/trap/structure colors. `verify` reproduces the shipped palette channel-exact to confirm the model is trustworthy.
-- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
-- note: I predicted CVD/colorblindness simulation was used to score the ramps, but the file is explicit that ramps are deliberately scored under normal vision only (`plain`), while CVD simulation (`worst`) is reserved for the categorical palette elsewhere — a real distinction I got backwards.
+### the file itself
+- spec 3 · served in 2 parts · read at `46e0685fb57d` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:48Z · by ross@rossturk.com · warm reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A standalone script containing color-space math (sRGB/linear/OKLab/OKLCH/Lab, CIEDE2000 distance), palette constraint helpers (contrast/margin/legality checks, hue windows, one-turn spacing), scoring functions (ordered_score, family_step, worst/plain contrast), and the `order()` coordinate-ascent solver plus a `verify()` function — altogether a reproducible search/regeneration tool for the sunburst chart's five-lens ramp hues, runnable as a CLI to reproduce or re-derive the shipped palette and confirm it's still accessible.
+- found: A CLI (verify/order/add/flat) with color-space math, contrast/constraint helpers, and a coordinate-ascent hue solver that reproduces or re-derives the sunburst's 13-lens ramp palette, checking it against accessibility floors (unread-neutral, trap/clone marks, structure) and against the shipped hex stops, documenting in extensive comments the history of design decisions and prior mistakes in the search.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `srgb_to_linear`
 - spec 3 · read at `70e0814618e2` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:00:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -210,40 +209,65 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted the search/margin-maximization structure correctly but missed that each 'against' color is actually a light+dark theme pair, not a single value.
 
 ### `chips`
-- spec 3 · read at `9cb459fb6ffd` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Builds the dict of chip colors shown in the MENU: for each ramp lens it computes the hex color at the ramp's fourth stop using the lens's hue from `hues` plus the shared lightness/chroma profile; for the two mark lenses (e.g. traps/clones) it returns their own fixed, louder color rather than deriving from a ramp; and for chrome-only lenses it builds a color at the fourth stop's lightness/chroma so it visually sits on the ring. Likely uses dark-mode lightness/chroma values since that's the theme it was tuned against.
-- found: For each menu key, uses the hue from the `hues` argument in all three branches: MARKS keys get their own dark-mode lightness/chroma (from MARKS[k]['dark']) combined with that hue; CHROME keys use fixed CHIP_L/CHIP_C constants with that hue; everything else (ramp lenses) uses the shared L_PROFILE[3]/C_PROFILE[3] fourth-stop lightness/chroma with that hue, converting each to hex via oklch_to_hex.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: I assumed marks kept their own hue too ('quote themselves'), but the hue is still taken from the passed-in `hues` dict for every branch, including marks — only lightness/chroma is special-cased.
+- spec 3 · read at `4791e49d6bb2` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:19Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds a dict mapping each lens/hue name to a single hex color for the menu swatch. For each hue, picks a stop index (CHIP_STEP if stepped else 3), looks up that stop's lightness/chroma from the shared ramp profile, combines with the hue, and converts to hex via oklch_to_hex.
+- found: Builds a dict from hue key to hex color for menu chips. For keys in MARKS, it derives lightness/chroma from that mark's dark-theme hex value and recombines with the given hue (so marks quote their own L/C). For other lens keys, it picks a stop index (CHIP_STEP for that key if stepped, else 3) and looks up L/C from the shared profile arrays, then converts to hex.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: no
+- note: Docs explain the special-casing of MARKS reasonably well but the actual mechanism (reading back L/C from the mark's own dark hex rather than a fixed profile stop) isn't obvious from the docstring alone.
 
-### `ordered_score` — QUIRKY
-- spec 3 · read at `c172030878cc` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes a candidate ordering of hues, computes worst-case (objective, cold, hot, chip) pairwise distances via a `worst`-style helper, and combines them into one scalar with a weighted formula where the cold-end worst-pair leads/dominates the score while the other three terms are held above their own floor values rather than simply summed together.
-- found: Builds per-lens ramps (excluding marks/chrome), computes worst-pair distance at the coldest stop, hottest stop, and among chip colors, then combines them as obj = min(cold, hot*0.75, chip*0.6) — a min-based weighting rather than a sum, so cold dominates when it's the binding constraint. Separately it computes the worst distance from any ramp stop to any trap/clone mark, and if that falls below MARK_FLOOR, subtracts the shortfall from obj — a floor penalty covering a past bug where ordering scored ramps only against each other and let assignments sit too close to fixed marks.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The docstring's "held above their floors" language actually describes the marks penalty added later (per the inline comment), not hot/chip, which are instead scaled multipliers inside a min — the docstring doesn't mention the marks term at all.
+### `_family_of`
+- spec 3 · read at `5c33cd710f6a` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:28:01Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds and returns a dict mapping each lens key to its family name, inverting the FAMILIES list of (name, keys) tuples, used by family_step to check whether two menu keys belong to the same family.
+- found: Inverts FAMILIES (list of (family name, [keys])) into a dict mapping each key to its family name.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: no
+- note: Already read this exact line in the file-level task (position 2), so this was a warm/recalled prediction, not a cold one.
 
-### `descending`
-- spec 3 · read at `2a07746e7e30` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:32:41Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Given a list of hue values (circular, 0-360 degrees), this "unwraps" them into a monotonically descending sequence — e.g. by subtracting 360 from any hue that would otherwise be greater than the previous one — so that the menu's declared hue order can be checked or compared with simple numeric less-than comparisons instead of needing circular/modular arithmetic. Returns the unwrapped list of hues.
-- found: Iterates the MENU keys in order, looking up each hue in the `hues` dict, and subtracts 360 whenever a hue would be greater than the previous unwrapped value, producing a strictly non-increasing (given the docstring, intended descending) sequence so order can be checked by simple less-than comparison.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+### `family_step`
+- spec 3 · read at `11271bdaefc0` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:52Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Walks MENU in order, computing the perceptual (plain) distance between each consecutive pair of chips in c. Splits these steps into those that cross a family boundary (using _family_of) vs those that stay within a family, and returns (min of the across-family steps, max of the within-family steps).
+- found: Walks consecutive MENU pairs, computes plain() distance for each, tags whether the pair crosses a family boundary via _family_of, and returns (min distance among cross-family pairs, max distance among within-family pairs).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: no
 
-### `start_from_pins`
-- spec 3 · read at `0fd5f0fd240c` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:45Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Computes an initial hue assignment for the search: identifies the arcs (gaps) between pinned hues on the hue circle, unwraps the circle at the point it wraps through 0, evenly spaces free hues within each arc proportionally to that arc's size (rather than uniformly across the whole circle), then re-applies the modulo to wrap back onto the circle — a starting vector chosen so the optimizer converges to a better local optimum than uniform spacing.
-- found: Anchors unwrapping at the first pinned lens in MENU order, builds an unwrapped "line" of pinned hues by subtracting the wrap modulo, then for each consecutive pair of pinned positions (including the wraparound arc from the last pin back to the first across the circle boundary) linearly interpolates the free hues in that arc proportionally by index, wraps the result back into [0,360), and overlays the original pinned hues.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
+### `ordered_score` — QUIRKY — TANGLED
+- spec 3 · read at `97ea1262acbc` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes a candidate hue assignment, runs it through simulate/worst to get worst-pair distances across cold, hot, chip, boundary, and inner comparisons, then combines them into a single weighted scalar score: weighting cold ends, hot ends, and chips above their plain share, penalizing a family boundary that isn't sufficiently louder than the loudest inner step, and penalizing cold/hot ends falling under fixed floor thresholds (8.2, 11.0). Returns a scalar used by the search/order function to drive a hill-climb toward better palettes. Not test code — an offline generator script producing the actual palette values used in index.css.
+- found: Rounds hues to whole degrees, builds ramps, computes worst-pair distances for cold ends, hot ends, chips, family boundary vs inner step, plus three more floors (unread-vs-neutral, marks-vs-trap/clone, structure) each contributing a penalty; combines into an objective as a weighted min minus penalties, and returns a 6-tuple (obj, cold, hot, chip, boundary, inner) rather than a single scalar.
+- predicted: some · documented: full · derivable: no · legible: some · trap: no · test: no
+
+### `unwrap`
+- spec 3 · read at `37e3ffbc77ce` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes a list of hue angles (degrees, circular 0-360) that are meant to fall in sequence around the wheel, and returns a new list where each subsequent hue is adjusted (by adding/subtracting 360) so the sequence is monotonically decreasing without wraparound jumps — mirroring numpy.unwrap but for a strictly-falling target rather than removing discontinuities generically. This lets later ordering code just compare adjacent values with plain < instead of doing modular arithmetic.
+- found: Iterates hues in MENU order, subtracting 360 from each hue whenever it would be greater than the previous (already-adjusted) one, producing a monotonically falling sequence so later code can compare adjacent values with plain less-than instead of modular arithmetic.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: no
+
+### `one_turn`
+- spec 3 · read at `f7c0b2d6eaf9` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Walks the hues in MENU order, accumulating the unwrapped fall between consecutive hues (each step must decrease), and checks that the total accumulated fall across the whole menu is less than 360 degrees. Returns a boolean, used to reject solutions where a hue wraps around and passes a neighbor without showing up as a violation in simple pairwise neighbor checks.
+- found: Unwraps the hues, checks each consecutive step falls by a bounded amount (0 < a-b < 180, not just any decrease), and checks the total fall from first to last is under 360 degrees.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no · test: no
+
+### `in_window`
+- spec 3 · read at `aea75acb5dd2` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:28:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether hue `h` falls within the allowed hue window/range assigned to menu item `k` (looked up from some per-key window table), likely using modular/circular arithmetic to handle wraparound at 360 degrees, returning a boolean.
+- found: Looks up a (lo, hi) window for key k from WINDOWS, defaulting to the full 0-360 range if absent, and returns a plain (non-circular) inclusive range check.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no · test: no
+
+### `spread` — TANGLED
+- spec 3 · read at `75dd5ffe7b47` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Computes a starting hue (degrees) for each free/unpinned lens by dividing the circle into arcs between the fixed pin hues, then spacing the free lenses evenly within those arcs in menu order. Returns a dict mapping lens name to initial hue degree, used as the starting point before the search/optimization refines them.
+- found: Reorders MENU to start at the first pinned lens, then walks it building a monotonically-decreasing (unwrapped, subtracting 360 as needed) sequence of pin hues so arcs between consecutive pins are well-defined even across the wrap. For each gap between two pinned indices, linearly interpolates hue values for the free lenses in between, then merges the pins back in and returns the full hue dict.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no · test: no
+- note: The unwrapping-via-subtract-360 trick to keep the line monotonic isn't obvious from the one-line docstring; it's the part that makes the interpolation correct across the 360/0 wrap.
 
 ### `order`
-- spec 3 · read at `8ca521c48c35` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:33:16Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Solves eleven lens hues under the menu's ordering constraint using coordinate ascent: starts from equal spacing between pinned hues (start_from_pins), then iteratively moves each free hue within the bounds set by its two menu-neighbors to maximize ordered_score (weighted cold/hot/chip margins), repeating until no hue moves or 12 iterations pass. Finally prints the worst cold/hot/chip pairs, each lens's hue and chip color, the ramps, chrome chips, and mark colors.
-- found: Coordinate ascent solving all eleven lens hues under the menu's fixed ordering constraint: starts from equal spacing between pinned hues, then repeatedly nudges each free hue within the 4-degree-padded window bounded by its two menu neighbors to maximize ordered_score, until convergence or 12 passes; prints the worst cold/hot/chip margins and the resulting hues, chips, ramps, chrome tokens, and marks.
-- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
-- note: I had already read this exact function in full when assessing scripts/palette-search.py as item 1, so this is a warm/recall reading rather than a genuine cold prediction.
+- spec 3 · read at `7a30556dbdd4` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Generates a starting hue assignment via `spread`, then runs coordinate ascent (whole-degree steps, checked against `one_turn`/`in_window` constraints) to optimize a score (likely from `ordered_score`/`ciede2000`) over the thirteen hues grouped into families. Repeats from the spread start plus five seeded-perturbed starts, keeps the best-scoring result across all six runs, and reports/compares the result against the shipped values (via `verify`) to say whether it reproduces them.
+- found: Builds a spread starting point over pinned hues, then for 6 seeded trials (first unperturbed, rest randomly perturbed within window/one-turn constraints), runs coordinate ascent: for each non-pinned menu hue, sweep all 360 integer degrees within its window, keep the best-scoring (via ordered_score) valid value, repeat until no hue moves (max 16 passes). Keeps the best-scoring trial overall, rounds hues, prints score breakdown and per-family hue/chip values, then diffs against shipped hues and returns 0/1 accordingly.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no · test: no
 
 ### `verify` — QUIRKY
-- spec 3 · read at `8b8160655b1b` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:58Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Re-derives the seven ramps (via order/start_from_pins etc.), then compares each ramp's stops against the hardcoded shipped hex/oklch values channel-by-channel to one decimal place of tolerance, printing a pass/fail per ramp/stop and raising or exiting nonzero if anything drifts — a regression check that this script still reproduces what's actually shipped in index.css.
-- found: Regenerates each SHIPPED ramp via ramp(h) and diffs it against SHIPPED_STOPS in raw 0-255 RGB units (max channel delta per stop), prints each ramp with an 'off by N/255' flag, then prints several margin comparisons (cold/hot pairs, vs unanalyzed/trap/clone/structure/agent-mark) against the values index.css claims, and returns 0/1 depending on whether the worst per-stop RGB step is <=1.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `7bcdacd5cb9f` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:31Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Recomputes the ramp stops from the shipped hues/constants, compares each stop hex value against the shipped/expected values, and prints a pass/fail per lens plus the margin numbers (for reference against what index.css quotes). Likely raises or exits nonzero if any stop doesn't match exactly.
+- found: Recomputes each shipped ramp from its hue and compares per-stop RGB against SHIPPED_STOPS, tracking the worst per-channel rounding error. It also recomputes chips, margins, worst chip pair, family-step separation, and one_turn, printing all of these diagnostics (many of which are informational, not part of the pass/fail). Pass/fail (returned as 0/1) is determined only by worst_step<=1, one_turn being true, and family separation (across > inside).
+- predicted: some · documented: some · derivable: no · legible: most · trap: no · test: yes
+- note: The docstring says the check is against stops not margins, but the actual ok condition also depends on one_turn and family-step separation, which aren't 'stops' either — the docstring undersells how many conditions gate pass/fail.
