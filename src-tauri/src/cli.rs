@@ -2072,17 +2072,45 @@ fn list(path: &std::path::Path, limit: usize, groups: &[crate::findings::Group])
     // Folded by the FIX, exactly as the window's footer folds it: seven rules each ending in
     // the same six words is one job printed seven times, and how much of the catalog one pass
     // would light up is the number with a decision in it. See `findings::Blocked`.
-    let mut needs: Vec<(&str, usize)> = Vec::new();
+    //
+    // **And the reason rides along, because here there is nowhere else to put it.** The panel
+    // hangs `why` on the row's tooltip; a transcript has no tooltip, so a footer printing the
+    // fold key alone says `trace required` on a repo whose history HAS been read — the fix
+    // being a deeper rung, which is the one thing the line was supposed to name. Deduped and
+    // in the order met: two rules waiting on the same rung are one sentence.
+    struct Need<'a> {
+        need: &'a str,
+        n: usize,
+        whys: Vec<&'a str>,
+    }
+    let mut needs: Vec<Need> = Vec::new();
     for g in groups.iter() {
         let Some(b) = &g.blocked else { continue };
-        match needs.iter_mut().find(|(need, _)| *need == b.need) {
-            Some((_, n)) => *n += 1,
-            None => needs.push((b.need.as_str(), 1)),
+        match needs.iter_mut().find(|it| it.need == b.need) {
+            Some(it) => {
+                it.n += 1;
+                if !it.whys.contains(&b.why.as_str()) {
+                    it.whys.push(b.why.as_str());
+                }
+            }
+            None => needs.push(Need { need: b.need.as_str(), n: 1, whys: vec![b.why.as_str()] }),
         }
     }
-    needs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-    for (need, n) in &needs {
-        println!("  {n} of {} rules inactive ({need})", groups.len());
+    needs.sort_by(|a, b| b.n.cmp(&a.n).then_with(|| a.need.cmp(b.need)));
+    for it in &needs {
+        // Wrapped like a finding's own sentence, and hung rather than block-indented: the
+        // count is what the eye comes back to, so a second line has to read as the rest of
+        // this row and not as the next one.
+        let line = format!(
+            "{} of {} rules inactive ({}) — {}",
+            it.n,
+            groups.len(),
+            it.need,
+            it.whys.join("; ")
+        );
+        for (i, part) in wrap(&line, 76).iter().enumerate() {
+            println!("{}{part}", if i == 0 { "  " } else { "    " });
+        }
     }
     println!();
 
