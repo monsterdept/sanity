@@ -118,6 +118,7 @@ test:
     just replay-check
     just rim-check
     just keys-check
+    just identity-check
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
@@ -194,6 +195,22 @@ rim-check:
     cd web
     out="$(mktemp -d)/rim-check.mjs"
     ./node_modules/.bin/esbuild scripts/rim-check.ts --bundle --format=esm \
+        --platform=node --outfile="$out" --log-level=warning
+    node "$out"
+
+# A node is a new object exactly when it means something new — see
+# `web/scripts/identity-check.ts`.
+#
+# Every memo under the tree reads identity as "this moved", so a walk that clones what it did
+# not change tells the window the whole repo moved and the window redraws. It comes out pixel
+# for pixel identical, on a period, which is why it has shipped twice. Bundled and run like
+# the other checks.
+identity-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    out="$(mktemp -d)/identity-check.mjs"
+    ./node_modules/.bin/esbuild scripts/identity-check.ts --bundle --format=esm \
         --platform=node --outfile="$out" --log-level=warning
     node "$out"
 

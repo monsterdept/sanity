@@ -6,6 +6,9 @@ import {
   projectScan,
   selectProject,
   applyAgentReports,
+  holdReadings,
+  NO_READINGS,
+  type Held,
   applyScores,
   readIntoRing,
   fileFunctions,
@@ -149,6 +152,63 @@ const LIVE_MS = 1400
 /** Handlers the assembling map has no use for: it is a picture of a scan in progress, and
  *  there is nothing under a wedge to select, drill into or clear yet. */
 const noop = () => {}
+
+/** Hold on to the value that was here before, when the new one says the same thing.
+ *
+ *  **A memo keyed on the tree recomputes whenever any wedge in the repo moves**, and hands
+ *  back a fresh object even where its own answer is unchanged — which is how a reading
+ *  landing in `src/parse.rs` re-renders a panel that is showing a function in `web/`. The
+ *  comparison is per value and cheap; what it buys is the difference between a window that
+ *  updates what changed and one that redraws itself around it.
+ *
+ *  Written during render rather than in an effect, on the same argument every other
+ *  comparison in this file makes: the point is for the consumer never to SEE the new object,
+ *  and an effect runs a render too late. */
+function useSteady<T>(next: T, same: (was: T, now: T) => boolean): T {
+  const held = useRef(next)
+  if (held.current !== next && !same(held.current, next)) held.current = next
+  return held.current
+}
+
+/** Two rankings that spend the colours the same way. Small by construction — a lens spends
+ *  at most `CAPS` of them — so this is a comparison nobody has to think about the cost of. */
+function sameRanks(
+  a: Map<string, number> | undefined,
+  b: Map<string, number> | undefined,
+): boolean {
+  if (!a || !b) return a === b
+  if (a.size !== b.size) return false
+  for (const [k, v] of a) if (b.get(k) !== v) return false
+  return true
+}
+
+/** The same containers, in the same order. */
+function sameNodes(a: readonly Node[], b: readonly Node[]): boolean {
+  return a.length === b.length && a.every((n, i) => n === b[i])
+}
+
+/** Does an activity poll say what the last one said?
+ *
+ *  **A poll that learns nothing must not re-render the window.** `agent_activity` is a few
+ *  bytes and is fetched every two seconds whether or not an agent is doing anything, and it
+ *  arrives as a fresh object every time — so storing it unconditionally re-rendered the whole
+ *  app twice a minute, for the life of the window, over an answer that had not changed. That
+ *  is the panel beside the map redrawing on a period while somebody reads it, and the same
+ *  trap `sameProjects` and `live` are already written against.
+ *
+ *  The events are compared by their COUNT and their last sequence number, which is what
+ *  `lastCall` reads: the list is append-only and bounded, so a new call at the end is the only
+ *  way it moves. */
+function sameActivity(a: AgentActivity, b: AgentActivity): boolean {
+  const last = (x: AgentActivity) => (x.events.length > 0 ? x.events[x.events.length - 1].seq : 0)
+  return (
+    a.active === b.active &&
+    a.tool === b.tool &&
+    a.nonce === b.nonce &&
+    a.events.length === b.events.length &&
+    last(a) === last(b)
+  )
+}
 
 /** Do two project lists say the same thing?
  *
@@ -314,31 +374,6 @@ function findById(node: Node, id: string): Node | null {
  *  "Up" has to mean the tree's parent, not the previous stack entry. Drilling is a JUMP
  *  — double-clicking a file three rings out pushes a single entry — so popping the stack
  *  undoes the whole jump and lands you back at the top, however deep you had gone. */
-/** A cheap fingerprint of a poll's readings, for deciding whether anything actually moved.
- *
- *  **The readings poll runs every two seconds and fetches all of them** — 16,925 on tonepoet
- *  — so whatever consumes it has to be able to say "same as last time" without rebuilding
- *  anything. Storing them unconditionally would re-graft every function ring on a fixed
- *  period, which is precisely the periodic stutter a replay makes visible.
- *
- *  Covers what can CHANGE a wedge: which readings exist, the body each was taken against, and
- *  the grades. Deliberately not `found` or `note` — they are paragraphs, and hashing a
- *  megabyte of prose twice a second to learn nothing is the cost this exists to avoid. A
- *  reading whose prose changed but whose grades did not paints identically.
- *
- *  FNV-1a, which is what `assessment` uses on the Rust side for the same kind of job. */
-function readingSignature(reports: AgentReport[]): string {
-  let h = 0x811c9dc5
-  for (const r of reports) {
-    const part = `${r.id}|${r.at ?? ''}|${r.body ?? ''}|${r.predicted ?? ''}|${r.documented ?? ''}|${r.legible ?? ''}|${r.trap ?? ''}|${r.derivable ?? ''}|${r.legibleDated ?? ''}|${r.trapDated ?? ''}`
-    for (let i = 0; i < part.length; i++) {
-      h ^= part.charCodeAt(i)
-      h = Math.imul(h, 0x01000193)
-    }
-  }
-  return `${reports.length}:${h >>> 0}`
-}
-
 function parentOf(node: Node, id: string): Node | null {
   for (const c of node.children) {
     if (c.id === id) return node
@@ -388,16 +423,17 @@ export default function App() {
    *  A ref plus a revision counter rather than state, on the same argument `treeRev` makes:
    *  the poll refetches every reading every two seconds, and a new Map each time would
    *  invalidate the graft's memo on a fixed period and re-lay the sunburst out for nothing.
-   *  The counter moves only when `readingSignature` says something changed. */
-  const readings = useRef<Map<string, AgentReport>>(new Map())
-  const readingSig = useRef('')
+   *  The counter moves only when `holdReadings` says something changed. */
+  const readings = useRef<Held>(NO_READINGS)
   const [readingRev, setReadingRev] = useState(0)
+  /** What to fold, and whether folding it can change anything — see `holdReadings`, which is
+   *  where the readings that did not move are given back the objects they already had. */
   const keepReadings = useCallback((list: AgentReport[]) => {
-    const sig = readingSignature(list)
-    if (sig === readingSig.current) return
-    readingSig.current = sig
-    readings.current = new Map(list.map((r) => [r.id, r]))
+    const { held, moved } = holdReadings(readings.current, list)
+    if (!moved) return { list: readings.current.list, moved: false }
+    readings.current = held
     setReadingRev((n) => n + 1)
+    return { list: held.list, moved: true }
   }, [])
   const [error, setError] = useState<string | null>(null)
   /** A repo just added by hand, waiting for its scan to reach the project list.
@@ -777,8 +813,8 @@ export default function App() {
           mark('tree')
           if (!s) return
           setTreeRev((n) => n + 1)
-          keepReadings(reports)
-          setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
+          const held = keepReadings(reports).list
+          setScan(held.length > 0 ? { ...s, root: applyAgentReports(s.root, held) } : s)
           return
         }
 
@@ -801,8 +837,8 @@ export default function App() {
         const [s, reports] = await Promise.all([projectScan(here), agentReports(here)])
         if (!s) return
         setTreeRev((n) => n + 1)
-        keepReadings(reports)
-        setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
+        const held = keepReadings(reports).list
+        setScan(held.length > 0 ? { ...s, root: applyAgentReports(s.root, held) } : s)
       })
     }
     // **Once now, then every 1.5 seconds.** It was the interval alone, so a launch asked the
@@ -830,12 +866,24 @@ export default function App() {
   // that goes to sleep behind a replay should not still be reported as working.
   useEffect(() => {
     const timer = setInterval(() => {
-      void agentActivity().then(setAgent)
+      void agentActivity().then((a) => setAgent((prev) => (sameActivity(prev, a) ? prev : a)))
       if (historyOn) return
       void agentReports(activeKey).then((reports) => {
         if (reports.length === 0) return
-        keepReadings(reports)
-        setScan((prev) => (prev ? { ...prev, root: applyAgentReports(prev.root, reports) } : prev))
+        // **Nothing new is nothing to do.** The fold was run on every tick regardless, and
+        // even a fold that changed no wedge returned a new `Scan` — which is the object the
+        // whole picture is memoised against, so the map and the panel were rebuilt twice a
+        // minute for a poll that had learned nothing. `moved` is the signature saying so.
+        const { list, moved } = keepReadings(reports)
+        if (!moved) return
+        setScan((prev) => {
+          if (!prev) return prev
+          const root = applyAgentReports(prev.root, list)
+          // A reading can move without moving a wedge — a re-read that graded the same, or
+          // one for a function this tree has not been sent. Then the tree is the tree it
+          // already was, and saying so is the difference between an update and a redraw.
+          return root === prev.root ? prev : { ...prev, root }
+        })
       })
     }, 2000)
     return () => clearInterval(timer)
@@ -1706,6 +1754,8 @@ export default function App() {
     landed.current = new Map()
     setFns(new Map())
   }, [activeKey, treeRev])
+  /** Files already grafted, by the node they were grafted onto — see below. */
+  const graftCache = useRef<Map<Node, { ring: Node[]; out: Node }>>(new Map())
   /** The tree with whatever rings have arrived spliced in.
    *
    *  Rebuilt when a fetch lands rather than mutated: every consumer below memoises on the
@@ -1713,6 +1763,10 @@ export default function App() {
    *  believing a different version of the same repo. */
   const filled = useMemo(() => {
     if (!drawn || fns.size === 0) return drawn
+    // Rebuilt each run and swapped in at the end rather than added to: a cache keyed on tree
+    // nodes that is only ever written to holds every version of every file the window has
+    // drawn since it opened.
+    const nextGrafts = new Map<Node, { ring: Node[]; out: Node }>()
     // **Only the branches that changed are rebuilt.** It cloned every node it walked, so a
     // ring arriving for one file in `drivers/net/ethernet/mellanox` produced a fresh copy of
     // all of linux — tens of thousands of objects — and handed every consumer below a tree
@@ -1730,7 +1784,18 @@ export default function App() {
         // arrive, which is how a repo reporting 69.9% read drew as entirely unread.
         // `readIntoRing` returns the same array when nothing moved, so a reading poll that
         // changed nothing does not rebuild the file.
-        return got ? { ...n, children: readIntoRing(got, readings.current), funcs: 0 } : n
+        if (!got) return n
+        const ring = readIntoRing(got, readings.current.byId)
+        // **The same file back when its ring is the ring it already had.** The splice itself
+        // allocated unconditionally, so every file the map had fetched a ring for — and every
+        // directory above it, all the way to the root — became a new object each time this
+        // memo ran, which is each time anything anywhere in the tree moved. Keyed on the
+        // node this is grafting INTO, which is stable now that `pruneExcluded` hands back
+        // what it was given.
+        const was = graftCache.current.get(n)
+        const out = was && was.ring === ring ? was.out : { ...n, children: ring, funcs: 0 }
+        nextGrafts.set(n, { ring, out })
+        return out
       }
       let moved = false
       const kids = n.children.map((c) => {
@@ -1740,12 +1805,23 @@ export default function App() {
       })
       return moved ? { ...n, children: kids } : n
     }
-    return graft(drawn)
+    const out = graft(drawn)
+    graftCache.current = nextGrafts
+    return out
     // `readingRev` and not `readings`: the ref is mutated in place so its identity never
     // changes, and the counter is what says a poll brought something new — see `keepReadings`.
   }, [drawn, fns, readingRev])
 
   const tree = histRoot ?? filled
+  /** The tree where a CALLBACK can read it.
+   *
+   *  A handler that closes over the tree is rebuilt every time the tree is, which during a
+   *  reading pass is every time a reading lands — and a new function identity is what every
+   *  memoised child reads as "your props changed". These handlers do not care WHICH tree they
+   *  are given: they are read at the moment somebody clicks, and what is wanted then is
+   *  whatever is on screen. Same argument `scanRef` and `activeRef` make, one level up. */
+  const treeRef = useRef<Node | null>(null)
+  treeRef.current = tree
 
   /** Jump the playhead and stop. Stable across renders on purpose: `CommitLog` memoises
    *  its rows against this, and an inline arrow would rebuild every row on every frame —
@@ -2260,7 +2336,7 @@ export default function App() {
     return m
   }, [liveFocus, historyOn, history, historyKey, activeKey, drilled])
 
-  const ranks = useMemo(() => {
+  const rankedNow = useMemo(() => {
     const at = focus ?? tree
     if (!at) return undefined
     // The fallback is the old behaviour, for a backend too old to send the list: ranking what
@@ -2275,6 +2351,9 @@ export default function App() {
     if (viewMode === 'language' && langRank) return capRanks(langRank, cap)
     return capRanks(rankCategories(at, viewMode), cap)
   }, [focus, tree, viewMode, authorRank, langRank, caps])
+  /** A landed reading does not change who the eight biggest authors are, and the ranking is
+   *  what the map, the rim, the legend and the panel are all memoised against. */
+  const ranks = useSteady(rankedNow, sameRanks)
   /** The key a movie carries, for whichever lens it is being recorded in.
    *
    *  **Built here because this is the side that knows the ranking.** `movie.ts` draws it into
@@ -2394,7 +2473,12 @@ export default function App() {
       },
       tangle: tangleRead,
     }),
-    [ageSpan, ageRead, churnAt, tangleRead, blameRead, scan],
+    // **The stats it reads, not the scan it reads them off.** A landed reading replaces the
+    // `Scan` to carry a new tree and leaves `stats` exactly where it was, so depending on the
+    // scan handed a fresh `Views` to the map and the panel several times a minute during a
+    // reading pass — a new object saying what the old one said, which is what every memo
+    // below reads as a reason to rebuild.
+    [ageSpan, ageRead, churnAt, tangleRead, blameRead, scan?.stats.churnWindows, scan?.stats.churned],
   )
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
@@ -2402,6 +2486,7 @@ export default function App() {
 
   const drill = useCallback(
     (n: Node) => {
+      const tree = treeRef.current
       // A file drills like a directory: into its own ring, where its functions get the
       // whole circle instead of a 60px band. It used to jump straight to the source, and
       // that made "show me inside this" mean two different things one level apart —
@@ -2433,7 +2518,7 @@ export default function App() {
       setStack((st) => [...st, n.id])
       setPicked(n)
     },
-    [tree],
+    [],
   )
 
   /** The selected project when it is still being rescanned by the startup restore, so the
@@ -2587,7 +2672,7 @@ export default function App() {
    *  Empty for anything the tree does not hold, which is the synthesised roll-up a file's
    *  band collapses into. The panel falls back to the plain path there rather than offering
    *  a route that does not exist. */
-  const owners = useMemo(() => {
+  const ownersNow = useMemo(() => {
     if (!tree || !selected) return []
     const out: Node[] = []
     let n = parentOf(tree, selected.id)
@@ -2597,6 +2682,9 @@ export default function App() {
     }
     return out
   }, [tree, selected])
+  /** The walk allocates whether or not the answer moved, and the answer moves only when the
+   *  selection does — see `useSteady`. */
+  const owners = useSteady(ownersNow, sameNodes)
 
   /** Show the map this container, WITHOUT dropping the selection.
    *
@@ -2605,7 +2693,10 @@ export default function App() {
    *  the outline lands on something too small to see. Drilling to the file it lives in makes
    *  the same wedge a band — but only if the selection survives the trip, or you arrive
    *  somewhere correct with nothing marked. */
-  const showIn = useCallback((n: Node) => setStack(tree && n.id === tree.id ? [] : [n.id]), [tree])
+  const showIn = useCallback(
+    (n: Node) => setStack(treeRef.current && n.id === treeRef.current.id ? [] : [n.id]),
+    [],
+  )
 
   /** Where a `→` in the panel is pointing, until the tree can answer it.
    *
@@ -2977,8 +3068,8 @@ export default function App() {
                 return
               }
               setTreeRev((n) => n + 1)
-              keepReadings(reports)
-              setScan(reports.length > 0 ? { ...s, root: applyAgentReports(s.root, reports) } : s)
+              const held = keepReadings(reports).list
+              setScan(held.length > 0 ? { ...s, root: applyAgentReports(s.root, held) } : s)
             })
           }}
         />

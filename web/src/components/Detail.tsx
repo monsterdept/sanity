@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Summary } from './Summary'
 import { Bloom } from './Bloom'
 import { ageOf, colorFor, paintsFromReadings, VIEWS_DEFAULT, type Views, type ColorMode } from '../lib/colorMode'
@@ -218,7 +219,7 @@ function Contents({
   )
 }
 
-export function Detail({
+function DetailView({
   node,
   focus,
   title,
@@ -559,3 +560,13 @@ export function Detail({
     </div>
   )
 }
+
+/** **Memoised, because most of what re-renders the app is not about this pane.** The window
+ *  polls: the project list every 1.5 seconds, the readings every two, and during a reading
+ *  pass the counters on those rows move constantly — so the app re-rendered several times a
+ *  minute at rest and continuously during a read, and the panel, being the app's own child,
+ *  rebuilt itself every time to draw exactly what it was already drawing. It has a scroller,
+ *  a tiling of code blocks and a timeline in it; a wedge gaining a reading is a reason to
+ *  redraw it and a sidebar count ticking is not. Same guard `Sunburst` takes, for the same
+ *  reason — everything it is handed either is a primitive or is memoised upstream. */
+export const Detail = memo(DetailView)

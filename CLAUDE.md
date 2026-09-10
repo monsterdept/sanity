@@ -117,6 +117,14 @@ the map went on looking like a map.
   folder; a per-function null under Age or Churn means this map has no history for those
   lines, which on a traced repo is a different sentence entirely. Repo-level answers go on the
   lens (`locks`), once, beside the button that fixes them — never repeated on every segment.
+- **A node is a new object exactly when it means something new.** Every memo under the tree
+  — the layout, the percentile tables, the panel, the legend — decides whether to rebuild by
+  asking whether it was handed the object it was handed last time, so a walk that clones what
+  it did not change tells the window the whole repo moved and the window believes it. What
+  comes out is pixel for pixel what went in, arriving on a period: the map and the panel
+  redrawing every two seconds through a reading pass, which is the poll's signature and not
+  the renderer's. `pruneExcluded` cloning every node it walked and the readings poll folding
+  all 16,925 readings back in on a timer both shipped. `just identity-check` pins it.
 - **How many colors a lens spends is the reader's choice, not a constant.** The palette went
   4 → 8 → 16 → 64 chasing two incompatible readings; `CAPS` lets the reader pick. Apply a cap
   to the RANKS and nowhere else — every surface already treats an unranked category as
@@ -148,9 +156,10 @@ These are the ones with a body count. Each is written up in its note.
 - `just check` (Rust + TS type-check), `just test` (full CI-equivalent; passing ⟹ CI passes),
   `just cli <verb> <path>`, `just tokens` (before and after touching tool descriptions),
   `just expiry` (does this release expire readings), `just history <repo>`,
-  `just rim-check` (what a rim segment may claim) and `just keys-check` (every shortcut, in
-  every state) — the frontend has no test framework, so a rule that can be wrong invisibly
-  gets a bundled script.
+  `just rim-check` (what a rim segment may claim), `just keys-check` (every shortcut, in
+  every state) and `just identity-check` (what a walk over the tree is allowed to reallocate)
+  — the frontend has no test framework, so a rule that can be wrong invisibly gets a bundled
+  script.
 - **Never launch the app yourself** — `just dev` opens a window; that is the human's to run.
 - **Check that a regression test fails without its fix.** Where threads make the
   discriminating moment unstageable, pin the arithmetic instead and label the threaded test

@@ -375,8 +375,30 @@ export interface Node {
  */
 export function pruneExcluded(node: Node): Node {
   if (node.kind === 'func') return node
-  const children = node.children.filter((c) => !c.excluded).map(pruneExcluded)
+  let moved = false
+  const children: Node[] = []
+  for (const c of node.children) {
+    if (c.excluded) {
+      moved = true
+      continue
+    }
+    const kept = pruneExcluded(c)
+    if (kept !== c) moved = true
+    children.push(kept)
+  }
   const loc = node.kind === 'file' ? node.loc : children.reduce((t, c) => t + c.loc, 0)
+  // **The same node back when nothing was set aside underneath it.** It used to clone every
+  // node it walked, which made the whole tree new every time it ran — and it runs off the
+  // scan's identity, which a landed reading changes twice a minute. So one function going
+  // from grey to hot handed the map, the panel and every percentile table a tree whose every
+  // node was a different object, and each of their memos rebuilt everything: a redraw of the
+  // repo to carry a change to one wedge. Same rule `readIntoRing` and `filled`'s graft
+  // follow — a node is a new object exactly when it means something new.
+  //
+  // `loc` is compared as well as the children, rather than trusted: a directory's size
+  // arrives from Rust with its excluded children counted in, so a subtree can prune to the
+  // same shape and a different size.
+  if (!moved && loc === node.loc) return node
   return { ...node, children, loc }
 }
 
@@ -2087,6 +2109,12 @@ export function agentReports(key: string | null): Promise<AgentReport[]> {
  */
 export function readInto(node: Node, r: AgentReport | undefined): Node {
   if (!r || !node.score) return node
+  // **Already folded, and by the same reading.** The poll refetches every reading every two
+  // seconds and folds the lot back in, so without this every read function in the repo became
+  // a new object on a fixed period — a tree that means nothing new, handed to consumers whose
+  // memos exist to ask exactly that. It rests on the readings keeping their identity between
+  // polls when nothing about them moved; see `keepReadings`, which is where that is arranged.
+  if (node.agent === r) return node
   // A reading whose code has changed does NOT color the wedge. It described a body
   // that is not there any more, and letting it keep painting is the exact failure
   // the metric refuses everywhere else — a number claiming confidence it no longer
@@ -2125,6 +2153,69 @@ export function readInto(node: Node, r: AgentReport | undefined): Node {
   }
 }
 
+/** The readings the window is holding, and what it takes to tell a poll that brought
+ *  something from one that brought the same answer again.
+ *
+ *  **Every reading is refetched every two seconds** — 16,925 of them on tonepoet — and each
+ *  one arrives freshly deserialized, so identity is worthless as it comes off the wire and
+ *  identity is exactly what everything downstream reads as "this means something new". A
+ *  fold of the raw list therefore rebuilt every wedge that had ever been read, and with it
+ *  every directory above them, to carry the one reading that had actually landed. */
+export interface Held {
+  /** The list to fold: the poll's, with everything that did not move kept as the object it
+   *  already was. */
+  list: AgentReport[]
+  byId: Map<string, AgentReport>
+  /** Each reading's own fingerprint, which is how the next poll tells WHICH of them moved. */
+  sigs: Map<string, string>
+  /** The whole list's, which is how it tells whether any of them did. */
+  sig: string
+}
+
+export const NO_READINGS: Held = { list: [], byId: new Map(), sigs: new Map(), sig: '' }
+
+/** One reading's fingerprint.
+ *
+ *  Covers what can CHANGE a wedge: that it exists, the body it was taken against, and the
+ *  grades. Deliberately not `found` or `note` — they are paragraphs, and hashing a megabyte
+ *  of prose twice a second to learn nothing is the cost this exists to avoid. A reading whose
+ *  prose changed but whose grades did not paints identically. */
+export function reportSignature(r: AgentReport): string {
+  return `${r.id}|${r.at ?? ''}|${r.body ?? ''}|${r.predicted ?? ''}|${r.documented ?? ''}|${r.legible ?? ''}|${r.trap ?? ''}|${r.derivable ?? ''}|${r.legibleDated ?? ''}|${r.trapDated ?? ''}`
+}
+
+/** What a poll leaves the window holding, and whether folding it can change the picture.
+ *
+ *  FNV-1a over the per-reading fingerprints, which is what `assessment` uses on the Rust side
+ *  for the same kind of job. The list's hash answers "did anything move"; the per-reading
+ *  hashes answer "which", and that is the one that matters — one function turning hot leaves
+ *  the other sixteen thousand readings exactly as they were, and they keep their objects so
+ *  the fold below can hand back the wedges they belong to untouched. */
+export function holdReadings(prev: Held, list: AgentReport[]): { held: Held; moved: boolean } {
+  const sigs = list.map(reportSignature)
+  let h = 0x811c9dc5
+  for (const part of sigs) {
+    for (let i = 0; i < part.length; i++) {
+      h ^= part.charCodeAt(i)
+      h = Math.imul(h, 0x01000193)
+    }
+  }
+  const sig = `${list.length}:${h >>> 0}`
+  if (sig === prev.sig) return { held: prev, moved: false }
+  const kept = list.map((r, i) =>
+    prev.sigs.get(r.id) === sigs[i] ? (prev.byId.get(r.id) ?? r) : r,
+  )
+  return {
+    held: {
+      list: kept,
+      byId: new Map(kept.map((r) => [r.id, r])),
+      sigs: new Map(list.map((r, i) => [r.id, sigs[i]])),
+      sig,
+    },
+    moved: true,
+  }
+}
+
 /** Every reading a ring's functions have, folded in as the ring is grafted.
  *
  *  The other half of `readInto`'s reason for existing: `filled` splices these into the tree
@@ -2139,6 +2230,16 @@ export function readIntoRing(ring: Node[], byId: Map<string, AgentReport>): Node
     return next
   })
   return moved ? out : ring
+}
+
+/** Two lists of readings that are the same readings, in the same order.
+ *
+ *  By IDENTITY and not by value: the poll hands back the object it handed back last time for
+ *  every reading that has not moved (see `keepReadings`), so this is exact without hashing
+ *  anything, and a reading whose grades actually changed is a different object. */
+function sameReports(was: AgentReport[] | undefined, now: AgentReport[]): boolean {
+  if (!was || was.length !== now.length) return false
+  return was.every((r, i) => r === now[i])
 }
 
 export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
@@ -2164,7 +2265,14 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
       // reading still attaches below through `readInto` — a file's header grade and its
       // functions' grades are two different measurements.
       const held = node.kind === 'file' && node.funcs > 0 ? byPath.get(node.path) : undefined
-      return readInto(held ? { ...node, pending: held } : node, byId.get(node.id))
+      // Spliced in only when the list is not the one already there — member by member, on
+      // identity, which the readings keep between polls when nothing about them moved. A
+      // file whose functions have all been read holds every one of their readings here, so
+      // rebuilding it unconditionally made every read FILE a new object on the poll's
+      // period, and with it every directory above it. See `readInto`, which is the same
+      // rule one level down.
+      const carrying = held && !sameReports(node.pending, held) ? { ...node, pending: held } : node
+      return readInto(carrying, byId.get(node.id))
     }
     const children = node.children.map(visit)
     const folded = children.every((c, i) => c === node.children[i])
