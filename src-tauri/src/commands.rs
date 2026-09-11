@@ -391,6 +391,37 @@ pub fn repo_remote(path: String) -> Option<String> {
     slug_of(&url)
 }
 
+/// Which commit a repo's working tree is at, and whether it has moved off it.
+#[derive(serde::Serialize)]
+pub struct RepoHead {
+    sha: String,
+    /// `None` where git would not say — never read as clean.
+    dirty: Option<bool>,
+}
+
+/// The commit a report describes, for its cover and its page heads.
+///
+/// **A report is a photograph, and a photograph of a repo needs the commit on it.** Readings
+/// expire when their code moves, so a PDF that says only when it was made cannot be checked
+/// against the repo a week later; the sha can. `dirty` because the map draws the working tree —
+/// uncommitted lines are on it under their own name — so a report of a dirty tree is of a state
+/// no commit holds, and that is worth saying rather than implying the sha is the whole story.
+///
+/// Bare `git`, the way `repo_remote` beside it runs it: this is display, and a machine where it
+/// fails gets a report with no stamp rather than a wrong one.
+#[tauri::command]
+pub fn repo_head(path: String) -> Option<RepoHead> {
+    let repo = PathBuf::from(path);
+    let git = |args: &[&str]| -> Option<String> {
+        let out =
+            std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+    let sha = git(&["rev-parse", "--short=10", "HEAD"]).filter(|s| !s.is_empty())?;
+    let dirty = git(&["status", "--porcelain"]).map(|s| !s.is_empty());
+    Some(RepoHead { sha, dirty })
+}
+
 /// `owner/name` out of a remote URL. Separate from its caller so it can be tested without a
 /// repo to point at.
 fn slug_of(url: &str) -> Option<String> {
@@ -1887,26 +1918,41 @@ pub fn reset_project(state: tauri::State<'_, crate::agentapi::Shared>, key: Stri
 
 /// Write an exported replay to the path the save dialog came back with.
 ///
-/// **The one path on which this app writes anything.** Everything else here reads: a scan
-/// walks a repo, an assessment is written by the backend into `.sanity/`, and the window
-/// itself has never had a reason to put a byte anywhere. So the check is worth stating
-/// rather than assuming — a movie goes to a `.mp4`, and a request naming anything else is
-/// refused instead of overwriting whatever was there. The path is not otherwise constrained:
-/// it came from a native save dialog, which is the user saying where.
+/// **One of the two paths on which the window writes anything** — this and `save_pdf`, and
+/// both go through `write_export`. Everything else here reads: a scan walks a repo, an
+/// assessment is written by the backend into `.sanity/`, and the window itself has no other
+/// reason to put a byte anywhere. So the check is worth stating rather than assuming — a movie
+/// goes to a `.mp4`, and a request naming anything else is refused instead of overwriting
+/// whatever was there. The path is not otherwise constrained: it came from a native save
+/// dialog, which is the user saying where.
 ///
 /// Base64 because the alternative shape for bytes across the IPC is a JSON array of numbers,
 /// and a minute of 1080p is tens of megabytes.
 #[tauri::command]
 pub fn save_movie(path: String, data: String) -> Result<(), String> {
+    write_export(&path, &data, "mp4", "movie")
+}
+
+/// Write an exported report to the path the save dialog came back with — see `save_movie`,
+/// whose argument this is, one extension over.
+#[tauri::command]
+pub fn save_pdf(path: String, data: String) -> Result<(), String> {
+    write_export(&path, &data, "pdf", "report")
+}
+
+/// The one write the window can ask for: base64 bytes, to a path whose extension says what
+/// they are. Refused for any other extension, so an export can never land on top of a file of
+/// a different kind.
+fn write_export(path: &str, data: &str, ext: &str, what: &str) -> Result<(), String> {
     use base64::Engine;
-    let out = PathBuf::from(&path);
-    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
-    if ext != "mp4" {
-        return Err(format!("{} is not a .mp4 path.", out.display()));
+    let out = PathBuf::from(path);
+    let got = out.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if got != ext {
+        return Err(format!("{} is not a .{ext} path.", out.display()));
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
-        .map_err(|e| format!("The movie did not survive the trip from the window: {e}"))?;
+        .map_err(|e| format!("The {what} did not survive the trip from the window: {e}"))?;
     std::fs::write(&out, bytes).map_err(|e| format!("{}: {e}", out.display()))
 }
 

@@ -109,6 +109,36 @@ build:
 # Generate the icon set from a source PNG.
 icons source="icons/source.png":
     cd src-tauri && cargo tauri icon {{source}}
+    just icons-mac {{source}}
+
+# The macOS icon, on Apple's grid rather than full-bleed.
+#
+# **The Dock draws every icon the same size, so a margin is part of the artwork.** Apple's grid
+# puts the rounded square at 824 of 1024 with transparent space round it for the shadow, and
+# Finder, Mail and Safari all follow it. `cargo tauri icon` scales the source edge to edge, which
+# drew this app about a fifth larger than everything beside it in the Dock. The margin is added
+# here and only for `.icns`: the Windows and Linux icons stay full-bleed, because those
+# platforms do not use the grid and the margin would make them look small.
+icons-mac source="icons/source.png":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd src-tauri
+    work="$(mktemp -d)"
+    set="$work/icon.iconset"
+    mkdir "$set"
+    magick -size 1024x1024 xc:none \( "{{source}}" -resize 824x824 \) -geometry +100+100 -composite "$work/grid.png"
+    # A soft shadow under the square, inside the margin — the Dock's other icons carry one.
+    # Built on the same 1024 canvas and composited, never merged and re-centred: `-shadow` grows
+    # the canvas by its offset, and centring that back to 1024 lifted the square 8px off the grid.
+    magick "$work/grid.png" \( +clone -alpha extract -blur 0x10 -background black -alpha shape \
+        -channel A -evaluate multiply 0.3 +channel -roll +0+8 \) +swap -compose over -composite \
+        "$work/padded.png"
+    for s in 16 32 128 256 512; do
+        sips -z "$s" "$s" "$work/padded.png" --out "$set/icon_${s}x${s}.png" >/dev/null
+        sips -z $((s * 2)) $((s * 2)) "$work/padded.png" --out "$set/icon_${s}x${s}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$set" -o icons/icon.icns
+    echo "icons/icon.icns written on the macOS grid"
 
 # Everything CI runs, in CI's order — passing ⟹ CI passes (.github/workflows/ci.yml).
 test:
@@ -119,6 +149,8 @@ test:
     just rim-check
     just keys-check
     just identity-check
+    just pdf-check
+    just group-check
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
@@ -211,6 +243,29 @@ identity-check:
     cd web
     out="$(mktemp -d)/identity-check.mjs"
     ./node_modules/.bin/esbuild scripts/identity-check.ts --bundle --format=esm \
+        --platform=node --outfile="$out" --log-level=warning
+    node "$out"
+
+# What a report's PDF needs to get right to open at all — see `web/scripts/pdf-check.ts`.
+#
+# The writer is by hand, and a PDF is read by seeking: an offset one byte out breaks the file
+# in a way only a viewer notices. Bundled and run like the other checks.
+pdf-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    out="$(mktemp -d)/pdf-check.mjs"
+    ./node_modules/.bin/esbuild scripts/pdf-check.ts --bundle --format=esm \
+        --platform=node --outfile="$out" --log-level=warning
+    node "$out"
+
+# How a report groups its findings by place — see `web/scripts/group-check.ts`.
+group-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    out="$(mktemp -d)/group-check.mjs"
+    ./node_modules/.bin/esbuild scripts/group-check.ts --bundle --format=esm \
         --platform=node --outfile="$out" --log-level=warning
     node "$out"
 

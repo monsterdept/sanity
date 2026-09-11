@@ -160,7 +160,22 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
     // the destination agree.
     let open_item =
         MenuItem::with_id(app, "open-project", "Add Project…", true, Some("CmdOrCtrl+O"))?;
-    let file_menu = Submenu::with_items(app, "File", true, &[&open_item])?;
+    // A report of the repo on screen. Always enabled: the window decides whether it can make
+    // one right now — nothing open, a replay up, findings still being counted — and says so in
+    // the dialog, which is a sentence where a greyed item would be a riddle.
+    let report_item = MenuItem::with_id(
+        app,
+        "export-report",
+        "Export Report as PDF…",
+        true,
+        Some("CmdOrCtrl+Shift+E"),
+    )?;
+    let file_menu = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[&open_item, &PredefinedMenuItem::separator(app)?, &report_item],
+    )?;
 
     // Without an Edit menu the standard clipboard shortcuts stop working in text fields —
     // on macOS ⌘C and ⌘V are menu items, not free behavior, so replacing the stock menu
@@ -239,6 +254,14 @@ pub fn run() {
                             if event.id() == "install-cli" {
                                 for w in app.webview_windows().values() {
                                     let _ = w.emit("install-cli", ());
+                                }
+                                return;
+                            }
+                            // The report is drawn from the map on screen, so only the window
+                            // can make one — see `web/src/lib/report.ts`.
+                            if event.id() == "export-report" {
+                                for w in app.webview_windows().values() {
+                                    let _ = w.emit("export-report", ());
                                 }
                                 return;
                             }
@@ -354,6 +377,8 @@ pub fn run() {
             commands::start_check,
             commands::stop_check,
             commands::save_movie,
+            commands::save_pdf,
+            commands::repo_head,
         ])
         .build(tauri::generate_context!())
         .expect("error while running sanity")

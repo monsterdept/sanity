@@ -28,6 +28,7 @@ import {
   harnesses,
   installCli,
   onInstallCli,
+  onExportReport,
   onOpenProject,
   pickProject,
   repoRemote,
@@ -77,6 +78,9 @@ import {
 } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
 import type { MovieKey, Staged } from './lib/movie'
+import { lensKey } from './lib/lensKey'
+import { ReportDialog } from './components/ReportDialog'
+import type { ReportBucket } from './lib/report'
 import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
 import type { MascotState } from './components/MascotFigure'
@@ -86,19 +90,16 @@ import { Crumbs } from './components/Crumbs'
 import { Find } from './components/Find'
 import { Findings } from './components/Findings'
 import { TopRow } from './components/shell/TopRow'
-import { rampStop } from './lib/api'
 import {
   legendFor,
+  bucketsFor,
+  holdsUncommitted,
   MODE_LABEL,
   paintsFromReadings,
   paintsFromWiring,
-  NAMED,
-  rampEnds,
-  rampOf,
   rankCategories,
   capRanks,
   REPLAY,
-  slotColor,
   replayNote,
   ageSpanOf,
   AGE_DEFAULT,
@@ -1975,6 +1976,13 @@ export default function App() {
   // rescan keeps the user where they were rather than throwing them back to the top.
   const focus = useMemo(() => {
     if (!tree) return null
+    // A report is of the whole repo, wherever the window is drilled — see `Staged.whole`. Here
+    // rather than on the map's `root` alone, because the ranking, the key and the counts all
+    // read `focus`, and a map of the repo coloured by one subtree's ranking is two answers.
+    // A group of findings zooms the map to where they are — see `Staged.root`. Container ids
+    // ARE their paths, so the path is the id; one that is not in this tree falls back to the
+    // repo rather than to wherever the window was drilled.
+    if (staged?.whole) return staged.root ? (findById(tree, staged.root) ?? tree) : tree
     let node: Node = tree
     for (const id of stack) {
       const next = findById(tree, id)
@@ -1982,7 +1990,7 @@ export default function App() {
       node = next
     }
     return node
-  }, [tree, stack])
+  }, [tree, stack, staged?.whole, staged?.root])
 
   /** Open the replay, or leave it — the History button's own action.
    *
@@ -2378,65 +2386,92 @@ export default function App() {
    *  the other lens readings: it says what a colour MEANS rather than what is drawn. */
   const [blameRead, setBlameRead] = useState<BlameRead>('touched')
 
-  const keyNow = useRef<(m: ColorMode) => MovieKey | null>(() => null)
-  const keyFor = useCallback(
-    (m: ColorMode): MovieKey | null => {
-      const at = focus ?? tree
-      if (!at) return null
-      // The whole calibration, because two lenses name their ramp's ends from it now — see
-      // `rampEnds`. Built here rather than reusing `lensViews`, which is memoised on the tree
-      // this callback deliberately does not close over; see `keyNow`.
-      const ends = rampEnds(m, {
-        age: { span: ageSpan ?? AGE_DEFAULT.span, read: ageRead },
-        churn: VIEWS_DEFAULT.churn,
-        tangle: tangleRead,
-        blame: blameRead,
-        derivable: VIEWS_DEFAULT.derivable,
-      })
-      if (ends) {
-        return {
-          title: MODE_LABEL[m],
-          entries: [],
-          more: 0,
-          // The stops themselves rather than a smoothed bar: the ramp has five and the map
-          // paints between them, so five swatches is the honest picture of the scale.
-          ramp: {
-            tokens: [0, 0.25, 0.5, 0.75, 1].map((t) => rampStop(t, rampOf(m))),
-            ends,
-          },
-        }
-      }
-      const cats = legendFor(at, m, blameRead)
-      // Capped like the map's own ranking — a film is a recording of what was on screen, and
-      // a key naming sixteen people over a picture drawing eight is the legend-disagrees-with-
-      // the-map failure this file has already paid for twice.
+  /** Category → slot for any lens over `at`, capped like the map's own ranking.
+   *
+   *  **One copy, for everything that keys a lens off-screen** — the movie's key, the report's
+   *  key and the report's bucket counts. Two copies of a ranking is how a key comes to name
+   *  people the counts beside it filed under `other`. */
+  const slotsFor = useCallback(
+    (m: ColorMode, at: Node): Map<string, number> => {
       const cap = isCapped(m) ? caps[m] : Infinity
-      const slots =
+      return (
         (m === 'blame' && authorRank
           ? capRanks(authorRank, cap)
           : m === 'language' && langRank
             ? capRanks(langRank, cap)
             : capRanks(rankCategories(at, m), cap)) ?? new Map<string, number>()
-      const named = cats
-        .filter((c) => (slots.get(c) ?? Number.MAX_SAFE_INTEGER) < NAMED)
-        .sort((a, b) => (slots.get(a) ?? 0) - (slots.get(b) ?? 0))
-      return {
-        title: MODE_LABEL[m],
-        entries: named.map((label) => ({
-          label,
-          token: slotColor(slots.get(label) ?? Number.MAX_SAFE_INTEGER)
-            .replace(/^var\(/, '')
-            .replace(/\)$/, ''),
-        })),
-        more: cats.length - named.length,
-        ramp: null,
-      }
+      )
     },
-    [focus, tree, authorRank, langRank, caps, ageRead, blameRead],
+    [authorRank, langRank, caps],
+  )
+  const keyNow = useRef<(m: ColorMode) => MovieKey | null>(() => null)
+  const keyFor = useCallback(
+    (m: ColorMode): MovieKey | null => {
+      const at = focus ?? tree
+      if (!at) return null
+      // Capped like the map's own ranking — a film is a recording of what was on screen, and
+      // a key naming sixteen people over a picture drawing eight is the legend-disagrees-with-
+      // the-map failure this file has already paid for twice.
+      const slots = slotsFor(m, at)
+      // **`lensKey`, the answer the key beside the map draws from.** This built its own and
+      // knew two shapes — a ramp and a ranked cast — so Callers, Reach, Clones and Traps came
+      // out with an empty key and Composition was coloured by rank rather than by kind.
+      //
+      // The whole calibration, because two lenses name their ramp's ends from it — see
+      // `rampEnds`. Built here rather than reusing `lensViews`, which is memoised on the tree
+      // this callback deliberately does not close over; see `keyNow`.
+      return lensKey(
+        m,
+        {
+          age: { span: ageSpan ?? AGE_DEFAULT.span, read: ageRead },
+          churn: VIEWS_DEFAULT.churn,
+          tangle: tangleRead,
+          blame: blameRead,
+          derivable: VIEWS_DEFAULT.derivable,
+        },
+        legendFor(at, m, blameRead),
+        slots,
+        m === 'blame' && holdsUncommitted(at, blameRead),
+      )
+    },
+    [focus, tree, slotsFor, ageRead, blameRead],
   )
   keyNow.current = keyFor
   /** Stable across renders, and current when called — see `keyNow`. */
   const keyLive = useCallback((m: ColorMode) => keyNow.current(m), [])
+
+  /** The report dialog is up — File → Export Report as PDF…. */
+  const [reporting, setReporting] = useState(false)
+  /** The languages present, largest first, for the report's methodology. Walked only while the
+   *  dialog is up, and off the live tree rather than whatever a report has staged. */
+  const reportLangs = useMemo(
+    () => (reporting && filled ? legendFor(filled, 'language') : []),
+    [reporting, filled],
+  )
+  /** A lens's bands over what is staged, for the facts a report prints — read when a page asks,
+   *  like `keyNow`, so it describes the tree the report staged rather than the one this
+   *  render closed over. */
+  const bucketsNow = useRef<(m: ColorMode) => ReportBucket[]>(() => [])
+  bucketsNow.current = (m) => {
+    const at = focus ?? tree
+    if (!at) return []
+    return bucketsFor(at, m, slotsFor(m, at), lensViews)
+  }
+  const bucketsLive = useCallback((m: ColorMode) => bucketsNow.current(m), [])
+  /** The tree a report has staged, read when a table asks — the same `focus ?? tree` the keys
+   *  and buckets read, for the reason `keyNow` gives. */
+  const treeNow = useRef<() => Node | null>(() => null)
+  treeNow.current = () => focus ?? tree
+  const treeLive = useCallback(() => treeNow.current(), [])
+  useEffect(() => onExportReport(() => setReporting(true)), [])
+  /** No function ring in flight or waiting to be spliced — what a report waits on before it
+   *  copies a page. See `rest` in `report.ts`; `asked` and `landed` are the two halves. */
+  const ringsSettled = useCallback(() => asked.current.size === 0 && landed.current.size === 0, [])
+  /** Stale and unread over whatever is staged, read when a page asks. */
+  const pendingNow = useCallback(
+    () => (treeRef.current ? countPending(treeRef.current) : { stale: 0, unread: 0 }),
+    [],
+  )
 
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
@@ -3262,6 +3297,45 @@ export default function App() {
             {/* Mounted only while it is up, unlike `Find`, which holds an index it does not
                 want to rebuild. This one is static text and its cost is its own markup. */}
             {helping && <LensHelp onClose={() => setHelping(false)} />}
+            {reporting && (
+              <ReportDialog
+                slug={remote ?? activeProject?.name ?? 'repo'}
+                name={activeProject?.name ?? 'sanity'}
+                repo={repoPath ?? null}
+                views={lensViews}
+                ready={tree !== null && activeProject !== null}
+                replaying={historyOn}
+                groups={findingGroups}
+                locks={locks}
+                mode={mode}
+                keyFor={keyLive}
+                pending={pendingNow}
+                stats={{
+                  lines: filled?.loc ?? 0,
+                  functions: activeProject?.functions ?? 0,
+                  files: activeProject?.files ?? 0,
+                  assessed: activeProject?.assessed ?? 0,
+                  stale: activeProject?.stale ?? 0,
+                  unparsed: filled?.unparsed ?? null,
+                  languages: reportLangs,
+                  model: activeProject?.banked_model ?? null,
+                  harness: activeProject?.banked_harness ?? null,
+                  models: activeProject?.banked_models ?? [],
+                  tangleBands: scan?.stats.tangleBands ?? [],
+                  callsResolved: scan?.stats.callsResolved ?? null,
+                  callsUnresolved: scan?.stats.callsUnresolved ?? null,
+                  commits: scan?.stats.commits ?? 0,
+                  authors: scan?.stats.authors.length ?? 0,
+                  churnWindows: [...churnWindows],
+                  ageSpan: filled ? ageSpanOf(filled) : null,
+                }}
+                bucketsFor={bucketsLive}
+                treeNow={treeLive}
+                settled={ringsSettled}
+                onStage={setStaged}
+                onClose={() => setReporting(false)}
+              />
+            )}
 
             {/* `data-chart` is how the key finds the circle it has to wrap around — see
                 `useMapEdge`. A marker rather than a class name because the class list here is
@@ -3299,7 +3373,8 @@ export default function App() {
                   <Sunburst
                     root={focus}
                     faceRev={faceRev}
-                    selected={selected}
+                    // No veil while a report stages the map — see `Staged.whole`.
+                    selected={staged?.whole ? null : selected}
                     mode={viewMode}
                     ranks={ranks}
                     // The age ramp spans the REPO, not a fixed year — so it comes from the
@@ -3321,7 +3396,9 @@ export default function App() {
                     // the legend are: the request comes a few hundred milliseconds before the
                     // first frame, and until that frame exists the live map is still on screen,
                     // where the marks are about exactly the wedges they are sitting on.
-                    reading={replaying ? undefined : readingNow}
+                    // Nor while a report copies it: the pulse is a CSS animation, and a copy of
+                    // the SVG has no stylesheet, so it would print as solid wedges.
+                    reading={replaying || staged?.whole ? undefined : readingNow}
                     // **Through the replay too.** It was held back on the grounds that a run is a
                     // fact about the repo as it is NOW, and a creature working away over a frame
                     // from 2019 would be the claim a replayed temperature would be. That reads
@@ -3346,6 +3423,7 @@ export default function App() {
                     // so it has no marks to suppress, and a prop that can never matter is a
                     // second place to keep in step for nothing.
                     markers={markers}
+                    tagNodes={staged?.whole ?? false}
                     onWantRings={wantRings}
                     sortBy={headOrder}
                     onSelect={pick}
@@ -3448,6 +3526,9 @@ export default function App() {
                     // code did: it was true of the counts and not of the categories, which
                     // came from the whole scan.
                     categories={focus ? legendFor(focus, viewMode, blameRead) : []}
+                    uncommitted={
+                      viewMode === 'blame' && focus !== null && holdsUncommitted(focus, blameRead)
+                    }
                     // The same map the wedges take their slots from, or the key and the
                     // picture disagree the moment the two orders diverge — which a held
                     // rank order during a replay guarantees they will.

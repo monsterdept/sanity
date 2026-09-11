@@ -2734,6 +2734,28 @@ export function histogramsFor(
   return out
 }
 
+/** Whether a picture holds lines nobody has committed, which Blame paints as themselves.
+ *
+ *  **Separate from `legendFor`, because that list is where slots come from** — `rankCategories`
+ *  numbers it — and a state must never hold a slot. The key needs to know anyway: a working tree
+ *  mid-edit draws grey wedges under Blame, and a key that names only authors leaves them
+ *  unexplained. Same walk and the same `speaks` rule as `legendFor`, so the two agree on what
+ *  the picture holds. */
+export function holdsUncommitted(root: Node, read: BlameRead = 'touched'): boolean {
+  let found = false
+  const walk = (n: Node) => {
+    if (found) return
+    const speaks = n.kind === 'func' || (n.kind === 'file' && n.funcs > 0)
+    if (speaks && catKey(n, 'blame', read) === UNCOMMITTED) {
+      found = true
+      return
+    }
+    n.children.forEach(walk)
+  }
+  walk(root)
+  return found
+}
+
 /** The distinct values present, for a legend. Categorical modes need one; ramps don't. */
 export function legendFor(root: Node, mode: ColorMode, read: BlameRead = 'touched'): string[] {
   // **Composition lists the kinds that are actually there.** Its colours are fixed per kind

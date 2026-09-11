@@ -1,6 +1,8 @@
+import { rampStop } from './api'
 import { realOf } from './history'
 import { FAMILY } from './labelStyle'
-import type { ColorMode } from './colorMode'
+import { OTHER_LABEL, type ColorMode } from './colorMode'
+import type { KeyEntry, LensKey } from './lensKey'
 import { mascotClock } from './mascotClock'
 
 /**
@@ -87,6 +89,19 @@ export interface Staged {
    *  same argument: a movie drawn by a second renderer nobody has checked against the first
    *  is a picture of a map that does not exist. The pane goes back when the dialog closes. */
   mode?: ColorMode
+  /** Root the map at the repo, with nothing selected and nothing pulsing — a report.
+   *
+   *  **A report is of the project, not of wherever somebody happened to be drilled.** Its
+   *  findings are repo-wide and its contents page names the repo, so a page of one subtree would
+   *  be pointing at findings it does not contain. The selection veil and the reading pulse go
+   *  for the length of it too: the veil would dim every page around one wedge somebody clicked
+   *  an hour ago, and a pulse is a CSS animation that a copy of the SVG has no stylesheet for,
+   *  so it would come out as solid black wedges. The pane goes back when the dialog closes. */
+  whole?: boolean
+  /** With `whole`, root the map here instead — a directory's path or a file's, `''` for the
+   *  repo. A report zooms the map into each group of findings so its marks have room; the rules
+   *  above (no veil, no pulse, tags on) still apply. */
+  root?: string
 }
 
 /** The key a movie carries, since a file has no chrome around it to put one in.
@@ -97,19 +112,55 @@ export interface Staged {
  *  rather than the fact. Built by the window, which is the side that knows the ranking, and
  *  drawn into the caption column by `Frame.legend`.
  *
- *  Colours are custom-property NAMES rather than values: the caption is Canvas2D and resolves
- *  them against the staged map, so the key comes out in the ground the file is written on
- *  rather than the one the window happens to be wearing. */
-export interface MovieKey {
+ *  Colours are CSS as the map paints them rather than values: the caption is Canvas2D and
+ *  resolves them against the staged map (`paint`), so the key comes out in the ground the file
+ *  is written on rather than the one the window happens to be wearing.
+ *
+ *  **What it holds is `lensKey`'s answer**, the same one the window's key draws from — it was
+ *  its own shape once, built by its own copy of the rules, and that copy knew ramps and ranked
+ *  casts and nothing else. */
+export type MovieKey = LensKey
+
+/** A key laid flat for Canvas2D: rows of swatches, or a run of ramp stops. The movie's caption
+ *  and a report page both draw from this. */
+export interface FlatKey {
   /** The lens, named as the switcher names it. */
   title: string
-  /** Categorical lenses: a swatch and a name each, already in slot order. */
-  entries: { label: string; token: string }[]
-  /** How many the map has that this key does not name — printed as `+N more`, never elided
+  /** A swatch and a name each, already in slot order. */
+  entries: KeyEntry[]
+  /** How many the map colours that this key does not name — printed as `+N more`, never elided
    *  silently, on the same rule the repo slug follows. */
   more: number
   /** Ramped lenses: the stops, cold end first, with the words for each end. */
-  ramp: { tokens: string[]; ends: [string, string] } | null
+  ramp: { fills: string[]; ends: [string, string] } | null
+}
+
+export function flatKey(key: LensKey | null): FlatKey | null {
+  if (!key) return null
+  if (key.kind === 'ramp') {
+    return {
+      title: key.title,
+      entries: [],
+      more: 0,
+      // The stops as they are, not a smoothed gradient: the ramp has five and the map paints
+      // between them, so five swatches is the honest picture of the scale.
+      ramp: {
+        fills: [0, 0.25, 0.5, 0.75, 1].map((t) => `var(${rampStop(t, key.ramp)})`),
+        ends: key.ends,
+      },
+    }
+  }
+  if (key.kind === 'swatches') return { title: key.title, entries: key.entries, more: 0, ramp: null }
+  // The neutral tail IS one colour, so it keeps a swatch; the coloured tail has no single colour
+  // to show and is counted — the split the window's key makes, for the reason it gives.
+  const neutral = key.neutral > 0 ? [{ label: `${OTHER_LABEL} (${key.neutral})`, fill: 'var(--structure)' }] : []
+  const pending = key.uncommitted ? [{ label: 'uncommitted lines', fill: 'var(--unanalyzed)' }] : []
+  return {
+    title: key.title,
+    entries: [...key.entries, ...neutral, ...pending],
+    more: key.coloured,
+    ramp: null,
+  }
 }
 
 /** The side the map is drawn at inside a frame of this height — what the sunburst lays
@@ -123,8 +174,26 @@ export function mapSide(height: number): number {
  *  Canvas2D rather than in the SVG, so it cannot say `var(--foreground)` and have anything
  *  answer — and it must read the same ground the map is being recorded in, which during an
  *  export is staged on the pane rather than on the document. */
-function ink(from: Element, name: string): string {
+export function ink(from: Element, name: string): string {
   return getComputedStyle(from).getPropertyValue(name).trim()
+}
+
+/** Any colour the map paints with, resolved against where it is painted.
+ *
+ *  `ink` answers a bare custom property; a band colour is a `color-mix()` of two of them, which
+ *  nothing in JavaScript can mix. So it is handed to the renderer on a probe beside the map and
+ *  read back computed — in the staged ground, because the probe inherits it. */
+export function paint(from: Element, css: string): string {
+  const bare = /^var\((--[\w-]+)\)$/.exec(css.trim())
+  if (bare) return ink(from, bare[1])
+  const host = from instanceof HTMLElement ? from : from.parentElement
+  if (!host) return ''
+  const probe = document.createElement('span')
+  probe.style.color = css
+  host.appendChild(probe)
+  const out = getComputedStyle(probe).color
+  probe.remove()
+  return out
 }
 
 /** Base64 without blowing the argument limit — `apply` on a megabyte of bytes throws. */
@@ -136,7 +205,7 @@ function base64(bytes: Uint8Array): string {
   return btoa(out)
 }
 
-async function faceCss(): Promise<string> {
+export async function faceCss(): Promise<string> {
   const faces = await Promise.all(
     FACES.map(async (f) => {
       const res = await fetch(f.url)
@@ -162,7 +231,7 @@ async function faceCss(): Promise<string> {
  * which is on screen; computed style knows exactly that but cannot be asked what it has
  * without a list of names to ask about.
  */
-function varCss(from: Element): string {
+export function varCss(from: Element): string {
   const names = new Set<string>()
   for (const sheet of Array.from(document.styleSheets)) {
     let rules: CSSRuleList
@@ -195,6 +264,57 @@ function varCss(from: Element): string {
  *  ground may be staged on the pane rather than on the document. */
 export function background(from: Element = document.documentElement): string {
   return getComputedStyle(from).getPropertyValue('--background').trim() || '#fff'
+}
+
+/**
+ * The live map, copied and rasterized at `side` pixels a side, handed to `use` while it is
+ * still decodable.
+ *
+ * The live element is sized by the layout it sits in; the copy is sized by the export.
+ * `viewBox` travels with it, so the circle is fitted into the square the same way the pane fits
+ * it — letterboxed against the background rather than stretched.
+ *
+ * `style` is `faceCss() + varCss(svg)`: everything the document was supplying that a picture
+ * rendered through an `<img>` does not get.
+ */
+export async function rastered<T>(
+  svg: SVGSVGElement,
+  side: number,
+  style: string,
+  use: (img: HTMLImageElement) => T,
+  slow = `A frame took longer than ${DECODE_LIMIT / 1000}s to draw. Try a smaller resolution.`,
+  /** Change the copy before it is drawn — never the live map. A report drops labels too small
+   *  to read on paper; see `report.ts`. */
+  edit?: (clone: SVGSVGElement) => void,
+): Promise<T> {
+  const clone = svg.cloneNode(true) as SVGSVGElement
+  clone.removeAttribute('class')
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  clone.setAttribute('width', String(side))
+  clone.setAttribute('height', String(side))
+  const sheet = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+  sheet.textContent = style
+  clone.insertBefore(sheet, clone.firstChild)
+  edit?.(clone)
+
+  const markup = new XMLSerializer().serializeToString(clone)
+  // A blob URL rather than a data URL: a frame of a large repo is a megabyte of path
+  // data, and percent-encoding it per frame costs more than the encode does.
+  const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }))
+  try {
+    const img = new Image()
+    img.src = url
+    // **Raced against a clock, because `decode()` on an SVG image is not reliably a
+    //   promise that settles.** WebKit has long-standing bugs where a picture it will
+    //   not draw simply leaves the promise pending, and an export that hangs on one is
+    //   indistinguishable from an export that is merely slow — the Stop button cannot
+    //   reach a frame that is waiting inside here either. A frame that has not decoded
+    //   in this long is not going to.
+    await within(img.decode(), DECODE_LIMIT, slow)
+    return use(img)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 /** A frame of the map, rasterized.
@@ -265,36 +385,7 @@ class Shot {
    */
   async draw(at: Playhead): Promise<void> {
     this.at = at
-    const clone = this.svg.cloneNode(true) as SVGSVGElement
-    // The live element is sized by the layout it sits in; the copy is sized by the export.
-    // `viewBox` travels with it, so the circle is fitted into the square the same way the
-    // pane fits it — letterboxed against the background rather than stretched.
-    clone.removeAttribute('class')
-    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-    clone.setAttribute('width', String(this.map.side))
-    clone.setAttribute('height', String(this.map.side))
-    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
-    style.textContent = this.style
-    clone.insertBefore(style, clone.firstChild)
-
-    const markup = new XMLSerializer().serializeToString(clone)
-    // A blob URL rather than a data URL: a frame of a large repo is a megabyte of path
-    // data, and percent-encoding it per frame costs more than the encode does.
-    const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }))
-    try {
-      const img = new Image()
-      img.src = url
-      // **Raced against a clock, because `decode()` on an SVG image is not reliably a
-      //   promise that settles.** WebKit has long-standing bugs where a picture it will
-      //   not draw simply leaves the promise pending, and an export that hangs on one is
-      //   indistinguishable from an export that is merely slow — the Stop button cannot
-      //   reach a frame that is waiting inside here either. A frame that has not decoded
-      //   in this long is not going to.
-      await within(
-        img.decode(),
-        DECODE_LIMIT,
-        `A frame took longer than ${DECODE_LIMIT / 1000}s to draw. Try a smaller resolution.`,
-      )
+    await rastered(this.svg, this.map.side, this.style, (img) => {
       this.baseCtx.fillStyle = this.bg
       this.baseCtx.fillRect(0, 0, this.w, this.h)
       this.baseCtx.drawImage(img, this.map.x, this.map.y, this.map.side, this.map.side)
@@ -302,29 +393,9 @@ class Shot {
       this.timeline()
       this.legend()
       this.signature()
-    } finally {
-      URL.revokeObjectURL(url)
-    }
+    })
   }
 
-  /**
-   * The creature in the hub, composited on top of the map.
-   *
-   * **It is not in the SVG, so a copy of the SVG does not carry it.** The mascot is a WebGL
-   * canvas laid over the pane rather than a `foreignObject` inside the picture — see the hub
-   * in `Sunburst` — which is right on screen, where a canvas scaled by an SVG transform
-   * would be a bitmap stretched instead of a scene redrawn, and it is exactly why the middle
-   * of every exported frame was an empty disc.
-   *
-   * Where it goes is arithmetic rather than measurement: the live element's transform is in
-   * PANE pixels and the frame is another size entirely, so the position is recomputed from
-   * the map's own coordinates — the viewBox the fit effect just wrote, and the hub box the
-   * layer states in `data-hub-mascot`. Nothing here duplicates a number that lives there.
-   *
-   * Silent when there is no creature. The committed placeholder bundle draws nothing, a
-   * replay of a project can be exported before the scene has built its first frame, and an
-   * export that refused over a missing mascot would be an export that refused.
-   */
   /**
    * One frame for the encoder: the base as it stands, with the creature on top.
    *
@@ -338,41 +409,9 @@ class Shot {
   }
 
   private creature(): void {
-    const layer = document.querySelector<HTMLElement>('[data-hub-mascot]')
-    const canvas = layer?.querySelector('canvas')
-    if (!layer || !canvas || canvas.width === 0 || canvas.height === 0) return
-    const [hubY, box] = layer.dataset.hubMascot!.split(' ').map(Number)
-    const view = (this.svg.getAttribute('viewBox') ?? '').split(/\s+/).map(Number)
-    if (view.length !== 4 || !view.every(Number.isFinite) || view[2] <= 0) return
-    // The viewBox is square and the copy is drawn into a square, so one scale serves both
-    // axes — the same arithmetic the fit effect does against the pane.
-    const s = this.map.side / view[2]
-    const cx = this.map.x + (0 - view[0]) * s
-    const cy = this.map.y + (hubY - view[1]) * s
-
-    // **Where the canvas sits inside its layer, asked rather than assumed.** The layer is
-    // the hub's box; the creature is lifted inside it by `MascotFigure`'s `lift`, a
-    // per-blueprint offset that stands a creature shorter than its frame off the floor — so
-    // the box's middle is not the creature's, and centring on the box alone drew it low and
-    // is what the first exports came out with. The lift is a transform on the canvas, in the
-    // layer's own pixels, and reading it back as a ratio of the two boxes is the one form of
-    // it that survives both the pane's scale and the frame's: whatever placement the window
-    // arrived at, the frame reproduces it.
-    const boxRect = layer.getBoundingClientRect()
-    const onGlass = canvas.getBoundingClientRect()
-    if (boxRect.width <= 0 || boxRect.height <= 0) return
-    const drawn = box * s * (onGlass.width / boxRect.width)
-    const dx =
-      ((onGlass.x + onGlass.width / 2 - (boxRect.x + boxRect.width / 2)) / boxRect.width) * box * s
-    const dy =
-      ((onGlass.y + onGlass.height / 2 - (boxRect.y + boxRect.height / 2)) / boxRect.height) *
-      box *
-      s
-
-    // `preserveDrawingBuffer` is on in the bundle, which is what makes reading the canvas
-    // back outside its own animation frame give the picture rather than a cleared buffer.
-    this.ctx.drawImage(canvas, cx + dx - drawn / 2, cy + dy - drawn / 2, drawn, drawn)
+    drawCreature(this.ctx, this.svg, this.map)
   }
+
 
   /**
    * The repo's name and where the movie came from, in the margin the 16:9 shape opens up.
@@ -518,7 +557,7 @@ class Shot {
    *  caller has the same information one click away in the app.
    */
   private legend(): void {
-    const key = this.keyOf()
+    const key = flatKey(this.keyOf())
     if (!key) return
     const { left, room } = this.column()
     if (room < this.h * 0.2) return
@@ -583,9 +622,9 @@ class Shot {
       // The stops as they are, not a smoothed gradient: the ramp has five and the map paints
       // between them, so five swatches is the honest picture of the scale.
       const w = Math.min(room, Math.round(small * 9))
-      const step = w / key.ramp.tokens.length
-      key.ramp.tokens.forEach((token: string, i: number) => {
-        c.fillStyle = ink(this.svg, token) || muted
+      const step = w / key.ramp.fills.length
+      key.ramp.fills.forEach((fill: string, i: number) => {
+        c.fillStyle = paint(this.svg, fill) || muted
         c.fillRect(left + i * step, y - box, step, box)
       })
       y += row
@@ -605,7 +644,7 @@ class Shot {
       const col = Math.floor(i / perCol)
       const x = left + col * colW
       const ry = first + (i % perCol) * row
-      c.fillStyle = ink(this.svg, e.token) || muted
+      c.fillStyle = paint(this.svg, e.fill) || muted
       c.fillRect(x, ry - box, box, box)
       c.fillStyle = fore
       c.fillText(e.label, x + Math.round(box * 1.6), ry)
@@ -697,6 +736,65 @@ class Shot {
   }
 }
 
+/**
+ * The creature in the hub, composited on top of a copy of the map drawn at `map`.
+ *
+ * **It is not in the SVG, so a copy of the SVG does not carry it.** The mascot is a WebGL
+ * canvas laid over the pane rather than a `foreignObject` inside the picture — see the hub
+ * in `Sunburst` — which is right on screen, where a canvas scaled by an SVG transform
+ * would be a bitmap stretched instead of a scene redrawn, and it is exactly why the middle
+ * of every exported frame was an empty disc.
+ *
+ * Where it goes is arithmetic rather than measurement: the live element's transform is in
+ * PANE pixels and the frame is another size entirely, so the position is recomputed from
+ * the map's own coordinates — the viewBox the fit effect just wrote, and the hub box the
+ * layer states in `data-hub-mascot`. Nothing here duplicates a number that lives there.
+ *
+ * Silent when there is no creature. The committed placeholder bundle draws nothing, a
+ * replay of a project can be exported before the scene has built its first frame, and an
+ * export that refused over a missing mascot would be an export that refused.
+ */
+export function drawCreature(
+  ctx: CanvasRenderingContext2D,
+  svg: SVGSVGElement,
+  map: { x: number; y: number; side: number },
+): void {
+  const layer = document.querySelector<HTMLElement>('[data-hub-mascot]')
+  const canvas = layer?.querySelector('canvas')
+  if (!layer || !canvas || canvas.width === 0 || canvas.height === 0) return
+  const [hubY, box] = layer.dataset.hubMascot!.split(' ').map(Number)
+  const view = (svg.getAttribute('viewBox') ?? '').split(/\s+/).map(Number)
+  if (view.length !== 4 || !view.every(Number.isFinite) || view[2] <= 0) return
+  // The viewBox is square and the copy is drawn into a square, so one scale serves both
+  // axes — the same arithmetic the fit effect does against the pane.
+  const s = map.side / view[2]
+  const cx = map.x + (0 - view[0]) * s
+  const cy = map.y + (hubY - view[1]) * s
+
+  // **Where the canvas sits inside its layer, asked rather than assumed.** The layer is
+  // the hub's box; the creature is lifted inside it by `MascotFigure`'s `lift`, a
+  // per-blueprint offset that stands a creature shorter than its frame off the floor — so
+  // the box's middle is not the creature's, and centring on the box alone drew it low and
+  // is what the first exports came out with. The lift is a transform on the canvas, in the
+  // layer's own pixels, and reading it back as a ratio of the two boxes is the one form of
+  // it that survives both the pane's scale and the frame's: whatever placement the window
+  // arrived at, the frame reproduces it.
+  const boxRect = layer.getBoundingClientRect()
+  const onGlass = canvas.getBoundingClientRect()
+  if (boxRect.width <= 0 || boxRect.height <= 0) return
+  const drawn = box * s * (onGlass.width / boxRect.width)
+  const dx =
+    ((onGlass.x + onGlass.width / 2 - (boxRect.x + boxRect.width / 2)) / boxRect.width) * box * s
+  const dy =
+    ((onGlass.y + onGlass.height / 2 - (boxRect.y + boxRect.height / 2)) / boxRect.height) *
+    box *
+    s
+
+  // `preserveDrawingBuffer` is on in the bundle, which is what makes reading the canvas
+  // back outside its own animation frame give the picture rather than a cleared buffer.
+  ctx.drawImage(canvas, cx + dx - drawn / 2, cy + dy - drawn / 2, drawn, drawn)
+}
+
 /** Where the playhead stands in the commits being exported. */
 interface Playhead {
   /** Position in the list, `-1` for the opening state that precedes it. */
@@ -750,7 +848,7 @@ const ENCODE_LIMIT = 30_000
  * settling, and neither the progress display nor the Stop button can reach a promise that
  * is still pending. A hang that reports itself is a bug somebody can fix; a hang that does
  * not is a feature people stop using. */
-function within<T>(work: Promise<T>, limit: number, whenNot: string): Promise<T> {
+export function within<T>(work: Promise<T>, limit: number, whenNot: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>
   return Promise.race([
     work.finally(() => clearTimeout(timer)),
@@ -764,7 +862,7 @@ function within<T>(work: Promise<T>, limit: number, whenNot: string): Promise<T>
  *
  *  Two frames rather than one: the first is the one the state change is rendered into, and
  *  reading in it can catch the tree the commit is replacing. */
-function settle(): Promise<void> {
+export function settle(): Promise<void> {
   return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
 }
 

@@ -1,22 +1,15 @@
 import {
-  CALLER_KEY,
-  KIND_FILL,
-  REACH_KEY,
   MODE_HINT,
   MODE_LABEL,
   OTHER_LABEL,
-  NAMED,
-  shared,
-  rampEnds,
   FAMILIES,
   VIEWS_DEFAULT,
   type Views,
-  rampOf,
-  slotColor,
   modeToken,
   type ColorMode,
   paintsFromReadings,
 } from '../lib/colorMode'
+import { lensKey } from '../lib/lensKey'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { heatColor, type Ramp } from '../lib/api'
 import { inkOn } from '../lib/ink'
@@ -87,6 +80,7 @@ function Legend({
   views,
   categories,
   ranks,
+  uncommitted,
   edge: card,
 }: {
   mode: ColorMode
@@ -104,6 +98,8 @@ function Legend({
    *  opened with Hisham Muhammad against a blue dot and a mauve map. Same value, two answers,
    *  and the legend is the one a reader trusts. */
   ranks?: Map<string, number>
+  /** The picture holds uncommitted lines — see `lensKey`. */
+  uncommitted: boolean
   /** The map's edge, in the CARD's coordinates — see `useMapEdge`. Measured once by the card,
    *  which needs it for its own mask, and offset here by the padding the two are apart. */
   edge: { r: number; cx: number; cy: number } | null
@@ -130,27 +126,22 @@ function Legend({
   // `unplaced` is listed rather than left to the unread swatch, because here it does not mean
   // "nobody has read it" — it means nothing could say what this file IS, which on a language
   // with no way to tell a test apart is a different sentence and the honest one.
-  if (mode === 'composition') {
-    // Colours off `KIND_FILL`, never restated here: this list held its own copy of the five
-    // slots, which is a second hand-mixed set beside the one the map spends and a second
-    // thing to get wrong every time either moves. Only the ORDER is this key's own.
-    const present: [string, string][] = [
-      [KIND_FILL.vendored, 'vendored'],
-      [KIND_FILL.generated, 'generated'],
-      [KIND_FILL.test, 'test'],
-      [KIND_FILL.header, 'header'],
-      [KIND_FILL.code, 'code'],
-      ['var(--unanalyzed)', 'unplaced'],
-    ]
-    // **Only what is on the map.** A swatch for a colour nothing on screen is wearing is the
-    // same failure a merged rim band makes — the key promises a thing to look for and there
-    // is nothing to find. `legendFor` says which kinds a repo actually holds; the ORDER stays
-    // fixed, because a key whose rows move between repos is one nobody can learn.
-    const kinds = present.filter(([, label]) => categories.includes(label))
-    if (kinds.length === 0) return null
+  //
+  // **What the key holds is `lensKey`'s, and only the drawing is this file's.** The movie and the
+  // report key from the same answer; this component used to be the only correct copy of the
+  // rules below, and the movie's own copy had drifted from it.
+  const key = lensKey(mode, views, categories, ranks, uncommitted)
+  if (!key) return null
+  if (key.kind === 'swatches' && mode === 'composition') {
+    // Colours off `KIND_FILL`, never restated: a second hand-mixed set beside the one the map
+    // spends is a second thing to get wrong every time either moves. **Only what is on the
+    // map**, in a fixed order — a swatch for a colour nothing on screen is wearing is the same
+    // failure a merged rim band makes, and a key whose rows move between repos is one nobody
+    // can learn. Both live in `lensKey`.
+    const kinds = key.entries
     return (
       <div className={`${RIBBON} flex flex-wrap items-center gap-x-3 gap-y-1`}>
-        {kinds.map(([fill, label]) => (
+        {kinds.map(({ fill, label }) => (
           <span key={label} className="inline-flex items-center gap-1.5">
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
@@ -163,7 +154,7 @@ function Legend({
     )
   }
 
-  if (categories.length > 0) {
+  if (key.kind === 'cast') {
     // **In slot order, not in this frame's order.** With a held rank map the two can differ —
     // a person who is second today may be the only author in the frame on screen — and a
     // legend sorted by anything else would hand the top swatch to whoever the frame happened
@@ -186,25 +177,9 @@ function Legend({
     // big repo the people past the cap have no rank at all, and on a repo still being blamed
     // nobody in an unblamed file does yet. `keyFor` has always used this constant for the movie
     // key, which is the same key one surface over.
-    const unranked = Number.MAX_SAFE_INTEGER
-    const named = categories
-      .filter((c) => (ranks?.get(c) ?? unranked) < NAMED)
-      .sort((a, b) => (ranks?.get(a) ?? unranked) - (ranks?.get(b) ?? unranked))
+    const named = key.entries
     /** Everyone the key does not name, split by whether the MAP is colouring them. */
-    const rest = categories
-      .filter((c) => (ranks?.get(c) ?? unranked) >= NAMED)
-      .reduce(
-        (acc, c) => {
-          const r = ranks?.get(c)
-          if (r === undefined) acc.neutral += 1
-          else {
-            acc.coloured += 1
-            if (shared(r)) acc.repeats = true
-          }
-          return acc
-        },
-        { coloured: 0, neutral: 0, repeats: false },
-      )
+    const rest = { coloured: key.coloured, neutral: key.neutral, repeats: key.repeats }
     return (
       // **Inline flow, not flex, and that is what makes the curve possible.** A flex
       // container lays its children out against its own box and ignores floats entirely, so
@@ -247,15 +222,15 @@ function Legend({
             because naming them would imply they are distinguishable on screen, and they are
             not. */}
         <span className={RIBBON}>
-        {named.map((c) => (
+        {named.map((e) => (
           // `whitespace-nowrap` so a name never breaks across the shape's edge — a wrapped
           // author is two half-names on two lines, which is worse than one short line.
-          <span key={c} className="mx-1 inline-flex items-center gap-1 whitespace-nowrap align-middle">
+          <span key={e.label} className="mx-1 inline-flex items-center gap-1 whitespace-nowrap align-middle">
             <span
               className="h-2 w-2 shrink-0 rounded-full"
-              style={{ background: slotColor(ranks?.get(c) ?? unranked) }}
+              style={{ background: e.fill }}
             />
-            <span className="text-[10px] text-[var(--muted-foreground)]">{c}</span>
+            <span className="text-[10px] text-[var(--muted-foreground)]">{e.label}</span>
           </span>
         ))}
         {/* **The tail is two different things and it used to be drawn as one.**
@@ -280,6 +255,12 @@ function Legend({
             </span>
           </span>
         )}
+        {key.uncommitted && (
+          <span className="mx-1 inline-flex items-center gap-1 whitespace-nowrap align-middle">
+            <span className="h-2 w-2 rounded-full" style={{ background: 'var(--unanalyzed)' }} />
+            <span className="text-[10px] text-[var(--muted-foreground)]">uncommitted lines</span>
+          </span>
+        )}
         </span>
       </div>
     )
@@ -291,7 +272,7 @@ function Legend({
   // nobody graded, and a two-ended label would ask the reader to find the middle of a set
   // with no middle. One filled bar in the color the map is actually using, named once.
 
-  if (mode === 'traps') {
+  if (key.kind === 'swatches' && mode === 'traps') {
     return (
       <div className={`${RIBBON} inline-flex items-center gap-2`}>
         {/* A square, the same shape as the stale and unread swatches below it — not the
@@ -312,10 +293,10 @@ function Legend({
   // implies four hundred shades over a picture holding four is a legend disagreeing with
   // what is beside it. The dim end is a finding as much as the bright one, which is why the
   // scale is labelled at both ends instead of only where the eye is drawn.
-  if (mode === 'callers') {
+  if (key.kind === 'swatches' && mode === 'callers') {
     return (
       <div className={`${RIBBON} inline-flex items-center gap-3`}>
-        {CALLER_KEY.map(([fill, label]) => (
+        {key.entries.map(({ fill, label }) => (
           <span key={label} className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
@@ -332,14 +313,10 @@ function Legend({
   // a swatch, unlike Traps where the ordinary case needs no key: here `no copy` and `too
   // small to compare` are different answers and the second is not a finding, so a reader
   // who saw only the purple could not tell a clean repo from an unmeasured one.
-  if (mode === 'clones') {
+  if (key.kind === 'swatches' && mode === 'clones') {
     return (
       <div className={`${RIBBON} inline-flex items-center gap-3`}>
-        {[
-          ['var(--clone)', 'a clone'],
-          ['var(--structure)', 'unique'],
-          ['var(--unanalyzed)', 'too small'],
-        ].map(([fill, label]) => (
+        {key.entries.map(({ fill, label }) => (
           <span key={label} className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
@@ -349,10 +326,10 @@ function Legend({
     )
   }
 
-  if (mode === 'reach') {
+  if (key.kind === 'swatches' && mode === 'reach') {
     return (
       <div className={`${RIBBON} inline-flex items-center gap-3`}>
-        {REACH_KEY.map(([fill, label]) => (
+        {key.entries.map(({ fill, label }) => (
           <span key={label} className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ background: fill }} />
             <span className="text-[10px] text-[var(--muted-foreground)]">{label}</span>
@@ -362,8 +339,9 @@ function Legend({
     )
   }
 
-  const [lo, hi] = rampEnds(mode, views) ?? ['', '']
-  const ramp: Ramp = rampOf(mode)
+  if (key.kind !== 'ramp') return null
+  const [lo, hi] = key.ends
+  const ramp: Ramp = key.ramp
   // Spans the widget rather than sitting in a fixed 96px well in the middle of it. The
   // ramp is the scale for the control directly above, and a short bar floating inside a
   // wider row read as two unrelated things stacked rather than one thing explaining the
@@ -684,6 +662,7 @@ export function ColorLegend({
   views = VIEWS_DEFAULT,
   categories,
   ranks,
+  uncommitted = false,
   stale = 0,
   unread = 0,
   at,
@@ -694,6 +673,8 @@ export function ColorLegend({
   categories: string[]
   /** The slot map the wedges use — see `Legend`. */
   ranks?: Map<string, number>
+  /** The picture holds uncommitted lines — see `lensKey`. */
+  uncommitted?: boolean
   /** Wedges drawn with the stale hatch. Each entry only appears when there are some —
    *  a legend entry for a texture that is nowhere on screen teaches the reader to
    *  ignore the legend. */
@@ -710,7 +691,7 @@ export function ColorLegend({
   const box = useRef<HTMLDivElement>(null)
   // Re-measured when the lens changes or the cast does, which are the two things that change
   // the key's shape — and never for its own reflow, which is the loop.
-  const edge = useMapEdge(box, `${mode}:${categories.length}:${stale}:${unread}:${at}`)
+  const edge = useMapEdge(box, `${mode}:${categories.length}:${uncommitted}:${stale}:${unread}:${at}`)
   return (
     // The width the curve needs room to work in: a key that shrinks to its longest line has
     // no slack for the shape to take back, so the lines it shortens have nowhere to go.
@@ -727,7 +708,14 @@ export function ColorLegend({
     // Fixed width so the shape has slack to take back: a key that shrinks to its longest line
     // is already as short as it can be, and shortening one line just moves a name to the next.
     <div ref={box} className="max-w-[420px] text-right">
-      <Legend mode={mode} views={views} categories={categories} ranks={ranks} edge={edge} />
+      <Legend
+        mode={mode}
+        views={views}
+        categories={categories}
+        ranks={ranks}
+        uncommitted={uncommitted}
+        edge={edge}
+      />
       {paintsFromReadings(mode) && (stale > 0 || unread > 0) && (
         /* The two things the ramp above cannot explain: a wedge can be hatched, or it can
            be uncolored. Both are absences of a reading rather than positions on the

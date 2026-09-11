@@ -68,6 +68,9 @@ export interface FileZoomProps {
    *  `t >= 1` test showed one frame of labels before they disappeared — a flicker on every
    *  close. The caller knows which of the two it is rendering; nothing else does. */
   settled?: boolean
+  /** Put each cell's node id and arc on its path — see `Sunburst`'s `tagNodes`. A report zooms
+   *  a group of findings into one file, and marks them on these cells. */
+  tagNodes?: boolean
 }
 
 /** The fan a wedge opens into. Exported so the caller can fit its viewBox to where the
@@ -99,6 +102,7 @@ export function FileZoom({
   onDrill,
   onHover,
   settled = t >= 1,
+  tagNodes = false,
 }: FileZoomProps) {
   const dest = useMemo(() => fanOf(from, paneAspect), [from, paneAspect])
 
@@ -146,6 +150,8 @@ export function FileZoom({
         return (
           <g key={c.node.id}>
             <path
+              data-node={tagNodes ? c.node.id : undefined}
+              data-arc={tagNodes ? `${g.a0} ${g.a1} ${g.r0} ${g.r1}` : undefined}
               // Same marker as the ring — a file opened out of its wedge is the same
               // functions, so a trap cannot stop pulsing because you drilled into it.
               className={clsx(

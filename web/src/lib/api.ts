@@ -915,6 +915,21 @@ export async function saveMovie(bytes: Uint8Array, suggested: string): Promise<s
   return path
 }
 
+/** Ask where an exported report should go, and write it there — `saveMovie`'s twin, with the
+ *  same `null` for a dismissed dialog and the same base64 for the same reason. */
+export async function savePdf(bytes: Uint8Array, suggested: string): Promise<string | null> {
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const path = await save({
+    defaultPath: suggested,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    title: 'Save the report',
+  })
+  if (typeof path !== 'string') return null
+  const { encoded } = await import('./movie')
+  await invoke('save_pdf', { path, data: encoded(bytes) })
+  return path
+}
+
 /** Put `sanity` on the PATH — a symlink into /usr/local/bin or ~/.local/bin.
  *
  *  Only needed for a direct download; the Homebrew cask links it for you. Resolves to
@@ -1264,6 +1279,17 @@ export function listProjects(): Promise<ProjectList> {
  *  for the caption on an exported movie. See `repo_remote`. */
 export function repoRemote(path: string): Promise<string | null> {
   return invoke<string | null>('repo_remote', { path }).catch(() => null)
+}
+
+/** Which commit the working tree is at — see `repo_head` in Rust. `dirty` is null where git
+ *  would not say, which is not the same as clean. */
+export interface RepoHead {
+  sha: string
+  dirty: boolean | null
+}
+
+export function repoHead(path: string): Promise<RepoHead | null> {
+  return invoke<RepoHead | null>('repo_head', { path }).catch(() => null)
 }
 
 /** The text of one file in the open repo. Rust checks the path stays inside the repo —
@@ -2684,6 +2710,12 @@ export function onSetTheme(cb: (theme: string) => void): () => void {
 /** The app menu's File → Add Project… (⌘O). */
 export function onOpenProject(cb: () => void): () => void {
   const un = listen('open-project', () => cb())
+  return () => void un.then((f) => f())
+}
+
+/** The app menu's File → Export Report as PDF… (⇧⌘E). */
+export function onExportReport(cb: () => void): () => void {
+  const un = listen('export-report', () => cb())
   return () => void un.then((f) => f())
 }
 

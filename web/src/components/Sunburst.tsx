@@ -417,7 +417,7 @@ const SECTOR = 1e4
  *  mechanism — and short of hiding the picture, because the answer to "where is it" is
  *  useless without "what is it near". At 0.62 the rings are still readable as shape and
  *  colour underneath; the selected wedge is simply the one that has not been touched. */
-const DIM = 0.62
+export const DIM = 0.62
 
 /** How wide a directory's reading is drawn on its own rim, in pixels.
  *
@@ -897,6 +897,7 @@ function SunburstView({
   rimShare = 0,
   spacing = SPACING_DEFAULT,
   markers = true,
+  tagNodes = false,
   onWantRings,
 }: {
   root: Node
@@ -1012,6 +1013,13 @@ function SunburstView({
    *  and a clone still wears its colour. Those are the reading; these are the pointer to
    *  where the reading is. */
   markers?: boolean
+  /** Put each wedge's node id and arc on its path, as `data-node` and `data-arc`.
+   *
+   *  **For a report, which has to point at wedges it did not draw.** The findings page marks
+   *  where each finding is on a copy of this picture, and the one thing that knows where a node
+   *  landed is the path that was drawn for it. Off otherwise: thousands of attribute strings
+   *  per render for a question only an export asks. */
+  tagNodes?: boolean
   /** Which files the map has somewhere to draw the insides of.
    *
    *  A file's ring of functions is fetched on demand, and the window decided which by a
@@ -2576,6 +2584,7 @@ function SunburstView({
               onSelect={onSelect}
               onDrill={onDrill}
               onHover={setHoverNode}
+              tagNodes={tagNodes}
             />
           )}
           {/* Arcs first, dots after, so a dot is never buried under the ring it belongs to. */}
@@ -2665,6 +2674,8 @@ function SunburstView({
                     )}
                     <path
                       className="wedge"
+                      data-node={tagNodes ? w.node.id : undefined}
+                      data-arc={tagNodes ? `${a0} ${a1} ${r0} ${r1}` : undefined}
                       // A file occupies exactly ONE band, like a directory. Its functions are
                       // inset inside that band, so the file's own fill shows as a rim around
                       // them — the containment is drawn, not implied by adjacency.
@@ -2831,6 +2842,10 @@ function SunburstView({
                   return (
                     <g key={slot.node.id}>
                       <path
+                        data-node={tagNodes ? slot.node.id : undefined}
+                        data-arc={
+                          tagNodes ? `${slot.a0} ${slot.a1} ${slot.r0} ${slot.r1}` : undefined
+                        }
                         // The pulse is a CLASS, not a prop: `opacity` animated in CSS is
                         // compositor-only, so hundreds of these cost nothing per frame — which is
                         // the bar anything decorative has to clear in this app.

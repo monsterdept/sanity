@@ -4,15 +4,20 @@ import type {
   FieldView,
   Grammar,
   Hit,
-  Finding,
   FindingGroup,
   RuleEdit,
   RuleView,
-  Say,
   Spread,
   Verdict,
 } from '../lib/api'
 import { MODE_LABEL, modeToken, type ColorMode } from '../lib/colorMode'
+import {
+  blockedByNeed,
+  introductions,
+  mergeFindings,
+  rowsCapped,
+  setAsideCount,
+} from '../lib/findings'
 import { middleTruncate, monoAdvance } from '../lib/label'
 import { Tabs } from './Tabs'
 
@@ -50,7 +55,7 @@ function share(n: number, of: number): string {
  *
  *  `MODE_LABEL` rather than a table here, for the same reason `lensColor` defers to
  *  `modeToken`: one name per lens, in one place. */
-function lensName(id: string): string {
+export function lensName(id: string): string {
   return id === 'size' ? 'Size' : (MODE_LABEL[id as ColorMode] ?? id)
 }
 
@@ -69,7 +74,7 @@ function address(hit: Hit): string {
 }
 
 /** The directory part, which is what gets truncated when the row is too narrow. */
-function dirOf(path: string): string {
+export function dirOf(path: string): string {
   const cut = path.lastIndexOf('/')
   return cut === -1 ? '' : path.slice(0, cut + 1)
 }
@@ -112,14 +117,14 @@ const ADDRESS_PX = 15
  *  Separate from the function name so the two can carry different weight: on a function finding
  *  the file is still where-it-is, and the NAME is what the tile is about. Three tiers in all —
  *  directory, file, name — each a step nearer the subject. */
-function fileOf(hit: Hit): string {
+export function fileOf(hit: Hit): string {
   const cut = hit.path.lastIndexOf('/')
   const base = cut === -1 ? hit.path : hit.path.slice(cut + 1)
   return hit.kind === 'func' ? `${base}#` : base
 }
 
 /** The function, where there is one. Empty on a file finding, whose title is its filename. */
-function nameOf(hit: Hit): string {
+export function nameOf(hit: Hit): string {
   return hit.kind === 'func' ? hit.name : ''
 }
 
@@ -164,7 +169,7 @@ function fieldColor(id: string | null): string {
   return id === null ? 'var(--muted-foreground)' : lensColor(id)
 }
 
-function lensColor(id: string): string {
+export function lensColor(id: string): string {
   // **Membership checked, not assumed.** `modeToken` walks a `Record<ColorMode, …>`, so an id
   // the frontend has never heard of comes back as `--undefined-3` — a var that resolves to
   // nothing, drawing an invisible swatch rather than failing. That is the quiet-wrong-colour
@@ -767,66 +772,12 @@ export function Findings({
     onClose()
   }
 
-  /** One tile per SUBJECT, not per finding.
-   *
-   *  **A function that three rules flagged is one thing to look at, not three.** Grouped by
-   *  rule, `App.tsx` appeared under Giant function, Tangled for its size and Hard to read —
-   *  the same body, three rows, and a reader counting the work sees three jobs. Merged, the
-   *  rules become what the tile SAYS about it, which is also the more useful sentence: this
-   *  is long, and knotty, and nobody could read it.
-   *
-   *  Ranked by lines, which is the axis the whole map is already sized by. Not by how many
-   *  rules fired — two rules is not twice as bad, and a count of coincidences is a severity
-   *  claim the instrument cannot support. */
-  const items = (() => {
-    if (!groups) return []
-    const by = new Map<
-      string,
-      { finding: Finding; rules: FindingGroup[]; says: Say[][]; flagged: boolean }
-    >()
-    for (const g of groups) {
-      if (g.blocked) continue
-      for (const l of g.hits) {
-        const at = by.get(l.key)
-        if (at) {
-          at.rules.push(g)
-          at.says.push(l.says)
-          // Flagged under ANY of its rules: the tile is the thing somebody committed to.
-          at.flagged = at.flagged || l.flagged
-        } else by.set(l.key, { finding: l, rules: [g], says: [l.says], flagged: l.flagged })
-      }
-    }
-    // Widest, then key — the same order the backend ranks each rule by, applied again here
-    // because merging by subject shuffles them back together. **A flag does not move a tile.**
-    // Flagging used to sort the tile to the front, so the row you clicked jumped out from under
-    // the pointer and the list you were reading down reordered itself around it; a flag is a
-    // note about what you mean to do, not a claim that this body is wider than the ones above.
-    return [...by.values()].sort(
-      (a, b) =>
-        b.finding.hit.loc - a.finding.hit.loc || a.finding.key.localeCompare(b.finding.key),
-    )
-  })()
+  /** One tile per SUBJECT, not per finding — see `mergeFindings`, which the report numbers
+   *  its list from too. */
+  const items = mergeFindings(groups)
 
-  /** The tile each rule says its background under — see `FindingGroup.background`.
-   *
-   *  **Computed over the list rather than remembered while drawing it.** A `Set` mutated
-   *  inside the render would make the paragraph a function of how many times React chose to
-   *  render, which is not something a reader can see and not something that stays true under
-   *  a StrictMode double pass. Built here, the answer is the same however often the list is
-   *  drawn: the FIRST tile in the order already on screen, which is the one somebody reads
-   *  first.
-   *
-   *  Keyed by rule id and not by title — a title is prose and gets rewritten, which is the
-   *  same reason a dismissal is not filed under one. */
-  const introduces = (() => {
-    const at = new Map<string, string>()
-    for (const { finding, rules } of items) {
-      for (const r of rules) {
-        if (r.background && !at.has(r.id)) at.set(r.id, finding.key)
-      }
-    }
-    return at
-  })()
+  /** The tile each rule says its background under — see `introductions`. */
+  const introduces = introductions(items)
 
   /** What could not be asked, and what has been dealt with — the two things a worklist must
    *  say out loud rather than by being short.
@@ -843,41 +794,12 @@ export function Findings({
    */
   const ignored = (archive ?? []).filter((d) => d.verdict !== 'flagged')
 
-  /** What could not be asked, one line per REASON rather than one per rule.
-   *
-   *  **Seven rules each ending in the same six words is one fact printed seven times.** An
-   *  unread repo blocks every rule with a reading clause in it, and the footer listed them:
-   *  seven rows whose right-hand halves were identical, which reads as seven problems and
-   *  buries the count that matters — how much of the catalog is dark, and what single thing
-   *  would light it. This is the panel's version of the rule the map already follows: a
-   *  repo-level answer is said once, not repeated on every segment.
-   *
-   *  Folded by the FIX rather than by the sentence, because the fix is the decision: an
-   *  untraced repo blocks Blame on one sentence and Churn on another, and *press Trace* is one
-   *  job either way. The sentences and the rule names hang on the row's tooltip, where
-   *  somebody who wants to know which seven, and why each, can find out.
-   *
-   *  Counted against the whole catalog, because `7 of 19` is the sentence with a decision in
-   *  it and a bare `7` is not. */
-  const blocked = (() => {
-    const by = new Map<string, { rules: string[]; whys: Set<string> }>()
-    for (const g of groups ?? []) {
-      if (!g.blocked) continue
-      const at = by.get(g.blocked.need)
-      if (at) {
-        at.rules.push(g.title)
-        at.whys.add(g.blocked.why)
-      } else by.set(g.blocked.need, { rules: [g.title], whys: new Set([g.blocked.why]) })
-    }
-    return [...by.entries()]
-      .map(([need, v]) => ({ need, rules: v.rules, whys: [...v.whys] }))
-      .sort((a, b) => b.rules.length - a.rules.length || a.need.localeCompare(b.need))
-  })()
-  const setAside = groups?.reduce((n, g) => n + g.dismissed, 0) ?? 0
-  /** True where a group is holding back rows the wire did not carry — see `PER_GROUP`. With
-   *  calibrated thresholds this should not happen; if it does, the tile count is short and
-   *  says so rather than quietly under-reporting the work. */
-  const capped = groups?.some((g) => g.total > g.hits.length) ?? false
+  /** What could not be asked, one line per REASON rather than one per rule — see
+   *  `blockedByNeed`. */
+  const blocked = blockedByNeed(groups)
+  const setAside = setAsideCount(groups)
+  /** Rows the wire did not carry — see `rowsCapped`. */
+  const capped = rowsCapped(groups)
 
   return (
     <>

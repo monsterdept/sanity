@@ -344,7 +344,8 @@ second metric, and the line between those is the whole design.
   prefers quantizer-based rate control) was tried first on the same evidence and did NOT fix
   it. It is kept because the quantizer path is the newer and thinner one, but it is not the
   cause. The stage display is what turned "it froze" into a line naming the encoder.
-  The MP4 is the one thing this app writes. `save_movie` takes a path from a native save
-  dialog, refuses anything that is not `.mp4`, and the bytes cross the IPC base64 because the
-  alternative shape for a byte array is a JSON array of numbers.
+  The MP4 is one of the two things the window writes — the other is a report, see
+  [report.md](report.md). `save_movie` takes a path from a native save dialog, refuses anything
+  that is not `.mp4`, and the bytes cross the IPC base64 because the alternative shape for a
+  byte array is a JSON array of numbers.
 
