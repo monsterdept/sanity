@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1259 of 1259 read · 232 surprising
+1261 of 1262 read · 232 surprising
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -24,10 +24,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `main`
-- spec 2 · read at `4b8ff0908edc` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Standard Tauri build script: calls tauri_build::build() and nothing else.
-- found: Calls tauri_build::build(), the standard Tauri build script boilerplate.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `6c8608513d4e` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:19:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A minimal Tauri build script that just calls tauri_build::build() to handle standard build-time codegen (resources, icons, context generation) with no custom logic.
+- found: Calls tauri_build::build() as expected, but also adds an explicit cargo:rerun-if-changed=icons line, with a comment explaining that tauri-build's own rerun-if-changed lines suppress Cargo's default full-rebuild-on-any-change behavior, so icon changes alone wouldn't trigger a rebuild without this.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## src-tauri/src/agentapi.rs
 
@@ -2703,11 +2703,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/commands.rs
 
 ### the file itself
-- spec 3 · served in 4 parts · read at `dd252deb01d4` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:54:53Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This file is the full Tauri `#[tauri::command]` surface exposed to the frontend for a desktop code-intelligence app — thin async wrapper functions that the UI invokes directly instead of talking to a server or sidecar process. Judging by the peer names, it spans several domains: repo scanning and language detection, git history/commit analysis, execution tracing (start/stop/explain trace), AI agent reports/activity, project lifecycle (add/select/reorder/forget/reset), findings and rules (pin/save/delete/decide), CLI installation/linking, and misc utilities (movies, curves, harnesses, checks). Each function likely just validates input, delegates to logic living in other modules, and shapes the result/error for the frontend — so the file is broad but shallow, essentially a manifest of app capabilities rather than where the real logic lives.
-- found: The file is indeed the Tauri command surface spanning the domains I guessed (scan, history, trace, agent reports, projects, findings/rules, CLI install, misc), but it is far from a shallow manifest of delegated calls. Many commands carry substantial orchestration logic inline — progress/event emission, careful lock scoping around shared state, path canonicalization security checks, caching/invalidation decisions, and long prose comments explaining design history and rejected alternatives (e.g. the CANCEL global, the restore/pending list dance in scan_repo, the removed MCP-client helpers, the add_project .git requirement being dropped). It reads more like a living design document with code attached than a thin dispatch layer.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- note: The header doc says almost nothing about the actual breadth (10+ domains, ~1300 lines) or that most commands carry meaningful logic and extensive rationale comments rather than being thin wrappers.
+- spec 3 · served in 4 parts · read at `a3af86b36289` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:21:37Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: This file is the entire Tauri #[command] surface — the RPC boundary between the Rust backend and the frontend, since there's no server/sidecar. Given the huge peer list (scan_repo, history_*, agent_reports, project management, exports like save_movie/save_pdf, CLI install, trace/explain commands, rule/finding persistence), it's a large flat collection of thin command handlers that each delegate to real logic elsewhere (scanning, history, tracing modules) and marshal results back to the frontend — essentially a big dispatch/glue file rather than where the actual algorithms live.
+- found: The full Tauri #[command] RPC surface for the app (scanning, history/replay, tracing, agent reports, findings/rules CRUD, decisions archive, function links/forks/sources, commit detail via git shelling, CLI install/status, project add/forget/reset/reorder, movie/PDF export writing, and check-run start/stop). Many commands do delegate to library modules (scan, history, trace, findings, blame), but a substantial share contain real inline logic themselves — shelling out to git and parsing its output (commit_detail, repo_remote, repo_head, slug_of), computing staleness/expiry on reports, counting nested repos in add_project, and CLI symlink management — so it's not purely thin glue.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `languages`
 - spec 3 · read at `aa465757b9b8` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:53:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -2747,6 +2746,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Shells out to `git -C <path> remote get-url origin`, falling back to the first listed remote if origin doesn't exist; returns None if git fails or there's no remote. Delegates the actual owner/name extraction from the URL (scp-form or https) to a separate `slug_of` helper rather than parsing inline.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: URL-shape parsing lives in the peer `slug_of`, not in this function — I'd assumed it was inline here.
+
+### `repo_head`
+- spec 3 · read at `372ed4f534bd` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:21:42Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Runs bare `git` subprocess commands (rev-parse HEAD or similar, plus a status/diff check for dirtiness) in `path`, returning None if git isn't available or the commands fail rather than an error, and otherwise builds a RepoHead struct with the sha and a dirty boolean for use in the PDF report's cover/header.
+- found: Matches prediction closely: a local `git` closure runs `git -C <repo> <args>`, returning None on failure. Uses it for a short sha via rev-parse --short=10 HEAD (required, bails via `?` if empty/missing) and a dirty flag from `git status --porcelain` (optional, defaults to None if that command itself fails, distinguishing "don't know" from "clean").
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: dirty is Option<bool> not bool — it can be None (unknown) as well as Some(false) (clean), a three-state distinction not obvious from the signature alone.
 
 ### `slug_of`
 - spec 3 · read at `460d4258690f` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:21:41Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3041,9 +3047,16 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `save_movie`
-- spec 3 · read at `523d3814ebaa` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:54:23Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Validates that `path` ends with `.mp4` (returning an Err string if not, to avoid overwriting an unrelated file), decodes `data` from base64 into bytes, and writes those bytes to `path` via std::fs::write, mapping any IO/decode error into the Err(String) variant.
-- found: Checks the path's extension is "mp4" (case-insensitive), else returns an Err. Decodes `data` as standard base64 into bytes, returning a descriptive Err on failure, then writes the bytes to the path via std::fs::write, mapping IO errors to a descriptive Err string.
+- spec 3 · read at `a76e42e9650b` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:20:12Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Decodes the base64 `data` string into raw bytes, then delegates to write_export(path, bytes, "mp4") which checks the path ends in .mp4 (refusing otherwise) and writes the bytes to that path, returning Result<(), String> for IPC error propagation.
+- found: Thin one-line wrapper delegating to write_export(&path, &data, "mp4", "movie") — the base64 decode and extension check happen inside write_export, not here, and there's a fourth "movie" label argument (likely for error messages) I didn't predict.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: write_export takes a kind label ("movie") in addition to the extension, presumably for error messages — not visible from this function alone.
+
+### `write_export`
+- spec 3 · read at `d3b2304c8733` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:24:18Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Validates that `path`'s file extension matches the given `ext` parameter (rejecting otherwise, likely returning an Err string mentioning `what`), then base64-decodes `data` and writes the raw bytes to `path`, returning Ok(()) or an error string on decode/write failure.
+- found: Extracts the path's extension, rejects if it doesn't match `ext`, base64-decodes `data`, and writes the bytes to disk, with error messages customized using `what`.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `read_curve`
@@ -5342,18 +5355,19 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: I imagined a loop over a collection; it's actually three fixed named fields, implying ThemeMenu has exactly three hardcoded theme options rather than an arbitrary list.
 
-### `build_menu`
-- spec 3 · read at `aaa0ebec0623` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Constructs the app's menu bar using Tauri's predefined menu items for standard behaviors (About, Hide/Hide Others, Quit, Edit menu's copy/paste, Window menu's ⌘W close), plus a custom submenu (likely under a "View" or app menu) holding a three-way theme toggle (Light/Dark/System) as checkable menu items. Returns the built Menu along with a ThemeMenu struct that holds handles to those three theme items so their checked state can be updated later when the theme changes.
-- found: Builds Sanity app menu (about/install-cli/hide/quit), File menu with "Add Project…", Edit menu with predefined clipboard items, View menu with an Appearance submenu of three checkable theme items (light/dark/system, system checked by default), and a Window menu; returns the assembled Menu plus a ThemeMenu holding the three checkbox item handles.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+### `build_menu` — QUIRKY
+- spec 3 · read at `43cb5fde391d` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:20:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Constructs the app's native menu bar manually (since Tauri can't extend the stock menu), including standard predefined items (About, Hide, Quit, Edit undo/copy/paste, Window with ⌘W), plus one custom three-way appearance/theme submenu (light/dark/system) behind a keystroke. Returns the built Menu along with a ThemeMenu struct wrapping the three theme items so their checked state can be updated later.
+- found: Builds the whole native menu manually: an app submenu (About/install-cli/Hide/Quit), a File menu (Add Project…, Export Report as PDF…), an Edit menu (standard clipboard/undo items, needed or typing breaks), a View menu with an Appearance submenu of three CheckMenuItems (light/dark/system) returned as ThemeMenu, and a Window menu (minimize/close). I predicted the theme submenu and predefined items correctly but missed the File menu (open-project, export-report) and the install-cli item entirely, and wrongly guessed the appearance menu sat behind a keystroke.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: The doc comment's history (settings panel emptying out, Ollama removal, rm -rf .sanity) explains why the menu looks the way it does but says nothing about the File menu items, which make up half the function.
 
-### `run` — QUIRKY — TANGLED
-- spec 3 · read at `b8d40ea23915` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:33:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the Tauri application entry point: it builds a tauri::Builder, registers plugins, constructs the app menu (via build_menu) and main window (via build_window), wires up menu event handlers (e.g. ThemeMenu::select for switching themes), registers the set of #[tauri::command] IPC handlers exposed to the frontend for the scan pipeline (scan/parse/heuristic/surprise/churn/model), and finally calls .run() to start the event loop, panicking on failure.
-- found: Builds the Tauri app: sets up shared agent-API state, spawns the window, warms the harness, sweeps stale report slots in a background thread, builds the macOS menu and wires theme/open-project/install-cli menu events (emitted to webviews rather than handled directly), restores the previously-open project with scan-shape/scan-progress emitters, starts the loopback agent API server on an async task, registers a huge list of IPC commands, and on RunEvent::Exit stops all agent runs and releases the endpoint claim file before the backend thread dies with the process.
-- predicted: some · documented: none · derivable: no · legible: some · trap: no
-- note: Docs given were file-level pipeline overview, not about this function specifically.
+### `run` — TANGLED
+- spec 3 · read at `641848d59e5f` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:21:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The Tauri application entry point: builds a tauri::Builder, registers plugins (dialog, etc.), sets up managed application state, registers the large invoke_handler list of commands matching all the IPC functions seen in the frontend's api.ts (scan_repo, project_report, save_rule, agent_reports, etc.), builds the app menu and window via build_menu/build_window, wires menu event callbacks like ThemeMenu::select, and finally calls .run(...) to start the event loop.
+- found: Got the builder/invoke_handler/menu/run-loop shape right, but missed a lot: single-instance plugin registration, spawning a background thread to sweep stale slots, restoring the previously-open project with shape/progress emitters, warming the harness, spawning an async loopback MCP/agent API server, and — on RunEvent::Exit — carefully stopping all agent runs before releasing the endpoint claim file so external readers see a coherent dead-vs-retry state rather than a stale live endpoint.
+- predicted: most · documented: none · derivable: no · legible: some · trap: no
+- note: The doc comment shown at fetch time was the whole-file module header, not a doc on run() itself — run() has no doc comment of its own.
 
 ## src-tauri/src/links.rs
 

@@ -57,6 +57,16 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
     so where it holds fewer than the repo has, the table says how many it could name rather than
     passing a sample off as the top. Blame and Language have no Table 2; the breakdown is already
     the list.
+  - **No lens section runs past two pages**, its figure page and one more. When a section would,
+    the report gives way in a fixed order and keeps the first layout that fits:
+    1. Table 2 down to five rows.
+    2. The essay's type down to 8.5pt, then 8pt.
+    3. Table 2 down to three rows.
+    4. A cast's named rows down to four. Its count row keeps the total whole.
+    5. Table 2 left out.
+    6. Table 1 left out.
+    The essay is never cut, because it explains the figure. Traps start from forty rows and still
+    say how many they leave out.
   - **The essay's last page is balanced into even columns first.** A table goes under both
     columns, and an unbalanced last page is one full column beside a few lines, so the table
     started below the full one and the short one's half page stayed empty, which is the space the

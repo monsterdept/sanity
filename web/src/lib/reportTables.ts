@@ -56,8 +56,17 @@ export interface TableContext {
 
 /** Rows in an examples table. Ten is a list somebody reads; a trap is listed up to `TRAPS_MAX`,
  *  because every one of them is a thing somebody has to know. */
-const TOP = 10
-const TRAPS_MAX = 40
+export const TOP = 10
+export const TRAPS_MAX = 40
+/** Names a cast's breakdown lists before counting the rest. */
+export const FULL_CAST = 12
+
+/** How many rows the tables may spend — narrowed by `report.ts` when a lens section would
+ *  otherwise run past its two pages. `examples: 0` leaves Table 2 out. */
+export interface TableLimits {
+  cast: number
+  examples: number
+}
 
 const n = (v: number) => v.toLocaleString()
 const fn = (f: Node): Cell => ({ text: `${f.path}#${f.name}`, mono: true })
@@ -108,14 +117,21 @@ function ranked<T>(xs: T[], by: (t: T) => number, tie: (t: T) => number): T[] {
 }
 
 /** The tables for one lens, in the order they are printed. Empty tables are left out. */
-export function tablesFor(m: ColorMode, ctx: TableContext): Table[] {
+export function tablesFor(
+  m: ColorMode,
+  ctx: TableContext,
+  limits: TableLimits = { cast: FULL_CAST, examples: TOP },
+): Table[] {
   const w = walk(ctx.root)
-  return [breakdown(m, ctx, w), examples(m, ctx, w)].filter((t): t is Table => t !== null && t.rows.length > 0)
+  const top = Math.min(limits.examples, m === 'traps' ? TRAPS_MAX : TOP)
+  return [breakdown(m, ctx, w, limits.cast), top > 0 ? examples(m, ctx, w, top) : null].filter(
+    (t): t is Table => t !== null && t.rows.length > 0,
+  )
 }
 
 /* ── Table 1: the breakdown ───────────────────────────────────────────── */
 
-function breakdown(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
+function breakdown(m: ColorMode, ctx: TableContext, w: Walked, castRows: number): Table | null {
   const rows = sortBuckets(
     ctx.buckets.filter((b) => b.lines > 0),
     m,
@@ -124,7 +140,7 @@ function breakdown(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
   if (total === 0) return null
   const cast = m === 'blame' || m === 'language'
   // A cast is named up to what a table reads comfortably and counted after that — the key's rule.
-  const shown = cast ? rows.slice(0, 12) : rows
+  const shown = cast ? rows.slice(0, castRows) : rows
   const rest = rows.slice(shown.length)
   const files = m === 'language' ? filesByLanguage(w) : null
   const what = m === 'blame' ? 'author' : m === 'language' ? 'language' : 'band'
@@ -168,20 +184,20 @@ function filesByLanguage(w: Walked): Map<string, number> {
 
 /* ── Table 2: examples ────────────────────────────────────────────────── */
 
-function examples(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
+function examples(m: ColorMode, ctx: TableContext, w: Walked, top: number): Table | null {
   switch (m) {
     case 'tangle':
-      return complexity(ctx, w)
+      return complexity(ctx, w, top)
     case 'composition':
-      return composition(w)
+      return composition(w, top)
     case 'clones':
-      return clones(w)
+      return clones(w, top)
     case 'callers': {
       const rows = ranked(
         w.funcs.filter((f) => (f.callers ?? 0) > 0),
         (f) => f.callers ?? 0,
         (f) => f.loc,
-      ).slice(0, TOP)
+      ).slice(0, top)
       return {
         caption: 'The most-called functions. A test that calls a function is a caller and not a dependent.',
         columns: [
@@ -199,7 +215,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
         w.funcs.filter((f) => (f.calls ?? 0) > 0),
         (f) => f.calls ?? 0,
         (f) => f.loc,
-      ).slice(0, TOP)
+      ).slice(0, top)
       return {
         caption: 'The functions that call the most others defined in the repository.',
         columns: [
@@ -218,7 +234,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
         w.funcs.filter((f) => days(f) != null),
         (f) => days(f) ?? 0,
         (f) => f.loc,
-      ).slice(0, TOP)
+      ).slice(0, top)
       return {
         caption: newest
           ? 'The functions no commit has touched for longest, by the age of their newest line.'
@@ -241,7 +257,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
         w.funcs.filter((f) => count(f) > 0),
         count,
         (f) => f.loc,
-      ).slice(0, TOP)
+      ).slice(0, top)
       return {
         caption: `The functions changed by the most commits in the last ${n(window ?? 0)} days.`,
         columns: [
@@ -254,7 +270,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
       }
     }
     case 'surprise':
-      return graded(w, (f) => f.agent?.predicted, HEAT_WORDS, 'The functions a reader least predicted', 'Surprise')
+      return graded(w, (f) => f.agent?.predicted, HEAT_WORDS, 'The functions a reader least predicted', 'Surprise', top)
     case 'legible':
       return graded(
         w,
@@ -262,18 +278,19 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked): Table | null {
         LEGIBLE_WORDS,
         'The functions a reader found hardest to follow',
         'Legibility',
+        top,
       )
     case 'docs':
-      return docs(w)
+      return docs(w, top)
     case 'traps':
-      return traps(w)
+      return traps(w, top)
     default:
       // Blame and Language: the breakdown is already the list of people and of languages.
       return null
   }
 }
 
-function complexity(ctx: TableContext, w: Walked): Table | null {
+function complexity(ctx: TableContext, w: Walked, top: number): Table | null {
   const weighted = ctx.views.tangle !== 'raw'
   const scored = w.funcs.flatMap((f) => {
     const cog = f.score?.cognitive
@@ -286,7 +303,7 @@ function complexity(ctx: TableContext, w: Walked): Table | null {
     scored,
     (r) => (weighted ? (r.ratio ?? -1) : r.cog),
     (r) => (weighted ? r.cog : r.f.loc),
-  ).slice(0, TOP)
+  ).slice(0, top)
   return {
     caption: weighted
       ? 'The functions that branch most for their size: decision points against the median for bodies of that length here.'
@@ -329,7 +346,7 @@ function kindsOf(file: Node): Map<string, { lines: number; count: number }> {
   return out
 }
 
-function composition(w: Walked): Table | null {
+function composition(w: Walked, top: number): Table | null {
   const others = ['test', 'generated', 'vendored', 'header'] as const
   const rows = w.files.flatMap((file) => {
     const kinds = kindsOf(file)
@@ -351,7 +368,7 @@ function composition(w: Walked): Table | null {
       (r) => r.lines,
       (r) => r.count,
     )
-      .slice(0, TOP)
+      .slice(0, top)
       .map((r) => [
         { text: r.file.path, mono: true },
         { text: r.kind, swatch: KIND_FILL[r.kind] },
@@ -361,7 +378,7 @@ function composition(w: Walked): Table | null {
   }
 }
 
-function clones(w: Walked): Table | null {
+function clones(w: Walked, top: number): Table | null {
   const groups = new Map<number, Node[]>()
   for (const f of w.funcs) {
     if (f.cloneGroup == null) continue
@@ -373,7 +390,7 @@ function clones(w: Walked): Table | null {
     [...groups.values()],
     (g) => g[0].cloneSize ?? g.length,
     (g) => g.reduce((t, f) => t + f.loc, 0),
-  ).slice(0, TOP)
+  ).slice(0, top)
   return {
     caption: 'The largest clone groups: functions whose bodies are identical once names and literals are set aside.',
     columns: [
@@ -404,6 +421,7 @@ function graded(
   words: Record<Grade, string>,
   caption: string,
   label: string,
+  top: number,
 ): Table | null {
   const order: Grade[] = ['none', 'some']
   const rows = w.funcs.flatMap((f) => {
@@ -422,13 +440,13 @@ function graded(
       (r) => (r.g === 'none' ? 1 : 0),
       (r) => r.f.loc,
     )
-      .slice(0, TOP)
+      .slice(0, top)
       .map((r) => [fn(r.f), { text: words[r.g] }, num(r.f.loc)]),
     note: namedNote(w),
   }
 }
 
-function docs(w: Walked): Table | null {
+function docs(w: Walked, top: number): Table | null {
   const rows = w.funcs.flatMap((f) => {
     if (f.agentStale || !f.agent?.documented) return []
     // Derivable documentation counts as none in every score, and the table follows the score.
@@ -447,20 +465,20 @@ function docs(w: Walked): Table | null {
       (r) => (r.g === 'none' ? 1 : 0),
       (r) => r.f.loc,
     )
-      .slice(0, TOP)
+      .slice(0, top)
       .map((r) => [fn(r.f), { text: r.derivable ? `${DOC_WORDS.none} (derivable)` : DOC_WORDS[r.g] }, num(r.f.loc)]),
     note: namedNote(w),
   }
 }
 
-function traps(w: Walked): Table | null {
+function traps(w: Walked, top: number): Table | null {
   const found = w.funcs.filter((f) => f.agent?.trap && !f.agent.trapDated && !f.agentStale)
   const rows = ranked(
     found,
     (f) => f.loc,
     () => 0,
   )
-  const shown = rows.slice(0, TRAPS_MAX)
+  const shown = rows.slice(0, top)
   const notes = [
     rows.length > shown.length ? `${n(rows.length - shown.length)} more traps are not listed.` : '',
     namedNote(w) ?? '',
