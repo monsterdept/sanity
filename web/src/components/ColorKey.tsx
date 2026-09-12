@@ -12,7 +12,7 @@ import {
 import { lensKey } from '../lib/lensKey'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { heatColor, type Ramp } from '../lib/api'
-import { inkOn } from '../lib/ink'
+import { chipInk } from '../lib/ink'
 import { LENS_KEYS } from '../lib/keys'
 
 /** A padlock, for a lens with nothing in it yet.
@@ -446,7 +446,7 @@ export function ModeSwitcher({
         // Blame and Language have nothing on the map to quote and take a chrome colour of
         // their own rather than the accent (see `modeToken`) — eleven lenses, eleven chips,
         // and no two of them the app's own furniture colour.
-        style={{ background: `var(${tint})`, color: inkOn(tint) }}
+        style={{ background: `var(${tint})`, color: chipInk(tint) }}
       >
         {/* The lock rides on the trigger when the lens you are STANDING in is the locked
             one, which is an ordinary thing to be: a lens is still a place you can stand,
@@ -542,7 +542,7 @@ export function ModeSwitcher({
                       absent, so the column of colours survives running out of keys. */}
                   <span
                     className="mono flex h-[15px] min-w-[22px] shrink-0 items-center justify-center rounded-[5px] px-1 text-[10px] font-semibold"
-                    style={{ background: `var(${modeToken(k)})`, color: inkOn(modeToken(k)) }}
+                    style={{ background: `var(${modeToken(k)})`, color: chipInk(modeToken(k)) }}
                   >
                     {key && `⌘${key}`}
                   </span>

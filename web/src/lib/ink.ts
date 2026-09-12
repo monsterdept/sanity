@@ -80,6 +80,43 @@ export function inkOnHex(hex: string): string {
   return contrast(y, luminance(PAPER)) >= contrast(y, luminance(INK)) ? PAPER : INK
 }
 
+/**
+ * The ink for a lens CHIP — a small, saturated swatch in the menu and on the trigger.
+ *
+ * **Decided by lightness, not by contrast ratio, and that is a deliberate departure from
+ * `inkOn`.** The chips are stepped by lightness inside each family, and the stop-2 ones sit at
+ * OKLCH L .63, a saturated mid-tone. WCAG picks Ink there (4.7–5.1:1 against Paper's 3.0–3.3),
+ * and the result read as black text stamped on a coloured tile — Composition worst of all. On a
+ * mid-tone that saturated, light text is what reads as the label and dark text as a hole in it,
+ * which the ratio does not see. So below L .67 a chip takes Paper: the four stop-2 chips and the
+ * clone mark, in both themes. The trap (.69–.71) and every stop-3 and stop-4 chip (.72 and up)
+ * are nowhere near the line and keep Ink.
+ *
+ * **Chips only.** Wedge labels still go through `inkOn`, because a label on the map is read at
+ * any size over any stop and the ratio is the rule that holds there.
+ */
+export function chipInk(token: string): string {
+  const key = `${theme()}|chip|${token}`
+  const hit = cache.get(key)
+  if (hit) return hit
+  const hex = resolve(token)
+  const chosen = hex === null ? CHROME_INK : oklabL(hex) < CHIP_PAPER_BELOW ? PAPER : INK
+  cache.set(key, chosen)
+  return chosen
+}
+
+/** The line `chipInk` switches on, in OKLCH lightness. */
+const CHIP_PAPER_BELOW = 0.67
+
+/** OKLab lightness, from linear sRGB — Björn Ottosson's matrices, as `palette-search.py` uses. */
+function oklabL(hex: string): number {
+  const [r, g, b] = srgb(hex)
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s
+}
+
 /** Cached against the theme, which is the only thing that can change an answer. Custom
  *  properties are read off the root, so a theme swap makes every entry wrong at once. */
 const cache = new Map<string, string>()
