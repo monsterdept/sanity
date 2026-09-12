@@ -182,7 +182,7 @@ export function ReportDialog({
   const pct = at && at.total > 0 ? Math.round((at.done / at.total) * 100) : 0
 
   return (
-    <Overlay onClose={busy ? () => {} : onClose}>
+    <Overlay onClose={busy ? () => {} : onClose} opaque={busy}>
       <div
         className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
         onClick={(e) => e.stopPropagation()}
@@ -231,11 +231,6 @@ export function ReportDialog({
               </p>
             )}
 
-            {/* The map is re-rooted at the repo and redrawn for each lens while this runs, which
-                is the price of copying the map rather than drawing a second one. It goes back. */}
-            <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-              The map behind this dialog changes while the report is drawn, and goes back after.
-            </p>
           </>
         )}
 

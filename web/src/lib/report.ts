@@ -1810,9 +1810,12 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         sheet.width,
         7.5,
       )
-      // Caption and key, with the air above, between and below them.
-      const under = 6 * U + caption.length * lead(7.5) + 6 * U + keyHeight(sheet, key, extra, sheet.width) + 14 * U
-      return { m, key, extra, setting, caption, under }
+      // Key, then caption, with the air above, between and below them. The caption closes the
+      // figure — it is what a reader reads after the picture and its key, the order a paper sets
+      // a figure in.
+      const keyH = keyHeight(sheet, key, extra, sheet.width)
+      const under = 6 * U + keyH + 6 * U + caption.length * lead(7.5) + 14 * U
+      return { m, key, extra, setting, caption, keyH, under }
     })
     // **Two thirds figure, one third text.** Full width left an essay one paragraph under a map
     // that took the page; a column-wide figure made the essay the page. The split is of the body
@@ -1827,8 +1830,8 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     const figX = sheet.left + (sheet.width - figSide) / 2
     let tableNo = 0
     const lensPlans = lensHeads.map((h) => {
-      const capTop = HEADER_BOTTOM + figSide + 6 * U
-      const keyTop = capTop + h.caption.length * lead(7.5) + 6 * U
+      const keyTop = HEADER_BOTTOM + figSide + 6 * U
+      const capTop = keyTop + h.keyH + 6 * U
       // Below the line, or below the key if a key ever runs past it — never over it.
       const top = Math.max(textTop, HEADER_BOTTOM + figSide + h.under)
       const blocks = proseBlocks(ESSAYS[h.m].sections, lensVars(o, vars.readerClause))
@@ -1838,21 +1841,13 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         views: o.views,
         tangleBands: o.stats.tangleBands,
       }
-      const flowed = new Map<number, Row[]>()
-      const flowAt = (size: number) => {
-        let rows = flowed.get(size)
-        if (!rows) {
-          rows = flow(sheet.c, blocks, colW, size)
-          flowed.set(size, rows)
-        }
-        return rows
-      }
-      /** The section laid out at one body size with one allowance of table rows. Numbered as
-       *  the tables will be if this is the attempt that is kept. */
-      const attempt = (size: number, limits: TableLimits | null) => {
-        const regions = (p: number): Region[] =>
-          p > 0 ? twoCols(CONTINUED_TOP) : top + 3 * lead(size) <= sheet.bottom ? twoCols(top) : []
-        const pages: LensPage[] = pour(flowAt(size), regions).map((sl) => ({ slices: sl, tables: [] }))
+      const essay = flow(sheet.c, blocks, colW, BODY)
+      const regions = (p: number): Region[] =>
+        p > 0 ? twoCols(CONTINUED_TOP) : top + 3 * lead(BODY) <= sheet.bottom ? twoCols(top) : []
+      /** The section laid out with one allowance of table rows. Numbered as the tables will be if
+       *  this is the attempt that is kept. */
+      const attempt = (limits: TableLimits | null) => {
+        const pages: LensPage[] = pour(essay, regions).map((sl) => ({ slices: sl, tables: [] }))
         const tables = limits
           ? tablesFor(h.m, ctx, limits).map((t, i) => layoutTable(sheet, t, tableNo + 1 + i))
           : []
@@ -1869,21 +1864,22 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         return { pages, used: tables.length }
       }
       // **No lens section runs past two pages.** A section is a figure page and one more; a
-      // third page is a lens that has stopped being one section in a set. What gives, in order:
-      // examples rows down to five, then the essay's type to 8pt, then examples to three, then
-      // a cast's named rows (its count row keeps the total whole), then the examples table,
-      // then the breakdown. The essay is never cut — it is the explanation of the figure.
+      // third page is a lens that has stopped being one section in a set. What gives is the
+      // tables, in order: examples rows down to three, then a cast's named rows (its count row
+      // keeps the total whole), then the examples table, then the breakdown.
+      //
+      // **Never the type, and never the essay.** Every essay is set at `BODY`: a page whose text
+      // is smaller than its neighbour's reads as a different document, and the report is one.
+      // The essay is the explanation of the figure, so it is not what gets cut.
       const full: TableLimits = { cast: FULL_CAST, examples: h.m === 'traps' ? TRAPS_MAX : TOP }
-      const ladder: [number, TableLimits | null][] = [[BODY, full]]
-      for (let ex = full.examples - 1; ex >= 5; ex--) ladder.push([BODY, { ...full, examples: ex }])
-      for (const size of [8.5, 8]) ladder.push([size, { ...full, examples: 5 }])
-      for (let ex = 4; ex >= 3; ex--) ladder.push([8, { ...full, examples: ex }])
-      for (let cast = FULL_CAST - 1; cast >= 4; cast--) ladder.push([8, { cast, examples: 3 }])
-      ladder.push([8, { cast: 4, examples: 0 }], [8, null])
-      let chosen = attempt(...ladder[0])
-      for (const [size, limits] of ladder.slice(1)) {
+      const ladder: (TableLimits | null)[] = [full]
+      for (let ex = full.examples - 1; ex >= 3; ex--) ladder.push({ ...full, examples: ex })
+      for (let cast = FULL_CAST - 1; cast >= 4; cast--) ladder.push({ cast, examples: 3 })
+      ladder.push({ cast: 4, examples: 0 }, null)
+      let chosen = attempt(ladder[0])
+      for (const limits of ladder.slice(1)) {
         if (chosen.pages.length <= MAX_LENS_PAGES) break
-        chosen = attempt(size, limits)
+        chosen = attempt(limits)
       }
       tableNo += chosen.used
       return { ...h, capTop, keyTop, pages: chosen.pages }
