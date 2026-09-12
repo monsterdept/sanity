@@ -46,7 +46,9 @@ import { WedgeTip } from './WedgeTip'
 import { AgentMascot } from './AgentMascot'
 import { BalanceWheel } from './BalanceWheel'
 import { HubEye } from './HubEye'
-import type { HubCenter } from '../lib/hub'
+import { HubCircles } from './HubCircles'
+import { lightnessOf } from '../lib/ink'
+import { CIRCLES, type CirclesLook, type HubCenter } from '../lib/hub'
 import type { MascotState } from './MascotFigure'
 
 /** A function's name inside its file's band: the same treatment the fan gives it, at the
@@ -903,6 +905,7 @@ function SunburstView({
   tagNodes = false,
   center = 'monster',
   wheelHz = 1,
+  circles = CIRCLES.initial,
   onWantRings,
 }: {
   root: Node
@@ -1030,6 +1033,8 @@ function SunburstView({
   center?: HubCenter
   /** The balance wheel's speed, in full swings a second — see `WHEEL_HZ`. */
   wheelHz?: number
+  /** The circles' shadow and the dot's travel — see `CirclesLook`. */
+  circles?: CirclesLook
   /** Which files the map has somewhere to draw the insides of.
    *
    *  A file's ring of functions is fetched on demand, and the window decided which by a
@@ -1487,6 +1492,35 @@ function SunburstView({
       if (w.node.kind !== 'func') m.set(w.node.id, colorFor(w.node, mode, ranks, views))
     return m
   }, [wedges, mode, ranks, views])
+
+  /** The two colours with the most area on screen, darker first, for the circles in the hub —
+   *  see `HubCircles`. By stop rather than by fill, so a ramp's near neighbours count as one
+   *  colour. Weighted by area: a wedge's angle times its ring's share of the disc, which grows
+   *  outward. The neutrals are left out, because they are the ground and not the lens.
+   *
+   *  **Functions count, at their file's ring.** They are tiled inside the file's own band, not
+   *  in a ring beyond it, and they cover the file's fill there. So a file with functions is
+   *  counted as its functions, each at the depth the file is drawn at. */
+  const hubDiscs = useMemo(() => {
+    if (center !== 'circles') return null
+    const neutral = new Set(['--structure', '--unanalyzed'])
+    const area = new Map<string, number>()
+    for (const w of wedges) {
+      if (w.node.id === root.id) continue
+      const func = w.node.kind === 'func'
+      if (!func && w.node.kind === 'file' && w.node.children.some((c) => c.kind === 'func')) continue
+      const p = func ? colorFor(w.node, mode, ranks, views) : fills.get(w.node.id)
+      if (!p) continue
+      const token = p.stop.replace(/^var\((--[\w-]+)\)$/, '$1')
+      if (neutral.has(token)) continue
+      const ring = func ? w.depth - 1 : w.depth
+      area.set(token, (area.get(token) ?? 0) + (w.a1 - w.a0) * (2 * ring + 1))
+    }
+    const top = [...area].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([t]) => t)
+    if (top.length < 2) return null
+    const [dark, light] = (lightnessOf(top[0]) ?? 0) <= (lightnessOf(top[1]) ?? 0) ? top : [top[1], top[0]]
+    return { outer: `var(${dark})`, inner: `var(${light})` }
+  }, [center, wedges, fills, root.id, mode, ranks, views])
 
   /** The cut between two neighbouring wedges, at the reader's scale — `CUT` is the argued
    *  shape and this is where it is spent. The three stay in proportion because one multiplier
@@ -3264,6 +3298,16 @@ function SunburstView({
           {/* Outside the keyed group below, so a level change does not restart its swing. */}
           {center === 'wheel' && <BalanceWheel r={rIn - 4} hz={wheelHz} />}
           {center === 'eye' && <HubEye r={rIn - 4} gaze={gaze} />}
+          {center === 'circles' && (
+            <HubCircles
+              r={rIn - 4}
+              mode={mode}
+              gaze={gaze}
+              look={circles}
+              colors={hubDiscs}
+              depth={root.path === '' ? 0 : root.path.split('/').length}
+            />
+          )}
           {onUp && <title>Double-click to go up a level</title>}
           {/* The disc is solid throughout — it is what the directory you clicked is turning
             INTO, so it has to be there to be turned into. Its label is not: swapping the

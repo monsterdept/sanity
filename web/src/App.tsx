@@ -140,11 +140,15 @@ import { loadRings, saveRings } from './lib/rings'
 import {
   HUB_CENTERS,
   loadHubCenter,
+  CIRCLES,
+  loadCirclesLook,
   loadWheelHz,
+  saveCirclesLook,
   saveHubCenter,
   saveWheelHz,
   wheelHzAt,
   wheelPosOf,
+  type CirclesLook,
   type HubCenter,
 } from './lib/hub'
 import { BAND_SHARE, SPACING_DEFAULT } from './lib/spacing'
@@ -576,6 +580,11 @@ export default function App() {
   const chooseWheelHz = useCallback((hz: number) => {
     setWheelHz(hz)
     saveWheelHz(hz)
+  }, [])
+  const [circlesLook, setCirclesLook] = useState<CirclesLook>(loadCirclesLook)
+  const chooseCircles = useCallback((look: CirclesLook) => {
+    setCirclesLook(look)
+    saveCirclesLook(look)
   }, [])
   /** How many colors each categorical lens spends — see `lib/palette.ts`. A display
    *  preference like the ring count, read once and written back on every change, and held
@@ -3262,6 +3271,8 @@ export default function App() {
                   onCenter={chooseHubCenter}
                   hz={wheelHz}
                   onHz={chooseWheelHz}
+                  circles={circlesLook}
+                  onCircles={chooseCircles}
                 />
                 <HistoryToggle
                   on={historyOn}
@@ -3437,6 +3448,7 @@ export default function App() {
                     mascot={mascotForMap}
                     center={hubCenter}
                     wheelHz={wheelHz}
+                    circles={circlesLook}
                     // Only the replay. A commit landing is a change the viewer asked to watch,
                     // so it should move; a rescan or a landed reading changes the live map under
                     // somebody who is reading it, and sliding the wedges there would animate a
@@ -3487,6 +3499,7 @@ export default function App() {
                     mascot={mascot}
                     center={hubCenter}
                     wheelHz={wheelHz}
+                    circles={circlesLook}
                     onSelect={noop}
                     onClear={noop}
                     onDrill={noop}
@@ -4120,23 +4133,114 @@ function FindButton({
  * finds out the monster can be put away. Pressed in the accent, the way History is, because
  * this is a statement about the window rather than about what a lens's colour means.
  */
+/**
+ * The circles' shadow and the dot's motion, behind one pill — see `CirclesLook`. Built the way
+ * `SpacingMenu` is: a panel under the pill, over a backdrop that closes it on any click outside.
+ */
+function CirclesMenu({ look, onLook }: { look: CirclesLook; onLook: (look: CirclesLook) => void }) {
+  const [open, setOpen] = useState(false)
+  const set = (patch: Partial<CirclesLook>) => onLook({ ...look, ...patch })
+  const row = (
+    label: string,
+    hint: string,
+    key: 'shadow' | 'alpha' | 'travel' | 'step',
+    step: number,
+    shown: string,
+  ) => (
+    <label className="mt-2.5 flex items-center gap-2" title={hint}>
+      <span className="w-[74px] shrink-0 text-[var(--muted-foreground)]">{label}</span>
+      <input
+        type="range"
+        min={CIRCLES[key].min}
+        max={CIRCLES[key].max}
+        step={step}
+        value={look[key]}
+        onChange={(e) => set({ [key]: Number(e.target.value) })}
+        className="h-1 flex-1 cursor-pointer accent-[var(--accent)]"
+        aria-label={label}
+      />
+      <span className="w-9 shrink-0 text-right tabular-nums text-[var(--muted-foreground)]">{shown}</span>
+    </label>
+  )
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        title="The dot's shadow, how far it moves, and how it shrinks as you drill in"
+        className="flex h-full items-center gap-1 rounded-full px-1.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+      >
+        <span>tune</span>
+        <svg width="7" height="4" viewBox="0 0 7 4" aria-hidden>
+          <path d="M0 0 L3.5 4 L7 0 Z" fill="currentColor" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            role="dialog"
+            aria-label="Circles"
+            className="absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-[var(--border)] bg-[var(--card)] p-3 pt-0.5 text-[11px] shadow-lg"
+          >
+            {row('shadow size', 'How big the shadow under the dot is', 'shadow', 0.01, look.shadow.toFixed(2))}
+            <label className="mt-2.5 flex items-center gap-2" title="The shadow's colour">
+              <span className="w-[74px] shrink-0 text-[var(--muted-foreground)]">shadow colour</span>
+              <input
+                type="color"
+                value={look.color}
+                onChange={(e) => set({ color: e.target.value })}
+                aria-label="Shadow colour"
+                className="h-4 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
+              />
+            </label>
+            {row('strength', "How strong the shadow's colour is", 'alpha', 0.01, `${Math.round(look.alpha * 100)}%`)}
+            {row('travel', 'How far the dot moves as it looks around', 'travel', 0.005, look.travel.toFixed(3))}
+            {row(
+              'step',
+              'How much the dot shrinks for each level drilled in, and grows back coming out',
+              'step',
+              0.01,
+              `${Math.round(look.step * 100)}%`,
+            )}
+            <button
+              type="button"
+              onClick={() => onLook(CIRCLES.initial)}
+              className="mt-2.5 w-full rounded-sm py-1 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+            >
+              reset
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function HubToggle({
   center,
   onCenter,
   hz,
   onHz,
+  circles,
+  onCircles,
 }: {
   center: HubCenter
   onCenter: (c: HubCenter) => void
   /** The wheel's speed, full swings a second. */
   hz: number
   onHz: (hz: number) => void
+  /** The circles' shadow and the dot's travel — see `CirclesLook`. */
+  circles: CirclesLook
+  onCircles: (look: CirclesLook) => void
 }) {
   const titles: Record<HubCenter, string> = {
     monster: 'The monster in the middle of the map',
     wheel: 'A balance wheel in the middle of the map — the findings count stays',
     eye: 'An eye in the middle of the map, looking where the monster would — the findings count stays',
-    nothing: 'Nothing in the middle of the map — the findings count stays',
+    circles: 'Two discs in the lens’s colours in the middle of the map — the findings count stays',
   }
   return (
     <div
@@ -4187,6 +4291,9 @@ function HubToggle({
           <span className="mono w-[5em] tabular-nums">{hz} Hz</span>
         </label>
       )}
+      {/* The circles' controls, on the same rule as the wheel's speed, but behind a pill: five
+          of them inline ran the bar off the edge of the window. */}
+      {center === 'circles' && <CirclesMenu look={circles} onLook={onCircles} />}
     </div>
   )
 }

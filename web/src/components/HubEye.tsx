@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react'
-import { startGaze, stepGaze, type Look } from '../lib/eyeGaze'
+import { useCallback, useId, useRef } from 'react'
+import type { Gaze } from '../lib/eyeGaze'
+import { useHubGaze } from './useHubGaze'
 
 /**
  * An eye for the hub, one of the things `lib/hub.ts` lets the middle hold. It looks where the
@@ -57,10 +58,6 @@ const TONE = {
   pupil: '#27282b',
   glint: '#e4e5e8',
 }
-/** How often the eye's position on screen is measured again for the pointer. It moves only when
- *  the window does, and measuring every frame would lay out the whole map every frame. */
-const MEASURE_MS = 500
-
 const f = (n: number) => n.toFixed(2)
 
 /** An almond for how far closed it is: two quadratic curves between its points. A quadratic's
@@ -88,68 +85,17 @@ export function HubEye({
   const openingClip = useRef<SVGPathElement>(null)
   const ball = useRef<SVGGElement>(null)
 
-  // Read by the running loop rather than restarting it. Turned to the screen's y down here, once.
-  const focus = useRef<Look[] | null>(null)
-  useEffect(() => {
-    focus.current = gaze && gaze.length > 0 ? gaze.map((d) => ({ x: d.x, y: -d.y })) : null
-  }, [gaze])
-
-  useEffect(() => {
-    let pointer: { x: number; y: number; at: number } | null = null
-    const onMove = (e: MouseEvent) => {
-      pointer = { x: e.clientX, y: e.clientY, at: performance.now() }
-    }
-    document.addEventListener('mousemove', onMove)
-
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let box: DOMRect | null = null
-    let measured = -Infinity
-    let s = startGaze()
-    let last = performance.now()
-    let raf = 0
-    const frame = (now: number) => {
-      const dt = Math.min(100, now - last)
-      last = now
-      let mouse: Look | null = null
-      if (pointer) {
-        if (now - measured > MEASURE_MS) {
-          box = eye.current?.getBoundingClientRect() ?? null
-          measured = now
-        }
-        if (box && box.width > 0) {
-          const vx = pointer.x - (box.left + box.width / 2)
-          const vy = pointer.y - (box.top + box.height / 2)
-          // As the creature does it: the pointer's direction, softened near the eye by a depth
-          // the size of the eye, so a pointer right on it looks nearly straight ahead.
-          const len = Math.sqrt(vx * vx + vy * vy + box.width * box.width)
-          mouse = { x: vx / len, y: vy / len }
-        }
-      }
-      const out = stepGaze(s, dt, {
-        focus: focus.current,
-        mouse,
-        mouseAge: pointer ? now - pointer.at : Infinity,
-        now: Date.now(),
-        still,
-      })
-      s = out.state
-      const c = out.gaze.closed
-      ball.current?.setAttribute(
-        'transform',
-        `translate(${f(out.gaze.x * EYE.travelX * r)} ${f(out.gaze.y * EYE.travelY * r)})`,
-      )
-      const i = almond(r, EYE.inner, c)
-      lid.current?.setAttribute('d', almond(r, EYE.outer, c) + i)
+  const draw = useCallback(
+    (g: Gaze) => {
+      ball.current?.setAttribute('transform', `translate(${f(g.x * EYE.travelX * r)} ${f(g.y * EYE.travelY * r)})`)
+      const i = almond(r, EYE.inner, g.closed)
+      lid.current?.setAttribute('d', almond(r, EYE.outer, g.closed) + i)
       opening.current?.setAttribute('d', i)
       openingClip.current?.setAttribute('d', i)
-      raf = requestAnimationFrame(frame)
-    }
-    raf = requestAnimationFrame(frame)
-    return () => {
-      cancelAnimationFrame(raf)
-      document.removeEventListener('mousemove', onMove)
-    }
-  }, [r])
+    },
+    [r],
+  )
+  useHubGaze(eye, gaze, draw)
 
   const i = almond(r, EYE.inner, 0)
   return (

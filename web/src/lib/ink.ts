@@ -105,6 +105,13 @@ export function chipInk(token: string): string {
   return chosen
 }
 
+/** A custom property's OKLab lightness, 0 black to 1 white, or null when it is not a plain hex.
+ *  For ordering colours by how light they look, which is what the hub's circles need. */
+export function lightnessOf(token: string): number | null {
+  const hex = resolve(token)
+  return hex === null ? null : oklabL(hex)
+}
+
 /** The line `chipInk` switches on, in OKLCH lightness. */
 const CHIP_PAPER_BELOW = 0.67
 
