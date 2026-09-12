@@ -137,6 +137,16 @@ import {
   RingCount,
 } from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
+import {
+  HUB_CENTERS,
+  loadHubCenter,
+  loadWheelHz,
+  saveHubCenter,
+  saveWheelHz,
+  wheelHzAt,
+  wheelPosOf,
+  type HubCenter,
+} from './lib/hub'
 import { BAND_SHARE, SPACING_DEFAULT } from './lib/spacing'
 import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
 import { ReadDialog } from './components/ReadDialog'
@@ -555,6 +565,17 @@ export default function App() {
   const chooseRings = useCallback((n: number) => {
     setRings(n)
     saveRings(n)
+  }, [])
+  /** What the hub holds — see `lib/hub.ts`. A display preference like the ring count. */
+  const [hubCenter, setHubCenter] = useState<HubCenter>(loadHubCenter)
+  const chooseHubCenter = useCallback((c: HubCenter) => {
+    setHubCenter(c)
+    saveHubCenter(c)
+  }, [])
+  const [wheelHz, setWheelHz] = useState(loadWheelHz)
+  const chooseWheelHz = useCallback((hz: number) => {
+    setWheelHz(hz)
+    saveWheelHz(hz)
   }, [])
   /** How many colors each categorical lens spends — see `lib/palette.ts`. A display
    *  preference like the ring count, read once and written back on every change, and held
@@ -3236,6 +3257,12 @@ export default function App() {
                     than as it stands — and Find gets you somewhere inside the subject you
                     already have. Both leave the picture you were looking at, which is what
                     puts them together and after everything that shapes it. */}
+                <HubToggle
+                  center={hubCenter}
+                  onCenter={chooseHubCenter}
+                  hz={wheelHz}
+                  onHz={chooseWheelHz}
+                />
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
@@ -3408,6 +3435,8 @@ export default function App() {
                     // a MEASUREMENT, which is why the lens switcher greys out. Nothing in the
                     // creature's three states says anything about the code on screen.
                     mascot={mascotForMap}
+                    center={hubCenter}
+                    wheelHz={wheelHz}
                     // Only the replay. A commit landing is a change the viewer asked to watch,
                     // so it should move; a rescan or a landed reading changes the live map under
                     // somebody who is reading it, and sliding the wedges there would animate a
@@ -3456,6 +3485,8 @@ export default function App() {
                     // never overlap.
                     reading={live}
                     mascot={mascot}
+                    center={hubCenter}
+                    wheelHz={wheelHz}
                     onSelect={noop}
                     onClear={noop}
                     onDrill={noop}
@@ -4082,6 +4113,84 @@ function FindButton({
  * repo as it stood at some commit rather than as it stands now — and folding a change of
  * subject into a row of encodings would make the two look interchangeable.
  */
+/**
+ * What the middle of the map holds — see `lib/hub.ts`.
+ *
+ * Segments rather than a menu: the words are short, they fit, and showing them is how somebody
+ * finds out the monster can be put away. Pressed in the accent, the way History is, because
+ * this is a statement about the window rather than about what a lens's colour means.
+ */
+function HubToggle({
+  center,
+  onCenter,
+  hz,
+  onHz,
+}: {
+  center: HubCenter
+  onCenter: (c: HubCenter) => void
+  /** The wheel's speed, full swings a second. */
+  hz: number
+  onHz: (hz: number) => void
+}) {
+  const titles: Record<HubCenter, string> = {
+    monster: 'The monster in the middle of the map',
+    wheel: 'A balance wheel in the middle of the map — the findings count stays',
+    eye: 'An eye in the middle of the map, looking where the monster would — the findings count stays',
+    nothing: 'Nothing in the middle of the map — the findings count stays',
+  }
+  return (
+    <div
+      className={`flex items-center gap-0.5 rounded-full px-[3px] ${CONTROL_H}`}
+      style={{
+        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
+      }}
+    >
+      {HUB_CENTERS.map((c) => {
+        const on = center === c
+        return (
+          <button
+            key={c}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onCenter(c)}
+            title={titles[c]}
+            className="rounded-full px-2 text-[11px] transition-colors"
+            style={
+              on
+                ? { background: 'var(--accent)', color: 'var(--accent-foreground)', fontWeight: 600 }
+                : { color: 'var(--muted-foreground)' }
+            }
+          >
+            {c}
+          </button>
+        )
+      })}
+      {/* The wheel's speed, beside the wheel's segment and only while it is chosen: a speed
+          for a picture that is not showing is a control that does nothing. */}
+      {center === 'wheel' && (
+        <label
+          className="flex items-center gap-1 pl-1 pr-1.5 text-[11px] text-[var(--muted-foreground)]"
+          title="How fast the wheel swings — full swings a second"
+        >
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={wheelPosOf(hz)}
+            onChange={(e) => onHz(wheelHzAt(Number(e.target.value)))}
+            aria-label="Wheel speed"
+            className="w-16"
+            style={{ accentColor: 'var(--accent)' }}
+          />
+          <span className="mono w-[5em] tabular-nums">{hz} Hz</span>
+        </label>
+      )}
+    </div>
+  )
+}
+
 function HistoryToggle({
   on,
   busy,

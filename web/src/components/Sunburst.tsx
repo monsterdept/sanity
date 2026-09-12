@@ -44,6 +44,9 @@ import { FAMILY, TRACKING, WEIGHT } from '../lib/labelStyle'
 import { StaleHatch } from './StaleHatch'
 import { WedgeTip } from './WedgeTip'
 import { AgentMascot } from './AgentMascot'
+import { BalanceWheel } from './BalanceWheel'
+import { HubEye } from './HubEye'
+import type { HubCenter } from '../lib/hub'
 import type { MascotState } from './MascotFigure'
 
 /** A function's name inside its file's band: the same treatment the fan gives it, at the
@@ -898,6 +901,8 @@ function SunburstView({
   spacing = SPACING_DEFAULT,
   markers = true,
   tagNodes = false,
+  center = 'monster',
+  wheelHz = 1,
   onWantRings,
 }: {
   root: Node
@@ -1020,6 +1025,11 @@ function SunburstView({
    *  landed is the path that was drawn for it. Off otherwise: thousands of attribute strings
    *  per render for a question only an export asks. */
   tagNodes?: boolean
+  /** What the hub holds — see `lib/hub.ts`. Anything but `monster` takes the creature out of
+   *  its layer and keeps the layer, which carries the findings count and its click. */
+  center?: HubCenter
+  /** The balance wheel's speed, in full swings a second — see `WHEEL_HZ`. */
+  wheelHz?: number
   /** Which files the map has somewhere to draw the insides of.
    *
    *  A file's ring of functions is fetched on demand, and the window decided which by a
@@ -3251,6 +3261,9 @@ function SunburstView({
           style={onUp ? { cursor: 'zoom-out' } : undefined}
         >
           <circle r={rIn - 4} fill="var(--card)" stroke="var(--border)" />
+          {/* Outside the keyed group below, so a level change does not restart its swing. */}
+          {center === 'wheel' && <BalanceWheel r={rIn - 4} hz={wheelHz} />}
+          {center === 'eye' && <HubEye r={rIn - 4} gaze={gaze} />}
           {onUp && <title>Double-click to go up a level</title>}
           {/* The disc is solid throughout — it is what the directory you clicked is turning
             INTO, so it has to be there to be turned into. Its label is not: swapping the
@@ -3289,7 +3302,7 @@ function SunburstView({
             one every wedge points at.
             The name survives where the creature does not — the history replay has no run to
             depict, and a hub with neither would be a blank disc in the middle of the story. */}
-            {!mascot && (
+            {center === 'monster' && !mascot && (
               <text
                 textAnchor="middle"
                 y={4}
@@ -3391,14 +3404,16 @@ function SunburstView({
                   zIndex: 1,
                 }}
               >
-                <AgentMascot
-                  size={HUB_MASCOT * hubK}
-                  events={mascot.events}
-                  state={mascot.state}
-                  gaze={gaze}
-                  project={mascot.project}
-                  remint={mascot.remint}
-                />
+                {center === 'monster' && (
+                  <AgentMascot
+                    size={HUB_MASCOT * hubK}
+                    events={mascot.events}
+                    state={mascot.state}
+                    gaze={gaze}
+                    project={mascot.project}
+                    remint={mascot.remint}
+                  />
+                )}
               </div>
               {/* **The count, as a badge.** A cloud and a tail of dots were both tried here
                   and both lost to the plain thing: what this has to do is carry a number

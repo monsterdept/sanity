@@ -8,6 +8,7 @@ import {
   type MascotHandle,
 } from '../lib/mascot'
 import type { AgentCall } from '../lib/api'
+import { DWELL_MS } from '../lib/eyeGaze'
 import { setMascotClock } from '../lib/mascotClock'
 import { saveMonster, storedMonster } from '../lib/monster'
 
@@ -127,12 +128,6 @@ const STIRRED: MascotAnimation[] = ['lookAround', 'headTilt', 'wiggle', 'stretch
  *  yet on the first direction. Cheap: two method calls, and only while a scan or a replay
  *  is actually moving. */
 const AIM_MS = 100
-
-/** How long the creature looks at one flashing wedge before moving to the next.
- *
- *  Long enough to read as attention rather than a twitch, short enough that a lull with
- *  three files in it still looks like something is happening. */
-const DWELL_MS = 900
 
 function pick(from: MascotAnimation[]): MascotAnimation {
   return from[Math.floor(Math.random() * from.length)]
