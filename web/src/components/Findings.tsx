@@ -640,6 +640,7 @@ export function Findings({
   onPick,
   onDecide,
   onUndecide,
+  ask,
 }: {
   open: boolean
   projectKey: string | null
@@ -659,6 +660,9 @@ export function Findings({
   onPick: (hit: Hit) => void
   onDecide: (key: string, rule: string, verdict: Verdict, reason: string) => void
   onUndecide: (key: string, rule: string) => void
+  /** The tab somebody asked the panel to open on — the dial's halves. A new object is a new
+   *  ask, so it switches even to the tab it was last asked for. */
+  ask?: { view: 'findings' | 'rules'; n: number } | null
 }) {
   /** Which of the three the panel is showing.
    *
@@ -666,6 +670,9 @@ export function Findings({
    *  found them are three views of one thing; a pair of flags would have a fourth state that
    *  means nothing and would eventually reach it. */
   const [view, setView] = useState<'findings' | 'ignored' | 'rules'>('findings')
+  useEffect(() => {
+    if (ask) setView(ask.view)
+  }, [ask])
   /** Which row has its reason field open, and under which verdict.
    *
    *  **A reason is asked for, and not required.** The reasons people type are the most

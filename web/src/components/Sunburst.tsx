@@ -611,6 +611,8 @@ function FindingBadge({
   box,
   count,
   rules,
+  onFound,
+  onRules,
 }: {
   /** Which side of the creature this sits on. */
   layer: number
@@ -622,6 +624,10 @@ function FindingBadge({
   /** How many rules are running here — the number at six o'clock, and the denominator the
    *  one at twelve is missing without it. */
   rules: number
+  /** Open the findings tab, from the half of the dial at twelve. */
+  onFound?: () => void
+  /** Open the rules tab, from the half at six. */
+  onRules?: () => void
 }) {
   // `7` is a dot with a number in it and `1.2k` is a pill, rather than either being stretched
   // to the other's shape. 15,777 is a baseline, not a notification — but the archive makes
@@ -800,6 +806,24 @@ function FindingBadge({
         strokeWidth={line ? thick * 0.09 : undefined}
       />
     )
+    /** **Each half of the dial is a door to its own tab.** The dial is drawn click-through, and
+     *  these are the exceptions: a transparent band over each bar and its word, a little wider
+     *  than both, that takes the click and keeps it. A double-click stops here too, so a quick
+     *  pair on a count opens a tab rather than also going up a level. */
+    const hit = (a0: number, a1: number, go: () => void, label: string) => (
+      <path
+        d={sectorPath(cx, cy, a0 - deg(font * 0.3), a1 + deg(font * 0.3), r - thick, r + thick, 0)}
+        fill="transparent"
+        style={{ pointerEvents: 'all', cursor: 'pointer' }}
+        onClick={(ev) => {
+          ev.stopPropagation()
+          go()
+        }}
+        onDoubleClick={(ev) => ev.stopPropagation()}
+      >
+        <title>{label}</title>
+      </path>
+    )
     /** id, path, size, and the ink it is set in. */
     const runs: Array<[string, string, number, string]> = [
       [`${pathId}-t`, arc(topMid, top.half, upBase(font), true), font, PAPER],
@@ -871,6 +895,8 @@ function FindingBadge({
           </text>
           )
         })}
+        {onFound && hit(topMid - top.half, findsInk + finds.inkHalf, onFound, 'Open the findings')}
+        {onRules && hit(bottomMid - bottom.half, namedInk + named.inkHalf, onRules, 'Open the rules')}
       </svg>
     )
 }
@@ -949,7 +975,7 @@ function SunburstView({
      *  clicks are already spoken for (six of them remint it, and the hub underneath means go
      *  up a level), so a click handler on the figure would fire on the first click of a
      *  gesture and open a panel in the middle of it. */
-    onFindings?: () => void
+    onFindings?: (view?: 'findings' | 'rules') => void
     /** How many rules are running here — the second number on the `label` badge. */
     rules?: number
   }
@@ -1493,8 +1519,8 @@ function SunburstView({
     return m
   }, [wedges, mode, ranks, views])
 
-  /** The two colours with the most area on screen, darker first, for the circles in the hub —
-   *  see `HubCircles`. By stop rather than by fill, so a ramp's near neighbours count as one
+  /** The colours on screen, most area first, and the top two darker first, for the circles in
+   *  the hub — see `HubCircles`. By stop rather than by fill, so a ramp's near neighbours count as one
    *  colour. Weighted by area: a wedge's angle times its ring's share of the disc, which grows
    *  outward. The neutrals are left out, because they are the ground and not the lens.
    *
@@ -1516,11 +1542,37 @@ function SunburstView({
       const ring = func ? w.depth - 1 : w.depth
       area.set(token, (area.get(token) ?? 0) + (w.a1 - w.a0) * (2 * ring + 1))
     }
-    const top = [...area].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([t]) => t)
-    if (top.length < 2) return null
-    const [dark, light] = (lightnessOf(top[0]) ?? 0) <= (lightnessOf(top[1]) ?? 0) ? top : [top[1], top[0]]
-    return { outer: `var(${dark})`, inner: `var(${light})` }
+    const ranked = [...area].sort((a, b) => b[1] - a[1]).map(([t]) => t)
+    if (ranked.length === 0) return null
+    let pair: { outer: string; inner: string } | null = null
+    if (ranked.length >= 2) {
+      const [a, b] = ranked
+      const [dark, light] = (lightnessOf(a) ?? 0) <= (lightnessOf(b) ?? 0) ? [a, b] : [b, a]
+      pair = { outer: `var(${dark})`, inner: `var(${light})` }
+    }
+    // Every colour, most area first, for the circle a level adds — see `nest` in `HubCircles`.
+    return { ranked: ranked.map((t) => `var(${t})`), pair }
   }, [center, wedges, fills, root.id, mode, ranks, views])
+
+  /** Which way the clicked wedge is from the hub, for the circles' dot to look at — y up, like
+   *  `gaze`. When the wedge itself is not drawn, the nearest drawn wedge that holds it, which
+   *  is where it is on screen. Null for the level itself, which is all around the hub. */
+  const selectedGaze = useMemo(() => {
+    if (center !== 'circles' || !selected || selected.id === root.id) return null
+    let best: (typeof wedges)[number] | null = null
+    for (const w of wedges) {
+      if (w.node.id === root.id) continue
+      if (w.node.id === selected.id) {
+        best = w
+        break
+      }
+      const holds = w.node.path === selected.path || selected.path.startsWith(`${w.node.path}/`)
+      if (holds && w.node.kind !== 'func' && (!best || w.node.path.length > best.node.path.length)) best = w
+    }
+    if (!best) return null
+    const mid = (best.a0 + best.a1) / 2
+    return { x: Math.sin(mid), y: Math.cos(mid) }
+  }, [center, selected, wedges, root.id])
 
   /** The cut between two neighbouring wedges, at the reader's scale — `CUT` is the argued
    *  shape and this is where it is spent. The three stay in proportion because one multiplier
@@ -3304,7 +3356,9 @@ function SunburstView({
               mode={mode}
               gaze={gaze}
               look={circles}
-              colors={hubDiscs}
+              palette={hubDiscs}
+              path={root.path}
+              selected={selectedGaze}
               depth={root.path === '' ? 0 : root.path.split('/').length}
             />
           )}
@@ -3396,7 +3450,12 @@ function SunburstView({
                 width: HUB_MASCOT * hubK,
                 height: HUB_MASCOT * hubK,
                 visibility: 'hidden',
-                cursor: mascot.onFindings && mascot.findings ? 'pointer' : onUp ? 'zoom-out' : undefined,
+                cursor:
+                  center === 'monster' && mascot.onFindings && mascot.findings
+                    ? 'pointer'
+                    : onUp
+                      ? 'zoom-out'
+                      : undefined,
               }}
               onDoubleClick={
                 onUp
@@ -3414,8 +3473,10 @@ function SunburstView({
                *  asked for — the creature having something to say is the more common state and
                *  the more useful click. The disc's own "go up" is untouched, because that is a
                *  DOUBLE click and this stops the event before it reaches the ring underneath. */
+              // Only the creature opens the panel on a click. Anything else in the middle leaves a
+              // click to the dial's two halves, so a double-click there goes up a level.
               onClick={
-                mascot.onFindings && mascot.findings
+                center === 'monster' && mascot.onFindings && mascot.findings
                   ? (ev) => {
                       ev.stopPropagation()
                       mascot.onFindings?.()
@@ -3489,6 +3550,8 @@ function SunburstView({
                   box={HUB_MASCOT * hubK}
                   rules={mascot.rules ?? 0}
                   count={mascot.findings}
+                  onFound={mascot.onFindings ? () => mascot.onFindings?.('findings') : undefined}
+                  onRules={mascot.onFindings ? () => mascot.onFindings?.('rules') : undefined}
                 />
               )}
             </div>

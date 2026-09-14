@@ -6,6 +6,8 @@
  * without the monster. So it follows what the creature follows, in the same order, on the same
  * clocks:
  * - the flashing wedges, one at a time on `DWELL_MS`, when there is work to watch;
+ * - otherwise the clicked wedge, when a caller passes one (the creature has no such rule;
+ *   the hub's circles add it), with glances away on the idle cadence;
  * - otherwise the pointer, with a glance away every few seconds;
  * - otherwise, once the pointer has been still for `MOUSE_STALE_MS`, glances of its own.
  * Under all of it sits a small, constant jitter, and it blinks every two to six seconds. Every
@@ -76,6 +78,10 @@ export interface GazeState {
 export interface GazeInput {
   /** The wedges being worked on, as directions — see `gaze` in `Sunburst` — or null. */
   focus: Look[] | null
+  /** The direction of the wedge the reader clicked, or null. Not the creature's: the hub's
+   *  circles add it. Looked at below the flashing wedges and above the pointer, with glances
+   *  away on the idle cadence, so it reads as attention rather than a stare. */
+  selected?: Look | null
   /** The pointer's direction from the eye, or null when there has been no pointer. */
   mouse: Look | null
   /** Milliseconds since the pointer last moved. */
@@ -85,6 +91,10 @@ export interface GazeInput {
   /** Reduced motion: follow what is asked, and add nothing of its own. No glances, no jitter,
    *  no blinks. */
   still: boolean
+  /** Whether it moves of its own accord: glances when there is nothing to look at, glances away
+   *  from what it is looking at, and the jitter. Off, it looks only where it is asked and rests
+   *  in the middle otherwise. Blinks are not part of it. Defaults to on. */
+  idle?: boolean
 }
 
 export interface Gaze {
@@ -128,6 +138,7 @@ export function stepGaze(
 ): { state: GazeState; gaze: Gaze } {
   const n = { ...s }
   let watching = false
+  const wander = !input.still && input.idle !== false
 
   if (input.focus && input.focus.length > 0) {
     const f = input.focus[Math.floor(input.now / DWELL_MS) % input.focus.length]
@@ -136,13 +147,34 @@ export function stepGaze(
     n.distract = 0
     n.hold = 0
     watching = true
+  } else if (input.selected) {
+    // The clicked wedge, glanced away from as the idle sequence glances: every `AUTO`, for
+    // `HOLD`, and back.
+    if (n.distract > 0) {
+      n.distract -= dt
+      if (n.distract <= 0) n.nextDistract = within(rand, AUTO)
+    } else {
+      n.nextDistract -= dt
+      if (wander && n.nextDistract <= 0) {
+        n.distract = within(rand, HOLD)
+        const l = randomLook(rand, 0.3)
+        n.tx = l.x
+        n.ty = l.y
+      } else {
+        n.tx = input.selected.x
+        n.ty = input.selected.y
+        n.hold = 0
+        watching = true
+      }
+    }
+    n.auto = 300 + rand() * 700
   } else if (input.mouse && input.mouseAge < MOUSE_STALE_MS) {
     if (n.distract > 0) {
       n.distract -= dt
       if (n.distract <= 0) n.nextDistract = within(rand, DISTRACT_EVERY)
     } else {
       n.nextDistract -= dt
-      if (!input.still && n.nextDistract <= 0) {
+      if (wander && n.nextDistract <= 0) {
         n.distract = within(rand, DISTRACT_FOR)
         const l = randomLook(rand, 0.4)
         n.tx = l.x
@@ -156,9 +188,10 @@ export function stepGaze(
     }
     // A pointer that goes still is followed by a glance of its own soon after, not at once.
     n.auto = 300 + rand() * 700
-  } else if (input.still) {
+  } else if (!wander) {
     n.tx = 0
     n.ty = 0
+    n.hold = 0
   } else {
     n.auto -= dt
     if (n.auto <= 0) {
@@ -170,7 +203,7 @@ export function stepGaze(
     }
   }
 
-  if (input.still) {
+  if (!wander) {
     n.jx = 0
     n.jy = 0
   } else {

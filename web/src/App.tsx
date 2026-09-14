@@ -141,6 +141,7 @@ import {
   HUB_CENTERS,
   loadHubCenter,
   CIRCLES,
+  HUB_CONTROLS,
   loadCirclesLook,
   loadWheelHz,
   saveCirclesLook,
@@ -473,6 +474,9 @@ export default function App() {
    *  remembered it was open would greet a launch with a panel over the map. */
   const [finding, setFinding] = useState(false)
   const [findingsOpen, setFindingsOpen] = useState(false)
+  /** Which tab the panel was last asked to open on. `n` counts the asks, so asking for the tab
+   *  it was already asked for still switches back to it after the reader has moved off. */
+  const [findingsAsk, setFindingsAsk] = useState<{ view: 'findings' | 'rules'; n: number } | null>(null)
   const [findingGroups, setFindingGroups] = useState<FindingGroup[] | null>(null)
   const [archive, setArchive] = useState<Decision[] | null>(null)
   /** Bumped after a dismissal lands, to re-ask for both halves.
@@ -3037,7 +3041,11 @@ export default function App() {
     ? new Set(findingGroups.filter((g) => !g.blocked).flatMap((g) => g.hits.map((l) => l.key))).size
     : 0
 
-  const openFindings = useCallback(() => setFindingsOpen(true), [])
+  /** Open the findings panel on one of its tabs — the dial's two halves each open their own. */
+  const openFindings = useCallback((view: 'findings' | 'rules' = 'findings') => {
+    setFindingsAsk((a) => ({ view, n: (a?.n ?? 0) + 1 }))
+    setFindingsOpen(true)
+  }, [])
 
   /** The creature, plus what it has to tell you.
    *
@@ -3266,6 +3274,7 @@ export default function App() {
                     than as it stands — and Find gets you somewhere inside the subject you
                     already have. Both leave the picture you were looking at, which is what
                     puts them together and after everything that shapes it. */}
+                {HUB_CONTROLS && (
                 <HubToggle
                   center={hubCenter}
                   onCenter={chooseHubCenter}
@@ -3274,6 +3283,7 @@ export default function App() {
                   circles={circlesLook}
                   onCircles={chooseCircles}
                 />
+                )}
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
@@ -3317,6 +3327,7 @@ export default function App() {
                 and this is the map naming one. */}
             <Findings
               open={findingsOpen}
+              ask={findingsAsk}
               projectKey={activeKey}
               groups={findingGroups}
               replaying={historyOn}
@@ -4143,12 +4154,12 @@ function CirclesMenu({ look, onLook }: { look: CirclesLook; onLook: (look: Circl
   const row = (
     label: string,
     hint: string,
-    key: 'shadow' | 'alpha' | 'travel' | 'step',
+    key: 'shadow' | 'alpha' | 'travel' | 'step' | 'size',
     step: number,
     shown: string,
   ) => (
     <label className="mt-2.5 flex items-center gap-2" title={hint}>
-      <span className="w-[74px] shrink-0 text-[var(--muted-foreground)]">{label}</span>
+      <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">{label}</span>
       <input
         type="range"
         min={CIRCLES[key].min}
@@ -4156,10 +4167,10 @@ function CirclesMenu({ look, onLook }: { look: CirclesLook; onLook: (look: Circl
         step={step}
         value={look[key]}
         onChange={(e) => set({ [key]: Number(e.target.value) })}
-        className="h-1 flex-1 cursor-pointer accent-[var(--accent)]"
+        className="h-1 min-w-0 flex-1 cursor-pointer accent-[var(--accent)]"
         aria-label={label}
       />
-      <span className="w-9 shrink-0 text-right tabular-nums text-[var(--muted-foreground)]">{shown}</span>
+      <span className="w-10 shrink-0 text-right tabular-nums text-[var(--muted-foreground)]">{shown}</span>
     </label>
   )
   return (
@@ -4183,11 +4194,48 @@ function CirclesMenu({ look, onLook }: { look: CirclesLook; onLook: (look: Circl
           <div
             role="dialog"
             aria-label="Circles"
-            className="absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-[var(--border)] bg-[var(--card)] p-3 pt-0.5 text-[11px] shadow-lg"
+            className="absolute right-0 top-full z-50 mt-1 w-80 rounded-md border border-[var(--border)] bg-[var(--card)] p-3 pt-0.5 text-[11px] shadow-lg"
           >
+            {row('size', 'How big the circles are, all of them together', 'size', 0.01, `${Math.round(look.size * 100)}%`)}
+            <label
+              className="mt-2.5 flex items-center gap-2"
+              title="Whether the dot follows the mouse. Off, it follows only the wedges being read, and glances around on its own."
+            >
+              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">follow mouse</span>
+              <input
+                type="checkbox"
+                checked={look.mouse}
+                onChange={(e) => set({ mouse: e.target.checked })}
+                className="cursor-pointer accent-[var(--accent)]"
+              />
+            </label>
+            <label
+              className="mt-2.5 flex items-center gap-2"
+              title="Whether the dot moves on its own: glancing around when there is nothing to look at, glancing away from what it is looking at, and a tiny jitter. Off, it only looks where it is asked and rests in the middle otherwise."
+            >
+              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">idle motion</span>
+              <input
+                type="checkbox"
+                checked={look.idle}
+                onChange={(e) => set({ idle: e.target.checked })}
+                className="cursor-pointer accent-[var(--accent)]"
+              />
+            </label>
+            <label
+              className="mt-2.5 flex items-center gap-2"
+              title="One more circle for each level you drill in: two at the root, three one level down, six four levels down."
+            >
+              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">circle per level</span>
+              <input
+                type="checkbox"
+                checked={look.nest}
+                onChange={(e) => set({ nest: e.target.checked })}
+                className="cursor-pointer accent-[var(--accent)]"
+              />
+            </label>
             {row('shadow size', 'How big the shadow under the dot is', 'shadow', 0.01, look.shadow.toFixed(2))}
             <label className="mt-2.5 flex items-center gap-2" title="The shadow's colour">
-              <span className="w-[74px] shrink-0 text-[var(--muted-foreground)]">shadow colour</span>
+              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">shadow colour</span>
               <input
                 type="color"
                 value={look.color}

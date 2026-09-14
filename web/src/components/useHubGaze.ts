@@ -19,6 +19,18 @@ export function useHubGaze(
   /** The creature's gaze targets, x right and **y up** — see `gaze` in `Sunburst` — or null. */
   gaze: Array<{ x: number; y: number }> | null,
   draw: (g: Gaze) => void,
+  {
+    followMouse = true,
+    selected = null,
+    idle = true,
+  }: {
+    /** Whether it moves of its own accord — see `idle` in `GazeInput`. */
+    idle?: boolean
+    /** Whether the pointer is something to look at. Off, it is as though there were none. */
+    followMouse?: boolean
+    /** The clicked wedge's direction, x right and **y up** like `gaze`, or null. */
+    selected?: { x: number; y: number } | null
+  } = {},
 ): void {
   // Read by the running loop rather than restarting it. Turned to the screen's y down here, once.
   const focus = useRef<Look[] | null>(null)
@@ -29,6 +41,18 @@ export function useHubGaze(
   useEffect(() => {
     paint.current = draw
   }, [draw])
+  const follow = useRef(followMouse)
+  useEffect(() => {
+    follow.current = followMouse
+  }, [followMouse])
+  const wander = useRef(idle)
+  useEffect(() => {
+    wander.current = idle
+  }, [idle])
+  const picked = useRef<Look | null>(null)
+  useEffect(() => {
+    picked.current = selected ? { x: selected.x, y: -selected.y } : null
+  }, [selected])
 
   useEffect(() => {
     let pointer: { x: number; y: number; at: number } | null = null
@@ -47,7 +71,7 @@ export function useHubGaze(
       const dt = Math.min(100, now - last)
       last = now
       let mouse: Look | null = null
-      if (pointer) {
+      if (pointer && follow.current) {
         if (now - measured > MEASURE_MS) {
           box = target.current?.getBoundingClientRect() ?? null
           measured = now
@@ -63,10 +87,12 @@ export function useHubGaze(
       }
       const out = stepGaze(s, dt, {
         focus: focus.current,
+        selected: picked.current,
         mouse,
-        mouseAge: pointer ? now - pointer.at : Infinity,
+        mouseAge: pointer && follow.current ? now - pointer.at : Infinity,
         now: Date.now(),
         still,
+        idle: wander.current,
       })
       s = out.state
       paint.current(out.gaze)

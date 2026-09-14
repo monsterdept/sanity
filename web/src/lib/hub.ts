@@ -12,6 +12,12 @@
 
 export type HubCenter = 'monster' | 'wheel' | 'eye' | 'circles'
 
+/** Whether the toolbar shows the hub's controls: the monster/wheel/eye/circles toggle and the
+ *  circles' `tune` panel. **Off, the stored choices are not read either**: a preference with no
+ *  control left to change or reset it is a setting nobody can see, so the hub takes the defaults
+ *  below. Flip it back and the stored ones apply again. */
+export const HUB_CONTROLS = false
+
 /** A stored `nothing`, the option `circles` replaced, is not in this list, so it loads as the
  *  default rather than as a middle that no longer exists. */
 export const HUB_CENTERS: HubCenter[] = ['monster', 'wheel', 'eye', 'circles']
@@ -64,6 +70,21 @@ export interface CirclesLook {
   alpha: number
   travel: number
   step: number
+  /** The whole drawing's scale, discs, shadow and travel together. 1 is the sizes in
+   *  `HubCircles`; 1.6 takes the dark disc almost to the hub's rim. */
+  size: number
+  /** Whether the dot follows the pointer. Off, it follows only the flashing wedges and its own
+   *  glances, which is the eye's idle sequence without the part that answers the mouse. */
+  mouse: boolean
+  /** Whether the dot moves of its own accord: idle glances, glances away from what it is
+   *  looking at, and the jitter. Off, it looks only at the flashing wedges, the clicked one and
+   *  the pointer (if `mouse`), and rests in the middle otherwise. */
+  idle: boolean
+  /** One more circle for each level drilled in: `2 + depth` of them, two at the repo root. The
+   *  outer disc keeps its size and the dot keeps its `step`; the circles between are spaced
+   *  geometrically, each the same fraction of the one outside it, and blend from the outer
+   *  colour to the dot's. Each drifts in proportion to how far in it sits. */
+  nest: boolean
 }
 
 export const CIRCLES = {
@@ -71,12 +92,24 @@ export const CIRCLES = {
   alpha: { min: 0, max: 1 },
   travel: { min: 0, max: 0.26 },
   step: { min: 0, max: 0.5 },
-  initial: { shadow: 0.35, color: '#000000', alpha: 0.13, travel: 0.075, step: 0.24 } as CirclesLook,
+  size: { min: 0.5, max: 1.6 },
+  initial: {
+    shadow: 0.32,
+    color: '#000000',
+    alpha: 0.1,
+    travel: 0.075,
+    step: 0.24,
+    size: 1,
+    mouse: false,
+    idle: false,
+    nest: true,
+  } as CirclesLook,
 } as const
 
 const CIRCLES_KEY = 'sanity.hub.circles'
 
 export function loadCirclesLook(): CirclesLook {
+  if (!HUB_CONTROLS) return CIRCLES.initial
   const clamp = (n: unknown, { min, max }: { min: number; max: number }, or: number) =>
     typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : or
   const d = CIRCLES.initial
@@ -89,6 +122,10 @@ export function loadCirclesLook(): CirclesLook {
         alpha: clamp(raw.alpha, CIRCLES.alpha, d.alpha),
         travel: clamp(raw.travel, CIRCLES.travel, d.travel),
         step: clamp(raw.step, CIRCLES.step, d.step),
+        size: clamp(raw.size, CIRCLES.size, d.size),
+        mouse: typeof raw.mouse === 'boolean' ? raw.mouse : d.mouse,
+        idle: typeof raw.idle === 'boolean' ? raw.idle : d.idle,
+        nest: typeof raw.nest === 'boolean' ? raw.nest : d.nest,
       }
     }
   } catch {
@@ -106,13 +143,14 @@ export function saveCirclesLook(look: CirclesLook): void {
 }
 
 export function loadHubCenter(): HubCenter {
+  if (!HUB_CONTROLS) return 'circles'
   try {
     const raw = localStorage.getItem(KEY)
     if (raw && (HUB_CENTERS as string[]).includes(raw)) return raw as HubCenter
   } catch {
     /* storage unavailable — the default is a fine answer */
   }
-  return 'monster'
+  return 'circles'
 }
 
 export function saveHubCenter(center: HubCenter): void {
@@ -124,6 +162,7 @@ export function saveHubCenter(center: HubCenter): void {
 }
 
 export function loadWheelHz(): number {
+  if (!HUB_CONTROLS) return WHEEL_HZ.initial
   try {
     const n = Number(localStorage.getItem(HZ_KEY))
     if (Number.isFinite(n) && n >= WHEEL_HZ.min && n <= WHEEL_HZ.max) return n
