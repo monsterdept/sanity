@@ -78,6 +78,32 @@ export const PAPER: Record<Paper, { w: number; h: number; label: string }> = {
   a4: { w: 595.28, h: 841.89, label: 'A4' },
 }
 
+/**
+ * The three shapes the analysis is exported in.
+ *
+ * - **Report**, the paper: methodology, contents, every essay whole with its tables, and every
+ *   group of findings on its own map.
+ * - **Brief**: a cover, one page per lens holding its map and two sections of its essay
+ *   (`SHORT_SECTIONS`), and the findings on one map with the grid of what raised them.
+ * - **Deck**: the brief's content as 16:9 slides, the map beside the words, plus a slide for each
+ *   group of findings.
+ */
+export type Form = 'report' | 'brief' | 'deck'
+
+export const FORM: Record<Form, { label: string; noun: string }> = {
+  report: { label: 'Report', noun: 'report' },
+  brief: { label: 'Brief', noun: 'brief' },
+  deck: { label: 'Deck', noun: 'deck' },
+}
+
+/** A deck's page, in points: 13.33 × 7.5 in, the 16:9 slide Keynote, PowerPoint and Slides open
+ *  at. The paper choice does not apply to it. */
+const DECK_PAGE = { w: 960, h: 540 }
+
+/** The sections of a lens essay a brief and a deck keep: what the lens is, and how to read its
+ *  map. Instrument, Interpretation and Limitations are the report's. */
+const SHORT_SECTIONS = ['Definition', 'Reading the map']
+
 /** Print resolution. At 240 a function patch is still a patch and 8pt type is crisp; 300 made
  *  an eighteen-page report 16MB. */
 const DPI = 240
@@ -117,6 +143,19 @@ const FIGURE_SHARE = 0.66
 const MAX_LENS_PAGES = 2
 
 const lead = (size: number) => size * 1.45 * U
+
+/** A brief's figure shrinks to make room for its words, and no further than this share of the
+ *  text width. Past it, paragraphs go from the end — see `trimToFit`. */
+const BRIEF_FIGURE_MIN = 0.45
+/** A deck's text: one size for every slide, the largest in this range they all fit at. A slide is
+ *  read from across a room, so the floor is well above the report's `BODY`. */
+const DECK_TEXT = { max: 20, min: 11, step: 0.5 }
+/** Between a deck slide's map and its words. */
+const DECK_GAP = 28 * U
+/** How many lines a deck's findings caption may run to under its map, and the room kept for them.
+ *  Fixed, for the report's reason: what a caption says is known only after its map is staged. */
+const DECK_CAP_LINES = 5
+const DECK_CAP_H = DECK_CAP_LINES * lead(7.5) + 8 * U
 
 export interface ReportTick {
   /** Pages finished. */
@@ -171,6 +210,8 @@ export interface Report {
   /** The commit the working tree is at, or null where git would not say. */
   head: RepoHead | null
   paper: Paper
+  /** Which of the three shapes to write — see `Form`. */
+  form: Form
   /** Why each lens that cannot paint is locked — `App`'s `locks`. */
   locks: Partial<Record<ColorMode, Locked>>
   /** How the lenses are set — each page says which reading its figure is. */
@@ -713,6 +754,8 @@ function drawKey(
   top: number,
   cx: number,
   width: number,
+  /** `left` starts every row at `cx` instead of centring it there. */
+  align: 'center' | 'left' = 'center',
 ): number {
   const c = sheet.c
   const inks = sheet.inks
@@ -725,7 +768,7 @@ function drawKey(
     const loW = sheet.measure(lo, 8)
     const hiW = sheet.measure(hi, 8)
     const bar = Math.max(40 * U, Math.min(150 * U, width - loW - hiW - 16 * U))
-    let x = cx - (loW + bar + hiW + 16 * U) / 2
+    let x = align === 'left' ? cx : cx - (loW + bar + hiW + 16 * U) / 2
     const base = y + 9 * U
     sheet.text(lo, x, base, { size: 8, color: inks.muted })
     x += loW + 8 * U
@@ -740,7 +783,7 @@ function drawKey(
 
   const box = 7 * U
   for (const row of keyRows(sheet, items, width)) {
-    const x0 = cx - row.w / 2
+    const x0 = align === 'left' ? cx : cx - row.w / 2
     const base = y + 9 * U
     for (const { it, x } of row.items) {
       let tx = x0 + x
@@ -1046,10 +1089,17 @@ const BADGE = 22 * U
 /** The line an entry carries when it starts a page without its heading. */
 const CONT_H = lead(7.5) + 4 * U
 
-function entryOf(sheet: Sheet, item: FindingItem, n: number, intro: Map<string, string>): Entry {
+function entryOf(
+  sheet: Sheet,
+  item: FindingItem,
+  n: number,
+  intro: Map<string, string>,
+  /** Where the entry's column starts — the margin, or a deck's text column. */
+  left = sheet.left,
+): Entry {
   const c = sheet.c
   const inks = sheet.inks
-  const width = sheet.width - BADGE
+  const width = sheet.right - left - BADGE
   const hit = item.finding.hit
   const head = setLines(
     c,
@@ -1098,10 +1148,19 @@ function partHeight(e: Entry, k: number): number {
   return h
 }
 
-function drawPart(sheet: Sheet, from: Element, e: Entry, k: number, top: number, cont: boolean): number {
+function drawPart(
+  sheet: Sheet,
+  from: Element,
+  e: Entry,
+  k: number,
+  top: number,
+  cont: boolean,
+  /** The column it was laid out for — see `entryOf`. */
+  left = sheet.left,
+): number {
   const c = sheet.c
   const inks = sheet.inks
-  const x = sheet.left + BADGE
+  const x = left + BADGE
   let y = top
 
   if (cont) {
@@ -1113,7 +1172,7 @@ function drawPart(sheet: Sheet, from: Element, e: Entry, k: number, top: number,
   if (k === 0) {
     y += 8 * U
     const r = 7 * U
-    const bx = sheet.left + r
+    const bx = left + r
     const by = y + lead(SIZE.head) * 0.5
     c.beginPath()
     c.arc(bx, by, r, 0, Math.PI * 2)
@@ -1176,7 +1235,7 @@ function drawPart(sheet: Sheet, from: Element, e: Entry, k: number, top: number,
     }
     y += 22 * U
     c.fillStyle = inks.border
-    c.fillRect(sheet.left, y - 1 * U, sheet.width, Math.max(1, 0.5 * U))
+    c.fillRect(left, y - 1 * U, sheet.right - left, Math.max(1, 0.5 * U))
   }
   return y - top
 }
@@ -1197,6 +1256,8 @@ type GridRow = { band: Section } | { entry: Entry }
  *  was hit by four rules at once, which the grouping by place spreads across the page. */
 interface Grid {
   cols: { id: string; title: string; count: number }[]
+  /** The whole grid's width — the text width, or a deck's text column. */
+  width: number
   colW: number
   labelW: number
   titleH: number
@@ -1210,19 +1271,20 @@ function letterOf(i: number): string {
   return i < 26 ? String.fromCharCode(65 + i) : letterOf(Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26))
 }
 
-function gridOf(sheet: Sheet, groups: FindingGroup[], sections: Section[]): Grid {
+function gridOf(sheet: Sheet, groups: FindingGroup[], sections: Section[], width = sheet.width): Grid {
   const all = sections.flatMap((s) => s.entries)
   const cols = groups
     .filter((g) => !g.blocked)
     .map((g) => ({ id: g.id, title: g.title, count: all.filter((e) => e.item.rules.some((r) => r.id === g.id)).length }))
     .filter((c) => c.count > 0)
     .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title))
-  const colW = Math.min(16 * U, (sheet.width * 0.5) / Math.max(1, cols.length))
+  const colW = Math.min(16 * U, (width * 0.5) / Math.max(1, cols.length))
   const titleH = Math.min(130 * U, Math.max(0, ...cols.map((c) => sheet.measure(c.title, 7))) + 6 * U)
   return {
     cols,
+    width,
     colW,
-    labelW: sheet.width - colW * cols.length - 8 * U,
+    labelW: width - colW * cols.length - 8 * U,
     titleH,
     headH: titleH + 18 * U,
     rowH: 11.5 * U,
@@ -1233,9 +1295,9 @@ function gridOf(sheet: Sheet, groups: FindingGroup[], sections: Section[]): Grid
 
 const gridRowH = (g: Grid, r: GridRow) => ('band' in r ? g.bandH : g.rowH)
 
-function drawGridHead(sheet: Sheet, g: Grid, top: number): number {
+function drawGridHead(sheet: Sheet, g: Grid, top: number, left = sheet.left): number {
   const c = sheet.c
-  const x0 = sheet.left + g.labelW + 8 * U
+  const x0 = left + g.labelW + 8 * U
   const base = top + g.titleH
   g.cols.forEach((col, i) => {
     const cx = x0 + i * g.colW + g.colW / 2
@@ -1253,21 +1315,28 @@ function drawGridHead(sheet: Sheet, g: Grid, top: number): number {
     c.restore()
     sheet.text(String(col.count), cx, base + 11 * U, { size: 7, bold: true, color: sheet.inks.muted, align: 'center' })
   })
-  sheet.text('FINDING', sheet.left, base + 11 * U, { size: 7, bold: true, color: sheet.inks.muted })
-  sheet.rule(base + 15 * U)
+  sheet.text('FINDING', left, base + 11 * U, { size: 7, bold: true, color: sheet.inks.muted })
+  sheet.rule(base + 15 * U, left, g.width)
   return top + g.headH
 }
 
-function drawGridRow(sheet: Sheet, g: Grid, r: GridRow, top: number, placeName: (s: Section) => string): number {
+function drawGridRow(
+  sheet: Sheet,
+  g: Grid,
+  r: GridRow,
+  top: number,
+  placeName: (s: Section) => string,
+  left = sheet.left,
+): number {
   const c = sheet.c
   const inks = sheet.inks
-  const x0 = sheet.left + g.labelW + 8 * U
+  const x0 = left + g.labelW + 8 * U
   if ('band' in r) {
     const s = r.band
     c.fillStyle = inks.border
-    c.fillRect(sheet.left, top + 3 * U, sheet.width, Math.max(1, 0.5 * U))
+    c.fillRect(left, top + 3 * U, g.width, Math.max(1, 0.5 * U))
     const t = fitText(sheet, `${s.letter}  ${placeName(s)}`, 8, g.labelW, { bold: true, mono: true, floor: 6 })
-    sheet.text(t.text, sheet.left, top + g.bandH * 0.78, { size: t.size, bold: true, mono: true })
+    sheet.text(t.text, left, top + g.bandH * 0.78, { size: t.size, bold: true, mono: true })
     return top + g.bandH
   }
   const e = r.entry
@@ -1280,9 +1349,9 @@ function drawGridRow(sheet: Sheet, g: Grid, r: GridRow, top: number, placeName: 
     c.restore()
   })
   const base = top + g.rowH * 0.74
-  sheet.text(String(e.n), sheet.left + 14 * U, base, { size: 7, bold: true, color: inks.muted, align: 'right' })
+  sheet.text(String(e.n), left + 14 * U, base, { size: 7, bold: true, color: inks.muted, align: 'right' })
   const t = fitText(sheet, e.addr, 7.5, g.labelW - 20 * U, { mono: true, floor: 6 })
-  sheet.text(t.text, sheet.left + 20 * U, base, { size: t.size, mono: true })
+  sheet.text(t.text, left + 20 * U, base, { size: t.size, mono: true })
   const ids = new Set(e.item.rules.map((x) => x.id))
   g.cols.forEach((col, i) => {
     if (!ids.has(col.id)) return
@@ -1358,6 +1427,7 @@ function methodVars(o: Report, findings: number): Record<string, string> {
         : `This corpus mixes readings from ${s.models.map((m) => `${m.model} (${n(m.readings)})`).join(', ')}, and is therefore not on one scale.`
   const window = o.views.churn.windows[o.views.churn.at]
   return {
+    formNoun: FORM[o.form].noun,
     repoSlug: o.slug,
     commitClause: o.head
       ? `at commit ${o.head.sha}${o.head.dirty === true ? ', with uncommitted changes' : ''}`
@@ -1416,6 +1486,57 @@ interface TableSlot {
 interface LensPage {
   slices: Slice[]
   tables: TableSlot[]
+}
+
+/** A lens section laid out: where its figure, key and caption go on its first page, and the text
+ *  on every page. The three forms place the figure differently and draw it the same way. */
+interface LensPlan {
+  m: ColorMode
+  key: LensKey | null
+  extra: KeyItem[]
+  caption: Line[]
+  figX: number
+  figSide: number
+  keyTop: number
+  /** The key is centred on `keyCx` within `keyW`, or starts at it — see `keyAlign`. */
+  keyCx: number
+  keyW: number
+  /** Centred under a map on paper; left, under the words, on a slide. */
+  keyAlign: 'center' | 'left'
+  capTop: number
+  capX: number
+  pages: LensPage[]
+}
+
+/**
+ * A deck's words for a lens: the first sentence of what it is and the first of how to read its map.
+ *
+ * **A slide is spoken to, not read.** Two whole sections at a slide's size left the words the
+ * larger half of every slide and the map beside them the smaller; a deck wants the picture and a
+ * line under each heading.
+ */
+function deckProse(m: ColorMode, vars: Record<string, string>): Prose[] {
+  return ESSAYS[m].sections
+    .filter((sec) => SHORT_SECTIONS.includes(sec.heading))
+    .map((sec) => ({ heading: sec.heading, body: [firstSentence(fillSlots(sec.body[0] ?? '', vars))] }))
+}
+
+/** Up to the first full stop that ends a sentence: one followed by a capital or a markup mark, or
+ *  the end. `0.05` and `1.15 ×` are not the ends of sentences. */
+function firstSentence(s: string): string {
+  const m = /^[\s\S]*?[.?!](?=\s+[A-Z*`(“"]|$)/.exec(s.trim())
+  return m ? m[0] : s.trim()
+}
+
+/** Blocks with paragraphs taken off the end until `fits` holds, and a heading left with nothing
+ *  under it taken too. Only a brief and a deck cut, and only whole paragraphs. */
+function trimToFit(blocks: Block[], fits: (b: Block[]) => boolean): Block[] {
+  let b = blocks
+  while (b.length > 1 && !fits(b)) {
+    b = b.slice(0, -1)
+    while (b.length > 1 && b[b.length - 1].kind === 'h') b = b.slice(0, -1)
+  }
+  return b
 }
 
 /** One cell's text on one line, cut from the middle if it has to be — a path's head and tail are
@@ -1632,6 +1753,10 @@ function lensVars(o: Report, readerClause: string): Record<string, string> {
 }
 
 interface Cover {
+  /** `REPOSITORY REPORT`, `BRIEF` or `DECK`. */
+  eyebrow: string
+  /** How wide the cover's column is: the page, or a deck title slide's left column. */
+  width: number
   markTop: number
   eyebrowY: number
   titleY: number
@@ -1649,13 +1774,13 @@ interface Cover {
   bodyTop: number
 }
 
-function coverOf(sheet: Sheet, o: Report, vars: Record<string, string>): Cover {
+function coverOf(sheet: Sheet, o: Report, vars: Record<string, string>, width = sheet.width): Cover {
   const cut = o.slug.lastIndexOf('/')
   const owner = cut > 0 ? o.slug.slice(0, cut + 1) : ''
   const name = cut > 0 ? o.slug.slice(cut + 1) : o.slug
   // Shrunk, never elided: a cut repo name names a repo that does not exist.
   let titleSize = 30
-  while (titleSize > 12 && sheet.measure(owner, titleSize) + sheet.measure(name, titleSize, true) > sheet.width) {
+  while (titleSize > 12 && sheet.measure(owner, titleSize) + sheet.measure(name, titleSize, true) > width) {
     titleSize -= 1
   }
   const when = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
@@ -1667,16 +1792,18 @@ function coverOf(sheet: Sheet, o: Report, vars: Record<string, string>): Cover {
   const rule1 = factsY + 12 * U
   const abstractHeadY = rule1 + 24 * U
   const abstractTop = abstractHeadY + 6 * U
-  const abstract = setLines(sheet.c, inlineRuns(fillSlots(METHODOLOGY.abstract, vars)), sheet.width, 10)
+  const abstract = setLines(sheet.c, inlineRuns(fillSlots(METHODOLOGY.abstract, vars)), width, 10)
   const rule2 = abstractTop + abstract.length * lead(10) + 10 * U
   return {
+    eyebrow: `REPOSITORY ${FORM[o.form].noun.toUpperCase()}`,
+    width,
     markTop,
     eyebrowY,
     titleY,
     owner,
     name,
     titleSize,
-    subtitle: `A repository report, ${vars.commitClause} — ${when}`,
+    subtitle: `A repository ${FORM[o.form].noun}, ${vars.commitClause} — ${when}`,
     subtitleY,
     factsY,
     rule1,
@@ -1699,32 +1826,33 @@ function drawCover(sheet: Sheet, cover: Cover, paths: string[], facts: string) {
   c.fillStyle = inks.fg
   for (const d of paths) c.fill(new Path2D(d))
   c.restore()
-  sheet.text('sanity.monster', sheet.right, cover.markTop + h, { size: 8, color: inks.muted, align: 'right' })
+  sheet.text('sanity.monster', sheet.left + cover.width, cover.markTop + h, { size: 8, color: inks.muted, align: 'right' })
 
-  sheet.text('REPOSITORY REPORT', sheet.left, cover.eyebrowY, { size: 8, bold: true, color: inks.muted })
+  sheet.text(cover.eyebrow, sheet.left, cover.eyebrowY, { size: 8, bold: true, color: inks.muted })
   sheet.text(cover.owner, sheet.left, cover.titleY, { size: cover.titleSize, color: inks.muted })
   sheet.text(cover.name, sheet.left + sheet.measure(cover.owner, cover.titleSize), cover.titleY, {
     size: cover.titleSize,
     bold: true,
   })
-  const sub = fitText(sheet, cover.subtitle, 10.5, sheet.width, { floor: 8 })
+  const sub = fitText(sheet, cover.subtitle, 10.5, cover.width, { floor: 8 })
   sheet.text(sub.text, sheet.left, cover.subtitleY, { size: sub.size, color: inks.muted })
-  const f = fitText(sheet, facts, 8.5, sheet.width, { mono: true, floor: 7 })
+  const f = fitText(sheet, facts, 8.5, cover.width, { mono: true, floor: 7 })
   sheet.text(f.text, sheet.left, cover.factsY, { size: f.size, mono: true, color: inks.muted })
-  sheet.rule(cover.rule1)
+  sheet.rule(cover.rule1, sheet.left, cover.width)
   sheet.text('Abstract', sheet.left, cover.abstractHeadY, { size: 10.5, bold: true })
   let y = cover.abstractTop
   for (const line of cover.abstract) {
     drawLine(c, line, sheet.left, y + lead(10) * 0.74, 10, inks)
     y += lead(10)
   }
-  sheet.rule(cover.rule2)
+  sheet.rule(cover.rule2, sheet.left, cover.width)
 }
 
 /* ── The whole report ─────────────────────────────────────────────────── */
 
 export async function buildReport(o: Report): Promise<Uint8Array> {
-  const paper = PAPER[o.paper]
+  const deck = o.form === 'deck'
+  const paper = deck ? DECK_PAGE : PAPER[o.paper]
   const modes = lensPages(o.locks)
   const items = mergeFindings(o.groups)
   const pages: (PdfPage | null)[] = []
@@ -1756,7 +1884,9 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     tick('staging the map')
     const contentW = (paper.w - 2 * MARGIN) * U
     const colW = (contentW - GUTTER) / 2
-    stage(o.findingsLens, Math.round(contentW))
+    /** A deck title slide's map: the whole repository, as tall as the slide's margins allow. */
+    const heroSide = (paper.h - 2 * MARGIN) * U
+    stage(o.findingsLens, Math.round(deck ? heroSide : contentW))
     await rest(o)
     check()
     driving = clock?.hold() ?? false
@@ -1780,142 +1910,247 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       { x: sheet.left, top, bottom: sheet.bottom },
       { x: col2, top, bottom: sheet.bottom },
     ]
+    /** A deck's slides put the map on the left and the words beside it, in this column. */
+    const deckText = (side: number) => sheet.left + side + DECK_GAP
 
-    // ── Lay out: the cover and methodology.
+    // ── Lay out: the cover, and in a report the methodology under and after it.
     tick('setting the methodology')
     const vars = methodVars(o, items.length)
-    const cover = coverOf(sheet, o, vars)
-    const methodPages = pour(flow(sheet.c, proseBlocks(METHODOLOGY.sections, vars), colW, 9), (p) =>
-      twoCols(p === 0 ? cover.bodyTop : CONTINUED_TOP),
-    )
+    const cover = coverOf(sheet, o, vars, deck ? sheet.width - heroSide - DECK_GAP : sheet.width)
+    const methodBlocks = proseBlocks(METHODOLOGY.sections, vars)
+    const onCover = (b: Block[]) => pour(flow(sheet.c, b, colW, 9), () => twoCols(cover.bodyTop))
+    // A report's methodology runs on past its cover. A brief's is held to the cover, which has the
+    // room, and gives up paragraphs from the end rather than a page; a deck's title slide has none.
+    const methodPages: Slice[][] =
+      o.form === 'report'
+        ? pour(flow(sheet.c, methodBlocks, colW, 9), (p) => twoCols(p === 0 ? cover.bodyTop : CONTINUED_TOP))
+        : o.form === 'brief'
+          ? [onCover(trimToFit(methodBlocks, (b) => onCover(b).length === 1))[0] ?? []]
+          : [[]]
 
-    // ── Lay out: a section per lens — the figure in the top two thirds, the essay in two columns
-    // under it and on. The map is the content, so it leads the page.
+    // ── Lay out: a section per lens.
     tick('setting the lens essays')
-    let figure = 0
-    const lensHeads = modes.map((m) => {
-      const key = o.keyFor(m)
-      const extra = pendingItems(o, m)
-      const setting = settingOf(m, o.views)
-      const fig = ++figure
-      const caption = setLines(
-        sheet.c,
-        [
-          { text: `Figure ${fig}. `, bold: true },
-          {
-            text: `${MODE_LABEL[m]}${setting ? `, ${setting}` : ''}. Angular width is lines of code; colour is this lens.`,
-            muted: true,
-          },
-        ],
-        sheet.width,
-        7.5,
-      )
-      // Key, then caption, with the air above, between and below them. The caption closes the
-      // figure — it is what a reader reads after the picture and its key, the order a paper sets
-      // a figure in.
-      const keyH = keyHeight(sheet, key, extra, sheet.width)
-      const under = 6 * U + keyH + 6 * U + caption.length * lead(7.5) + 14 * U
-      return { m, key, extra, setting, caption, keyH, under }
-    })
-    // **Two thirds figure, one third text.** Full width left an essay one paragraph under a map
-    // that took the page; a column-wide figure made the essay the page. The split is of the body
-    // below the head, and the essay starts at the same height on every lens page.
-    const textTop = HEADER_BOTTOM + (sheet.bottom - HEADER_BOTTOM) * FIGURE_SHARE
-    // One size for every figure, so the maps compare page to page: the square the tallest caption
-    // and key leave room for above the line.
-    const figSide = Math.max(
-      sheet.width * 0.5,
-      Math.min(sheet.width, textTop - HEADER_BOTTOM - Math.max(0, ...lensHeads.map((h) => h.under))),
-    )
-    const figX = sheet.left + (sheet.width - figSide) / 2
-    let tableNo = 0
-    const lensPlans = lensHeads.map((h) => {
+    /** Each lens's figure furniture — key, caption, and the height they take under the map — set
+     *  at `width`. Key, then caption, with the air above, between and below them. The caption
+     *  closes the figure: it is what a reader reads after the picture and its key, the order a
+     *  paper sets a figure in. */
+    const headsAt = (width: number) =>
+      modes.map((m, i) => {
+        const key = o.keyFor(m)
+        const extra = pendingItems(o, m)
+        const setting = settingOf(m, o.views)
+        const caption = setLines(
+          sheet.c,
+          [
+            { text: `Figure ${i + 1}. `, bold: true },
+            {
+              text: `${MODE_LABEL[m]}${setting ? `, ${setting}` : ''}. Angular width is lines of code; colour is this lens.`,
+              muted: true,
+            },
+          ],
+          width,
+          7.5,
+        )
+        const keyH = keyHeight(sheet, key, extra, width)
+        const under = 6 * U + keyH + 6 * U + caption.length * lead(7.5) + 14 * U
+        return { m, key, extra, caption, keyH, under }
+      })
+    type Head = ReturnType<typeof headsAt>[number]
+    let figure = modes.length
+    const planOf = (h: Head, figX: number, figSide: number, keyCx: number, keyW: number, lensPages: LensPage[]): LensPlan => {
       const keyTop = HEADER_BOTTOM + figSide + 6 * U
-      const capTop = keyTop + h.keyH + 6 * U
-      // Below the line, or below the key if a key ever runs past it — never over it.
-      const top = Math.max(textTop, HEADER_BOTTOM + figSide + h.under)
-      const blocks = proseBlocks(ESSAYS[h.m].sections, lensVars(o, vars.readerClause))
-      const ctx = {
-        root: o.treeNow(),
-        buckets: o.bucketsFor(h.m),
-        views: o.views,
-        tangleBands: o.stats.tangleBands,
+      return {
+        m: h.m,
+        key: h.key,
+        extra: h.extra,
+        caption: h.caption,
+        figX,
+        figSide,
+        keyTop,
+        keyCx,
+        keyW,
+        keyAlign: 'center',
+        capTop: keyTop + h.keyH + 6 * U,
+        capX: sheet.left,
+        pages: lensPages,
       }
-      const essay = flow(sheet.c, blocks, colW, BODY)
-      const regions = (p: number): Region[] =>
-        p > 0 ? twoCols(CONTINUED_TOP) : top + 3 * lead(BODY) <= sheet.bottom ? twoCols(top) : []
-      /** The section laid out with one allowance of table rows. Numbered as the tables will be if
-       *  this is the attempt that is kept. */
-      const attempt = (limits: TableLimits | null) => {
-        const pages: LensPage[] = pour(essay, regions).map((sl) => ({ slices: sl, tables: [] }))
-        const tables = limits
-          ? tablesFor(h.m, ctx, limits).map((t, i) => layoutTable(sheet, t, tableNo + 1 + i))
-          : []
-        if (tables.length) {
-          // The tables follow the essay, under its last page balanced into even columns.
-          const last = pages[pages.length - 1]
-          const lastTop = pages.length === 1 ? top : CONTINUED_TOP
-          last.slices = balance(last.slices, lastTop, [sheet.left, col2], sheet.bottom)
-          const end = last.slices.length
-            ? Math.max(...last.slices.map((sl) => sl.region.top + colHeight(sl.rows)))
-            : lastTop
-          placeTables(sheet, pages, tables, end)
+    }
+    /** A brief's and a deck's essay: `SHORT_SECTIONS` of the report's. */
+    const shortBlocks = (m: ColorMode) =>
+      proseBlocks(
+        ESSAYS[m].sections.filter((sec) => SHORT_SECTIONS.includes(sec.heading)),
+        lensVars(o, vars.readerClause),
+      )
+
+    let lensPlans: LensPlan[]
+    if (o.form === 'report') {
+      const lensHeads = headsAt(sheet.width)
+      // **Two thirds figure, one third text.** Full width left an essay one paragraph under a map
+      // that took the page; a column-wide figure made the essay the page. The split is of the body
+      // below the head, and the essay starts at the same height on every lens page.
+      const textTop = HEADER_BOTTOM + (sheet.bottom - HEADER_BOTTOM) * FIGURE_SHARE
+      // One size for every figure, so the maps compare page to page: the square the tallest caption
+      // and key leave room for above the line.
+      const figSide = Math.max(
+        sheet.width * 0.5,
+        Math.min(sheet.width, textTop - HEADER_BOTTOM - Math.max(0, ...lensHeads.map((h) => h.under))),
+      )
+      const figX = sheet.left + (sheet.width - figSide) / 2
+      let tableNo = 0
+      lensPlans = lensHeads.map((h) => {
+        // Below the line, or below the key if a key ever runs past it — never over it.
+        const top = Math.max(textTop, HEADER_BOTTOM + figSide + h.under)
+        const blocks = proseBlocks(ESSAYS[h.m].sections, lensVars(o, vars.readerClause))
+        const ctx = {
+          root: o.treeNow(),
+          buckets: o.bucketsFor(h.m),
+          views: o.views,
+          tangleBands: o.stats.tangleBands,
         }
-        return { pages, used: tables.length }
-      }
-      // **No lens section runs past two pages.** A section is a figure page and one more; a
-      // third page is a lens that has stopped being one section in a set. What gives is the
-      // tables, in order: examples rows down to three, then a cast's named rows (its count row
-      // keeps the total whole), then the examples table, then the breakdown.
-      //
-      // **Never the type, and never the essay.** Every essay is set at `BODY`: a page whose text
-      // is smaller than its neighbour's reads as a different document, and the report is one.
-      // The essay is the explanation of the figure, so it is not what gets cut.
-      const full: TableLimits = { cast: FULL_CAST, examples: h.m === 'traps' ? TRAPS_MAX : TOP }
-      const ladder: (TableLimits | null)[] = [full]
-      for (let ex = full.examples - 1; ex >= 3; ex--) ladder.push({ ...full, examples: ex })
-      for (let cast = FULL_CAST - 1; cast >= 4; cast--) ladder.push({ cast, examples: 3 })
-      ladder.push({ cast: 4, examples: 0 }, null)
-      let chosen = attempt(ladder[0])
-      for (const limits of ladder.slice(1)) {
-        if (chosen.pages.length <= MAX_LENS_PAGES) break
-        chosen = attempt(limits)
-      }
-      tableNo += chosen.used
-      return { ...h, capTop, keyTop, pages: chosen.pages }
-    })
+        const essay = flow(sheet.c, blocks, colW, BODY)
+        const regions = (p: number): Region[] =>
+          p > 0 ? twoCols(CONTINUED_TOP) : top + 3 * lead(BODY) <= sheet.bottom ? twoCols(top) : []
+        /** The section laid out with one allowance of table rows. Numbered as the tables will be if
+         *  this is the attempt that is kept. */
+        const attempt = (limits: TableLimits | null) => {
+          const laid: LensPage[] = pour(essay, regions).map((sl) => ({ slices: sl, tables: [] }))
+          const tables = limits
+            ? tablesFor(h.m, ctx, limits).map((t, i) => layoutTable(sheet, t, tableNo + 1 + i))
+            : []
+          if (tables.length) {
+            // The tables follow the essay, under its last page balanced into even columns.
+            const last = laid[laid.length - 1]
+            const lastTop = laid.length === 1 ? top : CONTINUED_TOP
+            last.slices = balance(last.slices, lastTop, [sheet.left, col2], sheet.bottom)
+            const end = last.slices.length
+              ? Math.max(...last.slices.map((sl) => sl.region.top + colHeight(sl.rows)))
+              : lastTop
+            placeTables(sheet, laid, tables, end)
+          }
+          return { pages: laid, used: tables.length }
+        }
+        // **No lens section runs past two pages.** A section is a figure page and one more; a
+        // third page is a lens that has stopped being one section in a set. What gives is the
+        // tables, in order: examples rows down to three, then a cast's named rows (its count row
+        // keeps the total whole), then the examples table, then the breakdown.
+        //
+        // **Never the type, and never the essay.** Every essay is set at `BODY`: a page whose text
+        // is smaller than its neighbour's reads as a different document, and the report is one.
+        // The essay is the explanation of the figure, so it is not what gets cut.
+        const full: TableLimits = { cast: FULL_CAST, examples: h.m === 'traps' ? TRAPS_MAX : TOP }
+        const ladder: (TableLimits | null)[] = [full]
+        for (let ex = full.examples - 1; ex >= 3; ex--) ladder.push({ ...full, examples: ex })
+        for (let cast = FULL_CAST - 1; cast >= 4; cast--) ladder.push({ cast, examples: 3 })
+        ladder.push({ cast: 4, examples: 0 }, null)
+        let chosen = attempt(ladder[0])
+        for (const limits of ladder.slice(1)) {
+          if (chosen.pages.length <= MAX_LENS_PAGES) break
+          chosen = attempt(limits)
+        }
+        tableNo += chosen.used
+        return planOf(h, figX, figSide, sheet.left + sheet.width / 2, sheet.width, chosen.pages)
+      })
+    } else if (!deck) {
+      // **A brief is one page a lens, and the map is what gives.** The essay is at the report's
+      // `BODY` for the report's reason, so where two sections will not fit under the figure the
+      // figure shrinks — one size for every lens, so the maps still compare page to page — down
+      // to `BRIEF_FIGURE_MIN` of the width. Past that, paragraphs go from the end.
+      const heads = headsAt(sheet.width)
+      const rows = heads.map((h) => flow(sheet.c, shortBlocks(h.m), colW, BODY))
+      const onePage = (r: Row[], top: number) => pour(r, () => twoCols(top)).length === 1
+      const floor = sheet.width * BRIEF_FIGURE_MIN
+      let side = Math.min(sheet.width, sheet.bottom - HEADER_BOTTOM - Math.max(0, ...heads.map((h) => h.under)) - 6 * lead(BODY))
+      while (side > floor && !heads.every((h, i) => onePage(rows[i], HEADER_BOTTOM + side + h.under))) side -= 6 * U
+      side = Math.max(side, floor)
+      lensPlans = heads.map((h) => {
+        const top = HEADER_BOTTOM + side + h.under
+        const blocks = trimToFit(shortBlocks(h.m), (b) => onePage(flow(sheet.c, b, colW, BODY), top))
+        const slices = pour(flow(sheet.c, blocks, colW, BODY), () => twoCols(top))[0] ?? []
+        return planOf(h, sheet.left + (sheet.width - side) / 2, side, sheet.left + sheet.width / 2, sheet.width, [
+          { slices, tables: [] },
+        ])
+      })
+    } else {
+      // **A slide is the map, the full height of the body, and the words beside it.** Nothing sits
+      // under the map to shorten it: the key and the caption go to the foot of the text column. The
+      // words are a presentation's (`deckProse`), at one size for the whole deck — the largest every
+      // slide fits at — for the report's reason that a slide set smaller than its neighbour reads
+      // as another deck.
+      const side = Math.min(sheet.width * 0.5, sheet.bottom - HEADER_BOTTOM)
+      const textX = deckText(side)
+      const textW = sheet.right - textX
+      const heads = headsAt(textW)
+      /** Where a slide's key starts, with its caption under it ending at the foot of the column. */
+      const keyTopOf = (h: Head) => sheet.bottom - h.caption.length * lead(7.5) - 6 * U - h.keyH
+      const regionOf = (h: Head): Region[] => [{ x: textX, top: HEADER_BOTTOM, bottom: keyTopOf(h) - 14 * U }]
+      const wordsOf = (m: ColorMode) => proseBlocks(deckProse(m, lensVars(o, vars.readerClause)))
+      const fits = (b: Block[], h: Head, size: number) =>
+        pour(flow(sheet.c, b, textW, size), () => regionOf(h)).length === 1
+      let size = DECK_TEXT.max
+      while (size > DECK_TEXT.min && !heads.every((h) => fits(wordsOf(h.m), h, size))) size -= DECK_TEXT.step
+      lensPlans = heads.map((h): LensPlan => {
+        const blocks = trimToFit(wordsOf(h.m), (b) => fits(b, h, size))
+        const slices = pour(flow(sheet.c, blocks, textW, size), () => regionOf(h))[0] ?? []
+        const keyTop = keyTopOf(h)
+        return {
+          m: h.m,
+          key: h.key,
+          extra: h.extra,
+          caption: h.caption,
+          figX: sheet.left,
+          figSide: side,
+          keyTop,
+          keyCx: textX,
+          keyW: textW,
+          keyAlign: 'left',
+          capTop: keyTop + h.keyH + 6 * U,
+          capX: textX,
+          pages: [{ slices, tables: [] }],
+        }
+      })
+    }
 
     // ── Lay out: the findings. Grouped by place; numbered in the order printed.
     tick('grouping the findings')
     const grouped = groupFindings(items, (it) => ({ path: it.finding.hit.path, kind: it.finding.hit.kind }))
     const intro = introductions(grouped.flatMap((g) => g.items))
+    // A deck's findings slides: a full-height map on the left of every one, and the list or grid
+    // beside it, above the caption at the foot of that column.
+    const dSide = deck ? Math.min(sheet.width * 0.5, sheet.bottom - HEADER_BOTTOM) : 0
+    const colBottom = deck ? sheet.bottom - DECK_CAP_H : sheet.bottom
+    const textLeft = deck ? deckText(dSide) : sheet.left
     let counter = 0
     const sections: Section[] = grouped.map((g, i) => ({
       letter: letterOf(i),
       root: g.root,
       kind: g.kind,
-      entries: g.items.map((it) => entryOf(sheet, it, ++counter, intro)),
+      entries: g.items.map((it) => entryOf(sheet, it, ++counter, intro, textLeft)),
     }))
     const list = sections.flatMap((s) => s.entries)
     const placeName = (s: Section) => (s.root === '' ? o.slug : s.root)
 
-    const summary = setLines(sheet.c, findingSummary(items.length, o.groups), sheet.width, 9)
-    const mapTop = HEADER_BOTTOM + summary.length * lead(9) + 10 * U
-    const grid = gridOf(sheet, o.groups, sections)
-    // One group at the repo root would draw the same map twice; its own figure is enough.
-    const showOverview = list.length > 0 && !(sections.length === 1 && sections[0].root === '')
-    const ovCaptionH = 3 * lead(7.5) + 8 * U
-    const ovSide = showOverview ? sheet.width : 0
-    const ovX = sheet.left + (sheet.width - ovSide) / 2
+    // One group at the repo root would draw the same map twice where the groups get maps of their
+    // own; a brief draws none, so there the overview is the only map and it stays.
+    const showOverview = list.length > 0 && (o.form === 'brief' || !(sections.length === 1 && sections[0].root === ''))
+    const beside = deck && showOverview
+    const sumLeft = beside ? textLeft : sheet.left
+    const summary = setLines(sheet.c, findingSummary(items.length, o.groups), sheet.right - sumLeft, 9)
+    const summaryH = summary.length * lead(9) + 10 * U
+    const grid = gridOf(sheet, o.groups, sections, sheet.right - sumLeft)
+    const ovCaptionH = deck ? DECK_CAP_H : 3 * lead(7.5) + 8 * U
+    const ovSide = showOverview ? (deck ? dSide : sheet.width) : 0
+    const ovX = deck ? sheet.left : sheet.left + (sheet.width - ovSide) / 2
+    const ovTop = deck ? HEADER_BOTTOM : HEADER_BOTTOM + summaryH
     const ovFig = showOverview ? ++figure : 0
-    const gridTop = showOverview ? mapTop + ovSide + 6 * U + ovCaptionH : mapTop
+    const gridTop = beside ? HEADER_BOTTOM + summaryH : showOverview ? ovTop + ovSide + 6 * U + ovCaptionH : HEADER_BOTTOM + summaryH
     const gridPages: GridRow[][] = []
+    const gridBottom = beside ? colBottom : sheet.bottom
     if (list.length) {
       let cur: GridRow[] = []
-      let room = sheet.bottom - gridTop - grid.headH
+      let room = gridBottom - gridTop - grid.headH
       if (room < 3 * grid.rowH) {
         gridPages.push([])
-        room = sheet.bottom - CONTINUED_TOP - grid.headH
+        room = gridBottom - CONTINUED_TOP - grid.headH
       }
       for (const r of grid.rows) {
         const h = gridRowH(grid, r)
@@ -1924,7 +2159,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         if (need > room && cur.length) {
           gridPages.push(cur)
           cur = []
-          room = sheet.bottom - CONTINUED_TOP - grid.headH
+          room = gridBottom - CONTINUED_TOP - grid.headH
         }
         cur.push(r)
         room -= h
@@ -1933,19 +2168,21 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     }
     const ovPages = Math.max(1, gridPages.length)
 
-    const GS = sheet.width
-    const gCaptionH = 4 * lead(7.5) + 8 * U
-    const groupFig = sections.map(() => ++figure)
-    const sectionPages = sections.map((s) => {
+    // A brief's findings end at the overview; the report and the deck give each group its own map.
+    const drawn = o.form === 'brief' ? [] : sections
+    const GS = deck ? dSide : sheet.width
+    const gCaptionH = deck ? DECK_CAP_H : 4 * lead(7.5) + 8 * U
+    const groupFig = drawn.map(() => ++figure)
+    const sectionPages = drawn.map((s) => {
       const out: PartSlot[][] = [[]]
-      let room = sheet.bottom - (HEADER_BOTTOM + GS + 6 * U + gCaptionH)
+      let room = deck ? colBottom - HEADER_BOTTOM : sheet.bottom - (HEADER_BOTTOM + GS + 6 * U + gCaptionH)
       for (const e of s.entries) {
         for (let k = 0; k < partsOf(e); k++) {
           const cur = out[out.length - 1]
           const h = partHeight(e, k)
-          if (h > room && (cur.length > 0 || out.length === 1)) {
+          if (h > room && (cur.length > 0 || (!deck && out.length === 1))) {
             out.push([{ e, k, cont: k > 0 }])
-            room = sheet.bottom - CONTINUED_TOP - h - (k > 0 ? CONT_H : 0)
+            room = colBottom - CONTINUED_TOP - h - (k > 0 ? CONT_H : 0)
           } else {
             cur.push({ e, k, cont: false })
             room -= h
@@ -1957,8 +2194,8 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
 
     // ── Number every page.
     const methodCount = methodPages.length
-    const contentsIndex = methodCount
-    let at = methodCount + 1
+    const contentsIndex = o.form === 'report' ? methodCount : -1
+    let at = methodCount + (contentsIndex >= 0 ? 1 : 0)
     const lensStart = new Map<ColorMode, number>()
     for (const p of lensPlans) {
       lensStart.set(p.m, at)
@@ -1967,7 +2204,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     const findingsStart = at
     at += ovPages
     const groupStart = new Map<string, number>()
-    sections.forEach((s, i) => {
+    drawn.forEach((s, i) => {
       groupStart.set(s.letter, at)
       at += sectionPages[i].length
     })
@@ -1986,7 +2223,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       `${s.lines.toLocaleString()} lines`,
       `${s.functions.toLocaleString()} functions in ${s.files.toLocaleString()} files`,
       s.functions + s.files > 0 ? `${s.assessed.toLocaleString()} of ${(s.functions + s.files).toLocaleString()} read` : '',
-      `${total} pages`,
+      `${total} ${deck ? 'slides' : 'pages'}`,
     ]
       .filter(Boolean)
       .join(' · ')
@@ -1994,18 +2231,25 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       check()
       tick('drawing the methodology')
       sheet.begin()
-      if (p === 0) drawCover(sheet, cover, wordmark, facts)
+      if (p === 0) {
+        drawCover(sheet, cover, wordmark, facts)
+        // A deck's title slide carries the whole repository beside its name, in the window's lens.
+        if (deck) {
+          pose()
+          await drawMap(sheet, svg, style, sheet.right - heroSide, MARGIN * U, heroSide)
+        }
+      }
       else sheet.continued('Methodology', 'Methodology, continued')
       drawSlices(sheet, methodPages[p])
       sheet.footer(p + 1, total)
-      await put(p, p === 0 ? 'Abstract and methodology' : undefined)
+      await put(p, p === 0 ? (deck ? 'Title' : 'Abstract and methodology') : undefined)
     }
 
     // ── Draw: a section per lens.
     for (const plan of lensPlans) {
       check()
       tick(`staging ${MODE_LABEL[plan.m]}`)
-      stage(plan.m, Math.round(figSide))
+      stage(plan.m, Math.round(plan.figSide))
       await rest(o)
       check()
       tick(`drawing ${MODE_LABEL[plan.m]}`)
@@ -2017,13 +2261,13 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         if (p === 0) {
           sheet.header(family, MODE_LABEL[plan.m])
           pose()
-          await drawMap(sheet, svg, style, figX, HEADER_BOTTOM, figSide)
+          await drawMap(sheet, svg, style, plan.figX, HEADER_BOTTOM, plan.figSide)
           let y = plan.capTop
           for (const line of plan.caption) {
-            drawLine(sheet.c, line, sheet.left, y + lead(7.5) * 0.74, 7.5, inks)
+            drawLine(sheet.c, line, plan.capX, y + lead(7.5) * 0.74, 7.5, inks)
             y += lead(7.5)
           }
-          drawKey(sheet, svg, plan.key, plan.extra, plan.keyTop, sheet.left + sheet.width / 2, sheet.width)
+          drawKey(sheet, svg, plan.key, plan.extra, plan.keyTop, plan.keyCx, plan.keyW, plan.keyAlign)
         } else {
           sheet.continued(family, `${MODE_LABEL[plan.m]}, continued`)
         }
@@ -2046,11 +2290,39 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const ovSvg = mapSvg()
       svg = ovSvg
       const tagged = tagsOf(ovSvg)
-      const m = userToPage(ovSvg, ovX, mapTop, ovSide)
+      const m = userToPage(ovSvg, ovX, ovTop, ovSide)
       ovSpots = list.map((e) => spotOf(e.item, tagged, ovSvg, m))
       groupMarks = sections
         .filter((sec) => sec.root !== '')
         .map((sec) => ({ spot: locate([sec.root], parentOf(sec.root), tagged, ovSvg, m), label: sec.letter, dashed: true }))
+    }
+    /** The overview map, its marks and its caption. A deck draws it on every overview slide, so the
+     *  grid beside it always has the picture it indexes. */
+    const drawOverview = async () => {
+      pose()
+      await drawMap(sheet, svg, style, ovX, ovTop, ovSide, (img) => greyExcept(sheet, img, ovSpots, ovX, ovTop, ovSide))
+      drawMarks(sheet, groupMarks, ovX, ovTop, ovSide)
+      const unplaced = ovSpots.filter((sp) => sp === null).length
+      const n = sections.length
+      const where =
+        o.form === 'brief'
+          ? `Letters mark the ${n} place${n === 1 ? '' : 's'} the findings are grouped by, which the grid lists.`
+          : `Letters mark the ${n} group${n === 1 ? '' : 's'} the findings are presented in, each on its own map zoomed to that region.`
+      const text = `${MODE_LABEL[o.findingsLens]}. Every wedge holding a finding keeps its colour; the rest of the repository is grey. ${where}${unplaced ? ` ${unplaced} could not be placed at this size.` : ''}`
+      const lines = setLines(
+        sheet.c,
+        [{ text: `Figure ${ovFig}. `, bold: true }, { text, muted: true }],
+        deck ? sheet.right - textLeft : sheet.width,
+        7.5,
+      )
+      // Under the map on paper; at the foot of the text column on a slide, where the map is full
+      // height.
+      const shown = deck ? lines.slice(0, DECK_CAP_LINES) : lines
+      let y = deck ? sheet.bottom - shown.length * lead(7.5) : ovTop + ovSide + 6 * U
+      for (const line of shown) {
+        drawLine(sheet.c, line, deck ? textLeft : sheet.left, y + lead(7.5) * 0.74, 7.5, inks)
+        y += lead(7.5)
+      }
     }
     for (let p = 0; p < ovPages; p++) {
       check()
@@ -2061,41 +2333,28 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         sheet.header('Findings', 'Findings')
         y = HEADER_BOTTOM
         for (const line of summary) {
-          drawLine(sheet.c, line, sheet.left, y + lead(9) * 0.74, 9, inks)
+          drawLine(sheet.c, line, sumLeft, y + lead(9) * 0.74, 9, inks)
           y += lead(9)
         }
-        if (showOverview) {
-          pose()
-          await drawMap(sheet, svg, style, ovX, mapTop, ovSide, (img) =>
-            greyExcept(sheet, img, ovSpots, ovX, mapTop, ovSide),
-          )
-          drawMarks(sheet, groupMarks, ovX, mapTop, ovSide)
-          y = mapTop + ovSide + 6 * U
-          const unplaced = ovSpots.filter((sp) => sp === null).length
-          const text = `${MODE_LABEL[o.findingsLens]}. Every wedge holding a finding keeps its colour; the rest of the repository is grey. Letters mark the ${sections.length} group${sections.length === 1 ? '' : 's'} the findings are presented in, each on its own map zoomed to that region.${unplaced ? ` ${unplaced} could not be placed at this size.` : ''}`
-          const lines = setLines(sheet.c, [{ text: `Figure ${ovFig}. `, bold: true }, { text, muted: true }], sheet.width, 7.5)
-          for (const line of lines) {
-            drawLine(sheet.c, line, sheet.left, y + lead(7.5) * 0.74, 7.5, inks)
-            y += lead(7.5)
-          }
-        }
+        if (showOverview) await drawOverview()
         y = gridTop
       } else {
         sheet.continued('Findings', 'Findings at a glance, continued')
+        if (beside) await drawOverview()
         y = CONTINUED_TOP
       }
       const rows = gridPages[p] ?? []
       if (rows.length) {
-        y = drawGridHead(sheet, grid, y)
-        for (const r of rows) y = drawGridRow(sheet, grid, r, y, placeName)
+        y = drawGridHead(sheet, grid, y, sumLeft)
+        for (const r of rows) y = drawGridRow(sheet, grid, r, y, placeName, sumLeft)
       }
       sheet.footer(findingsStart + p + 1, total)
       await put(findingsStart + p, p === 0 ? 'Findings' : undefined)
     }
 
     // ── Draw: each group, on a map zoomed to it.
-    for (let i = 0; i < sections.length; i++) {
-      const sec = sections[i]
+    for (let i = 0; i < drawn.length; i++) {
+      const sec = drawn[i]
       check()
       tick(`zooming to ${placeName(sec)}`)
       stage(o.findingsLens, Math.round(GS), sec.root)
@@ -2104,12 +2363,48 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const gSvg = mapSvg()
       svg = gSvg
       const tagged = tagsOf(gSvg)
-      const gx = sheet.left + (sheet.width - GS) / 2
+      const gx = deck ? sheet.left : sheet.left + (sheet.width - GS) / 2
       const m = userToPage(gSvg, gx, HEADER_BOTTOM, GS)
       const spots = sec.entries.map((e) => spotOf(e.item, tagged, gSvg, m))
       sec.entries.forEach((e, k) => {
         e.pinned = spots[k] !== null
       })
+      const files = new Set(sec.entries.map((e) => e.item.finding.hit.path)).size
+      const where = sec.root === '' ? 'the whole repository' : sec.kind === 'file' ? 'this file' : 'this directory'
+      const coarse = sec.entries.filter((_, k) => spots[k]?.coarse).map((e) => e.n)
+      const lost = sec.entries.filter((_, k) => !spots[k]).map((e) => e.n)
+      const text = [
+        `${MODE_LABEL[o.findingsLens]}, zoomed to ${where}: ${sec.entries.length} finding${sec.entries.length === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}. Numbered wedges are the findings listed ${deck ? 'beside it' : 'below'}; the rest of this region is grey.`,
+        coarse.length
+          ? ` ${coarse.join(', ')} ${coarse.length === 1 ? 'is' : 'are'} too small to draw at this zoom and ${coarse.length === 1 ? 'is' : 'are'} marked, dashed, on what holds ${coarse.length === 1 ? 'it' : 'them'}.`
+          : '',
+        lost.length ? ` ${lost.join(', ')} could not be placed on this map.` : '',
+      ].join('')
+      const capLines = setLines(
+        sheet.c,
+        [{ text: `Figure ${groupFig[i]}. `, bold: true }, { text, muted: true }],
+        deck ? sheet.right - textLeft : sheet.width,
+        7.5,
+      )
+      /** The group's map, its numbered marks and its caption. A deck draws it on every slide of the
+       *  group, beside the entries that carry on. */
+      const drawGroup = async () => {
+        pose()
+        await drawMap(sheet, gSvg, style, gx, HEADER_BOTTOM, GS, (img) => greyExcept(sheet, img, spots, gx, HEADER_BOTTOM, GS))
+        drawMarks(
+          sheet,
+          spots.map((sp, k) => ({ spot: sp, label: String(sec.entries[k].n), dashed: false })),
+          gx,
+          HEADER_BOTTOM,
+          GS,
+        )
+        const shown = deck ? capLines.slice(0, DECK_CAP_LINES) : capLines
+        let y = deck ? sheet.bottom - shown.length * lead(7.5) : HEADER_BOTTOM + GS + 6 * U
+        for (const line of shown) {
+          drawLine(sheet.c, line, deck ? textLeft : sheet.left, y + lead(7.5) * 0.74, 7.5, inks)
+          y += lead(7.5)
+        }
+      }
       const start = groupStart.get(sec.letter)!
       const pagesHere = sectionPages[i]
       for (let p = 0; p < pagesHere.length; p++) {
@@ -2117,53 +2412,29 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         sheet.begin()
         let y: number
         if (p === 0) {
-          const files = new Set(sec.entries.map((e) => e.item.finding.hit.path)).size
-          const where = sec.root === '' ? 'the whole repository' : sec.kind === 'file' ? 'this file' : 'this directory'
           sheet.header(`Findings · Group ${sec.letter}`, placeName(sec), sec.root !== '')
-          pose()
-          await drawMap(sheet, gSvg, style, gx, HEADER_BOTTOM, GS, (img) =>
-            greyExcept(sheet, img, spots, gx, HEADER_BOTTOM, GS),
-          )
-          drawMarks(
-            sheet,
-            spots.map((sp, k) => ({ spot: sp, label: String(sec.entries[k].n), dashed: false })),
-            gx,
-            HEADER_BOTTOM,
-            GS,
-          )
-          y = HEADER_BOTTOM + GS + 6 * U
-          const coarse = sec.entries.filter((_, k) => spots[k]?.coarse).map((e) => e.n)
-          const lost = sec.entries.filter((_, k) => !spots[k]).map((e) => e.n)
-          const text = [
-            `${MODE_LABEL[o.findingsLens]}, zoomed to ${where}: ${sec.entries.length} finding${sec.entries.length === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}. Numbered wedges are the findings listed below; the rest of this region is grey.`,
-            coarse.length
-              ? ` ${coarse.join(', ')} ${coarse.length === 1 ? 'is' : 'are'} too small to draw at this zoom and ${coarse.length === 1 ? 'is' : 'are'} marked, dashed, on what holds ${coarse.length === 1 ? 'it' : 'them'}.`
-              : '',
-            lost.length ? ` ${lost.join(', ')} could not be placed on this map.` : '',
-          ].join('')
-          const lines = setLines(sheet.c, [{ text: `Figure ${groupFig[i]}. `, bold: true }, { text, muted: true }], sheet.width, 7.5)
-          for (const line of lines) {
-            drawLine(sheet.c, line, sheet.left, y + lead(7.5) * 0.74, 7.5, inks)
-            y += lead(7.5)
-          }
-          y = HEADER_BOTTOM + GS + 6 * U + gCaptionH
+          await drawGroup()
+          y = deck ? HEADER_BOTTOM : HEADER_BOTTOM + GS + 6 * U + gCaptionH
         } else {
           sheet.continued(`Findings · Group ${sec.letter}`, `${placeName(sec)}, continued`, sec.root !== '')
+          if (deck) await drawGroup()
           y = CONTINUED_TOP
         }
-        for (const slot of pagesHere[p]) y += drawPart(sheet, gSvg, slot.e, slot.k, y, slot.cont)
+        for (const slot of pagesHere[p]) y += drawPart(sheet, gSvg, slot.e, slot.k, y, slot.cont, textLeft)
         sheet.footer(start + p + 1, total)
         await put(start + p, p === 0 ? `Group ${sec.letter} · ${placeName(sec)}` : undefined)
       }
     }
 
-    // ── Draw: contents, last, because it names every other page.
-    check()
-    tick('setting the contents')
-    sheet.begin()
-    contents(sheet, o, lensStart, findingsStart, list.length, sections, groupStart, placeName)
-    sheet.footer(contentsIndex + 1, total)
-    await put(contentsIndex, 'Contents')
+    // ── Draw: contents, last, because it names every other page. Only a report has one.
+    if (contentsIndex >= 0) {
+      check()
+      tick('setting the contents')
+      sheet.begin()
+      contents(sheet, o, lensStart, findingsStart, list.length, sections, groupStart, placeName)
+      sheet.footer(contentsIndex + 1, total)
+      await put(contentsIndex, 'Contents')
+    }
   } finally {
     o.stage(null)
     if (driving) clock?.release()
@@ -2171,7 +2442,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
 
   tick('writing the PDF')
   const ready = pages.filter((p): p is PdfPage => p !== null)
-  return writePdf(ready, { title: `${stamp} — sanity report`, created: new Date() })
+  return writePdf(ready, { title: `${stamp} — sanity ${FORM[o.form].noun}`, created: new Date() })
 }
 
 function contents(

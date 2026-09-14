@@ -30,7 +30,7 @@ export interface Essay {
 
 export const METHODOLOGY: { abstract: string; sections: Prose[] } = {
   abstract:
-    "This report describes one software repository, {repoSlug}, {commitClause}. The unit of analysis is the function: {functions} functions in {files} files, extracted by parsing and totalling {lines} lines. Every measurement is drawn on one radial diagram whose angular width is lines of code. The main instrument rests on a working definition: boilerplate is code a model can predict from its context. A model reader sees a function's name, signature, neighbours and documentation, predicts the body, and only then reads it. Where the prediction fails is where the decisions are. Parse, call-graph and git measurements go alongside the readings, and rules combine them into findings.",
+    "This {formNoun} describes one software repository, {repoSlug}, {commitClause}. The unit of analysis is the function: {functions} functions in {files} files, extracted by parsing and totalling {lines} lines. Every measurement is drawn on one radial diagram whose angular width is lines of code. The main instrument rests on a working definition: boilerplate is code a model can predict from its context. A model reader sees a function's name, signature, neighbours and documentation, predicts the body, and only then reads it. Where the prediction fails is where the decisions are. Parse, call-graph and git measurements go alongside the readings, and rules combine them into findings.",
   sections: [
     {
       heading: '1. Unit of analysis and representation',

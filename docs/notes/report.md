@@ -6,6 +6,29 @@ one section per lens the repo can paint, and the findings: an overview, then eac
 findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out and draws it,
 `lib/reportProse.ts` holds the words, `lib/pdf.ts` writes the file, and `ReportDialog` asks for it.
 
+- **It comes in three forms (`Form`), and only the report is the paper.** Everything below is
+  the report's unless it says otherwise.
+  - **Report:** as described here.
+  - **Brief:** a cover with the abstract and the methodology under it (no contents), one page per
+    lens, and the findings overview with its grid. No group pages. The methodology is held to the
+    cover, which has the room, and gives up paragraphs from the end rather than taking a page. A
+    lens page keeps two sections of its essay, Definition and Reading the map (`SHORT_SECTIONS`),
+    and no tables.
+  - **Deck:** 16:9 slides (960 × 540 pt, whatever the paper): a title slide, a slide per lens, the
+    findings overview, and a slide per group of findings. **The map is the full height of every
+    slide's body**, on the left; the words go beside it, and the key and caption go to the foot of
+    that column rather than under the map, where they shortened it. The first deck set two whole
+    essay sections at slide size, which made the words the larger half of every slide; a deck
+    keeps the first sentence of each (`deckProse`). The title slide has the whole repository's map
+    beside its name, since a name and an abstract alone left most of it blank. A findings slide
+    that carries on draws its map again, so the list is never beside nothing.
+  - **What gives when a page is too full is different in each.** The report never shrinks type or
+    cuts an essay, and gives up table rows instead. A brief keeps the report's type size and shrinks
+    the figure, one size for every lens so the maps still compare, down to `BRIEF_FIGURE_MIN` of the
+    width. A deck sets its text at one size for the whole deck, the largest every lens slide fits
+    at (`DECK_TEXT`). Past either floor, whole paragraphs go from the end (`trimToFit`), never part
+    of a sentence: a brief and a deck are already excerpts.
+
 - **The prose is its own, and not the lens reference.** `LensHelp` is a lookup for somebody
   already on the map. A report is read by somebody who has never seen the app, so each lens gets
   an essay (Definition, Instrument, Reading the map, Interpretation, Limitations) and the cover

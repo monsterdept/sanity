@@ -8,8 +8,10 @@ import type { LensKey } from '../lib/lensKey'
 import { CANCELLED, type Staged } from '../lib/movie'
 import {
   buildReport,
+  FORM,
   lensPages,
   PAPER,
+  type Form,
   type Paper,
   type ReportBucket,
   type ReportStats,
@@ -23,13 +25,13 @@ function paperFor(locale: string): Paper {
 }
 
 /** A filename somebody will recognise a week later — `ExportDialog`'s rule. */
-function suggest(name: string): string {
+function suggest(name: string, form: Form): string {
   const stem = name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
-  return `${stem || 'sanity'}-report.pdf`
+  return `${stem || 'sanity'}-${FORM[form].noun}.pdf`
 }
 
 /**
@@ -90,6 +92,8 @@ export function ReportDialog({
   onClose: () => void
 }) {
   const [paper, setPaper] = useState<Paper>(() => paperFor(navigator.language))
+  /** Which shape to write — see `Form`. */
+  const [form, setForm] = useState<Form>('report')
   /** The commit, once asked — `undefined` while it is being asked, `null` for no answer. */
   const [head, setHead] = useState<RepoHead | null | undefined>(undefined)
   const [phase, setPhase] = useState<'idle' | 'working' | 'saving' | 'done'>('idle')
@@ -150,6 +154,7 @@ export function ReportDialog({
         slug,
         head: stamp,
         paper,
+        form,
         locks,
         views,
         findingsLens,
@@ -165,7 +170,7 @@ export function ReportDialog({
         onProgress: setAt,
       })
       setPhase('saving')
-      const path = await savePdf(bytes, suggest(name))
+      const path = await savePdf(bytes, suggest(name, form))
       if (!path) {
         setPhase('idle')
         return
@@ -198,9 +203,27 @@ export function ReportDialog({
                 {head.dirty ? ' with uncommitted changes' : ''}
               </>
             )}
-            : a contents page, a page for each of {modes.length} lens
-            {modes.length === 1 ? '' : 'es'}, and the findings grouped by where they are, each
-            group on a map zoomed to it.
+            {form === 'report' && (
+              <>
+                : a contents page, a page for each of {modes.length} lens
+                {modes.length === 1 ? '' : 'es'}, and the findings grouped by where they are, each
+                group on a map zoomed to it.
+              </>
+            )}
+            {form === 'brief' && (
+              <>
+                : a cover, one page for each of {modes.length} lens{modes.length === 1 ? '' : 'es'}{' '}
+                with its map and how to read it, and the findings on one map with the grid of what
+                raised them.
+              </>
+            )}
+            {form === 'deck' && (
+              <>
+                : 16:9 slides — a title, a slide for each of {modes.length} lens
+                {modes.length === 1 ? '' : 'es'} with its map beside how to read it, the findings
+                overview, and a slide for each group of findings.
+              </>
+            )}
           </p>
         </div>
 
@@ -208,19 +231,36 @@ export function ReportDialog({
           <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">{why}</p>
         ) : (
           <>
-            <Field label="Paper">
+            <Field label="Format">
               <div className="flex flex-wrap gap-2">
-                {(Object.keys(PAPER) as Paper[]).map((p) => (
+                {(Object.keys(FORM) as Form[]).map((f) => (
                   <Choice
-                    key={p}
-                    on={paper === p}
+                    key={f}
+                    on={form === f}
                     disabled={busy}
-                    onClick={() => setPaper(p)}
-                    label={PAPER[p].label}
+                    onClick={() => setForm(f)}
+                    label={FORM[f].label}
                   />
                 ))}
               </div>
             </Field>
+
+            {/* A deck is a 16:9 slide, not a sheet of paper, so the paper does not apply to it. */}
+            {form !== 'deck' && (
+              <Field label="Paper">
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(PAPER) as Paper[]).map((p) => (
+                    <Choice
+                      key={p}
+                      on={paper === p}
+                      disabled={busy}
+                      onClick={() => setPaper(p)}
+                      label={PAPER[p].label}
+                    />
+                  ))}
+                </div>
+              </Field>
+            )}
 
             {/* Said before the export rather than discovered in the file: a lens with nothing to
                 show gets no page, and the contents page says why for each. */}
