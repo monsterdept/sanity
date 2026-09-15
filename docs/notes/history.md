@@ -272,13 +272,17 @@ second metric, and the line between those is the whole design.
 - `just history <repo>` is the headless check, and it is UNCACHED by default: a run that
   answers from a file is not a run of the thing being checked. `--files` prints per-file
   totals to reconcile against the app, which is how the mascot bundle was found.
-- **The export records the map on screen; it does not draw a second one.** `movie.ts` copies
-  the live `svg[data-sunburst]` per frame and rasterizes it — a Canvas2D renderer of the same
-  rings would be a picture nobody has checked against the one being replayed, and the two
-  would part company the first time a wedge changed. What the copy has to carry with it is
-  everything the document was supplying: the custom properties (resolved from computed style,
-  named from the stylesheets — one knows which theme is on, the other knows what to ask for)
-  and the label face, inlined as woff2, or the export is set in a typeface the map is not.
+- **The export draws the map the window draws, off the same component, without the window.**
+  Each commit's frame is `frameTree` at export density, rooted where the window is drilled, laid
+  out by `mapMarkup` — the markup `Sunburst` renders — and rasterized through an `<img>`
+  (`MovieSource`, `movie.record`). It used to copy the live `svg[data-sunburst]` per frame, which
+  meant driving the window's playhead, lens, ground and density for the length of a recording:
+  the map jumped about behind the dialog and was put back afterwards. Two renderers would be
+  pictures nobody has checked against each other; one component rendered twice is not. What the
+  picture has to carry is everything a document supplied: the stylesheet's custom properties on
+  the chosen ground (`groundVars`, read off `index.css` as text, so a dark window writes a light
+  file) and the label face, inlined as woff2. The creature is not in the markup and is not
+  composited any more; the hub draws what `center` says, circles by default.
   **It is not a realtime capture, and that is the same argument the transport's duration
   rests on from the other side.** On screen a duration is held by SKIPPING commits, which is
   right for something being watched; a file made that way would be as good as the machine
@@ -300,10 +304,8 @@ second metric, and the line between those is the whole design.
   that decides whether something is worth drawing is a pixel size converted through
   `unitsPerPx`, so density is a property of how large the map is being drawn and nothing
   else — an export that reasons about the pane it was staged from is the same picture
-  upscaled. `Sunburst` takes a `density` and the export sets it to the file's own width, so a
-  4000px movie lays out for 4000px and shows the files a 1000px one culls. The map on screen
-  changes for the duration, which is the price of the export recording what is on screen
-  rather than drawing a second map; it is behind the dialog, and it goes back.
+  upscaled. The export lays the markup out at the map's own side in the
+  file (`mapSide`), so a 4000px movie shows the files a 1000px one culls.
   **The fold has a threshold too, and it is SQUARED where the ring's is linear.** `minLoc`
   rolls a function up before a node is ever built, so the layout can only draw what the fold
   supplied. A wedge's share of the ring is an angle and falls in proportion to the width;

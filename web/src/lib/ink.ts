@@ -52,18 +52,33 @@ export function inkOn(token: string, alpha = 1): string {
   const key = `${theme()}|${token}|${alpha}`
   const hit = cache.get(key)
   if (hit) return hit
-  const hex = resolve(token)
-  const ground = resolve('--background')
-  const y =
-    hex === null ? null : alpha >= 1 || ground === null ? luminance(hex) : over(hex, ground, alpha)
-  const chosen =
-    y === null
-      ? CHROME_INK
-      : contrast(y, luminance(PAPER)) >= contrast(y, luminance(INK))
-        ? PAPER
-        : INK
+  const chosen = inkBy(fromDocument, token, alpha)
   cache.set(key, chosen)
   return chosen
+}
+
+/** Where a custom property's declared value comes from: its NAME (`--heat-3`) in, whatever is
+ *  declared for it out, or null when nothing is.
+ *
+ *  **The document is one answer and not the only one.** A map drawn without a window — a report
+ *  rendered to markup, in Node or beside the live map in the same webview — has no stylesheet to
+ *  ask, and a page of it is printed on paper rather than on the theme the window is in. So the
+ *  judgement below takes the lookup as an argument, and `inkOn` is that judgement with the
+ *  document plugged in. A table somebody hands in is the other. */
+export type Resolve = (name: string) => string | null
+
+/** `inkOn`, against a lookup somebody handed in — see `Resolve`. Uncached: the cache is keyed on
+ *  the document's theme, which says nothing about a table. */
+export function inkBy(lookup: Resolve, token: string, alpha = 1): string {
+  const hex = hexOf(lookup, token)
+  const ground = hexOf(lookup, '--background')
+  const y =
+    hex === null ? null : alpha >= 1 || ground === null ? luminance(hex) : over(hex, ground, alpha)
+  return y === null
+    ? CHROME_INK
+    : contrast(y, luminance(PAPER)) >= contrast(y, luminance(INK))
+      ? PAPER
+      : INK
 }
 
 /** Which of paper and ink reads on a colour that is not a token.
@@ -108,7 +123,12 @@ export function chipInk(token: string): string {
 /** A custom property's OKLab lightness, 0 black to 1 white, or null when it is not a plain hex.
  *  For ordering colours by how light they look, which is what the hub's circles need. */
 export function lightnessOf(token: string): number | null {
-  const hex = resolve(token)
+  return lightnessBy(fromDocument, token)
+}
+
+/** `lightnessOf`, against a lookup somebody handed in — see `Resolve`. */
+export function lightnessBy(lookup: Resolve, token: string): number | null {
+  const hex = hexOf(lookup, token)
   return hex === null ? null : oklabL(hex)
 }
 
@@ -133,15 +153,26 @@ const theme = () => (typeof document === 'undefined' ? ' ' : document.documentEl
  *  slots are plain hex in index.css; a stop declared as a `color-mix` comes back as one
  *  and lands in the fallback above rather than being silently mis-read. */
 function resolve(token: string): string | null {
-  if (typeof document === 'undefined') return null
+  return hexOf(fromDocument, token)
+}
+
+/** The same, through any lookup. Accepts `--heat-3` and `var(--heat-3)`; hands the lookup the
+ *  bare name. */
+function hexOf(lookup: Resolve, token: string): string | null {
   const name = token
     .replace(/^var\(\s*/, '')
     .replace(/\s*\)$/, '')
     .trim()
   if (!name.startsWith('--')) return null
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  const v = (lookup(name) ?? '').trim()
   return /^#[0-9a-f]{6}$/i.test(v) ? v : null
 }
+
+/** The window's lookup: the root element's computed style, or nothing without a document. */
+const fromDocument: Resolve = (name) =>
+  typeof document === 'undefined'
+    ? null
+    : getComputedStyle(document.documentElement).getPropertyValue(name)
 
 /** WCAG relative luminance. */
 function luminance(hex: string): number {

@@ -1,9 +1,12 @@
-import { rampStop } from './api'
+import { rampStop, type Node } from './api'
 import { realOf } from './history'
 import { FAMILY } from './labelStyle'
-import { OTHER_LABEL, type ColorMode } from './colorMode'
+import { OTHER_LABEL, type ColorMode, type Views } from './colorMode'
+import { sectorOf } from './fan'
+import { widthPerPx } from './label'
 import type { KeyEntry, LensKey } from './lensKey'
-import { mascotClock } from './mascotClock'
+import type { ReportLook } from './reportMap'
+import { cssColor, hexOf, type Vars } from './vector/color'
 
 /**
  * Frames a second in the exported file.
@@ -71,37 +74,32 @@ export function mapRect(width: number, height: number) {
 }
 
 /**
- * How the map is dressed while a recording is being made.
+ * Where a movie's maps come from: the window's replay, asked for a commit rather than moved to one.
  *
- * The export copies what is on screen, so anything the FILE needs that the pane is not
- * currently doing has to be done to the pane for the duration — and then undone. Both of
- * these are: `px` is the side the map lays itself out for, and `ground` is which palette it
- * paints in. It is scoped to the map rather than applied to the document, so exporting a
- * light movie from a dark window changes the map and nothing else.
+ * **The export draws beside the window, not through it.** It used to drive the window — its
+ * playhead, lens, ground and layout density — and copy the live SVG out per commit, so the map
+ * behind the dialog jumped about for the length of a recording and was put back afterwards. The
+ * frames are the same component's markup (`mapMarkup`) over the same fold (`frameTree`), so a
+ * movie is still the map and not a second renderer's idea of it.
  */
-export interface Staged {
-  px: number
-  ground: 'light' | 'dark'
-  /** The lens the file is being recorded in, when it is not the one on screen.
-   *
-   *  **The export records what is on screen, so choosing a lens means changing the map.** It
-   *  already changes the ground and the density for the length of a recording, and on the
-   *  same argument: a movie drawn by a second renderer nobody has checked against the first
-   *  is a picture of a map that does not exist. The pane goes back when the dialog closes. */
-  mode?: ColorMode
-  /** Root the map at the repo, with nothing selected and nothing pulsing — a report.
-   *
-   *  **A report is of the project, not of wherever somebody happened to be drilled.** Its
-   *  findings are repo-wide and its contents page names the repo, so a page of one subtree would
-   *  be pointing at findings it does not contain. The selection veil and the reading pulse go
-   *  for the length of it too: the veil would dim every page around one wedge somebody clicked
-   *  an hour ago, and a pulse is a CSS animation that a copy of the SVG has no stylesheet for,
-   *  so it would come out as solid black wedges. The pane goes back when the dialog closes. */
-  whole?: boolean
-  /** With `whole`, root the map here instead — a directory's path or a file's, `''` for the
-   *  repo. A report zooms the map into each group of findings so its marks have room; the rules
-   *  above (no veil, no pulse, tags on) still apply. */
-  root?: string
+export interface MovieSource {
+  /** One commit's map for a lens, laid out for a map `px` across. `since` is the commit the
+   *  previous frame stood at, which decides what flashes — see `frameTree`. */
+  frame(real: number, since: number, mode: ColorMode, px: number): MovieFrame
+  views: Views
+  look: ReportLook
+  sortBy?: ReadonlyMap<string, number>
+}
+
+export interface MovieFrame {
+  /** Where the window is drilled, in this commit's tree. */
+  root: Node
+  /** A file root's directory, for the bearing its fan opens on; null for anything else. */
+  parent: Node | null
+  ranks: Map<string, number>
+  /** The key at this commit, which is not a constant: a replay's cast grows as the story runs,
+   *  so the names beside the map at commit 900 are not the names at commit 40. */
+  key: MovieKey | null
 }
 
 /** The key a movie carries, since a file has no chrome around it to put one in.
@@ -110,11 +108,11 @@ export interface Staged {
  *  the picture explained itself. Now a recording can be any lens the replay can paint — and
  *  a Blame movie is sixteen colours with nothing saying whose, which is a picture of a fact
  *  rather than the fact. Built by the window, which is the side that knows the ranking, and
- *  drawn into the caption column by `Frame.legend`.
+ *  drawn into the caption column by `Shot.legend`.
  *
- *  Colours are CSS as the map paints them rather than values: the caption is Canvas2D and
- *  resolves them against the staged map (`paint`), so the key comes out in the ground the file
- *  is written on rather than the one the window happens to be wearing.
+ *  Colours are CSS as the map paints them rather than values: the caption resolves them against
+ *  the file's ground (`groundVars`), so the key comes out in the ground the file is written on
+ *  rather than the one the window happens to be wearing.
  *
  *  **What it holds is `lensKey`'s answer**, the same one the window's key draws from — it was
  *  its own shape once, built by its own copy of the rules, and that copy knew ramps and ranked
@@ -165,35 +163,9 @@ export function flatKey(key: LensKey | null): FlatKey | null {
 
 /** The side the map is drawn at inside a frame of this height — what the sunburst lays
  *  itself out for, so a bigger file draws more of the repo rather than the same picture
- *  upscaled. See `Sunburst`'s `density`. */
+ *  upscaled. See `MapArtProps.px`. */
 export function mapSide(height: number): number {
   return mapRect(Math.round(height * ASPECT), height).side
-}
-
-/** A custom property, resolved against the element that has one. The caption is drawn in
- *  Canvas2D rather than in the SVG, so it cannot say `var(--foreground)` and have anything
- *  answer — and it must read the same ground the map is being recorded in, which during an
- *  export is staged on the pane rather than on the document. */
-export function ink(from: Element, name: string): string {
-  return getComputedStyle(from).getPropertyValue(name).trim()
-}
-
-/** Any colour the map paints with, resolved against where it is painted.
- *
- *  `ink` answers a bare custom property; a band colour is a `color-mix()` of two of them, which
- *  nothing in JavaScript can mix. So it is handed to the renderer on a probe beside the map and
- *  read back computed — in the staged ground, because the probe inherits it. */
-export function paint(from: Element, css: string): string {
-  const bare = /^var\((--[\w-]+)\)$/.exec(css.trim())
-  if (bare) return ink(from, bare[1])
-  const host = from instanceof HTMLElement ? from : from.parentElement
-  if (!host) return ''
-  const probe = document.createElement('span')
-  probe.style.color = css
-  host.appendChild(probe)
-  const out = getComputedStyle(probe).color
-  probe.remove()
-  return out
 }
 
 /** Base64 without blowing the argument limit — `apply` on a megabyte of bytes throws. */
@@ -218,89 +190,35 @@ export async function faceCss(): Promise<string> {
 }
 
 /**
- * Every custom property the app defines, resolved to what it currently means.
+ * A map's markup, rasterized at `side` pixels a side, handed to `use` while it is still decodable.
  *
- * The map paints in `var(--…)` throughout — that is how one geometry serves seven lenses
- * and two themes — and a variable is a reference to a declaration in a stylesheet the
- * exported picture does not have. Resolving them at the root of the clone keeps the
- * indirection intact: nothing in the markup has to be rewritten, the values simply have
- * somewhere to come from again.
- *
- * The NAMES come from the stylesheets and the VALUES from `getComputedStyle`, rather than
- * both from either. A stylesheet holds the light theme and the dark one and cannot say
- * which is on screen; computed style knows exactly that but cannot be asked what it has
- * without a list of names to ask about.
- */
-export function varCss(from: Element): string {
-  const names = new Set<string>()
-  for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList
-    try {
-      rules = sheet.cssRules
-    } catch {
-      // A stylesheet from another origin. There are none in the bundle, and one appearing
-      // is not a reason to fail an export.
-      continue
-    }
-    for (const rule of Array.from(rules)) {
-      for (const m of rule.cssText.matchAll(/(--[\w-]+)\s*:/g)) names.add(m[1])
-    }
-  }
-  // Resolved from the map itself rather than from `<html>`. Custom properties inherit, so
-  // the map's computed style is the answer wherever the ground was actually put — and an
-  // export stages its ground on the pane, so the window it is recording from does not have
-  // to change colour. See the `.light` selector in `index.css`.
-  const root = getComputedStyle(from)
-  const decls: string[] = []
-  for (const name of names) {
-    const value = root.getPropertyValue(name).trim()
-    if (value) decls.push(`${name}:${value}`)
-  }
-  return `svg{${decls.join(';')}}`
-}
-
-/** The ground the map is sitting on, so the frame round a circle is that colour rather than
- *  black or transparent. Asked of an element — the map, during a recording — because the
- *  ground may be staged on the pane rather than on the document. */
-export function background(from: Element = document.documentElement): string {
-  return getComputedStyle(from).getPropertyValue('--background').trim() || '#fff'
-}
-
-/**
- * The live map, copied and rasterized at `side` pixels a side, handed to `use` while it is
- * still decodable.
- *
- * The live element is sized by the layout it sits in; the copy is sized by the export.
- * `viewBox` travels with it, so the circle is fitted into the square the same way the pane fits
- * it — letterboxed against the background rather than stretched.
- *
- * `style` is `faceCss() + varCss(svg)`: everything the document was supplying that a picture
- * rendered through an `<img>` does not get.
+ * `viewBox` is the one `mapMarkup` computed, so the circle is fitted into the square the way the
+ * pane fits it. `style` is `faceCss()` and the ground's variables: everything a document would
+ * supply that a picture rendered through an `<img>` does not get.
  */
 export async function rastered<T>(
-  svg: SVGSVGElement,
+  markup: string,
+  viewBox: number[],
   side: number,
   style: string,
   use: (img: HTMLImageElement) => T,
   slow = `A frame took longer than ${DECODE_LIMIT / 1000}s to draw. Try a smaller resolution.`,
-  /** Change the copy before it is drawn — never the live map. A report drops labels too small
-   *  to read on paper; see `report.ts`. */
-  edit?: (clone: SVGSVGElement) => void,
 ): Promise<T> {
-  const clone = svg.cloneNode(true) as SVGSVGElement
-  clone.removeAttribute('class')
-  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-  clone.setAttribute('width', String(side))
-  clone.setAttribute('height', String(side))
+  const svg = new DOMParser().parseFromString(markup, 'text/html').querySelector('svg')
+  if (!svg) throw new Error('The map drew no picture for this frame.')
+  svg.removeAttribute('class')
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  svg.setAttribute('viewBox', viewBox.join(' '))
+  svg.setAttribute('width', String(side))
+  svg.setAttribute('height', String(side))
   const sheet = document.createElementNS('http://www.w3.org/2000/svg', 'style')
   sheet.textContent = style
-  clone.insertBefore(sheet, clone.firstChild)
-  edit?.(clone)
+  svg.insertBefore(sheet, svg.firstChild)
 
-  const markup = new XMLSerializer().serializeToString(clone)
+  const text = new XMLSerializer().serializeToString(svg)
   // A blob URL rather than a data URL: a frame of a large repo is a megabyte of path
   // data, and percent-encoding it per frame costs more than the encode does.
-  const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }))
+  const url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' }))
   try {
     const img = new Image()
     img.src = url
@@ -317,24 +235,18 @@ export async function rastered<T>(
   }
 }
 
-/** A frame of the map, rasterized.
+/** The custom properties as a rule for the picture's root, so `var(--…)` in the markup has
+ *  somewhere to come from. */
+function varRule(vars: Vars): string {
+  return `svg{${[...vars].map(([name, value]) => `${name}:${value}`).join(';')}}`
+}
+
+/** A frame of the movie: the map, the caption and where the playhead stands.
  *
- *  The live SVG is copied rather than redrawn: an exported movie that is a second renderer's
- *  idea of the sunburst is a picture nobody has checked against the one on screen, and the
- *  two would drift the first time a wedge changed. What the encoder sees is what the window
- *  is showing, at another size. */
+ *  Rebuilt only when the commit under the playhead changes — a minute of a forty-commit repo is
+ *  1,800 frames of forty pictures — and handed to the encoder as it stands for every frame in
+ *  between. */
 class Shot {
-  /** What the encoder is handed: the base with the creature drawn on top of it. */
-  private canvas: HTMLCanvasElement
-  private ctx: CanvasRenderingContext2D
-  /** Everything that only changes when the playhead does — the map, the caption, the
-   *  timeline. Rendered once per commit and blitted under every frame that stands at it.
-   *
-   *  **Two canvases because the two things move at different rates.** The map is
-   *  re-rasterized only when the commit under the playhead changes (a minute of a forty
-   *  commit repo is 1,800 frames of forty pictures), and the creature moves every frame. One
-   *  canvas would mean choosing: re-raster the map thirty times a second for a picture that
-   *  did not change, or step the creature forty times in a minute. */
   private base: HTMLCanvasElement
   private baseCtx: CanvasRenderingContext2D
   private style: string
@@ -342,51 +254,47 @@ class Shot {
   private map: { x: number; y: number; side: number }
   /** Where the playhead stands in the frame being drawn — set by `draw`. */
   private at: Playhead = { at: 0, of: 1, ts: null }
+  /** The key at the commit being drawn — set by `draw`. */
+  private key: MovieKey | null = null
 
   constructor(
-    private svg: SVGSVGElement,
     private w: number,
     private h: number,
-    private bg: string,
-    style: string,
+    /** The stylesheet's variables on the file's ground — see `groundVars`. */
+    private vars: Vars,
+    faces: string,
     /** The repo as the world knows it, set in the margin the 16:9 shape opens up. */
     private title: string,
     /** The directory the replay is scoped to, or `''`. */
     private scope: string,
-    /** The lens key, asked for at every rebuild. See `MovieKey`. */
-    private keyOf: () => MovieKey | null,
   ) {
-    this.style = style
+    this.style = faces + varRule(vars)
     this.map = mapRect(w, h)
-    this.canvas = document.createElement('canvas')
-    this.canvas.width = w
-    this.canvas.height = h
     this.base = document.createElement('canvas')
     this.base.width = w
     this.base.height = h
-    const ctx = this.canvas.getContext('2d')
     const baseCtx = this.base.getContext('2d')
-    if (!ctx || !baseCtx) {
+    if (!baseCtx) {
       throw new Error('This machine gave no 2D canvas to draw the frames on.')
     }
-    this.ctx = ctx
     this.baseCtx = baseCtx
   }
 
   get target(): HTMLCanvasElement {
-    return this.canvas
+    return this.base
   }
 
   /**
-   * Rebuild the base: the map, the caption and where the playhead stands.
+   * Draw a commit: its map, the caption and where the playhead stands.
    *
    * `at` is the position in the commits being exported — the scoped list when the map is
    * drilled, which is the same list the transport addresses and the same story on screen.
    */
-  async draw(at: Playhead): Promise<void> {
+  async draw(at: Playhead, map: { markup: string; viewBox: number[] }, key: MovieKey | null): Promise<void> {
     this.at = at
-    await rastered(this.svg, this.map.side, this.style, (img) => {
-      this.baseCtx.fillStyle = this.bg
+    this.key = key
+    await rastered(map.markup, map.viewBox, this.map.side, this.style, (img) => {
+      this.baseCtx.fillStyle = this.color('--background') || '#fff'
       this.baseCtx.fillRect(0, 0, this.w, this.h)
       this.baseCtx.drawImage(img, this.map.x, this.map.y, this.map.side, this.map.side)
       this.caption()
@@ -396,20 +304,10 @@ class Shot {
     })
   }
 
-  /**
-   * One frame for the encoder: the base as it stands, with the creature on top.
-   *
-   * Called for every frame of the file, including the many that stand at the same commit —
-   * which is the point. The creature has just been stepped by one frame of the movie's own
-   * clock (see `mascotClock`), so this is where that lands.
-   */
-  frame(): void {
-    this.ctx.drawImage(this.base, 0, 0)
-    this.creature()
-  }
-
-  private creature(): void {
-    drawCreature(this.ctx, this.svg, this.map)
+  /** A color on the file's ground: a custom property by name, or anything the map paints with
+   *  (a band is a `color-mix()` of two). Empty for one this cannot read. */
+  private color(css: string): string {
+    return cssColor(css.startsWith('--') ? `var(${css})` : css, this.vars) ?? ''
   }
 
 
@@ -510,8 +408,8 @@ class Shot {
     // and it can be any height that fits there.
     const top = Math.round(this.h * PAD * 1.6)
     const base = top + eyebrow + size
-    const fore = ink(this.svg, '--foreground') || '#111'
-    const muted = ink(this.svg, '--muted-foreground') || fore
+    const fore = this.color('--foreground') || '#111'
+    const muted = this.color('--muted-foreground') || fore
 
     if (stacked) {
       c.font = `400 ${small}px ${FAMILY}`
@@ -557,7 +455,7 @@ class Shot {
    *  caller has the same information one click away in the app.
    */
   private legend(): void {
-    const key = flatKey(this.keyOf())
+    const key = flatKey(this.key)
     if (!key) return
     const { left, room } = this.column()
     if (room < this.h * 0.2) return
@@ -609,8 +507,8 @@ class Shot {
     const gap = Math.max(row, Math.round((space - bodyRows * row) / 2))
     let y = head + gap
 
-    const fore = ink(this.svg, '--foreground') || '#111'
-    const muted = ink(this.svg, '--muted-foreground') || fore
+    const fore = this.color('--foreground') || '#111'
+    const muted = this.color('--muted-foreground') || fore
     c.textAlign = 'left'
     c.textBaseline = 'alphabetic'
     c.font = `700 ${small}px ${FAMILY}`
@@ -624,7 +522,7 @@ class Shot {
       const w = Math.min(room, Math.round(small * 9))
       const step = w / key.ramp.fills.length
       key.ramp.fills.forEach((fill: string, i: number) => {
-        c.fillStyle = paint(this.svg, fill) || muted
+        c.fillStyle = this.color(fill) || muted
         c.fillRect(left + i * step, y - box, step, box)
       })
       y += row
@@ -644,7 +542,7 @@ class Shot {
       const col = Math.floor(i / perCol)
       const x = left + col * colW
       const ry = first + (i % perCol) * row
-      c.fillStyle = paint(this.svg, e.fill) || muted
+      c.fillStyle = this.color(e.fill) || muted
       c.fillRect(x, ry - box, box, box)
       c.fillStyle = fore
       c.fillText(e.label, x + Math.round(box * 1.6), ry)
@@ -675,7 +573,7 @@ class Shot {
     c.textAlign = 'left'
     c.textBaseline = 'alphabetic'
     c.font = `400 ${small}px ${FAMILY}`
-    c.fillStyle = ink(this.svg, '--muted-foreground') || ink(this.svg, '--foreground') || '#111'
+    c.fillStyle = this.color('--muted-foreground') || this.color('--foreground') || '#111'
     c.fillText(SIGNATURE, left, base)
   }
 
@@ -710,14 +608,14 @@ class Shot {
     const thick = Math.max(2, Math.round(this.h * 0.004))
     const width = r.right - r.left
     const done = this.at.of > 1 ? Math.min(1, Math.max(0, this.at.at / (this.at.of - 1))) : 1
-    const fore = ink(this.svg, '--foreground') || '#111'
-    const muted = ink(this.svg, '--muted-foreground') || fore
+    const fore = this.color('--foreground') || '#111'
+    const muted = this.color('--muted-foreground') || fore
 
     c.globalAlpha = 0.25
     c.fillStyle = muted
     round(c, r.left, y, width, thick)
     c.globalAlpha = 1
-    c.fillStyle = ink(this.svg, '--accent') || fore
+    c.fillStyle = this.color('--accent') || fore
     round(c, r.left, y, Math.max(thick, width * done), thick)
 
     c.font = `400 ${small}px ${FAMILY}`
@@ -734,65 +632,6 @@ class Shot {
     // The byline is not drawn here any more: it is pinned to the foot of the column, under
     // the key rather than above it. See `signature`.
   }
-}
-
-/**
- * The creature in the hub, composited on top of a copy of the map drawn at `map`.
- *
- * **It is not in the SVG, so a copy of the SVG does not carry it.** The mascot is a WebGL
- * canvas laid over the pane rather than a `foreignObject` inside the picture — see the hub
- * in `Sunburst` — which is right on screen, where a canvas scaled by an SVG transform
- * would be a bitmap stretched instead of a scene redrawn, and it is exactly why the middle
- * of every exported frame was an empty disc.
- *
- * Where it goes is arithmetic rather than measurement: the live element's transform is in
- * PANE pixels and the frame is another size entirely, so the position is recomputed from
- * the map's own coordinates — the viewBox the fit effect just wrote, and the hub box the
- * layer states in `data-hub-mascot`. Nothing here duplicates a number that lives there.
- *
- * Silent when there is no creature. The committed placeholder bundle draws nothing, a
- * replay of a project can be exported before the scene has built its first frame, and an
- * export that refused over a missing mascot would be an export that refused.
- */
-export function drawCreature(
-  ctx: CanvasRenderingContext2D,
-  svg: SVGSVGElement,
-  map: { x: number; y: number; side: number },
-): void {
-  const layer = document.querySelector<HTMLElement>('[data-hub-mascot]')
-  const canvas = layer?.querySelector('canvas')
-  if (!layer || !canvas || canvas.width === 0 || canvas.height === 0) return
-  const [hubY, box] = layer.dataset.hubMascot!.split(' ').map(Number)
-  const view = (svg.getAttribute('viewBox') ?? '').split(/\s+/).map(Number)
-  if (view.length !== 4 || !view.every(Number.isFinite) || view[2] <= 0) return
-  // The viewBox is square and the copy is drawn into a square, so one scale serves both
-  // axes — the same arithmetic the fit effect does against the pane.
-  const s = map.side / view[2]
-  const cx = map.x + (0 - view[0]) * s
-  const cy = map.y + (hubY - view[1]) * s
-
-  // **Where the canvas sits inside its layer, asked rather than assumed.** The layer is
-  // the hub's box; the creature is lifted inside it by `MascotFigure`'s `lift`, a
-  // per-blueprint offset that stands a creature shorter than its frame off the floor — so
-  // the box's middle is not the creature's, and centring on the box alone drew it low and
-  // is what the first exports came out with. The lift is a transform on the canvas, in the
-  // layer's own pixels, and reading it back as a ratio of the two boxes is the one form of
-  // it that survives both the pane's scale and the frame's: whatever placement the window
-  // arrived at, the frame reproduces it.
-  const boxRect = layer.getBoundingClientRect()
-  const onGlass = canvas.getBoundingClientRect()
-  if (boxRect.width <= 0 || boxRect.height <= 0) return
-  const drawn = box * s * (onGlass.width / boxRect.width)
-  const dx =
-    ((onGlass.x + onGlass.width / 2 - (boxRect.x + boxRect.width / 2)) / boxRect.width) * box * s
-  const dy =
-    ((onGlass.y + onGlass.height / 2 - (boxRect.y + boxRect.height / 2)) / boxRect.height) *
-    box *
-    s
-
-  // `preserveDrawingBuffer` is on in the bundle, which is what makes reading the canvas
-  // back outside its own animation frame give the picture rather than a cleared buffer.
-  ctx.drawImage(canvas, cx + dx - drawn / 2, cy + dy - drawn / 2, drawn, drawn)
 }
 
 /** Where the playhead stands in the commits being exported. */
@@ -858,14 +697,6 @@ export function within<T>(work: Promise<T>, limit: number, whenNot: string): Pro
   ])
 }
 
-/** Let React commit and the browser paint before the frame is read back.
- *
- *  Two frames rather than one: the first is the one the state change is rendered into, and
- *  reading in it can catch the tree the commit is replacing. */
-export function settle(): Promise<void> {
-  return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
-}
-
 /**
  * What the export is doing right now, and what each part of it has been costing.
  *
@@ -879,15 +710,15 @@ export function settle(): Promise<void> {
 export interface Tick {
   done: number
   total: number
-  /** `fetch` is the timeline arriving from the backend, a block at a time. `fold` is the
-   *  app rebuilding the map at the next commit — the same work the transport does when you
-   *  scrub. `raster` is copying that picture out at export size. `draw` is the creature
-   *  moved on one frame and laid over it. `encode` is the frame going to H.264. */
-  stage: 'fetch' | 'fold' | 'raster' | 'draw' | 'encode'
+  /** `fetch` is the timeline arriving from the backend, a block at a time. `fold` is the next
+   *  commit's tree folded and laid out as the map's markup — the same work the transport does
+   *  when you scrub, done aside. `raster` is that markup drawn at export size with its caption.
+   *  `encode` is the frame going to H.264. */
+  stage: 'fetch' | 'fold' | 'raster' | 'encode'
   /** Mean milliseconds per stage. `fetch`, `fold` and `raster` are over the frames the
-   *  playhead moved for — every other frame skips them, which is the point of them; `draw`
-   *  and `encode` are over every frame, because every frame pays both. */
-  cost: { fetch: number; fold: number; raster: number; draw: number; encode: number }
+   *  playhead moved for — every other frame skips them, which is the point of them; `encode`
+   *  is over every frame, because every frame pays it. */
+  cost: { fetch: number; fold: number; raster: number; encode: number }
   /** Seconds left at the rate so far, or null before there is a rate. */
   left: number | null
 }
@@ -903,29 +734,20 @@ export interface Recording {
   height: number
   /** The repo as the world knows it — `owner/name` where there is a remote. */
   title: string
-  /** The key drawn in the caption column, asked for again at every commit — see `MovieKey`.
-   *
-   *  **A function rather than a value, because the key is not a constant.** On screen it is
-   *  recomputed per frame: a replay's cast grows as the story runs, so the names beside the
-   *  map at commit 900 are not the names at commit 40, and `+N more` moves with them. Taken
-   *  once at the start, a movie would carry the key of whatever frame the export dialog
-   *  happened to open on and be wrong about every other one — most visibly at the beginning,
-   *  where a film of a repo's first commits would name people who had not arrived yet.
-   *
-   *  Called on rebuild, which is per COMMIT rather than per frame: the base canvas is only
-   *  redrawn when the playhead moves to a new commit, and the key is drawn into it. */
-  legend?: (() => MovieKey | null) | null
   /** The directory the replay is scoped to, or `''` for the whole repo. Set on its own line
    *  under the repo, because a movie of one subtree is a different film from a movie of the
    *  repo and the caption is where that gets said. */
   scope: string
+  /** The lens the file is recorded in, which need not be the one on screen. */
+  mode: ColorMode
+  /** Where each commit's map comes from — see `MovieSource`. */
+  source: MovieSource
+  /** The stylesheet's variables on the file's ground — see `groundVars`. */
+  vars: Vars
   /** When a commit landed, in seconds since the epoch, or null where the story cannot say —
    *  the opening state stands before the window and has no date of its own. Drives the
    *  timeline under the caption. */
   dateOf: (real: number) => number | null
-  /** Put a commit on screen. The caller is expected to render it synchronously enough that
-   *  two animation frames later it is on the glass — see `settle`. */
-  setIndex: (real: number) => void
   /** Have the timeline as far as this commit, before it is asked for.
    *
    *  **Awaited per frame rather than for the whole story up front.** The first version
@@ -1025,7 +847,7 @@ async function probe(
   canvas.height = height
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('This machine gave no 2D canvas to draw the frames on.')
-  ctx.fillStyle = background()
+  ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, width, height)
 
   const output = new deps.Output({
@@ -1097,8 +919,9 @@ const PREFLIGHT_LIMIT = 10_000
  * each one forty-five times would be most of the export.
  */
 export async function record(o: Recording): Promise<Uint8Array> {
-  const svg = document.querySelector<SVGSVGElement>('svg[data-sunburst]')
-  if (!svg) throw new Error('The map is not on screen to record.')
+  // Imported when a movie is made: the static renderer brings React's server renderer with it,
+  // which no launch of the app should carry for a thing most sessions never do.
+  const { mapMarkup } = await import('./mapMarkup')
 
   // Imported here rather than at the top of the file: the muxer is a third of a megabyte
   // and every launch of the app would carry it for a thing most sessions never do. The
@@ -1115,8 +938,9 @@ export async function record(o: Recording): Promise<Uint8Array> {
   )
   o.onCodec?.(encoding.codec)
 
-  // **Asked for before the caption is measured, not just before it is drawn.** The face is
-  // inlined into the SVG for the map's own labels, but the caption is Canvas2D, which reads
+  // **Asked for before anything is measured, not just before it is drawn.** The face is
+  // inlined into the SVG for the map's own labels, but the labels are fitted and the caption
+  // is drawn in Canvas2D, which reads
   // the document's fonts — and a face the document has not loaded yet measures and draws in
   // the fallback stack. Loading it is idempotent and the app is already using it; this is
   // the guarantee, not the fetch.
@@ -1125,26 +949,36 @@ export async function record(o: Recording): Promise<Uint8Array> {
     document.fonts.load(`400 100px ${FAMILY}`),
   ]).catch(() => {})
 
-  const shot = new Shot(
-    svg,
-    o.width,
-    o.height,
-    background(svg),
-    (await faceCss()) + varCss(svg),
-    o.title,
-    o.scope,
-    o.legend ?? (() => null),
-  )
+  const shot = new Shot(o.width, o.height, o.vars, await faceCss(), o.title, o.scope)
+  // The map's side inside the frame, which is what it lays itself out for: every threshold that
+  // decides whether a wedge is worth drawing is a pixel size, so a bigger file draws more.
+  const side = mapSide(o.height)
+  const ink = hexOf(o.vars)
+  const markupOf = (frame: MovieFrame) => {
+    const base = {
+      mode: o.mode,
+      px: side,
+      ranks: frame.ranks,
+      views: o.source.views,
+      ...o.source.look,
+      sortBy: o.source.sortBy,
+      replaying: true,
+      hasMascot: false,
+      measure: widthPerPx,
+      ink,
+    }
+    // A file opens on the bearing its wedge had in its directory, as it does in the window.
+    let fileFrom: ReturnType<typeof sectorOf> | null = null
+    if (frame.root.kind === 'file' && frame.parent) {
+      const spot = mapMarkup({ ...base, root: frame.parent }).spots.get(frame.root.id)
+      if (spot) fileFrom = sectorOf(spot.a0, spot.a1, spot.r0, spot.r1)
+    }
+    return mapMarkup({ ...base, root: frame.root, fileFrom, aspect: 1 })
+  }
   const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() })
   const source = new CanvasSource(shot.target, encoding)
   output.addVideoTrack(source, { frameRate: FPS })
   await output.start()
-
-  // **The creature comes off wall-clock time for the duration.** An export is not a realtime
-  // capture, so a creature left on its own loop plays as fast as the machine renders — see
-  // `mascotClock`. Held here and released in the `finally` below, whatever happens.
-  const clock = mascotClock()
-  const driving = clock?.hold() ?? false
 
   const last = o.frames.length - 1
   const total = Math.max(1, Math.round(o.seconds * FPS))
@@ -1154,14 +988,13 @@ export async function record(o: Recording): Promise<Uint8Array> {
   let shown = Number.NaN
   // Summed rather than sampled: a mean over every frame so far is steadier than the last
   // one, and the thing being estimated — how long the rest takes — is an average anyway.
-  const spent = { fetch: 0, fold: 0, raster: 0, draw: 0, encode: 0 }
+  const spent = { fetch: 0, fold: 0, raster: 0, encode: 0 }
   let drawn = 0
   const report = (done: number, stage: Tick['stage']) => {
     const cost = {
       fetch: drawn > 0 ? spent.fetch / drawn : 0,
       fold: drawn > 0 ? spent.fold / drawn : 0,
       raster: drawn > 0 ? spent.raster / drawn : 0,
-      draw: done > 0 ? spent.draw / done : 0,
       encode: done > 0 ? spent.encode / done : 0,
     }
     o.onProgress({
@@ -1170,66 +1003,52 @@ export async function record(o: Recording): Promise<Uint8Array> {
       stage,
       cost,
       // Every remaining frame pays the encode; only the ones the playhead moves for pay the
-      // other two, and so far that has been `drawn` of `done`.
+      // other three, and so far that has been `drawn` of `done`.
       left:
         done > 0
           ? ((total - done) *
-              (cost.encode + cost.draw + (drawn / done) * (cost.fetch + cost.fold + cost.raster))) /
+              (cost.encode + (drawn / done) * (cost.fetch + cost.fold + cost.raster))) /
             1000
           : null,
     })
   }
 
-  try {
-    for (let f = 0; f < total; f++) {
+  for (let f = 0; f < total; f++) {
+    if (o.cancelled()) throw new Error(CANCELLED)
+    const pos = Math.max(
+      -1,
+      Math.min(last, Math.round(-1 + (f / Math.max(1, total - 1)) * (last + 1))),
+    )
+    const real = realOf(o.frames, pos, -1)
+    if (real !== shown) {
+      report(f, 'fetch')
+      const t0 = performance.now()
+      await o.ensure(real)
+      const tf = performance.now()
       if (o.cancelled()) throw new Error(CANCELLED)
-      const pos = Math.max(
-        -1,
-        Math.min(last, Math.round(-1 + (f / Math.max(1, total - 1)) * (last + 1))),
-      )
-      const real = realOf(o.frames, pos, -1)
-      if (real !== shown) {
-        report(f, 'fetch')
-        const t0 = performance.now()
-        await o.ensure(real)
-        const tf = performance.now()
-        if (o.cancelled()) throw new Error(CANCELLED)
-        report(f, 'fold')
-        o.setIndex(real)
-        await settle()
-        const t1 = performance.now()
-        if (o.cancelled()) throw new Error(CANCELLED)
-        report(f, 'raster')
-        await shot.draw({ at: pos, of: o.frames.length, ts: o.dateOf(real) })
-        spent.fetch += tf - t0
-        spent.fold += t1 - tf
-        spent.raster += performance.now() - t1
-        drawn += 1
-        shown = real
-      }
+      report(f, 'fold')
+      const frame = o.source.frame(real, Number.isNaN(shown) ? real - 1 : shown, o.mode, side)
+      const map = markupOf(frame)
+      const t1 = performance.now()
       if (o.cancelled()) throw new Error(CANCELLED)
-      // One frame of the FILE, not one frame of this machine. Stepped even on the frames the
-      // map did not change for — those are most of them, and they are what the creature is
-      // moving through.
-      report(f, 'draw')
-      const t3 = performance.now()
-      if (driving) clock?.step(1000 / FPS)
-      shot.frame()
-      spent.draw += performance.now() - t3
-      report(f, 'encode')
-      const t2 = performance.now()
-      await within(
-        source.add(f / FPS, 1 / FPS),
-        ENCODE_LIMIT,
-        `The encoder stopped accepting frames at ${o.width} × ${o.height}, ${f} frames in. Try a smaller resolution.`,
-      )
-      spent.encode += performance.now() - t2
-      report(f + 1, 'encode')
+      report(f, 'raster')
+      await shot.draw({ at: pos, of: o.frames.length, ts: o.dateOf(real) }, map, frame.key)
+      spent.fetch += tf - t0
+      spent.fold += t1 - tf
+      spent.raster += performance.now() - t1
+      drawn += 1
+      shown = real
     }
-  } finally {
-    // Its own loop back, on every path out of here — a cancelled export must not leave a
-    // frozen creature in the hub.
-    if (driving) clock?.release()
+    if (o.cancelled()) throw new Error(CANCELLED)
+    report(f, 'encode')
+    const t2 = performance.now()
+    await within(
+      source.add(f / FPS, 1 / FPS),
+      ENCODE_LIMIT,
+      `The encoder stopped accepting frames at ${o.width} × ${o.height}, ${f} frames in. Try a smaller resolution.`,
+    )
+    spent.encode += performance.now() - t2
+    report(f + 1, 'encode')
   }
 
   await output.finalize()

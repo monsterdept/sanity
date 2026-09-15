@@ -772,8 +772,18 @@ const OUTSTANDING_SHOWN: usize = 10;
 /// - `Ok` from a write means bytes reached the disk, never that the right bytes did.
 ///   Nothing destructive should be gated on it. If something like this is ever needed
 ///   again, read the result back and check it before removing the source.
-fn load_reports(repo: &Path, scan: &Scan) -> HashMap<String, Report> {
-    crate::assessment::load(repo, scan)
+///
+/// **And applied to the tree on the way in**, which is what makes this the only door the app
+/// loads readings through. What a reader said about which bodies are tests changes
+/// `dependents` and `under_test`, and it lives in the readings rather than the parse — see
+/// `links::retest_tree`. `report` applied it when such a reading LANDED, and nothing applied
+/// it when readings were LOADED: a launch, an open and a watcher's rescan all drew the
+/// structural half only, while `survey` and `export-data` load and then retest. So the window
+/// and the export disagreed about the same repo until the next test classification arrived.
+fn load_reports(repo: &Path, scan: &mut Scan) -> HashMap<String, Report> {
+    let reports = crate::assessment::load(repo, scan);
+    crate::links::retest_tree(scan, &reports);
+    reports
 }
 
 /// Write the readings into the repo.
@@ -2268,7 +2278,7 @@ async fn open_project(
         s.restoring.retain(|k| k.key != key);
         s.restoring_progress.remove(&key);
     };
-    let scan = match scanned {
+    let mut scan = match scanned {
         Ok(Ok(s)) => s,
         Ok(Err(e)) => {
             settled(&state);
@@ -2297,7 +2307,7 @@ async fn open_project(
     // carrying them across a rescan would orphan every reading in a file where anything
     // moved. `load_reports` resolves the durable `key_of` entries onto the new ids, which
     // is the same thing `restore` does and the only correct way to cross a rescan.
-    let reports = load_reports(&path, &scan);
+    let reports = load_reports(&path, &mut scan);
     // The index ships to strangers, and `save` only rewrites it when a reading lands — so
     // a FINISHED repo keeps whatever prose its last reading was written with, forever. An
     // open is the moment we certainly have both the repo and its readings in hand, so it
@@ -2553,10 +2563,10 @@ fn count_stale(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
 /// what exists, look up its reading — and the same rule the queue follows: a reading whose
 /// body has moved is history, not coverage. An instrument that overstates its own coverage
 /// is worse than one that measures nothing.
-fn assessed(project: &Project) -> usize {
+fn assessed(scan: &Scan, reports: &HashMap<String, Report>) -> usize {
     let mut n = 0;
-    each_unit(&project.scan, &mut |node| {
-        if let Some(r) = project.reports.get(&node.id) {
+    each_unit(scan, &mut |node| {
+        if let Some(r) = reports.get(&node.id) {
             if !crate::assessment::is_stale(r, node.body.as_deref(), node.bytes) {
                 n += 1;
             }
@@ -2593,14 +2603,6 @@ pub fn offline_counts(scan: &Scan, reports: &HashMap<String, Report>) -> Offline
     // carries — which nothing here reads. Passing the default rather than reading two files
     // per call to reach the same count.
     collect_tasks(&scan.root, reports, &HashMap::new(), None, &Default::default(), &mut unread);
-    let mut assessed = 0;
-    each_unit(scan, &mut |node| {
-        if let Some(r) = reports.get(&node.id) {
-            if !crate::assessment::is_stale(r, node.body.as_deref(), node.bytes) {
-                assessed += 1;
-            }
-        }
-    });
     OfflineCounts {
         functions,
         oversize,
@@ -2609,7 +2611,7 @@ pub fn offline_counts(scan: &Scan, reports: &HashMap<String, Report>) -> Offline
         // denominator that leaves it out reports more read than there is to read.
         files: count_files(scan).kept,
         excluded,
-        assessed,
+        assessed: assessed(scan, reports),
         remaining: unread.len(),
         stale: count_stale(scan, reports),
     }
@@ -4054,12 +4056,47 @@ fn recent_model(p: &Project) -> Option<String> {
 /// preference does not — see `recent_model` for why it reads what the last run ASKED for
 /// rather than what its readers said they were.
 pub fn suggested_model(p: &Project, key: &str) -> Option<String> {
-    recent_model(p).or_else(|| one_model(p)).or_else(|| crate::reports::model_for(key))
+    recent_model(p).or_else(|| one_model(&p.reports)).or_else(|| crate::reports::model_for(key))
 }
 
-fn model_tally(p: &Project) -> Vec<ModelCount> {
+/// The sidebar row's reading and scale numbers, for a tree and its readings with no `Project`.
+///
+/// **For `sanity export-data`, which renders a report with no window and no backend.** Each
+/// field is the SAME function the row calls — `count_funcs`, `count_files`, `assessed`,
+/// `count_stale`, `one_model`, `one_harness`, `model_tally` — so the offline report and the
+/// sidebar cannot come to disagree about one repo. Field names are the row's, on the wire.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReportSummary {
+    pub functions: usize,
+    pub files: usize,
+    pub assessed: usize,
+    pub stale: usize,
+    pub banked_model: Option<String>,
+    pub banked_harness: Option<String>,
+    pub banked_models: Vec<ModelCount>,
+    pub trace_depth: crate::trace::Depth,
+}
+
+pub fn report_summary(
+    scan: &Scan,
+    reports: &HashMap<String, Report>,
+    trace_depth: crate::trace::Depth,
+) -> ReportSummary {
+    ReportSummary {
+        functions: count_funcs(scan).kept,
+        files: count_files(scan).kept,
+        assessed: assessed(scan, reports),
+        stale: count_stale(scan, reports),
+        banked_model: one_model(reports),
+        banked_harness: one_harness(reports),
+        banked_models: model_tally(reports),
+        trace_depth,
+    }
+}
+
+fn model_tally(reports: &HashMap<String, Report>) -> Vec<ModelCount> {
     let mut counts: HashMap<&str, usize> = HashMap::new();
-    for r in p.reports.values() {
+    for r in reports.values() {
         let m = r.model.trim();
         if !m.is_empty() {
             *counts.entry(m).or_default() += 1;
@@ -4084,9 +4121,9 @@ fn model_tally(p: &Project) -> Vec<ModelCount> {
 /// Disagreement is left visible rather than resolved to a majority. A repo read by two
 /// models is one map on two scales, and the answer to that is for somebody to see it, not
 /// for this function to pick a winner.
-fn one_harness(p: &Project) -> Option<String> {
+fn one_harness(reports: &HashMap<String, Report>) -> Option<String> {
     let mut seen: Option<&str> = None;
-    for r in p.reports.values() {
+    for r in reports.values() {
         let h = r.harness.trim();
         if h.is_empty() {
             continue;
@@ -4100,9 +4137,9 @@ fn one_harness(p: &Project) -> Option<String> {
     seen.map(|s| s.to_string())
 }
 
-fn one_model(p: &Project) -> Option<String> {
+fn one_model(reports: &HashMap<String, Report>) -> Option<String> {
     let mut seen: Option<&str> = None;
-    for r in p.reports.values() {
+    for r in reports.values() {
         let m = r.model.trim();
         if m.is_empty() {
             continue;
@@ -4130,7 +4167,7 @@ impl Drop for LiveGuard {
 
 /// How many readings this project holds right now, excluding stale ones.
 fn assessed_now(state: &Shared, key: &str) -> usize {
-    lock(state).projects.get(key).map(assessed).unwrap_or(0)
+    lock(state).projects.get(key).map(|p| assessed(&p.scan, &p.reports)).unwrap_or(0)
 }
 
 /// A body served in parts, and which of them the reader has actually taken.
@@ -4810,7 +4847,7 @@ async fn status(
                 "repo": p.repo.to_string_lossy(),
                 "functions": count_funcs(&p.scan).kept,
                 "files": count_files(&p.scan).kept,
-                "assessed": assessed(p),
+                "assessed": assessed(&p.scan, &p.reports),
             })
         })
         .collect();
@@ -4882,7 +4919,7 @@ async fn status(
                 // carried its own `reports.len() - stale` a few lines from a call to the
                 // function that exists to be the one definition, which is the divergence
                 // `assessed` was written to end.
-                "assessed": assessed(p),
+                "assessed": assessed(&p.scan, &p.reports),
                 // What a run with no `--model` would use — see `suggested_model`. Reported
                 // so the CLI can name it before spending anything, and so it does not have
                 // to reimplement the resolution and drift from it. Null means nothing knows,
@@ -5237,7 +5274,7 @@ async fn summary(
         // this is code too large for a reader to hold (`READ_CEILING`). Reported as one
         // number they would read as a decision the repo made about itself.
         "oversize": oversize,
-        "assessed": assessed(project),
+        "assessed": assessed(&project.scan, &project.reports),
         "stale": count_stale(&project.scan, &project.reports),
         "remaining": remaining,
         "total": agg.total,
@@ -5582,9 +5619,9 @@ impl ProjectList {
                     oversize,
                     harness: harnesses.get(key).cloned(),
                     model: models.get(key).cloned(),
-                    banked_harness: one_harness(p),
-                    banked_model: one_model(p),
-                    banked_models: model_tally(p),
+                    banked_harness: one_harness(&p.reports),
+                    banked_model: one_model(&p.reports),
+                    banked_models: model_tally(&p.reports),
                     recent_model: recent_model(p),
                     run: p.run.as_ref().map(|r| serde_json::json!({
                         "harness": r.harness,
@@ -5604,7 +5641,7 @@ impl ProjectList {
                     events: p.events.iter().cloned().collect(),
                     // The same walk `assessed` does, and for the reason written there:
                     // `reports.len() - stale` counts readings whose function was deleted.
-                    assessed: assessed(p),
+                    assessed: assessed(&p.scan, &p.reports),
                     unread_lines: unread_lines(p),
                     commits: p.scan.stats.commits,
                     // Read from a four-byte sidecar rather than from the timeline itself,
@@ -6140,7 +6177,7 @@ fn drain(
         let marks = stamp_marks(&path, &scan);
         let mut s = lock(state);
         settled(&mut s);
-        let reports = load_reports(&path, &scan);
+        let reports = load_reports(&path, &mut scan);
         let probe_path = path.clone();
         s.shallow.remove(&known.key);
         s.projects.insert(
@@ -6569,7 +6606,7 @@ async fn watch_tick(state: &Shared) {
             Ok::<_, anyhow::Error>((scan, trace))
         })
         .await;
-        let Ok(Ok((scan, trace))) = scanned else {
+        let Ok(Ok((mut scan, trace))) = scanned else {
             // A repo that has been deleted or moved out from under us fails here every tick.
             // The marks are left alone deliberately: retrying is what recovers a `git
             // checkout` caught mid-write, and there is nothing to report to anyone about a
@@ -6579,7 +6616,7 @@ async fn watch_tick(state: &Shared) {
         // Reloaded against the fresh tree, exactly as `open_project` does and for the same
         // reason: in-memory reports are keyed by node id, ids carry `@line`, and carrying them
         // across a rescan would orphan every reading in a file where anything moved.
-        let reports = load_reports(&repo, &scan);
+        let reports = load_reports(&repo, &mut scan);
         let file_marks = stamp_marks(&repo, &scan);
         let fresh = crate::watch::probe(&repo);
 
@@ -7623,13 +7660,17 @@ fn second() { println!(\"2\"); }\n",
                 Report { id: id.clone(), body: body.clone(), ..Report::blank() },
             );
         }
-        assert_eq!(assessed(&p), 2, "two live readings");
+        assert_eq!(assessed(&p.scan, &p.reports), 2, "two live readings");
 
         // One function is deleted and the repo rescanned. Its reading is now about nothing.
         std::fs::write(&path, "fn open() { println!(\"1\"); }\n").unwrap();
         let rescanned = project_of(dir.path());
         p.scan = rescanned.scan;
-        assert_eq!(assessed(&p), 1, "the survivor counts; the orphan is history, not coverage");
+        assert_eq!(
+            assessed(&p.scan, &p.reports),
+            1,
+            "the survivor counts; the orphan is history, not coverage"
+        );
     }
 
     /// A file is handed out as its own reading, with the header and the whole list.
@@ -8468,6 +8509,143 @@ fn second() { println!(\"2\"); }\n",
         assert!(
             err["error"].as_str().unwrap().contains("/somewhere-else"),
             "the refusal must name what was asked for"
+        );
+    }
+
+    /// **A launch and an open draw the tests a reader named, as the export does.**
+    ///
+    /// `survey` and `export-data` load the readings and then apply them with
+    /// `links::retest_tree`. The app applied them only when a reading that answered the test
+    /// question LANDED — so a window restored at launch, or opened by an agent, counted a
+    /// reader's test as a dependent of everything it calls, and `under_test` said nothing
+    /// reached it, until the next such reading arrived. Same repo, same `.sanity/`, two answers.
+    ///
+    /// Both real paths, not a helper standing in for them: `drain` is the restore's lane and
+    /// `open_project` is the `/open` handler. The reference is the CLI's order, spelled out,
+    /// and pinned to the numbers so it cannot agree with the app by both being wrong. C++ on
+    /// purpose — no contract, so the reader is the only thing that can classify anything.
+    #[tokio::test]
+    async fn a_restored_or_opened_project_counts_a_readers_tests_as_the_export_does() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        let repo = std::fs::canonicalize(dir.path()).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["-c", "user.email=t@example.com", "-c", "user.name=t"])
+                .args(args)
+                .output()
+                .expect("git runs");
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        git(&["init", "-q"]);
+        std::fs::write(
+            repo.join("a.cc"),
+            "void helper() { int x = 1; }\nvoid covers() { helper(); }\n",
+        )
+        .unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "first"]);
+
+        let helper = |s: &Scan| -> (Option<u32>, Option<bool>) {
+            let mut got = (None, None);
+            s.root.visit(&mut |n| {
+                if n.name == "helper" && n.kind == NodeKind::Func {
+                    got = (n.dependents, n.under_test);
+                }
+            });
+            got
+        };
+
+        let mut scan = crate::scan::scan(
+            &repo,
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos {
+                scores: &crate::cache::Cache::ephemeral(),
+                scans: &crate::scancache::ScanCache::ephemeral(),
+            },
+            crate::scan::Fidelity::Ordering,
+            crate::trace::Depth::Untraced,
+        )
+        .unwrap();
+        assert_eq!(helper(&scan), (None, None), "the parse alone cannot say");
+
+        // A reader said `covers` is a test and `helper` is not, written to `.sanity/` the way
+        // `report` writes them. Both, because a body nobody classified has no `dependents` to
+        // report at all — see `Links::retest`.
+        let mut readings = HashMap::new();
+        scan.root.visit(&mut |n| {
+            if (n.name == "covers" || n.name == "helper") && n.kind == NodeKind::Func {
+                readings.insert(
+                    n.id.clone(),
+                    Report {
+                        id: n.id.clone(),
+                        body: n.body.clone().unwrap_or_default(),
+                        // A shard entry with neither is dropped as malformed — see `parse_shard`.
+                        expected: "a thing".into(),
+                        found: "another thing".into(),
+                        note: "a note".into(),
+                        test: Some(n.name == "covers"),
+                        ..Report::blank()
+                    },
+                );
+            }
+        });
+        assert_eq!(readings.len(), 2, "both functions are in the fixture");
+        crate::assessment::save(&repo, &scan, &readings).unwrap();
+
+        // What `survey` and `export-data` do: load, then retest.
+        let reports = crate::assessment::load(&repo, &scan);
+        crate::links::retest_tree(&mut scan, &reports);
+        let want = helper(&scan);
+        assert_eq!(want, (Some(0), Some(true)), "a test calls it, and nothing that is not a test does");
+
+        let key = project_key(&repo);
+        let known = crate::reports::KnownProject {
+            key: key.clone(),
+            repo: repo.to_string_lossy().into_owned(),
+            name: "t".into(),
+            touched: 1,
+            files: Some(1),
+            scan_ms: None,
+            trace_depth: None,
+            harness: None,
+            model: None,
+        };
+        crate::reports::save_index(&crate::reports::KnownProjects {
+            active: None,
+            explain_trace: None,
+            order: Vec::new(),
+            projects: vec![known.clone()],
+        });
+
+        // A launch.
+        let restored: Shared = Default::default();
+        drain(vec![known], &restored, &|_, _| {}, &|_, _| {}, None);
+        assert_eq!(
+            helper(&lock(&restored).projects.get(&key).expect("restored").scan),
+            want,
+            "the restored window disagrees with the export about who depends on `helper`"
+        );
+
+        // An open.
+        let opened: Shared = Default::default();
+        let out = open_project(
+            State(opened.clone()),
+            Json(OpenRequest { path: Some(repo.to_string_lossy().into_owned()), ..Default::default() }),
+        )
+        .await
+        .0;
+        assert_eq!(out["ok"], true, "{out}");
+        assert_eq!(
+            helper(&lock(&opened).projects.get(&key).expect("opened").scan),
+            want,
+            "the opened window disagrees with the export about who depends on `helper`"
         );
     }
 

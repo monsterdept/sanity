@@ -1,20 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Choice, Field } from './Fields'
 import { Overlay } from './Overlay'
-import type { Locked } from './ColorKey'
 import { languages, repoHead, savePdf, type FindingGroup, type Node, type RepoHead } from '../lib/api'
 import { MODE_LABEL, type ColorMode, type Views } from '../lib/colorMode'
-import type { LensKey } from '../lib/lensKey'
-import { CANCELLED, type Staged } from '../lib/movie'
-import {
-  buildReport,
-  FORM,
-  lensPages,
-  type Form,
-  type ReportBucket,
-  type ReportStats,
-  type ReportTick,
-} from '../lib/report'
+import type { Locked } from '../lib/locks'
+import { CANCELLED } from '../lib/movie'
+import { buildReport, FORM, lensPages, type Form, type ReportStats, type ReportTick } from '../lib/report'
+import { reportLenses } from '../lib/reportInputs'
+import { reportMap, type ReportLook } from '../lib/reportMap'
+import { onPaper } from '../lib/vector/color'
+import { windowEnv } from '../lib/vector/env'
 
 /** A filename somebody will recognise a week later — `ExportDialog`'s rule. */
 function suggest(name: string, form: Form): string {
@@ -34,6 +29,10 @@ function suggest(name: string, form: Form): string {
  * report needs a repo on screen, the map as it stands rather than a replay frame, and the
  * findings counted, and each of those is a sentence here instead of a greyed item nobody can
  * ask about.
+ *
+ * **Nothing on screen moves while it runs.** A report used to stage the window's own map for every
+ * figure and copy it off the screen, so the window was covered to hide the machinery. Figures are
+ * rendered as markup now (`Report.map`), and the map behind this dialog stays as it was.
  */
 export function ReportDialog({
   slug,
@@ -45,13 +44,11 @@ export function ReportDialog({
   groups,
   locks,
   mode,
-  keyFor,
-  pending,
-  bucketsFor,
-  treeNow,
+  slotsFor,
+  look,
+  sortBy,
+  complete,
   stats,
-  settled,
-  onStage,
   onClose,
 }: {
   /** The repo as the world knows it. */
@@ -68,19 +65,19 @@ export function ReportDialog({
   replaying: boolean
   groups: FindingGroup[] | null
   locks: Partial<Record<ColorMode, Locked>>
-  /** The lens the window is showing — the findings map is drawn in it where it can paint. */
+  /** The lens the window is showing — a deck's title slide is drawn in it where it can paint. */
   mode: ColorMode
-  keyFor: (mode: ColorMode) => LensKey | null
-  pending: () => { stale: number; unread: number }
-  /** A lens's bands over the whole repo, for the facts in each essay — see `Report.bucketsFor`. */
-  bucketsFor: (mode: ColorMode) => ReportBucket[]
-  /** The tree the report stages, for the examples tables — see `Report.treeNow`. */
-  treeNow: () => Node | null
+  /** Category → color slot for a lens over a subtree — the window's own ranking. */
+  slotsFor: (mode: ColorMode, at: Node) => Map<string, number>
+  /** How the window draws its map — rings, spacing, rims, markers — which the figures follow. */
+  look: ReportLook
+  /** The window's order within a ring, where it has one. */
+  sortBy?: ReadonlyMap<string, number>
+  /** The tree with every function in it — see `Report.tree`. */
+  complete: () => Promise<Node | null>
   /** What the methodology states about the repo — everything but the grammar count, which is a
    *  fact about this build and is asked for here. */
   stats: Omit<ReportStats, 'grammars'>
-  settled: () => boolean
-  onStage: (stage: Staged | null) => void
   onClose: () => void
 }) {
   /** Which shape to write — see `Form`. */
@@ -123,13 +120,7 @@ export function ReportDialog({
 
   const modes = lensPages(locks)
   const skipped = (Object.keys(MODE_LABEL) as ColorMode[]).filter((m) => locks[m])
-  // The window's lens, for a deck's title slide — or the first with a page, where it has none.
-  const heroLens = locks[mode] ? (modes[0] ?? mode) : mode
-  // **Findings maps are drawn in a lens with nothing to say there.** They are greyed and shaded,
-  // so the lens's colour is gone from them — but not its texture: drawn in the window's reading
-  // lens, a stale wedge's hatching showed through the shade, a pattern no key explained. Clones
-  // is one flat neutral nearly everywhere; the others stand in where it is locked.
-  const findingsLens = (['clones', 'composition', 'language'] as ColorMode[]).find((m) => !locks[m]) ?? heroLens
+  const { heroLens, findingsLens } = reportLenses(locks, mode, modes)
   const why = !ready
     ? 'Open a repo to export a report of it.'
     : replaying
@@ -146,7 +137,15 @@ export function ReportDialog({
     setAt(null)
     try {
       setPhase('working')
-      const stamp = head !== undefined ? head : repo ? await repoHead(repo) : null
+      setAt({ done: 0, total: 0, what: 'reading every function' })
+      const [stamp, tree, env] = await Promise.all([
+        head !== undefined ? head : repo ? repoHead(repo) : null,
+        complete(),
+        windowEnv(),
+      ])
+      if (stop.current) throw new Error(CANCELLED)
+      if (!tree) throw new Error('The repository has no tree to report on.')
+      const map = reportMap({ tree, views, slotsFor, look, sortBy, fonts: env.fonts, vars: onPaper(env.vars) })
       const bytes = await buildReport({
         slug,
         head: stamp,
@@ -156,13 +155,11 @@ export function ReportDialog({
         findingsLens,
         heroLens,
         groups,
-        keyFor,
-        pending,
-        bucketsFor,
-        treeNow,
+        tree,
+        slotsFor,
         stats: { ...stats, grammars },
-        stage: onStage,
-        settled,
+        map,
+        env,
         cancelled: () => stop.current,
         onProgress: setAt,
       })
@@ -184,7 +181,7 @@ export function ReportDialog({
   const pct = at && at.total > 0 ? Math.round((at.done / at.total) * 100) : 0
 
   return (
-    <Overlay onClose={busy ? () => {} : onClose} opaque={busy}>
+    <Overlay onClose={busy ? () => {} : onClose}>
       <div
         className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
         onClick={(e) => e.stopPropagation()}

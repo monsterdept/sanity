@@ -1,4 +1,4 @@
-import { DOC_WORDS, HEAT_WORDS, LEGIBLE_WORDS, type Grade, type Node } from './api'
+import { type Grade, type Node } from './api'
 import {
   docGrade,
   KIND_FILL,
@@ -86,21 +86,30 @@ function share(x: number, total: number): string {
 }
 
 interface Walked {
-  /** Function nodes the window holds. */
+  /** Function nodes the tree holds. */
   funcs: Node[]
+  /** The ones a table ranks by what they are like: not test, generated or vendored code. A
+   *  report's "least predicted" table was six tests out of ten, whose names are sentences no
+   *  reader could guess, and the findings rules already leave all three out. */
+  named: Node[]
   files: Node[]
-  /** Functions the repo has that the window holds no node for — `Node.funcs` on a file whose
+  /** Functions the repo has that the tree holds no node for — `Node.funcs` on a file whose
    *  ring never arrived. */
   unnamed: number
 }
 
+const UNRANKED = new Set(['test', 'generated', 'vendored'])
+
 function walk(root: Node | null): Walked {
-  const out: Walked = { funcs: [], files: [], unnamed: 0 }
+  const out: Walked = { funcs: [], named: [], files: [], unnamed: 0 }
   const go = (x: Node) => {
     if (x.excluded) return
     if (x.kind === 'func') {
       // A roll-up stands for functions rather than being one.
-      if (x.rest === undefined) out.funcs.push(x)
+      if (x.rest === undefined) {
+        out.funcs.push(x)
+        if (!UNRANKED.has(x.codeKind?.kind ?? '')) out.named.push(x)
+      }
       return
     }
     if (x.kind === 'file') {
@@ -122,9 +131,10 @@ function walk(root: Node | null): Walked {
  */
 export function namedClause(root: Node | null): string {
   const w = walk(root)
+  const kept = 'Tables that rank functions leave out test, generated and vendored code.'
   return w.unnamed > 0
-    ? `Tables that name functions rank the ${n(w.funcs.length)} of ${n(w.funcs.length + w.unnamed)} whose names the report holds.`
-    : ''
+    ? `${kept} They rank the ${n(w.funcs.length)} of ${n(w.funcs.length + w.unnamed)} functions whose names the report holds.`
+    : kept
 }
 
 function ranked<T>(xs: T[], by: (t: T) => number, tie: (t: T) => number): T[] {
@@ -184,11 +194,12 @@ function breakdown(m: ColorMode, ctx: TableContext, w: Walked, castRows: number)
       { text: share(lines, total), bar: { share: lines / total, fill: 'var(--structure)' } },
     ])
   }
+  // **Said once in the methodology, not under every table**: what the lines and the functions are.
+  // Nine breakdowns each opened on the same sentence and the same total. What is left is what
+  // differs between them.
   return {
-    caption: `Lines of function bodies by ${what}, with the functions holding them. ${
-      total < ctx.mapLines
-        ? `${n(total)} of the ${n(ctx.mapLines)} lines the map draws; the rest are in no band of this lens.`
-        : `${n(total)} lines in all.`
+    caption: `Lines and functions by ${what}.${
+      total < ctx.mapLines ? ` ${n(total)} of the ${n(ctx.mapLines)} lines the map draws; the rest are in no band of this lens.` : ''
     }${m === 'docs' ? ' File headers are graded too, and are not counted here.' : ''}`,
     columns,
     rows: body,
@@ -232,7 +243,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked, top: number): Tabl
       return clones(w, top)
     case 'callers': {
       const rows = ranked(
-        w.funcs.filter((f) => (f.callers ?? 0) > 0),
+        w.named.filter((f) => (f.callers ?? 0) > 0),
         (f) => f.callers ?? 0,
         (f) => f.loc,
       ).slice(0, top)
@@ -248,7 +259,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked, top: number): Tabl
     }
     case 'reach': {
       const rows = ranked(
-        w.funcs.filter((f) => (f.calls ?? 0) > 0),
+        w.named.filter((f) => (f.calls ?? 0) > 0),
         (f) => f.calls ?? 0,
         (f) => f.loc,
       ).slice(0, top)
@@ -265,10 +276,14 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked, top: number): Tabl
       const newest = ctx.views.age.read !== 'oldest'
       const days = (f: Node) => (newest ? f.score?.lastTouchedDays : f.score?.ageDays) ?? null
       const rows = ranked(
-        w.funcs.filter((f) => days(f) != null),
+        w.named.filter((f) => days(f) != null),
         (f) => days(f) ?? 0,
         (f) => f.loc,
       ).slice(0, top)
+      // **A ranking that cannot tell its rows apart ranks nothing.** On a repository younger than
+      // its oldest code's first week, every row was 42 days old under both readings, and the
+      // table was ten names that happened to sort first by length.
+      if (rows.length > 1 && rows.every((f) => days(f) === days(rows[0]))) return null
       return {
         caption: newest
           ? 'The functions no commit has touched for longest, by the age of their newest line.'
@@ -286,7 +301,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked, top: number): Tabl
       const window = ctx.views.churn.windows[at]
       const count = (f: Node) => f.score?.commits?.[at] ?? 0
       const rows = ranked(
-        w.funcs.filter((f) => count(f) > 0),
+        w.named.filter((f) => count(f) > 0),
         count,
         (f) => f.loc,
       ).slice(0, top)
@@ -300,14 +315,13 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked, top: number): Tabl
         rows: rows.map((f) => [fn(f), num(count(f)), num(f.loc)]),      }
     }
     case 'surprise':
-      return graded(w, (f) => f.agent?.predicted, HEAT_WORDS, 'The functions a reader least predicted', 'Surprise', top)
+      return graded(w, (f) => f.agent?.predicted, 'The functions a reader least predicted', 'Predicted', top)
     case 'legible':
       return graded(
         w,
         (f) => (f.agent?.legibleDated ? undefined : f.agent?.legible),
-        LEGIBLE_WORDS,
         'The functions a reader found hardest to follow',
-        'Legibility',
+        'Legible',
         top,
       )
     case 'docs':
@@ -324,7 +338,7 @@ function examples(m: ColorMode, ctx: TableContext, w: Walked, top: number): Tabl
  *  the order the sentences about this repository name bodies in. */
 function complexityRanked(ctx: TableContext, w: Walked) {
   const weighted = ctx.views.tangle !== 'raw'
-  const scored = w.funcs.flatMap((f) => {
+  const scored = w.named.flatMap((f) => {
     const cog = f.score?.cognitive
     if (cog == null || cog <= 0) return []
     const i = TANGLE_EDGES.findIndex((e) => f.loc <= e)
@@ -430,7 +444,7 @@ function clones(w: Walked, top: number): Table | null {
     caption: 'The largest clone groups: functions whose bodies are identical once names and literals are set aside.',
     columns: [
       { label: 'Copies', weight: 0.9, align: 'right' },
-      { label: 'Lines', weight: 0.9, align: 'right' },
+      { label: 'Lines, all copies', weight: 1.4, align: 'right' },
       { label: 'Members', weight: 7, wrap: true },
     ],
     rows: rows.map((g) => {
@@ -451,18 +465,17 @@ function clones(w: Walked, top: number): Table | null {
 function graded(
   w: Walked,
   gradeOf: (f: Node) => Grade | undefined,
-  words: Record<Grade, string>,
   caption: string,
   label: string,
   top: number,
 ): Table | null {
   const order: Grade[] = ['none', 'some']
-  const rows = w.funcs.flatMap((f) => {
+  const rows = w.named.flatMap((f) => {
     const g = f.agentStale ? undefined : gradeOf(f)
     return g && order.includes(g) ? [{ f, g }] : []
   })
   return {
-    caption: `${caption}: graded ${words.none}, then ${words.some}.`,
+    caption: `${caption}: graded none, then some.`,
     columns: [
       { label: 'Function', weight: 6.4 },
       { label: label, weight: 1.2 },
@@ -474,18 +487,18 @@ function graded(
       (r) => r.f.loc,
     )
       .slice(0, top)
-      .map((r) => [fn(r.f), { text: words[r.g] }, num(r.f.loc)]),  }
+      .map((r) => [fn(r.f), { text: r.g }, num(r.f.loc)]),  }
 }
 
 function docs(w: Walked, top: number): Table | null {
-  const rows = w.funcs.flatMap((f) => {
+  const rows = w.named.flatMap((f) => {
     if (f.agentStale || !f.agent?.documented) return []
     // Derivable documentation counts as none in every score, and the table follows the score.
     const g: Grade = f.agent.derivable ? 'none' : f.agent.documented
     return g === 'none' || g === 'some' ? [{ f, g, derivable: !!f.agent.derivable }] : []
   })
   return {
-    caption: `The largest functions whose documentation covers least of what they do: graded ${DOC_WORDS.none}, then ${DOC_WORDS.some}.`,
+    caption: 'The largest functions whose documentation covers least of what they do: graded none, then some.',
     columns: [
       { label: 'Function', weight: 6 },
       { label: 'Documentation', weight: 1.7 },
@@ -497,7 +510,7 @@ function docs(w: Walked, top: number): Table | null {
       (r) => r.f.loc,
     )
       .slice(0, top)
-      .map((r) => [fn(r.f), { text: r.derivable ? `${DOC_WORDS.none} (derivable)` : DOC_WORDS[r.g] }, num(r.f.loc)]),  }
+      .map((r) => [fn(r.f), { text: r.derivable ? 'none (derivable)' : r.g }, num(r.f.loc)]),  }
 }
 
 /**
@@ -519,10 +532,10 @@ export function lensFact(m: ColorMode, ctx: TableContext): string {
   }
   const absent = (b: Bucket) => b.key.startsWith(' ')
   const largest = (pick: (b: Bucket) => boolean) => bs.filter(pick).sort((a, b) => b.lines - a.lines)[0]
-  const graded = (words: Record<Grade, string>, what: string) => {
+  const graded = (what: string) => {
     const read = sum((b) => ['none', 'some', 'most', 'full'].includes(b.key))
     const hot = sum((b) => b.key === 'none' || b.key === 'some')
-    return read > 0 ? `${pct(hot, read)} of the ${what} were graded ${words.some} or ${words.none}.` : ''
+    return read > 0 ? `${pct(hot, read)} of the ${what} were graded some or none.` : ''
   }
   switch (m) {
     case 'tangle': {
@@ -575,15 +588,13 @@ export function lensFact(m: ColorMode, ctx: TableContext): string {
         : `No body here was changed by ten or more commits in ${days} days.`
     }
     case 'surprise':
-      return graded(HEAT_WORDS, 'lines a reader has read')
+      return graded('lines a reader has read')
     case 'legible':
-      return graded(LEGIBLE_WORDS, 'lines a reader has read')
+      return graded('lines a reader has read')
     case 'docs': {
       const read = sum((b) => ['none', 'some', 'most', 'full'].includes(b.key))
       const hot = sum((b) => b.key === 'none' || b.key === 'some')
-      return read > 0
-        ? `${pct(hot, read)} of graded function lines have documentation covering ${DOC_WORDS.some} or ${DOC_WORDS.none} of the body.`
-        : ''
+      return read > 0 ? `${pct(hot, read)} of graded function lines have documentation covering some or none of the body.` : ''
     }
     case 'traps': {
       const count = bs.find((b) => b.key === 'trap')?.count ?? 0
@@ -698,7 +709,8 @@ export function lensStory(m: ColorMode, ctx: TableContext): string[] {
             : `The largest count is observed in ${chip(top[0].text)}, which calls ${top[1].text} functions defined here.`,
         )
       }
-      said.push('{callsResolved}')
+      // Once, on Callers: the two lenses read the same edges, and Reach printed it word for word.
+      if (callers) said.push('{callsResolved}')
       const unresolved = linesWhere(ctx.buckets, isAbsent)
       if (unresolved > 0) said.push(`A further ${n(unresolved)} lines are in languages whose calls are not resolved.`)
       break
@@ -715,7 +727,7 @@ export function lensStory(m: ColorMode, ctx: TableContext): string[] {
       const uncommitted = linesWhere(ctx.buckets, (b) => b.key === ' uncommitted')
       if (uncommitted > 0) said.push(`Uncommitted work accounts for ${shareOf(uncommitted, total)} of function lines.`)
       const other = linesWhere(ctx.buckets, (b) => b.key === OTHER_KEY)
-      if (other > 0) said.push(`Authors beyond the colour cap account for ${shareOf(other, total)}.`)
+      if (other > 0) said.push(`Authors beyond the color cap account for ${shareOf(other, total)}.`)
       break
     }
     case 'age': {
@@ -751,20 +763,23 @@ export function lensStory(m: ColorMode, ctx: TableContext): string[] {
       const read = linesWhere(bs, (b) => ['none', 'some', 'most', 'full'].includes(b.key))
       const none = linesWhere(bs, (b) => b.key === 'none')
       const some = linesWhere(bs, (b) => b.key === 'some')
-      const words = m === 'surprise' ? HEAT_WORDS : m === 'legible' ? LEGIBLE_WORDS : DOC_WORDS
       const noun = m === 'surprise' ? 'reading' : 'grade'
+      // **Shares of every function line, as the table beside them is.** They were shares of the
+      // lines read, so one page said 35% *quirky* and its table 28% of the same bucket; the
+      // coverage sentence after this is what says how much of the whole was read.
+      const whose = m === 'surprise' ? 'whose prediction was graded' : m === 'legible' ? 'graded' : 'whose documentation was graded'
       if (read > 0) {
         said.push(
-          m === 'docs'
-            ? `Of the ${n(read)} function lines with graded documentation, ${shareOf(none, read)} were graded *${words.none}* and ${shareOf(some, read)} *${words.some}*, with derivable documentation counted as ${ctx.views.derivable === 'full' ? '*full*' : '*none*'}.`
-            : `Of the ${n(read)} function lines with a current ${noun}, ${shareOf(none, read)} were graded *${words.none}* and ${shareOf(some, read)} *${words.some}*.`,
+          `Of the ${n(all)} function lines, ${shareOf(none, all)} lie in bodies ${whose} *none* and ${shareOf(some, all)} in bodies ${whose} *some*${
+            m === 'docs' ? `, with derivable documentation counted as ${ctx.views.derivable === 'full' ? '*full*' : '*none*'}` : ''
+          }.`,
         )
       }
       const expired = linesWhere(bs, (b) => b.key === ' expired')
       const missing = all - read
       if (missing > 0) {
         said.push(
-          `No current ${noun} exists for ${shareOf(missing, all)} of function lines${expired > 0 ? `, including ${shareOf(expired, all)} whose reading has expired` : ''}.`,
+          `No current ${noun} exists for ${shareOf(missing, all)} of function lines${expired > 0 ? `, including ${shareOf(expired, all)} whose reading is stale` : ''}.`,
         )
       }
       const top = lead()

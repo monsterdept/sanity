@@ -381,7 +381,21 @@ pub fn mark_used(path: &Path) {
 /// `edits` was missing, which is exactly the failure the paragraph above describes: it takes
 /// a slot through [`cache_slot`] and prunes its own siblings through [`prune_slots`], so it
 /// behaves like the other four in every way except being reachable by a reset or a sweep.
-const KINDS: [&str; 5] = ["trees", "scans", "traces", "timelines", "edits"];
+///
+/// `renders` is the offline renderer's figures, one DIRECTORY per slot rather than a file — see
+/// [`remove_slot`], which is why every removal below goes through it.
+const KINDS: [&str; 6] = ["trees", "scans", "traces", "timelines", "edits", "renders"];
+
+/// Remove one slot, whether it is a file or a directory of them. Silent, like every removal
+/// here: a slot that survives is disk, never a wrong answer.
+///
+/// **`remove_file` alone refuses a directory**, and does it without a sound — so a directory
+/// slot would have outlived every reset and every sweep while each reported nothing wrong.
+fn remove_slot(path: &Path) {
+    if std::fs::remove_file(path).is_err() {
+        let _ = std::fs::remove_dir_all(path);
+    }
+}
 
 /// Throw away everything derived for this repo, whatever build or window wrote it.
 ///
@@ -410,7 +424,7 @@ pub fn forget_all(repo: &Path) {
                 // Best effort, like every other cache write here: a file we cannot remove
                 // is one the next reader refuses on its own terms, which is where this
                 // started.
-                let _ = std::fs::remove_file(e.path());
+                remove_slot(&e.path());
             }
         }
     }
@@ -429,7 +443,7 @@ pub fn prune_slots(kind: &str, repo: &Path, tag: &str) {
             continue;
         }
         if expendable(&e) {
-            let _ = std::fs::remove_file(e.path());
+            remove_slot(&e.path());
         }
     }
 }
@@ -485,7 +499,7 @@ pub fn sweep_slots() {
         let Ok(entries) = std::fs::read_dir(root.join(kind)) else { continue };
         for e in entries.flatten() {
             if expendable(&e) {
-                let _ = std::fs::remove_file(e.path());
+                remove_slot(&e.path());
             }
         }
     }
@@ -663,5 +677,28 @@ mod tests {
 
         assert!(!stale.exists(), "a repo nobody has opened in a month is nobody's cache");
         assert!(fresh.exists(), "and the one somebody opened today is untouched");
+    }
+
+    /// **A slot can be a directory, and a reset and a sweep take it like a file.** The render
+    /// cache is one directory of figures per slot; `remove_file` refuses a directory without a
+    /// sound, so before `remove_slot` it would have outlived both.
+    #[test]
+    fn a_directory_slot_goes_with_a_reset_and_a_sweep() {
+        let _home = crate::agentapi::tests::data_home();
+        let repo = Path::new("/somewhere/rendered");
+        let mine = cache_slot("renders", repo, "r1").expect("a slot");
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::write(mine.join("abc123-map.svg"), "<svg/>").unwrap();
+        let untagged = mine
+            .with_file_name(mine.file_name().unwrap().to_string_lossy().replace("-r1", ""));
+        std::fs::create_dir_all(&untagged).unwrap();
+        std::fs::write(untagged.join("old.svg"), "<svg/>").unwrap();
+
+        prune_slots("renders", repo, "r1");
+        assert!(mine.is_dir(), "this build's own directory is never swept");
+        assert!(!untagged.exists(), "an unreachable directory goes like an unreachable file");
+
+        forget_all(repo);
+        assert!(!mine.exists(), "a reset takes a directory slot and everything in it");
     }
 }

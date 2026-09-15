@@ -83,7 +83,10 @@ pub enum Field {
     AgeDays,
     /// Days since anyone touched it.
     TouchedDays,
-    /// Commits that CHANGED this inside the churn window. Zero everywhere until the
+    /// Commits that CHANGED this inside the NARROWEST churn window — `Score::commits[0]`,
+    /// which counts `ScanStats::churn_windows[0]` days (7 on a 42-day repo). Not the window
+    /// the Churn lens opens on, so a sentence quoting it names its days with `{{window}}`.
+    /// Zero everywhere until the
     /// timeline has been walked, which is why [`value_of`] gates it on `churned`: a repo
     /// nobody has traced would otherwise read as one nothing ever changes in.
     Commits,
@@ -496,9 +499,10 @@ pub struct Clause {
 
 /// A rule: a population, and a conjunction over it.
 ///
-/// **Two clauses is the cap and it is not arbitrary.** Three is the first number that needs
-/// precedence rules, and a grammar with precedence is a query language — the bottomless
-/// thing this design exists to avoid.
+/// **Three subject clauses is the cap** — see `Rule::parse`, which counts only clauses about
+/// the subject, so a repo-scope gate rides along free. The clauses are a flat conjunction:
+/// no `or` and no grouping, because a grammar with precedence is a query language — the
+/// bottomless thing this design exists to avoid.
 #[derive(Debug, Clone)]
 pub struct Rule {
     /// What durable state is filed under — a dismissal, a saved threshold.
@@ -519,8 +523,9 @@ pub struct Rule {
     ///
     /// **A tile's paragraph is the thing somebody can act on without having read the
     /// catalog.** "Tangled for its size" is a label you have to already know; "for 340 lines
-    /// this branches more than almost anything else here" is a finding. The numbers have to
-    /// come from the subject or the sentence is a template pretending to be a reading — see
+    /// this branches far more than bodies of its length usually do here" is a finding. The
+    /// numbers have to come from the subject or the sentence is a template pretending to be a
+    /// reading — see
     /// [`render`], which refuses rather than guessing.
     pub says: String,
     /// The part of a rule's paragraph that is the same on every subject.
@@ -707,6 +712,11 @@ pub fn render(rule: &Rule, f: &Facts, median: Option<f32>) -> Vec<Span> {
             // touched it since 2006.
             "age_years" => value_of(f, Field::AgeDays).map(years),
             "touched_years" => value_of(f, Field::TouchedDays).map(years),
+            // **A count of commits is a count over SOME window, and the sentence has to say
+            // which.** `commits` is the narrowest rung — seven days on a 42-day repo — while
+            // the Churn lens opens on a wider one, so "changed in 9 commits recently" read as
+            // the lens's number and was not. Answers only where `commits` does.
+            "window" => value_of(f, Field::Commits).and(f.window).map(|d| commas(d as f32)),
             other => Field::parse(other).and_then(|field| value_of(f, field)).map(commas),
         };
         match filled {
@@ -792,6 +802,9 @@ pub struct Facts {
     /// so kibana carried 180,000 of them. `Field` is a fieldless enum, so its discriminant IS
     /// the index; the array costs sixty bytes inline and answers without hashing.
     values: [Option<f32>; Field::COUNT],
+    /// The days `Field::Commits` counts over, set exactly where that field is — what
+    /// `{{window}}` prints, so a count of commits never reaches a sentence without its window.
+    window: Option<u32>,
 }
 
 impl Facts {
@@ -829,6 +842,52 @@ pub struct Traced {
     /// this one does. Without the distinction a headcount rule on a log-traced repo finds
     /// nothing and says nothing, which is silence standing in for a clean bill.
     pub blamed: bool,
+    /// How many days the narrowest churn window spans — `ScanStats::churn_windows[0]`, the
+    /// one `Field::Commits` is read from. `None` where nobody said.
+    pub churn_window: Option<u32>,
+}
+
+impl Traced {
+    /// What a tree traced to `depth` can answer — the one construction every caller uses.
+    ///
+    /// **One place, because it was five copies of six lines**: the window's report, its two
+    /// pin lookups, the CLI's survey and the bench. `git` is whether anybody has read the log,
+    /// NOT `stats::without_history`, which is true for an untraced repo as well as for one with
+    /// no history — the two absences must never render alike.
+    pub fn of(stats: &crate::scan::ScanStats, depth: crate::trace::Depth) -> Traced {
+        Traced {
+            git: depth != crate::trace::Depth::Untraced,
+            churned: stats.churned,
+            blamed: depth >= crate::trace::Depth::Lines,
+            headcount: stats.headcount,
+            age_days: stats.age_days,
+            churn_window: Some(stats.churn_windows[0]),
+        }
+    }
+}
+
+/// Everything the findings panel reads, for one tree and its readings.
+///
+/// **Shared by the window's `project_report` and `sanity export-data`**, so the report a PDF is
+/// rendered from offline is the report the window would have shown — not a second assembly
+/// that happens to call the same pieces in the same order today.
+///
+/// This repo's own thresholds, not the catalog's shipped ones: `rules_for` calibrates and
+/// saves on first sight. The archive is read from the repo on every ask, never held.
+pub fn project_report(
+    repo: &std::path::Path,
+    root: &Node,
+    reports: &HashMap<String, Report>,
+    traced: Traced,
+) -> ProjectReport {
+    let facts = subjects(root, reports, traced);
+    let rules = rules_for(repo, &facts);
+    let read = !reports.is_empty();
+    ProjectReport {
+        groups: report(&facts, traced, read, &rules, &archive(repo)),
+        rules: rules_view(repo, &facts, traced, read),
+        grammar: grammar(&facts),
+    }
 }
 
 /// What a finding is never about, and why.
@@ -1042,6 +1101,7 @@ fn facts_of(
     within: Option<(u32, u32, Option<u32>)>,
 ) -> Facts {
     let mut v: [Option<f32>; Field::COUNT] = [None; Field::COUNT];
+    let mut window = None;
     let mut set = |f: Field, x: Option<f32>| {
         if let Some(x) = x {
             v[f as usize] = Some(x);
@@ -1086,6 +1146,7 @@ fn facts_of(
         }
         if traced.churned {
             set(Field::Commits, Some(s.commits[0] as f32));
+            window = traced.churn_window;
         }
     }
     if node.kind == NodeKind::Func {
@@ -1125,6 +1186,7 @@ fn facts_of(
             body_pin: node.body.as_deref().map(crate::assessment::body_hash),
         },
         values: v,
+        window,
     }
 }
 
@@ -2005,6 +2067,8 @@ fn check_template(says: &str, clauses: &[Clause]) -> Result<(), String> {
         let field = match token {
             "age_years" => Field::AgeDays,
             "touched_years" => Field::TouchedDays,
+            // The days `commits` counts over, so it is earned by the clause that measures it.
+            "window" => Field::Commits,
             other => Field::parse(other).ok_or(format!("`{other}` is not a field"))?,
         };
         // `loc` and `funcs` are set on every subject; everything else has to be earned by a
@@ -2114,7 +2178,7 @@ pub fn catalog() -> Vec<Rule> {
             "Crowded file",
             "Unusually many functions in one file.",
             "This file defines {{funcs}} functions, where the median file here defines {{median}}.",
-            "That is a count rather than a verdict: whether they belong together is a judgement \
+            "That is a count rather than a verdict: whether they belong together is a judgment \
              about what they do, which nothing here has made.",
             Pop::File,
             vec![ge(Field::Funcs, 40.0)],
@@ -2130,7 +2194,7 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-unread",
             "Load-bearing and unread",
             "Read this one next.",
-            "{{dependents}} call sites depend on this and no reader has assessed it.",
+            "{{dependents}} functions outside the tests call this and no reader has assessed it.",
             "It is the cheapest assessment available here, in the sense that what one of these \
              turns out to be matters to every call site that depends on it.",
             Pop::Func,
@@ -2143,9 +2207,9 @@ pub fn catalog() -> Vec<Rule> {
             "Branches a lot, and widely depended on.",
             // Every sentence quotes the subject, so nothing is held back — see
             // `Rule::background`.
-            "{{dependents}} call sites depend on this, and for {{loc}} lines it branches more \
-             than its length accounts for. A change here has to be checked against all \
-             {{dependents}}.",
+            "{{dependents}} functions outside the tests call this, and for {{loc}} lines it \
+             branches more than its length accounts for. A change here has to be checked \
+             against all {{dependents}}.",
             "",
             Pop::Func,
             vec![ge(Field::Tangle, 0.8), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
@@ -2155,7 +2219,8 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-illegible",
             "Load-bearing and hard to read",
             "Hard to follow, and widely depended on.",
-            "A reader assessed this as hard to follow, and {{dependents}} call sites depend on it.",
+            "A reader assessed this as hard to follow, and {{dependents}} functions outside the \
+             tests call it.",
             "Every later edit pays that reading cost again.",
             Pop::Func,
             vec![ge(Field::Legible, 0.6), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
@@ -2184,7 +2249,8 @@ pub fn catalog() -> Vec<Rule> {
             "load-bearing-undocumented",
             "Load-bearing and undocumented",
             "Widely depended on, with nothing written about it.",
-            "{{dependents}} call sites depend on this and there is no documentation on it.",
+            "{{dependents}} functions outside the tests call this and there is no documentation \
+             on it.",
             "This is among the most used code here that nothing explains.",
             Pop::Func,
             vec![lt(Field::HasDoc, 1.0), ge(Field::Dependents, 10.0), ge(Field::Loc, 10.0)],
@@ -2206,9 +2272,9 @@ pub fn catalog() -> Vec<Rule> {
             "undocumented-declaration",
             "A declaration with nothing but its signature",
             "Widely depended on, and it declares without explaining.",
-            "{{dependents}} call sites are written against this declaration and there is \
-             nothing written about it. A header is the interface, so a signature is all a \
-             caller gets.",
+            "{{dependents}} functions outside the tests are written against this declaration \
+             and there is nothing written about it. A header is the interface, so a signature \
+             is all a caller gets.",
             "Everything written against this had to guess what it means.",
             Pop::Func,
             vec![
@@ -2229,11 +2295,12 @@ pub fn catalog() -> Vec<Rule> {
         // coverage would be borrowing a word that means the line executed.
         rule(
             "load-bearing-untested",
-            "Load-bearing, surprising, and no test found",
+            "Load-bearing, surprising and no test found",
             "Depended on, unpredictable, and no test was found to reach it.",
-            "{{dependents}} call sites depend on this, a reader could not predict it, and no \
-             test was found that reaches it. Calls are followed only where a name resolves, \
-             and a suite that drives this from outside the language is not in the graph.",
+            "{{dependents}} functions outside the tests call this, a reader could not predict \
+             it, and no test was found that reaches it. Calls are followed only where a name \
+             resolves, and a suite that drives this from outside the language is not in the \
+             graph.",
             "This is among the code here most likely to break quietly.",
             Pop::Func,
             vec![
@@ -2257,7 +2324,8 @@ pub fn catalog() -> Vec<Rule> {
             "surprising-changing",
             "Surprising and changing",
             "Changing often, and nobody predicted it.",
-            "A reader could not predict this body, and it changed in {{commits}} commits recently.",
+            "A reader could not predict this body, and it changed in {{commits}} commits in the \
+             last {{window}} days.",
             "Either on its own is ordinary; both at once is worth knowing before the next edit.",
             Pop::Func,
             vec![ge(Field::Surprise, 0.6), ge(Field::Commits, 4.0), ge(Field::Loc, 10.0)],
@@ -2279,7 +2347,7 @@ pub fn catalog() -> Vec<Rule> {
             "Stale doc",
             "Documented, and a reader still could not predict it.",
             "This has documentation and a reader still could not predict the body.",
-            "Either the documentation describes behaviour the code no longer has, or it describes \
+            "Either the documentation describes behavior the code no longer has, or it describes \
              it in terms that do not help.",
             Pop::Func,
             // **`Some` is not a stale doc, and 0.6 was catching it.** The grades are words
@@ -2303,7 +2371,7 @@ pub fn catalog() -> Vec<Rule> {
             "Trap in code people are editing",
             "Easy to break when edited, and being edited.",
             "A reader flagged this as easy to break when edited, and it changed in {{commits}} \
-             commits recently.",
+             commits in the last {{window}} days.",
             "",
             Pop::Func,
             vec![ge(Field::Trap, 1.0), ge(Field::Commits, 3.0), ge(Field::Loc, 10.0)],
@@ -2338,7 +2406,7 @@ pub fn catalog() -> Vec<Rule> {
             "Clone being edited",
             "One copy changed and the others did not.",
             "This body appears {{clone_count}} times in the repo, and this copy changed in \
-             {{commits}} commits.",
+             {{commits}} commits in the last {{window}} days.",
             "Changes made in one copy are not applied to the others.",
             Pop::Func,
             vec![ge(Field::CloneSize, 3.0), ge(Field::Commits, 2.0), ge(Field::Loc, 10.0)],
@@ -2383,7 +2451,7 @@ pub fn catalog() -> Vec<Rule> {
             "tangled-for-size",
             "Tangled for its size",
             "More complicated than its length accounts for.",
-            "For {{loc}} lines this branches more than almost anything else in the repo.",
+            "For {{loc}} lines this branches far more than bodies of its length usually do here.",
             "Its complexity is not explained by its length.",
             Pop::Func,
             vec![ge(Field::Tangle, 0.8), ge(Field::Loc, 40.0)],
@@ -2402,8 +2470,9 @@ pub fn catalog() -> Vec<Rule> {
             "sole-author",
             "Load-bearing, and only one person has been in it",
             "Widely depended on, and every line of it was last touched by the same person.",
-            "{{dependents}} things depend on this, and every line of it was last touched by \
-             the same person — out of {{repo_headcount}} who have worked on this repo.",
+            "{{dependents}} functions outside the tests call this, and every line of it was \
+             last touched by the same person — out of {{repo_headcount}} who have worked on \
+             this repo.",
             "That is fine until that person is unavailable.",
             Pop::Func,
             // **The gate comes first because it is what makes the rest of the rule true.**
@@ -2508,7 +2577,7 @@ pub fn catalog() -> Vec<Rule> {
             "Many have been in it, and it is knotty",
             "Several people have been in something more complicated than its length accounts for.",
             "{{headcount}} people's lines are standing in this, and for {{loc}} lines it branches \
-             more than almost anything else here.",
+             far more than bodies of its length usually do here.",
             "Everyone who touched it had to hold that shape in their head.",
             Pop::Func,
             // **Paired with `tangle` rather than with `loc`, and that is the whole design.** A
@@ -2533,7 +2602,7 @@ pub fn catalog() -> Vec<Rule> {
 /// one rule — so a shipped constant is wrong nearly everywhere: `loc >= 200` is eight findings
 /// on htop and 2,292 on kibana, and six thousand findings is not a work queue, it is wallpaper.
 ///
-/// Eight, because there are fifteen rules and the list they share has to stay one somebody
+/// Eight, because there are twenty-two rules and the list they share has to stay one somebody
 /// reads to the bottom. Tiles merge by subject, so the worklist is shorter than the product.
 pub const TARGET: usize = 8;
 
@@ -3506,7 +3575,7 @@ mod tests {
         let many = subjects(
             &tree,
             &HashMap::new(),
-            Traced { git: true, churned: true, blamed: true, headcount: 9, age_days: 900 },
+            Traced { git: true, churned: true, blamed: true, headcount: 9, age_days: 900, churn_window: None },
         );
         assert_eq!(hits(&rule, &many).len(), 2);
 
@@ -3515,7 +3584,7 @@ mod tests {
         let solo = subjects(
             &tree,
             &HashMap::new(),
-            Traced { git: true, churned: true, blamed: true, headcount: 1, age_days: 900 },
+            Traced { git: true, churned: true, blamed: true, headcount: 1, age_days: 900, churn_window: None },
         );
         assert_eq!(hits(&rule, &solo).len(), 0);
 
@@ -3525,7 +3594,7 @@ mod tests {
         let cold = subjects(
             &tree,
             &HashMap::new(),
-            Traced { git: true, churned: true, blamed: false, headcount: 0, age_days: 0 },
+            Traced { git: true, churned: true, blamed: false, headcount: 0, age_days: 0, churn_window: None },
         );
         assert_eq!(hits(&rule, &cold).len(), 0);
         assert!(blocked(&rule, &cold, Traced::default(), false).is_some());
@@ -3605,7 +3674,7 @@ mod tests {
         let mut root = Node::dir("", "repo");
         root.children = files;
         let reports = HashMap::new();
-        let traced = Traced { git: true, churned: true, blamed: true, headcount: 0, age_days: 0 };
+        let traced = Traced { git: true, churned: true, blamed: true, headcount: 0, age_days: 0, churn_window: None };
 
         let t = Instant::now();
         let facts = subjects(&root, &reports, traced);
@@ -3712,7 +3781,7 @@ mod tests {
         let untraced = subjects(
             &tree,
             &reports,
-            Traced { git: false, churned: false, blamed: false, headcount: 0, age_days: 0 },
+            Traced { git: false, churned: false, blamed: false, headcount: 0, age_days: 0, churn_window: None },
         );
         let old = Rule::parse("func: age >= 1").expect("parses");
         assert_eq!(hits(&old, &untraced).len(), 0);
@@ -3976,6 +4045,56 @@ would hide the shape"
         assert!(spans.iter().any(|s| !s.filled && s.text.contains("lines")));
     }
 
+    /// **A count of commits names the window it was counted over.** `commits` is the narrowest
+    /// rung of this repo's ladder — seven days on a 42-day repo — while the Churn lens opens on
+    /// a wider one, so "it changed in 9 commits recently" read as the lens's number and was
+    /// not. Every shipped sentence that quotes `commits` has to quote its days too.
+    #[test]
+    fn a_commit_count_in_a_sentence_names_its_window() {
+        let mut body = func("run", 300);
+        body.score = Some(crate::model::Score {
+            surprise: 0.0,
+            documented: 0.0,
+            churn: [0.0; 4],
+            age_days: None,
+            commits: [9, 20, 30, 40],
+            all_commits: None,
+            last_touched_days: None,
+            tangle: None,
+            cognitive: None,
+            provenance: crate::model::Provenance::Source,
+            hot_share: 0.0,
+            source: crate::model::Source::Model,
+            analyzed_share: 0.0,
+        });
+        let tree = file_with(vec![body]);
+        let traced = Traced { churned: true, churn_window: Some(7), ..Traced::default() };
+        let facts = subjects(&tree, &HashMap::new(), traced);
+        let at = facts.iter().find(|f| f.subject.kind == NodeKind::Func).expect("a function");
+
+        let cat = catalog();
+        let changing = cat.iter().find(|r| r.id == "surprising-changing").expect("shipped");
+        assert_eq!(
+            flat(&render(changing, at, None)),
+            "A reader could not predict this body, and it changed in 9 commits in the last 7 days.",
+        );
+        for r in &cat {
+            if r.says.contains("{{commits}}") {
+                assert!(r.says.contains("{{window}}"), "{}: quotes commits without its window", r.id);
+            }
+        }
+
+        // No window known, no sentence: the short form, never "in the last  days".
+        let blind = subjects(&tree, &HashMap::new(), Traced { churned: true, ..Traced::default() });
+        let at = blind.iter().find(|f| f.subject.kind == NodeKind::Func).expect("a function");
+        assert_eq!(flat(&render(changing, at, None)), changing.so_what);
+
+        // And the token is earned by the clause that measures commits, like any field.
+        assert!(check_template("{{commits}} in {{window}} days", &changing.clauses).is_ok());
+        let unrelated = Rule::parse("func: callers >= 10").expect("parses");
+        assert!(check_template("in {{window}} days", &unrelated.clauses).is_err());
+    }
+
     /// A tuned number does not survive the rule changing which field it asks about.
     #[test]
     fn a_release_that_moves_a_rules_field_moves_past_the_saved_number() {
@@ -4112,6 +4231,7 @@ would hide the shape"
                 let field = match token {
                     "age_years" => Field::AgeDays,
                     "touched_years" => Field::TouchedDays,
+                    "window" => Field::Commits,
                     other => Field::parse(other)
                         .unwrap_or_else(|| panic!("{}: `{other}` is not a field", r.title)),
                 };

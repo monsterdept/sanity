@@ -520,7 +520,7 @@ function RuleForm({
         <textarea
           className={`${input} h-[52px] resize-none leading-snug`}
           value={draft.says}
-          placeholder="A sentence about each one. {{name}} {{median}} and the fields this rule measures."
+          placeholder="A sentence about each one. {{name}} {{median}}, the fields this rule measures, and {{window}} beside commits."
           disabled={busy}
           onChange={(e) => set({ ...draft, says: e.target.value })}
         />
@@ -1209,7 +1209,7 @@ export function Findings({
             {items.length === 0 && (
               <p className="py-1 text-[11px] text-[var(--muted-foreground)]">
                 {setAside > 0
-                  ? `Nothing standing. ${setAside.toLocaleString()} ignored.`
+                  ? `Nothing standing. ${setAside.toLocaleString()} matches ignored.`
                   : 'Nothing in this repo matches the rules.'}
               </p>
             )}
@@ -1571,7 +1571,10 @@ export function Findings({
                 reason reads as a clean bill. */}
             {(setAside > 0 || blocked.length > 0) && (
               <div className="mt-2 border-t border-[var(--border)] pt-3 text-[10px] text-[var(--muted-foreground)]">
-                {setAside > 0 && <p>{setAside.toLocaleString()} ignored.</p>}
+                {/* Matches, not findings: counted once per rule, where the list above merges a
+                    subject's rules into one tile — and not the drawer's count either, which
+                    holds every decision, including ones that no longer match anything. */}
+                {setAside > 0 && <p>{setAside.toLocaleString()} matches ignored.</p>}
                 {blocked.map((b) => (
                   <p key={b.need} title={`${b.whys.join('; ')}\n\n${b.rules.join('\n')}`}>
                     {b.rules.length} of {groups?.length ?? 0} rules inactive ({b.need})

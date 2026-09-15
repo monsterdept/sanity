@@ -144,13 +144,7 @@ fn main() {
     sanity_lib::links::retest_tree(&mut scan, &reports);
     eprintln!();
 
-    let traced = findings::Traced {
-        git: depth != sanity_lib::trace::Depth::Untraced,
-        churned: scan.stats.churned,
-        blamed: depth >= sanity_lib::trace::Depth::Lines,
-        headcount: scan.stats.headcount,
-        age_days: scan.stats.age_days,
-    };
+    let traced = findings::Traced::of(&scan.stats, depth);
     let facts = findings::subjects(&scan.root, &reports, traced);
 
     // **The repo's own thresholds, the same ones the window uses.** `rules_for` calibrates

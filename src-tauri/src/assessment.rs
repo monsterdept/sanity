@@ -1166,12 +1166,12 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     // Everything after the em-dash is decoration `parse_shard` splits off and recomputes on
     // write, so these cost nothing durable and cannot drift from the record they summarize.
     let mut marks = String::new();
-    // Named for the CODE, like the app's own words — see `HEAT_WORDS`. A skim is looking for
-    // the thing that caught somebody out, and `predicted: none` is the alarming end while
-    // reading as the calm one.
+    // Named by the axis and the grade, the words the bullet below already uses, so a skim
+    // and a read cannot disagree about which scale a mark is on. A skim is looking for the
+    // thing that caught somebody out, and `none` and `some` are the two that did.
     match r.grades().0 {
-        Grade::None => marks.push_str(" — OBSCURE"),
-        Grade::Some => marks.push_str(" — QUIRKY"),
+        Grade::None => marks.push_str(" — PREDICTED NONE"),
+        Grade::Some => marks.push_str(" — PREDICTED SOME"),
         _ => {}
     }
     // **Both gated on the axis still answering today's question.** A heading mark is this
@@ -1182,8 +1182,8 @@ fn render_entry(name: &str, ord: usize, is_file: bool, r: &Report, stale: bool) 
     // the lens has greyed would be the readable copy disagreeing with the picture, which is
     // the one thing the Markdown-as-store design cannot afford.
     match r.legible.filter(|_| legible_current(r.spec)) {
-        Some(Grade::None) => marks.push_str(" — UNCLEAR"),
-        Some(Grade::Some) => marks.push_str(" — TANGLED"),
+        Some(Grade::None) => marks.push_str(" — LEGIBLE NONE"),
+        Some(Grade::Some) => marks.push_str(" — LEGIBLE SOME"),
         _ => {}
     }
     if r.trap && trap_current(r.spec) {
@@ -1632,6 +1632,43 @@ mod tests {
             by: "ross@rossturk.com".to_string(),
             at: "37eb765".to_string(),
             ..Report::blank()
+        }
+    }
+
+    /// **A heading mark is decoration, and a shard written with either vocabulary still
+    /// parses.** The marks moved from the app's display words (`OBSCURE`, `TANGLED`) to the
+    /// grade names; every shard already on disk carries the old ones, and `parse_shard` keys
+    /// on the NAME, so both spellings have to come back as the same entry.
+    #[test]
+    fn a_heading_mark_names_the_axis_and_the_grade_and_parses_either_way() {
+        let r = Report {
+            predicted: Some(Grade::None),
+            legible: Some(Grade::Some),
+            spec: SPEC,
+            ..report("src/a.rs#foo@12", "a note")
+        };
+        let entry = render_entry("foo", 0, false, &r, false);
+        assert!(
+            entry.contains("### `foo` — PREDICTED NONE — LEGIBLE SOME — TRAP\n"),
+            "marks name the axis and its grade: {entry}"
+        );
+
+        for heading in [
+            "### `foo` — PREDICTED SOME — LEGIBLE NONE — TRAP — STALE",
+            "### `foo` — OBSCURE — TANGLED — TRAP",
+        ] {
+            let mut back = HashMap::new();
+            parse_shard(
+                &format!(
+                    "## src/a.rs\n\n{heading}\n\
+                     - read at `aabb` · by dana@example.com · cold reading\n\
+                     - expected: x\n\
+                     - found: y\n\
+                     - predicted: some · documented: none · derivable: no\n"
+                ),
+                &mut back,
+            );
+            assert!(back.contains_key("src/a.rs#foo"), "`{heading}` did not parse to `foo`");
         }
     }
 

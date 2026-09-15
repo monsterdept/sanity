@@ -63,36 +63,36 @@ export const APPENDIX = {
 
 export const METHODOLOGY: { abstract: string; sections: Prose[] } = {
   abstract:
-    "This {formNoun} describes one software repository, {repoSlug}, {commitClause}. The unit of analysis is the function: {functions} functions in {files} files, extracted by parsing and totalling {lines} lines. Every measurement is drawn on one radial diagram whose angular width is lines of code. {?readings The main instrument rests on a working definition: boilerplate is code a model can predict from its context. A model reader sees a function's name, signature, neighbours and documentation, predicts the body, and only then reads it. Where the prediction fails is where the decisions are. Parse, call-graph and git measurements go alongside the readings, and rules combine them into findings.}{!readings Parse, call-graph and git measurements describe it, and rules combine them into findings. The method is built around a further instrument, a model reader that predicts each function's body before reading it; this repository has no current readings, so this {formNoun} leaves it out.}",
+    "This {formNoun} describes one software repository, {repoSlug}, {commitClause}. The unit of analysis is the function: {functions} functions in {files} files, extracted by parsing and totaling {lines} lines. Every measurement is drawn on one radial diagram whose angular width is lines of code. {?readings The main instrument rests on a working definition: boilerplate is code a model can predict from its context. A model reader sees a function's name, signature, neighbors and documentation, predicts the body, and only then reads it. Where the prediction fails is where the decisions are. Parse, call-graph and git measurements go alongside the readings, and rules combine them into findings.}{!readings Parse, call-graph and git measurements describe it, and rules combine them into findings. The method is built around a further instrument, a model reader that predicts each function's body before reading it; this repository has no current readings, so this {formNoun} leaves it out.}",
   sections: [
     {
       heading: '1. Unit of analysis and representation',
       body: [
         'Files are parsed with tree-sitter ({grammarClause}). A function is a syntax node whose kind appears in a per-language table. Inline callbacks and class bodies are not units. Files no parser could read ({unparsed}) are counted but not drawn.',
-        "The repository is a tree of directories, files and functions, with one ring per level. Angle is proportional to lines, and a file's width is the sum of its functions' lines, so text outside any function adds no width. Each figure colours the map by a single measurement, called a lens, and lenses are never blended. A directory's rim does not show a mean, which over large subtrees drifts to mid-scale. It shows the line-weighted distribution of the whole subtree. Bands too narrow to draw merge only with each other, and a merged band of categories is labelled “other” with a count.",
+        "The repository is a tree of directories, files and functions, with one ring per level. Angle is proportional to lines, and a file's width is the sum of its functions' lines, so text outside any function adds no width. Each figure colors the map by a single measurement, called a lens, and lenses are never blended. A directory's rim does not show a mean, which over large subtrees drifts to mid-scale. It shows the line-weighted distribution of the whole subtree. Bands too narrow to draw merge only with each other, and a merged band of categories is labeled “other” with a count.",
       ],
     },
     {
       heading: '2. Instruments',
       body: [
-        'The thirteen lenses form four families, grouped by the evidence each needs. Each lens page gives the definition of its measurement, the results in this repository, how to read its figure, how it may be interpreted and its limitations{?appendix ; how each measurement is taken is described in the appendix}.',
+        'The thirteen lenses form four families, grouped by the evidence each needs. Each lens page gives the definition of its measurement, the results in this repository and how to read its figure{?appendix , how it may be interpreted and its limitations; how each measurement is taken is described in the appendix}.',
         '*Code shape* needs only the parse. Complexity counts branch points, weighted by nesting, against the median for bodies of similar length in this repository. Composition classifies code as code, header, test, generated or vendored, preferring declared evidence to path conventions. Language names the grammar. Clones groups functions whose token sequences are identical once identifiers and literals are replaced. Bodies under 40 tokens are not compared, and near-copies are not detected.',
         '*Interconnectivity* counts the distinct in-repository functions that call a function (Callers) and that it calls (Reach). There is no type checker. Calls are matched by name within one language family, trying the same file, then the same directory, then the repository; at repository level a name must be defined exactly once. A call through a value the repository cannot identify, such as `xs.collect()`, cannot match a free function. Plausible multiple targets are all credited, and library calls match nothing. The counts are therefore approximate: “no in-repo caller” is not dead code.',
         "*Activity* reads git at three depths: a log walk gives per-file facts, per-line blame gives per-function facts, and a timeline detects which functions each commit changed, by body hash. Blame names whoever last changed a function's lines. Age shows the newest or oldest surviving line on a logarithmic scale spanning the repository's life; the oldest line is only a lower bound on when the code first appeared. Churn counts the commits that changed a function within a {churnWindow}-day window.",
-        '{?readings *Assessment* relies on model readers: coding agents run as separate processes, started outside the repository and without its instruction files. A reader receives one function (occasionally a whole file): its name, owning type, signature, up to 20 neighbouring names, documentation and file header, but never its body. Its prediction is recorded before the source is served and cannot be revised. The reader then grades how much of the body the prediction covered (full, most, some or none), how well the documentation covers the code, whether that documentation was derivable from the code alone, and how legible the body was. It also describes any trap waiting for the next editor. Surprise comes from the prediction grade, and Legibility, Docs and Traps from the rest. Derivable documentation counts as absent in every score, so text a model could have written cannot make code look explained.}{!readings *Assessment*, the fourth family, is graded by model readers that predict a function\'s body from its context before reading it. This repository has no current readings, so none of its lenses is in this {formNoun}.}',
-        '{?readings Readings are committed as Markdown under `.sanity/`, each stamped with a whitespace-insensitive hash of body, documentation and file header. When the hash stops matching, the reading is stale: it stops colouring and is queued again first. The application runs no model. A heuristic only orders the reading queue.}',
+        '{?readings *Assessment* relies on model readers: coding agents run as separate processes, started outside the repository and without its instruction files. A reader receives one function (occasionally a whole file): its name, owning type, signature, up to 20 neighboring names, documentation and file header, but never its body. Its prediction is recorded before the source is served and cannot be revised. The reader then grades how much of the body the prediction covered (full, most, some or none), how well the documentation covers the code, whether that documentation was derivable from the code alone, and how legible the body was. It also describes any trap waiting for the next editor. Surprise comes from the prediction grade, and Legibility, Docs and Traps from the rest. Derivable documentation counts as absent in every score, so text a model could have written cannot make code look explained.}{!readings *Assessment*, the fourth family, is graded by model readers that predict a function\'s body from its context before reading it. This repository has no current readings, so none of its lenses is in this {formNoun}.}',
+        '{?readings Readings are committed as Markdown under `.sanity/`, each stamped with a whitespace-insensitive hash of body, documentation and file header. When the hash stops matching, the reading is stale: it stops coloring and is queued again first. The application runs no model. A heuristic only orders the reading queue.}',
       ],
     },
     {
       heading: '3. Findings',
       body: [
-        "A rule names a population (functions or files) and one to three threshold clauses that must all hold. A clause that cannot be evaluated does not match. Thresholds are calibrated once against this repository's distribution, aiming at about eight findings, and saved as fixed numbers. Calibration may tighten a threshold but never loosen it. A finding marks a place worth inspecting; it does not say the code is defective. Generated, vendored and test code raise none. Decisions are recorded in `.sanity/findings/decisions.md` as flagged, fine for now, fine always, or false positive. Fine for now lapses when the code changes, and false positive when the rule changes. This report lists {findings} findings, grouped by where in the repository they occur, each group drawn on a map zoomed to its region.",
+        "A rule names a population (functions or files) and one to three threshold clauses that must all hold. A clause that cannot be evaluated does not match. Thresholds are calibrated once against this repository's distribution, aiming at about eight findings, and saved as fixed numbers. Calibration may tighten a threshold but never loosen it. A finding marks a place worth inspecting; it does not say the code is defective. Generated, vendored and test code raise none. Decisions are recorded in `.sanity/findings/decisions.md` as flagged, fine for now, fine always or false positive. A flagged finding stays in the list, marked *flagged*. The other three hide it, and the findings overview counts the matches hidden this way as ignored, once for each rule a subject matches. Fine for now lapses when the code changes, and false positive when the rule changes. This {formNoun} lists {findings} findings, grouped by where in the repository they occur{?groupMaps , each group drawn on a map zoomed to its region}.",
       ],
     },
     {
       heading: '4. What the instrument declines to claim',
       body: [
-        'Absence is reported as absence. {?readings Unread functions, untaught}{!readings Untaught} languages, bodies below the clone floor and untraced history are drawn grey, never as zero. A lens with no evidence here is locked and gets no page ({lockedClause}). {?readings The ordering heuristic returns an undecided 0.5 when it runs out of evidence.} Colours are calibrated per repository and cannot be compared across repositories. “Under test” means a test calls the function, not that its lines were executed. {namedClause} {?readings A reading judges explanatory fit, not correctness.}',
+        'Absence is reported as absence. {?readings Unread functions, untaught}{!readings Untaught} languages, bodies below the clone floor and untraced history are drawn gray, never as zero. A lens with no evidence here is locked and gets no page ({lockedClause}). {?readings The ordering heuristic returns an undecided 0.5 when it runs out of evidence.} Colors are calibrated per repository and cannot be compared across repositories. “Under test” means a test calls the function, not that its lines were executed. {namedClause} {?readings A reading judges explanatory fit, not correctness.}',
       ],
     },
     {
@@ -121,24 +121,24 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Bright wedges branch substantially more than bodies of similar length in this repository; dim wedges branch no more than the median. The four bands are *low*, *moderate*, *high* and *very high*. Relative to length, they begin at 1.15, 2.2 and 3.25 times the median for bodies of that length; as a raw count, at 1, 6 and 12 decision points. Functions in languages without a branch table are drawn in grey and labelled *language not counted*, which records a gap in the parser rather than a simple function. A file or directory takes the line-weighted mean of its counted functions, and the outer rim of a directory shows how its lines are distributed across the four bands.",
+          "Bright wedges branch substantially more than bodies of similar length in this repository; dim wedges branch no more than the median. The four bands are *low*, *moderate*, *high* and *very high*. Relative to length, they begin at 1.15, 2.2 and 3.25 times the median for bodies of that length; as a raw count, at 1, 6 and 12 decision points. Functions in languages without a branch table are drawn in gray and labeled *language not counted*, which records a gap in the parser rather than a simple function. A file or directory takes the line-weighted mean of its counted functions, and the outer rim of a directory shows how its lines are distributed across the four bands.",
         ],
       },
       {
         heading: 'Interpretation',
         body: [
-          "Complexity measures the control flow a reader must hold in mind; it is evidence neither of defects nor of difficulty in reading. The raw count increases with length and therefore largely restates what angular width already encodes. Measured relative to bodies of similar length, it reflects density, which width does not. {?legible Read against Legibility, a function bright here but clean there contains extensive control flow written conventionally, while one dim here but unclear there is difficult for reasons other than branching.}",
+          "Complexity measures the control flow a reader must hold in mind; it is evidence neither of defects nor of difficulty in reading. The raw count increases with length and therefore largely restates what angular width already encodes. Measured relative to bodies of similar length, it reflects density, which width does not. {?legible Read against Legibility, a function bright here but graded *full* there contains extensive control flow written conventionally, while one dim here but graded *none* there is difficult for reasons other than branching.}",
         ],
       },
       {
         heading: 'Limitations',
         body: [
-          "Bodies at and below the median share the lowest band, so a function simpler than its length would predict is indistinguishable from a typical one. The constructs counted as branches differ by language (Rust's `?` is not counted; Nix counts only `if`), yet the medians pool all counted languages, tests and generated code, so a multilingual repository is compared against a blended norm. Callbacks written inline are counted toward the enclosing function. The scoring is specific to this instrument and is not interchangeable with other cognitive-complexity measures.",
+          "Bodies at and below the median share the lowest band, so a function simpler than its length would predict is indistinguishable from a typical one. The constructs counted as branches differ by language{?rust  (Rust's `?` is not counted)}{?nix  (Nix counts only `if`)}, yet the medians pool all counted languages, tests and generated code, so a multilingual repository is compared against a blended norm. Callbacks written inline are counted toward the enclosing function. The scoring is specific to this instrument and is not interchangeable with other cognitive-complexity measures.",
         ],
       },
     ],
     method: [
-      "The count is read from the parser's syntax tree. Each language has a fixed table of the node kinds that count as branches: conditionals, loops, switch or match constructs, catch clauses and conditional expressions. A branch costs one plus the number of branches enclosing it. A switch is charged once, however many arms it has, and `else if` and its equivalents cost one without nesting. A run of one logical operator costs one, and each change of operator one more, never nested. A plain `else`, recursion and labelled jumps cost nothing. Closures add no nesting, and their branches count toward the enclosing body. A language with no table receives no score.",
+      "The count is read from the parser's syntax tree. Each language has a fixed table of the node kinds that count as branches: conditionals, loops, switch or match constructs, catch clauses and conditional expressions. A branch costs one plus the number of branches enclosing it. A switch is charged once, however many arms it has, and `else if` and its equivalents cost one without nesting. A run of one logical operator costs one, and each change of operator one more, never nested. A plain `else`, recursion and labeled jumps cost nothing. Closures add no nesting, and their branches count toward the enclosing body. A language with no table receives no score.",
       "The raw count is placed against a fixed bar of 15 and saturates there. The length-adjusted count compares each body with bodies of similar length. Size bands end at 14, 24, 49, 99, 199, 399, 799 and 1,599 lines, with an open top band. The median count is taken per band over every counted function, and a band holding fewer than 30 bodies merges into the nearest populated band below. A body's position is (count ÷ median − 1) ÷ 3, clamped to 0–1, with the median floored at one: a body at or below its band's median sits at 0, and one at four times the median saturates. A body whose band is empty takes its raw position. {tangleMedians}",
     ],
   },
@@ -147,7 +147,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     deck: {
       definition:
         'Composition sorts every function body into code, header, test, generated or vendored, preferring what the repository declares over what its paths suggest.',
-      reading: 'Each kind has one fixed colour in every repository, and the neutral is a body nothing could place.',
+      reading: 'Each kind has one fixed color in every repository, and the neutral is a body nothing could place.',
     },
     sections: [
       {
@@ -159,7 +159,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          'Each kind has one fixed colour in every repository, and the key lists only the kinds present. Only function wedges are coloured; file and directory wedges are neutral, and the outer rim of a directory shows how its lines divide among the kinds. A function with no classification is labelled *unplaced*, which a complete scan should leave rare.',
+          'Each kind has one fixed color in every repository, and the key lists only the kinds present. Only function wedges are colored; file and directory wedges are neutral, and the outer rim of a directory shows how its lines divide among the kinds. A function with no classification is labeled *unplaced*, which a complete scan should leave rare.',
         ],
       },
       {
@@ -171,7 +171,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Limitations',
         body: [
-          'Test detection depends on language: C and C++ have neither a contract nor a convention in this instrument, so their tests are classified as code, and languages whose calls are not resolved never reach the test rule. Path conventions can misfire, since `tests` may be a domain noun and `vendor` may hold first-party code. Generator banners are matched anywhere in the first 400 characters of a file, so a comment that merely mentions one is sufficient, and a banner placed later is missed. The first four rules apply per file, so a file mixing generated and hand-written sections is classified uniformly, and a C++ header with inline implementations counts as a header in full. *Code* is a residual category: it records that nothing marked the body as anything else, not that authorship in this repository was established.',
+          'Test detection depends on language: {?cFamily C and C++ have neither a contract nor a convention in this instrument, so their tests are classified as code, and }languages whose calls are not resolved never reach the test rule. Path conventions can misfire, since `tests` may be a domain noun and `vendor` may hold first-party code. Generator banners are matched anywhere in the first 400 characters of a file, so a comment that merely mentions one is sufficient, and a banner placed later is missed. The first four rules apply per file, so a file mixing generated and hand-written sections is classified uniformly{?cFamily , and a C++ header with inline implementations counts as a header in full}. *Code* is a residual category: it records that nothing marked the body as anything else, not that authorship in this repository was established.',
         ],
       },
     ],
@@ -183,14 +183,14 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       '4. **Path conventions.** A path segment named `vendor`, `node_modules`, `third_party` or `Godeps` marks vendored code. A segment named `generated`, `__generated__` or `antlr`, or a filename containing `.gen.`, `.pb.`, `_pb2.` or `.min.`, marks generated code.',
       "5. **Test status**, decided per function and only in languages whose calls the parser resolves. Contracts are Rust's `#[cfg(test)]` or a `tests/` directory, and Go's `_test.go`. Conventions are runner filename patterns and test directory names for Python, JavaScript/TypeScript, Ruby and the JVM languages, plus `TEST_` or `test_` function prefixes in shell. A JavaScript or Python project that configures no test runner and holds no test-shaped files is inferred to have no tests (convention).",
       '6. Everything else is **code** (parsed).',
-      "{?readings Readers' later judgements about whether a body is a test update the call graph, but they do not reclassify Composition.}",
+      "{?readings Readers' later judgments about whether a body is a test update the call graph, but they do not reclassify Composition.}",
     ],
   },
 
   language: {
     deck: {
       definition: 'Language names the grammar each file was parsed with, and every function takes its file’s language.',
-      reading: 'Each colour is a language, ranked by lines; the colours carry no order and differ between repositories.',
+      reading: 'Each color is a language, ranked by lines; the colors carry no order and differ between repositories.',
     },
     sections: [
       {
@@ -202,25 +202,25 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Each colour is a language, ranked by lines across the repository. The colours carry no order, and because they follow rank, a language may have different colours in different repositories. The key names the sixteen largest categories and counts the rest, some of which share shades the key does not identify. Function and file wedges take their language's colour; a directory has no language, so its wedge is neutral and its outer rim shows how its lines divide among languages.",
+          "Each color is a language, ranked by lines across the repository. The colors carry no order, and because they follow rank, a language may have different colors in different repositories. {?manyLanguages The key names the sixteen largest categories and counts the rest, some of which share shades the key does not identify.} Function and file wedges take their language's color; a directory has no language, so its wedge is neutral and its outer rim shows how its lines divide among languages.",
         ],
       },
       {
         heading: 'Interpretation',
         body: [
-          "Language shows where a repository's language boundaries lie, which often differ from its directory structure. It also qualifies the structural lenses, whose coverage is set per language: Callers and Reach resolve calls only within a language family and only where a call table exists, Complexity requires a branch table, and Clones compares bodies only within a family. A grey region under one of those lenses can therefore be attributed to parser coverage by locating it here, and a boundary between two language regions is also where call edges cease to be visible.",
+          "Language shows where a repository's language boundaries lie, which often differ from its directory structure. It also qualifies the structural lenses, whose coverage is set per language: Callers and Reach resolve calls only within a language family and only where a call table exists, Complexity requires a branch table, and Clones compares bodies only within a family. A gray region under one of those lenses can therefore be attributed to parser coverage by locating it here, and a boundary between two language regions is also where call edges cease to be visible.",
         ],
       },
       {
         heading: 'Limitations',
         body: [
-          'An extension is a claim about content rather than a measurement of it: `.h` is mapped to C++ unconditionally, so C headers are reported as C++. Embedded languages, such as SQL in strings or inline scripts, are counted as the host language. Because width counts only function lines, languages dominated by declarations, configuration or top-level statements are under-represented relative to their size on disk, and files in languages without a grammar are absent. Generated and vendored code is included.',
+          'An extension is a claim about content rather than a measurement of it{?cFamily : `.h` is mapped to C++ unconditionally, so C headers are reported as C++}. Embedded languages, such as SQL in strings or inline scripts, are counted as the host language. Because width counts only function lines, languages dominated by declarations, configuration or top-level statements are under-represented relative to their size on disk, and files in languages without a grammar are absent. Generated and vendored code is included.',
         ],
       },
     ],
     method: [
-      "A single table maps extensions to languages, and each extension belongs to exactly one language. A file with an unrecognised extension is not parsed and does not appear on the map. File content is never examined to settle the language. Where two languages claim an extension, the table decides: `.h` is C++, `.m` is Objective-C and `.v` is Verilog. A function's length runs from its first line to its last, inclusive, and a file's length is the sum of its functions' lengths. Lines outside any function (imports, top-level declarations, file comments) therefore add no width, and a file with no functions has none.",
-      'Categories are ranked by total lines across the repository, largest first, and each rank takes a slot in a 64-colour categorical palette chosen to stay distinguishable under the common forms of colour-vision deficiency. Beyond the 64th rank, colours recycle from the unnamed part of the palette. The number of categories given their own colour can be capped, and categories past the cap fold into a neutral *other*.',
+      "A single table maps extensions to languages, and each extension belongs to exactly one language. A file with an unrecognized extension is not parsed and does not appear on the map. File content is never examined to settle the language. Where two languages claim an extension, the table decides: `.h` is C++, `.m` is Objective-C and `.v` is Verilog. A function's length runs from its first line to its last, inclusive, and a file's length is the sum of its functions' lengths. Lines outside any function (imports, top-level declarations, file comments) therefore add no width, and a file with no functions has none.",
+      'Categories are ranked by total lines across the repository, largest first, and each rank takes a slot in a 64-color categorical palette chosen to stay distinguishable under the common forms of color-vision deficiency. Beyond the 64th rank, colors recycle from the unnamed part of the palette. The number of categories given their own color can be capped, and categories past the cap fold into a neutral *other*.',
     ],
   },
 
@@ -229,7 +229,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       definition:
         'A clone is a function whose body matches another’s token for token once names and literals are set aside.',
       reading:
-        'A coloured wedge belongs to a clone group; the two neutrals separate a body compared and found unique from one too small to compare.',
+        'A colored wedge belongs to a clone group; the two neutrals separate a body compared and found unique from one too small to compare.',
     },
     sections: [
       {
@@ -241,7 +241,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Members of a clone group share one mark colour, whatever the size of the group. Functions compared without a match are drawn in the neutral labelled *unique*, and functions below the size floor in the neutral labelled *too small*; the first records a comparison that found nothing, the second that no comparison was made. Files and directories are not tinted. Instead, a directory's outer rim carries a mark at the angle of each drawn file containing a clone, which shows where clones lie rather than what share of the directory they make up.",
+          "Members of a clone group share one mark color, whatever the size of the group. Functions compared without a match are drawn in the neutral labeled *unique*, and functions below the size floor in the neutral labeled *too small*; the first records a comparison that found nothing, the second that no comparison was made. Files and directories are not tinted. Instead, a directory's outer rim carries a mark at the angle of each drawn file containing a clone, which shows where clones lie rather than what share of the directory they make up.",
         ],
       },
       {
@@ -253,7 +253,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Limitations',
         body: [
-          'Matching is exact after normalisation, so near-copies are missed: bodies differing by one statement, an added guard or reordered lines are not reported. The normalisation is also coarse in the other direction: because every identifier collapses to one placeholder, bodies of the same structure that call different functions or read different fields are grouped together, and such groups may be semantically unrelated. Tokens are classified by substrings of grammar kind names, which can misplace a token in some grammars. In codebases made of small functions, most bodies may fall below the comparison floor, so an absence of marks there is not evidence that code is not duplicated. The unit is the whole body, so a duplicated block within two otherwise different functions is not detected, and copies across language families or repositories are out of scope.',
+          'Matching is exact after normalization, so near-copies are missed: bodies differing by one statement, an added guard or reordered lines are not reported. The normalization is also coarse in the other direction: because every identifier collapses to one placeholder, bodies of the same structure that call different functions or read different fields are grouped together, and such groups may be semantically unrelated. Tokens are classified by substrings of grammar kind names, which can misplace a token in some grammars. In codebases made of small functions, most bodies may fall below the comparison floor, so an absence of marks there is not evidence that code is not duplicated. The unit is the whole body, so a duplicated block within two otherwise different functions is not detected, and copies across language families or repositories are out of scope.',
         ],
       },
     ],
@@ -279,7 +279,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Counts fall into four bands, from dim to bright: *none*, *1*, *2–5* and *6+*. Functions in languages whose calls are not resolved are labelled *calls not resolved here* and are distinguished from *none* by lightness. A file or directory is coloured by the share of its call-resolving functions that have at least one caller in the repository, and a directory's outer rim shows how its lines divide across the bands.",
+          "Counts fall into four bands, from dim to bright: *none*, *1*, *2–5* and *6+*. Functions in languages whose calls are not resolved are labeled *calls not resolved here* and are distinguished from *none* by lightness. A file or directory is colored by the share of its call-resolving functions that have at least one caller in the repository, and a directory's outer rim shows how its lines divide across the bands.",
         ],
       },
       {
@@ -320,13 +320,13 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "The bands match those of Callers: *calls nothing in this repo* (dim), *1*, *2–5* and *6+* (bright), so the two figures can be compared band for band. Functions in languages whose calls are not resolved are neutral. A file or directory is coloured by the share of its call-resolving functions that call at least one function in the repository, and a directory's outer rim shows how its lines divide across the bands.",
+          "The bands match those of Callers: *calls nothing in this repo* (dim), *1*, *2–5* and *6+* (bright), so the two figures can be compared band for band. Functions in languages whose calls are not resolved are neutral. A file or directory is colored by the share of its call-resolving functions that call at least one function in the repository, and a directory's outer rim shows how its lines divide across the bands.",
         ],
       },
       {
         heading: 'Interpretation',
         body: [
-          "Reach measures a body's direct coupling to the rest of the repository: the number of other functions defined here that a reader must know to follow it. Functions in the dim band are leaves, including primitives, pure computations and thin wrappers over external libraries; bright functions coordinate, as controllers, dispatchers and entry points do. Read against Callers, high Reach with low Callers suggests an entry point or orchestrator, low Reach with high Callers a primitive, and both high a hub. High Reach combined with high Complexity indicates integration code whose behaviour depends on many parts at once.",
+          "Reach measures a body's direct coupling to the rest of the repository: the number of other functions defined here that a reader must know to follow it. Functions in the dim band are leaves, including primitives, pure computations and thin wrappers over external libraries; bright functions coordinate, as controllers, dispatchers and entry points do. Read against Callers, high Reach with low Callers suggests an entry point or orchestrator, low Reach with high Callers a primitive, and both high a hub. High Reach combined with high Complexity indicates integration code whose behavior depends on many parts at once.",
         ],
       },
       {
@@ -343,9 +343,9 @@ export const ESSAYS: Record<ColorMode, Essay> = {
 
   blame: {
     deck: {
-      definition: 'Blame colours each function by the person git attributes its lines to, reduced to one name per body.',
+      definition: 'Blame colors each function by the person git attributes its lines to, reduced to one name per body.',
       reading:
-        'Each colour is one person, the same everywhere on the map; the neutrals are uncommitted lines and code git holds no attribution for.',
+        'Each color is one person, the same everywhere on the map; the neutrals are uncommitted lines and code git holds no attribution for.',
     },
     sections: [
       {
@@ -357,7 +357,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Each function wedge is filled with its author's colour under the stated reading, and each person keeps one colour throughout the figure. Three states are drawn in neutral tones rather than as people: *uncommitted lines*, which exist in the working tree but in no commit; *not in git*, where git holds no attribution for the file; and *other (N)*, which collects authors beyond the colour cap. A directory's outer rim shows the share of its lines held by each author, and bands too narrow to draw are merged and labelled *other* with their count rather than under any one member's name.",
+          "Each function wedge is filled with its author's color under the stated reading, and each person keeps one color throughout the figure. Three states are drawn in neutral tones rather than as people: *uncommitted lines*, which exist in the working tree but in no commit; *not in git*, where git holds no attribution for the file; and *other (N)*, which collects authors beyond the color cap. A directory's outer rim shows the share of its lines held by each author, and bands too narrow to draw are merged and labeled *other* with their count rather than under any one member's name.",
         ],
       },
       {
@@ -369,13 +369,13 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Limitations',
         body: [
-          'Neither reading measures authorship. Blame records the last change to each line, so a wholesale rewrite or reformatting commit reassigns every affected line to its committer, and earlier contributors disappear rather than diminish; the *most lines* reading resists single-line corrections but not reformatting. Blame is run without move or copy detection, so code moved between files is attributed to the commit that moved it. Authors are ranked by commits over the whole history rather than by lines in view, so the order of names in the key need not match the widths on the figure, and beyond the named authors a colour does not uniquely identify a person.',
+          'Neither reading measures authorship. Blame records the last change to each line, so a wholesale rewrite or reformatting commit reassigns every affected line to its committer, and earlier contributors disappear rather than diminish; the *most lines* reading resists single-line corrections but not reformatting. Blame is run without move or copy detection, so code moved between files is attributed to the commit that moved it. Authors are ranked by commits over the whole history rather than by lines in view, so the order of names in the key need not match the widths on the figure, and beyond the named authors a color does not uniquely identify a person.',
         ],
       },
     ],
     method: [
       "Attribution comes from git at increasing depth. The first depth is a single walk of the commit log, which yields, for each file, its most recent commit and that commit's author. The second runs `git blame --line-porcelain` once per file and records, for every line, the commit, the author and the author time. A function's two names are computed over its own line range. Where only the log walk has run, every function inherits its file's last author and has no *most lines* name. A file's *newest line* name is taken from the log walk at every depth; its *most lines* name requires blame.",
-      'Colours are assigned by rank, computed once over the whole commit history by commit count, so a person has one colour throughout the map and within any subtree. The palette holds 64 colours; ranks beyond 64 reuse colours from the part of the palette the key does not name, and the key names at most sixteen authors. A colour cap, where set, places every lower-ranked author in the single category *other*.',
+      'Colors are assigned by rank, computed once over the whole commit history by commit count, so a person has one color throughout the map and within any subtree. The palette holds 64 colors; ranks beyond 64 reuse colors from the part of the palette the key does not name, and the key names at most sixteen authors. A color cap, where set, places every lower-ranked author in the single category *other*.',
     ],
   },
 
@@ -395,14 +395,14 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Bright is recent and dim is old, on a logarithmic scale spanning this repository's own life, so its oldest code always reaches the dim end. Under the *newest line* reading, bright marks where commits have landed lately and dim marks bodies no commit has touched in a long time. Under the *oldest line* reading, bright marks bodies none of whose lines predate recent work and dim marks bodies that still contain lines from early in the project, whatever has happened to them since. Wedges with no dates are labelled *history not read*, which states only that the figure holds no history for those lines. A directory's outer rim shows the distribution of its lines across the five bands.",
+          "Bright is recent and dim is old, on a logarithmic scale spanning this repository's own life, so its oldest code always reaches the dim end. Under the *newest line* reading, bright marks where commits have landed lately and dim marks bodies no commit has touched in a long time. Under the *oldest line* reading, bright marks bodies none of whose lines predate recent work and dim marks bodies that still contain lines from early in the project, whatever has happened to them since. Wedges with no dates are labeled *history not read*, which states only that the figure holds no history for those lines. A directory's outer rim shows the distribution of its lines across the five bands.",
         ],
       },
       {
         heading: 'Interpretation',
         body: [
           'The *newest line* reading locates code nobody has been near for a long time: its dim end is where no commit has changed any line of a body within the period. The *oldest line* reading measures persistence instead, and a heavily edited body can be dim under it because it still contains old lines.',
-          'Age alone is weak evidence, since most code in a mature repository is old. {?surprise Its value is as a second axis to Surprise, which cannot by itself distinguish a subtle algorithm from a disordered one. Long-standing surprising code is a candidate for careful documentation rather than change, while surprising code that is also changing is a candidate for trouble. These crossings are not computed; they are formed by comparing lens pages.}',
+          'Age alone is weak evidence: how long code has gone unchanged says nothing by itself about whether it is sound. {?surprise Its value is as a second axis to Surprise, which cannot by itself distinguish a subtle algorithm from a disordered one. Long-standing surprising code is a candidate for careful documentation rather than change, while surprising code that is also changing is a candidate for trouble. These crossings are not computed; they are formed by comparing lens pages.}',
         ],
       },
       {
@@ -414,7 +414,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     ],
     method: [
       "Dates come from the same git depths as Blame. The log walk records, for each file, the author time of the oldest and newest commits that touched it. Per-line blame records an author time for every line, and a function's two ages are the newest and oldest of those times within its range. Where only the log walk has run, every function carries its file's dates.",
-      "The colour ramp is logarithmic in days and normalised to the repository's span, defined as the oldest-line age of the repository root. A body of age *d* in a repository of span *s* is placed at 1 − log₁₀(*d*+1) / log₁₀(*s*+1), so the oldest code reaches the dim end and code from today the bright end. There is no minimum span; if the span is under one day, every wedge is placed at the bright end.",
+      "The color ramp is logarithmic in days and normalized to the repository's span, defined as the oldest-line age of the repository root. A body of age *d* in a repository of span *s* is placed at 1 − log₁₀(*d*+1) / log₁₀(*s*+1), so the oldest code reaches the dim end and code from today the bright end. There is no minimum span; if the span is under one day, every wedge is placed at the bright end.",
     ],
   },
 
@@ -433,7 +433,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Bright is churning and dim is settled. A function is coloured by its own rate of change, and a file or directory by the line-weighted mean of its children's rates, while the count reported for it is the distinct commits on its path. A directory's outer rim shows the distribution of its lines across the four bands. Two neutral states are distinct: *timeline not walked* means the repository has history that has not been counted, and *history not read* means the figure holds no history for those lines.",
+          "Bright is churning and dim is settled. A function is colored by its own rate of change, and a file or directory by the line-weighted mean of its children's rates, while the count reported for it is the distinct commits on its path. A directory's outer rim shows the distribution of its lines across the four bands. Two neutral states are distinct: *timeline not walked* means the repository has history that has not been counted, and *history not read* means the figure holds no history for those lines.",
         ],
       },
       {
@@ -445,35 +445,35 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Limitations',
         body: [
-          'A commit count carries no information about the size of each change, and a mechanical commit touching many functions, such as a reformat or rename, counts once for each function it alters. Changes that enter only through merge commits are not counted. Contention, the number of distinct authors changing a body, is not measured. Above the saturation point, differences remain visible in the bands but not in the colour.',
+          'A commit count carries no information about the size of each change, and a mechanical commit touching many functions, such as a reformat or rename, counts once for each function it alters. Changes that enter only through merge commits are not counted. Contention, the number of distinct authors changing a body, is not measured. Above the saturation point, differences remain visible in the bands but not in the color.',
         ],
       },
     ],
     method: [
       'Churn requires the deepest trace, a walk of the commit timeline. At each commit the walk re-parses every changed file version and compares functions by a hash of their bodies, so it counts a rewrite that leaves the line count unchanged. Merge commits are skipped. Edits are stored as tallies per UTC day, and a window of *N* days is the *N* day-buckets ending with the current day.',
       'Per-line blame is not used because it keeps one commit per line: a body rewritten in place many times reports only the commits whose lines survive, so a body rewritten twelve times counts 12 on the timeline and 2 under blame. Until the timeline has been walked every count is zero, and the lens paints nothing rather than drawing unmeasured code as settled.',
-      "In a repository at least 180 days old, the windows are 30, 60, 90 and 180 days, and the default is 90. A younger repository receives the same proportions scaled to its lifespan, with the widest window equal to its whole life; no window exceeds 180 days. The saturation point is eight commits per 90 days, scaled linearly with the window and never below one, and a body's colour position is min(1, count ÷ saturation), so widening the window cools a short burst of edits and leaves steady change at the same colour.",
+      "In a repository at least 180 days old, the windows are 30, 60, 90 and 180 days, and the default is 90. A younger repository receives the same proportions scaled to its lifespan, with the widest window equal to its whole life; no window exceeds 180 days. The saturation point is eight commits per 90 days, scaled linearly with the window and never below one, and a body's color position is min(1, count ÷ saturation), so widening the window cools a short burst of edits and leaves steady change at the same color.",
     ],
   },
 
   surprise: {
     deck: {
       definition:
-        'Surprise is how far a model reader failed to predict a function’s body from its name, signature, neighbours and documentation, before reading it.',
+        'Surprise is how far a model reader failed to predict a function’s body from its name, signature, neighbors and documentation, before reading it.',
       reading:
-        'Bright is a body the reader could not predict and dim one it described in full; uncoloured wedges are unread and hatched ones are stale.',
+        'Bright is a body the reader could not predict and dim one it described in full; uncolored wedges are unread and hatched ones are stale.',
     },
     sections: [
       {
         heading: 'Definition',
         body: [
-          "Surprise records how far a model reader failed to predict a function's body from the context it was given before reading it. The grade is one of four: *full* (the prediction described the body, nothing missed), *most* (broadly right, with one detail that was not obvious), *some* (recognisable, but the body does real work the prediction did not cover) and *none* (the prediction did not describe the code). The figure names these *mundane*, *typical*, *quirky* and *obscure*. A file or directory is described by the share of its read lines graded *quirky* or *obscure*.",
+          "Surprise records how far a model reader failed to predict a function's body from the context it was given before reading it. The grade is one of four: *full* (the prediction described the body, nothing missed), *most* (broadly right, with one detail that was not obvious), *some* (recognizable, but the body does real work the prediction did not cover) and *none* (the prediction did not describe the code). A file or directory is described by the share of its read lines graded *some* or *none*.",
         ],
       },
       {
         heading: 'Reading the map',
         body: [
-          "Bright wedges are bodies graded *obscure* and dim wedges *mundane*. Unread wedges are uncoloured, and stale readings are hatched and uncoloured. A file or directory is coloured by the share of its read lines graded *quirky* or *obscure*, reaching full brightness when that share is a quarter, and its outer rim divides its lines among the four grades, *unread* and *expired*.",
+          "Bright wedges are bodies whose prediction was graded *none* and dim wedges *full*. Unread wedges are uncolored, and stale readings are hatched and uncolored. A file or directory is colored by the share of its read lines graded *some* or *none*, reaching full brightness when that share is a quarter, and its outer rim divides its lines among the four grades, *unread* and *stale*.",
         ],
       },
       {
@@ -491,9 +491,9 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     ],
     method: [
       "Each reading is taken by a separate reader process launched outside the repository and without the project's agent settings; where the agent supports it, its tools are restricted to those the reading needs. The reader receives one function at a time: its path and line range, name, owning type, signature, the names of up to twenty nearest sibling functions, the function's own documentation and the file's header. It writes a prediction of two or three sentences. Requesting the source records that prediction first and irrevocably; the reader then reads the body and grades against what it wrote.",
-      "Readings are committed to the repository under `.sanity/`, keyed by path, function name and ordinal among same-named functions, never by line number. Each records a hash of the body, the function's documentation and the file header, with whitespace collapsed. When any of those change, the reading becomes stale, stops colouring its wedge and is queued ahead of unread work. A reading also records a specification number identifying the version of the questions asked.",
+      "Readings are committed to the repository under `.sanity/`, keyed by path, function name and ordinal among same-named functions, never by line number. Each records a hash of the body, the function's documentation and the file header, with whitespace collapsed. When any of those change, the reading becomes stale, stops coloring its wedge and is queued ahead of unread work. A reading also records a specification number identifying the version of the questions asked.",
       "The server stamps the provenance that must be checkable: the hash, git identity, commit, time, specification, requested model and agent harness. The reader declares its model, whether it was new to the file, its position in its run, and whether the repository's instruction file was in its context. Readings by a reader already familiar with the file are recorded but not discounted.",
-      'An unread function has no value. An offline heuristic orders the reading queue; its terms return 0.5, *undecided*, when out of evidence, and it is never drawn. The four grades are placed on the colour ramp at 0.08, 0.30, 0.62 and 0.92, spaced unevenly to separate the two informative grades, and a container\'s share is mapped through min(1, share ÷ 0.25)^0.7, which preserves order and saturates at one quarter.',
+      'An unread function has no value. An offline heuristic orders the reading queue; its terms return 0.5, *undecided*, when out of evidence, and it is never drawn. The four grades are placed on the color ramp at 0.08, 0.30, 0.62 and 0.92, spaced unevenly to separate the two informative grades, and a container\'s share is mapped through min(1, share ÷ 0.25)^0.7, which preserves order and saturates at one quarter.',
     ],
   },
 
@@ -501,37 +501,37 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     deck: {
       definition:
         'Legibility is a reader’s account of what reading an opened body took: straight through, going back, or still unsure at the end.',
-      reading: 'Bright was unclear to the reader and dim read cleanly; uncoloured wedges have no current grade.',
+      reading: 'Bright was unclear to the reader and dim read cleanly; uncolored wedges have no current grade.',
     },
     sections: [
       {
         heading: 'Definition',
         body: [
-          "Legibility is a reader's report of what reading an opened body was like, judged by what the reader did rather than by an impression formed afterwards. The four grades are *full*, read once from top to bottom without going back; *most*, went back over one part once; *some*, went back more than once or had to hold several things in mind at the same time; and *none*, finished the body and still could not say with confidence what it does. The figure names these *clean*, *nuanced*, *tangled* and *unclear*. A file or directory is described by the share of its read lines graded *tangled* or *unclear*.",
+          "Legibility is a reader's report of what reading an opened body was like, judged by what the reader did rather than by an impression formed afterwards. The four grades are *full*, read once from top to bottom without going back; *most*, went back over one part once; *some*, went back more than once or had to hold several things in mind at the same time; and *none*, finished the body and still could not say with confidence what it does. A file or directory is described by the share of its read lines graded *some* or *none*.",
         ],
       },
       {
         heading: 'Reading the map',
         body: [
-          "Bright wedges are bodies graded *unclear* and dim wedges *clean*. Uncoloured wedges are unread or have no current grade, and stale readings are hatched. A file or directory is coloured by the share of its read lines graded *tangled* or *unclear*, on the same scale as Surprise. That share is of lines read, not of all lines: a directory in which one function of forty has been read, and was graded unclear, is reported as unclear as far as it has been read. Its outer rim divides its lines among the four grades and the lines not yet graded.",
+          "Bright wedges are bodies graded *none* and dim wedges *full*. Uncolored wedges are unread or have no current grade, and stale readings are hatched. A file or directory is colored by the share of its read lines graded *some* or *none*, on the same scale as Surprise. That share is of lines read, not of all lines: a directory in which one function of forty has been read, and was graded *none*, is drawn at the bright end as far as it has been read. Its outer rim divides its lines among the four grades and the lines not yet graded.",
         ],
       },
       {
         heading: 'Interpretation',
         body: [
-          'Legibility is independent of Surprise by construction. Surprise asks whether the intent was reachable without the body; Legibility asks how the body read once open. Inline comments therefore count toward Legibility but not toward Surprise, since they sit inside the text being predicted. The pairing separates situations Surprise alone merges: surprising but clean code is unguessable from outside and plain once opened, which points toward better names or documentation; surprising and unclear code is difficult at every level; and mundane but tangled code does an expected job in a confusing way. {?traps Read against Traps, a clean body that carries a reported trap is the most hazardous combination, because it reads as safe.}',
+          'Legibility is independent of Surprise by construction. Surprise asks whether the intent was reachable without the body; Legibility asks how the body read once open. Inline comments therefore count toward Legibility but not toward Surprise, since they sit inside the text being predicted. The pairing separates situations Surprise alone merges: surprising but legible code is unguessable from outside and plain once opened, which points toward better names or documentation; surprising and illegible code is difficult at every level; and predictable but hard-to-follow code does an expected job in a confusing way. {?traps Read against Traps, a legible body that carries a reported trap is the most hazardous combination, because it reads as safe.}',
         ],
       },
       {
         heading: 'Limitations',
         body: [
-          'The grade is a model\'s report of its own behaviour and varies between models. Reader-reported distributions have tended to crowd toward the top grade; the question was reworded to give readers observable criteria, and the lowest grade remains rare. Clarity is judged without surrounding context, so a body that is clear only once its types are known may be graded harshly. The scale is ordinal and coarse, and containers describe only their read lines.',
+          'The grade is a model\'s report of its own behavior and varies between models. Reader-reported distributions have tended to crowd toward the top grade; the question was reworded to give readers observable criteria, and the lowest grade remains rare. Clarity is judged without surrounding context, so a body that is clear only once its types are known may be graded harshly. The scale is ordinal and coarse, and containers describe only their read lines.',
         ],
       },
     ],
     method: [
-      'Legibility is graded in the same reading as Surprise, after the prediction has been recorded and the body read, so its procedure, storage, expiry and provenance are those described for Surprise. Readings of whole files do not grade legibility, because it is a judgement about one body.',
-      'The reader receives only the extent being graded and cannot open callers, types or the rest of the file, and the grades are worded in terms of what a reader can observe about its own pass within that extent. Because the wording of this question has changed, a grade is valid only if the reading was taken under the current question. Grades made under an earlier question are kept as history but do not colour a wedge or count toward a share, and they are replaced only by a complete new reading, since a grade given immediately after a prediction is part of a different measurement from one asked alone. The grades share Surprise\'s positions on the colour ramp.',
+      'Legibility is graded in the same reading as Surprise, after the prediction has been recorded and the body read, so its procedure, storage, expiry and provenance are those described for Surprise. Readings of whole files do not grade legibility, because it is a judgment about one body.',
+      'The reader receives only the extent being graded and cannot open callers, types or the rest of the file, and the grades are worded in terms of what a reader can observe about its own pass within that extent. Because the wording of this question has changed, a grade is valid only if the reading was taken under the current question. Grades made under an earlier question are kept as history but do not color a wedge or count toward a share, and they are replaced only by a complete new reading, since a grade given immediately after a prediction is part of a different measurement from one asked alone. The grades share Surprise\'s positions on the color ramp.',
     ],
   },
 
@@ -539,20 +539,20 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     deck: {
       definition:
         'Docs grades how much of a body its documentation covers, and documentation a model could derive from the code counts as none.',
-      reading: 'Bright is undocumented and dim is covered; a file is coloured by its header, not by its functions.',
+      reading: 'Bright is undocumented and dim is covered; a file is colored by its header, not by its functions.',
     },
     sections: [
       {
         heading: 'Definition',
         body: [
-          'Docs measures how little of a body its documentation covers, as graded by the reader that read both. The reader grades coverage as *full*, *most* (shown as *decent*), *some* or *none*, and the figure shows the gap, so bright means undocumented. Documentation the reader judges derivable from the code alone counts as *none* in every derived number. Three units are graded: a function on its own documentation comment, a file on its header, and a directory by the share of graded files and functions beneath it whose documentation is *some* or *none*, each counted once.',
+          'Docs measures how little of a body its documentation covers, as graded by the reader that read both. The reader grades coverage as *full*, *most*, *some* or *none*, and the figure shows the gap, so bright means undocumented. Documentation the reader judges derivable from the code alone counts as *none* in every derived number. Three units are graded: a function on its own documentation comment, a file on its header, and a directory by the share of graded files and functions beneath it whose documentation is *some* or *none*, each counted once.',
         ],
       },
       {
         heading: 'Reading the map',
         body: [
-          "Dim is covered and bright is undocumented. A function is coloured by its own grade, and a file by its header's grade rather than by its functions, remaining uncoloured until its header has been read. A directory is coloured by its share of undescribed items. Uncoloured wedges are unread or ungraded, and stale readings are hatched.",
-          'Derivable documentation has two readings. Under the default it is drawn as *none*, on the view that it explains nothing a newcomer could not already infer; under the alternative it is drawn as *full*, on the view that a complete description is documentation however obvious. The choice changes colour only, and the figure caption states which reading is shown.',
+          "Dim is covered and bright is undocumented. A function is colored by its own grade, and a file by its header's grade rather than by its functions, remaining uncolored until its header has been read. A directory is colored by its share of undescribed items. Uncolored wedges are unread or ungraded, and stale readings are hatched.",
+          'Derivable documentation has two readings. Under the default it is drawn as *none*, on the view that it explains nothing a newcomer could not already infer; under the alternative it is drawn as *full*, on the view that a complete description is documentation however obvious. The choice changes color only, and the figure caption states which reading is shown.',
         ],
       },
       {
@@ -570,7 +570,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     ],
     method: [
       "The reader receives the documentation before predicting and, after reading the body, answers two questions about it. The first, *documented*, grades how well it covers what the code actually does, and is *none* when there is none. The second, *derivable*, asks whether the documentation says nothing that could not have been worked out from the code alone. A derivable document counts as *none* in every derived number, so that text a model could regenerate from the body adds no explanation, and a pass of generated comments cannot make a repository's figure uniformly well documented.",
-      'Files are read as separate tasks: the reader predicts what the file is for from its name, header and declarations, then grades whether the header describes the contents and whether it is derivable. Because documentation is part of the reading hash, editing a comment expires the readings made against it. Documentation grades are reported beside Surprise and never subtracted from it. The grades are placed on the colour ramp at 0.05, 0.30, 0.65 and 1.0.',
+      'Files are read as separate tasks: the reader predicts what the file is for from its name, header and declarations, then grades whether the header describes the contents and whether it is derivable. Because documentation is part of the reading hash, editing a comment expires the readings made against it. Documentation grades are reported beside Surprise and never subtracted from it. The grades are placed on the color ramp at 0.05, 0.30, 0.65 and 1.0.',
     ],
   },
 
@@ -579,7 +579,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       definition:
         'A trap is a hazard a reader found in a body that will catch out its next editor, and that nothing in the code warns about.',
       reading:
-        'The trap colour marks a reported trap; the two neutrals separate a body read and cleared from one not yet read under the current question.',
+        'The trap color marks a reported trap; the two neutrals separate a body read and cleared from one not yet read under the current question.',
     },
     sections: [
       {
@@ -591,7 +591,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          'Functions marked *trap* take the trap colour. Functions a reader examined without reporting a trap take the neutral labelled *no trap reported*, and functions no reader has examined under the current question, including dated *yes* answers, take the neutral labelled *not read yet*; stale readings fall with the unread. The two neutrals are kept distinct because confusing *nobody has looked* with *somebody looked and found nothing* would read as an all-clear. Containers are not coloured and carry no rim distribution, because a share of contained traps is not what the question asks.',
+          'Functions marked *trap* take the trap color. Functions a reader examined without reporting a trap take the neutral labeled *no trap reported*, and functions no reader has examined under the current question, including *yes* answers given under an earlier, broader question, take the neutral labeled *unread*; stale readings fall with the unread. The two neutrals are kept distinct because confusing *nobody has looked* with *somebody looked and found nothing* would read as an all-clear. Containers are not colored and carry no rim distribution, because a share of contained traps is not what the question asks.',
         ],
       },
       {

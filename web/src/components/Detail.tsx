@@ -64,14 +64,14 @@ function measure(n: Node, mode: ColorMode, views: Views): string | null {
     // A read function says its grade; a model-scored one keeps its degrees, because that
     // number really is continuous. Four rows reading `warm` are honestly tied \u2014 where
     // four rows reading `30\u00b0` looked like four measurements that happened to agree.
-    return readingWords(n)?.heat ?? `${Math.round(wedgeHeat(n) * 100)}\u00b0`
+    return readingWords(n)?.predicted ?? `${Math.round(wedgeHeat(n) * 100)}\u00b0`
   }
   return n.loc.toLocaleString()
 }
 
 /** Where the numbers above came from, in one sentence. */
 function provenance(node: Node, model: string | null): string {
-  // Asked before `Not read yet`, which would be true and would be the wrong sentence: this
+  // Asked before `Unread`, which would be true and would be the wrong sentence: this
   // one is not waiting its turn in a queue it will never be in. Naming the size and the
   // limit rather than just refusing, because the next question is always "how far over" and
   // the answer decides whether this is a god-function worth splitting or a generated file
@@ -81,7 +81,7 @@ function provenance(node: Node, model: string | null): string {
     return `Too large to read — ${kb}KB, past the ${Math.round(READ_CEILING / 1024)}KB a reader is asked to hold. No reading will be taken.`
   }
   if (!isAnalyzed(node)) {
-    return 'Not read yet'
+    return 'Unread'
   }
   const a = node.agent
   if (node.score?.source === 'agent' && a) {

@@ -38,13 +38,14 @@
  */
 
 import { FAMILY, MIN_SIZE, PRIMARY } from './labelStyle'
+import { MONO_FAMILY } from './monoFaces'
 
 /**
  * The face labels are measured in, and — critically — the face they are DRAWN in.
  *
  * `WedgeLabel` sets this same string on the element rather than inheriting the app's, and
- * that is the whole point of it being here. The page stack starts with `ui-sans-serif`,
- * which is a keyword the canvas and the SVG renderer are each free to resolve their own
+ * that is the whole point of it being here. The page's stack once started with `ui-sans-serif`,
+ * a keyword the canvas and the SVG renderer are each free to resolve their own
  * way; measure in one face and paint in another and every label is sized against a width
  * it does not have. That failure is invisible in a unit test — there is no canvas in node,
  * so the estimator runs instead and agrees with itself — and on screen it looks exactly
@@ -213,9 +214,8 @@ export function middleTruncate(name: string, keep: number): string {
 
 /** How wide one monospace glyph is, as a multiple of the type size.
  *
- *  **Measured against the same stack `.mono` declares**, once, and cached — a constant would
- *  be right on whichever machine it was written on and wrong wherever the first family in
- *  that list is missing. Monospace is what makes this one number useful at all: every glyph
+ *  **Measured in the face `.mono` declares**, once, and cached — a constant would be right for
+ *  one of the vendored candidates and wrong for the rest. Monospace is what makes this one number useful at all: every glyph
  *  is this wide, so "how many characters fit" is a division rather than a search.
  *
  *  Falls back to 0.6, which is what most terminal faces measure, when there is no canvas to
@@ -227,7 +227,7 @@ export function monoAdvance(): number {
     ctx = canvas ? canvas.getContext('2d') : null
   }
   if (!ctx) return 0.6
-  ctx.font = `${REF}px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace`
+  ctx.font = `${REF}px ${MONO_FAMILY}`
   mono = ctx.measureText('0').width / REF
   return mono
 }
@@ -254,8 +254,19 @@ export interface Placement {
   clipped: boolean
 }
 
+/** How wide a string is, per pixel of font size — `widthPerPx`'s shape.
+ *
+ *  **Handed in rather than set on a module, because two maps can be laid out at once.** The
+ *  window measures with the canvas; a report drawn without a window measures with whatever it
+ *  has, and both can run in one webview at the same moment. A measurer installed globally
+ *  would make one of them lay out against the other's face. */
+export type Measure = (text: string, weight: number) => number
+
 export interface FitOpts {
   weight: number
+  /** What the name is measured with. `widthPerPx` — the canvas, in the face the SVG draws in —
+   *  when nobody says otherwise, which is the window. */
+  measure?: Measure
   /** Largest the type may be, whatever the room. A name is a label, not a headline. */
   max: number
   /** Where along the radius the arc-run sits, as a fraction of the cell's depth. Center
@@ -285,7 +296,8 @@ export function fitLabel(cell: Cell, name: string, opts: FitOpts): Placement | n
   const arc = (cell.a1 - cell.a0) * r
   if (depth <= 0 || arc <= 0) return null
 
-  const wpp = widthPerPx(name, weight)
+  const measure = opts.measure ?? widthPerPx
+  const wpp = measure(name, weight)
   const w = Math.max(wpp, 1e-6)
   // Each axis: how big the type can be before it overruns the length, and before it
   // overruns the thickness at right angles to it.
@@ -361,7 +373,7 @@ export function fitLabel(cell: Cell, name: string, opts: FitOpts): Placement | n
   for (let keep = name.length - 1; keep >= floor; keep--) {
     const text = middleTruncate(name, keep)
     if (!text) break
-    if (widthPerPx(text, weight) * MIN_SIZE <= length * PAD) {
+    if (measure(text, weight) * MIN_SIZE <= length * PAD) {
       return {
         axis,
         text,

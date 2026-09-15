@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   agentActivity,
   agentReports,
@@ -77,10 +77,8 @@ import {
   type Tables,
 } from './lib/timeline'
 import { Sunburst } from './components/Sunburst'
-import type { MovieKey, Staged } from './lib/movie'
+import type { MovieKey, MovieSource } from './lib/movie'
 import { lensKey } from './lib/lensKey'
-import { ReportDialog } from './components/ReportDialog'
-import type { ReportBucket } from './lib/report'
 import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
 import type { MascotState } from './components/MascotFigure'
@@ -92,15 +90,10 @@ import { Findings } from './components/Findings'
 import { TopRow } from './components/shell/TopRow'
 import {
   legendFor,
-  bucketsFor,
   holdsUncommitted,
   MODE_LABEL,
-  paintsFromReadings,
-  paintsFromWiring,
   rankCategories,
   capRanks,
-  REPLAY,
-  replayNote,
   ageSpanOf,
   AGE_DEFAULT,
   CHURN_DEFAULT_WINDOW,
@@ -117,7 +110,9 @@ import { dismissSplash } from './lib/splash'
 import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
-import { ColorLegend, Lock, ModeSwitcher, type Locked } from './components/ColorKey'
+import { ColorLegend, Lock, ModeSwitcher } from './components/ColorKey'
+import { locksFor } from './lib/locks'
+import { viewsFor } from './lib/reportInputs'
 import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
 // The pill's own answer to "what does pressing Trace do next" — see `chaseTrace`,
@@ -153,8 +148,14 @@ import {
   type HubCenter,
 } from './lib/hub'
 import { BAND_SHARE, SPACING_DEFAULT } from './lib/spacing'
+import { chooseMono, chosenMono, MONO_FACES } from './lib/monoFaces'
 import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
 import { ReadDialog } from './components/ReadDialog'
+
+/** The report dialog, loaded when it is opened. **It carries the PDF renderer** — HarfBuzz and its
+ *  wasm, React's static renderer, the map's markup path — none of which the window needs to open, and
+ *  a failure in any of it must never hold the window on its splash screen, which it once did. */
+const ReportDialog = lazy(() => import('./components/ReportDialog').then((m) => ({ default: m.ReportDialog })))
 
 /** Files that have to have arrived before the assembling map is drawn — see `shapeRoot`. */
 const SHAPE_FLOOR = 24
@@ -568,8 +569,9 @@ export default function App() {
   /** **TEMPORARY** — whether a replay flashes what each commit touched. See `HistoryBar`'s
    *  own button, and `frameTree`, which is where it takes effect: with the flashes off the
    *  frame carries no event at all, so the map, the roll-up stand-ins and the escalation all
-   *  go quiet together rather than three of them being switched off by hand. */
-  const [flashes, setFlashes] = useState(true)
+   *  go quiet together rather than three of them being switched off by hand. Off until asked
+   *  for: a replay is the lens alone, moving. */
+  const [flashes, setFlashes] = useState(false)
   const chooseRings = useCallback((n: number) => {
     setRings(n)
     saveRings(n)
@@ -1632,15 +1634,7 @@ export default function App() {
     return step.current.since
   }
 
-  /** The map staged for an export: how many pixels wide the file will be, or null while the
-   *  window is just a window.
-   *
-   *  **Staged rather than rendered aside.** The export copies what is on screen (see
-   *  `movie.ts`), which is the whole reason it cannot drift from the map — so asking it for
-   *  a denser picture means making the picture on screen denser for the duration. It is
-   *  behind the dialog while that happens, and it goes back when the export ends. */
-  const [staged, setStaged] = useState<Staged | null>(null)
-  /** The pane's measured side, so a staged export knows how much denser it is than this. */
+  /** The pane's measured side, so an export knows how much denser its map is than this. */
   const [paneSide, setPaneSide] = useState(0)
 
   /** Where the map is rooted, as a path, taken straight from the drill stack.
@@ -1683,7 +1677,7 @@ export default function App() {
             activeProject?.name ?? 'repo',
             stepFrom(histIndex),
             drilled,
-            staged && paneSide > 0 ? staged.px / paneSide : 1,
+            1,
             flashes,
             // **The repo's own ladder, or the frame counts a window the live map does not
             // offer.** A 27-day project's rungs are its own days; a frame fixed at ninety
@@ -1707,8 +1701,6 @@ export default function App() {
       loaded,
       activeProject?.name,
       drilled,
-      staged,
-      paneSide,
     ],
   )
 
@@ -1916,74 +1908,19 @@ export default function App() {
    *  repo's git history, this language's wiring — and the order matters: a replay's limits
    *  are true whatever the repo holds, so they are asked first.
    */
-  const locks = useMemo(() => {
-    const out: Partial<Record<ColorMode, Locked>> = {}
-    for (const m of Object.keys(MODE_LABEL) as ColorMode[]) {
-      if (replaying) {
-        if (REPLAY[m] !== 'live') out[m] = { why: replayNote(m) ?? '', paper: replayNote(m) ?? '', keyed: false }
-        continue
-      }
-      if (!tree) continue
-      if (paintsFromReadings(m) && (activeProject?.assessed ?? 0) === 0) {
-        out[m] = {
-          why: 'No readings yet. Press Read on the project to fill Surprise, Legibility, Docs and Traps.',
-          paper: 'This repository has no current readings.',
-          keyed: true,
-        }
-      } else if (paintsFromWiring(m) && tree.resolvable === null) {
-        out[m] = {
-          why: `${MODE_LABEL[m]} needs this language's calls read off its grammar, which Sanity does not do for it. A guessed edge would be worse than a stated absence.`,
-          paper: 'The calls of the languages here are not read off their grammars, and a guessed edge would be worse than a stated absence.',
-          keyed: false,
-        }
-      } else if (
-        (m === 'blame' || m === 'churn' || m === 'age') &&
-        activeProject?.trace_depth === 'untraced'
-      ) {
-        // **Asked BEFORE "no history", because an untraced repo also has no ages in it** and
-        // the two absences are opposite claims: this one is work nobody has paid for, and the
-        // one below is a fact about the folder. Reporting the second when the first is true
-        // tells somebody their repo has no git in it while its log sits there unread.
-        out[m] = {
-          why: `${MODE_LABEL[m]} reads git, and this repo's history has not been read yet. Press Trace on the project.`,
-          paper: "This repository's git history had not been read when the report was made.",
-          keyed: true,
-        }
-      } else if ((m === 'blame' || m === 'churn' || m === 'age') && tree.score?.ageDays === null) {
-        out[m] = {
-          why: `${MODE_LABEL[m]} reads git, and this folder has no history.`,
-          paper: 'This folder has no git history.',
-          keyed: false,
-        }
-      } else if (m === 'tangle' && (scan?.stats.tangleBands ?? []).every((b) => b === null)) {
-        // **A table, not a button — so this lock is not `keyed`.** Complexity is counted off
-        // the grammar, and a language nobody has written branch kinds for cannot be counted by
-        // pressing anything. The same shape as the wiring lenses' lock, which says the calls
-        // were never parsed: an absence in the instrument rather than work somebody owes.
-        out[m] = {
-          why: 'Complexity counts branches off the grammar, and none of the languages here have been taught where they fork. Nothing to press — it needs a table in the parser.',
-          paper: 'None of the languages here has been taught where its code branches.',
-          keyed: false,
-        }
-      } else if (m === 'churn' && !(scan?.stats.churned ?? false)) {
-        // **Last of the git three, because it is the narrowest claim.** The two above are
-        // about the repo's history existing and having been read at all; this one is about a
-        // second walk that only Churn needs. Blame keeps one commit per LINE, so a body
-        // rewritten in place erases its own history and no amount of blame can say how often
-        // it changed — only the timeline can, by diffing functions at every commit. See
-        // `edits.rs`.
-        //
-        // `keyed`, because the button that fixes it is the same Trace: the ladder now has a
-        // fourth rung and pressing it again takes the next one.
-        out[m] = {
-          why: 'Churn counts how many times each function has actually changed, which only the timeline can say — blame keeps one commit per line, so a body rewritten in place erases its own history. Press Trace on the project to walk it.',
-          paper: 'The commit timeline, the only record of how often a body changed, had not been walked when the report was made.',
-          keyed: true,
-        }
-      }
-    }
-    return out
-  }, [replaying, tree, activeProject])
+  const locks = useMemo(
+    () =>
+      locksFor({
+        replaying,
+        tree,
+        assessed: activeProject?.assessed ?? 0,
+        traceDepth: activeProject?.trace_depth,
+        tangleBands: scan?.stats.tangleBands ?? [],
+        churned: scan?.stats.churned ?? false,
+      }),
+    // The stats it reads, which it used to read without depending on.
+    [replaying, tree, activeProject, scan?.stats.tangleBands, scan?.stats.churned],
+  )
 
   /** What the map is actually painted with.
    *
@@ -2005,24 +1942,13 @@ export default function App() {
    *  grey. Why it is grey is the LOCK's job — the padlock on the chip, and the sentence in
    *  its tooltip beside the button that opens it. That is the one place a repo-level answer
    *  belongs, and `ColorKey` has been drawing it on the trigger all along; nothing could
-   *  reach that state to see it.
-   *
-   *  A staged export still overrides, for the length of a recording: the file is a copy of
-   *  what is on screen, so choosing a lens there means changing the map. It goes back when
-   *  the dialog closes, because `staged` does. */
-  const viewMode: ColorMode = staged?.mode ?? mode
+   *  reach that state to see it. */
+  const viewMode: ColorMode = mode
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
   // rescan keeps the user where they were rather than throwing them back to the top.
   const focus = useMemo(() => {
     if (!tree) return null
-    // A report is of the whole repo, wherever the window is drilled — see `Staged.whole`. Here
-    // rather than on the map's `root` alone, because the ranking, the key and the counts all
-    // read `focus`, and a map of the repo coloured by one subtree's ranking is two answers.
-    // A group of findings zooms the map to where they are — see `Staged.root`. Container ids
-    // ARE their paths, so the path is the id; one that is not in this tree falls back to the
-    // repo rather than to wherever the window was drilled.
-    if (staged?.whole) return staged.root ? (findById(tree, staged.root) ?? tree) : tree
     let node: Node = tree
     for (const id of stack) {
       const next = findById(tree, id)
@@ -2030,7 +1956,7 @@ export default function App() {
       node = next
     }
     return node
-  }, [tree, stack, staged?.whole, staged?.root])
+  }, [tree, stack])
 
   /** Open the replay, or leave it — the History button's own action.
    *
@@ -2412,12 +2338,6 @@ export default function App() {
    *  A movie needed no key while every replay was the age ramp with two flashes; it needs one
    *  now that a recording can be any lens the replay paints, because a Blame film is sixteen
    *  colours with nothing saying whose. */
-  /** The live one, so a caller holding this across frames sees the current tree.
-   *
-   *  **An export holds it for the length of a recording.** `record` takes the callback once
-   *  and asks it again at every commit; a plain `useCallback` closes over the tree it was
-   *  built with, so every frame of a twenty-minute film would carry the key of the frame the
-   *  dialog opened on. The ref is what makes "ask again" mean "ask about now". */
   /** Which of Age's two dates the lens paints — see `AgeRead`. Session state, not stored: it
    *  is a question you ask of the repo in front of you ("what here is dusty" against "what
    *  here moved lately"), not a way you keep the app. */
@@ -2444,11 +2364,8 @@ export default function App() {
     },
     [authorRank, langRank, caps],
   )
-  const keyNow = useRef<(m: ColorMode) => MovieKey | null>(() => null)
-  const keyFor = useCallback(
-    (m: ColorMode): MovieKey | null => {
-      const at = focus ?? tree
-      if (!at) return null
+  const keyAt = useCallback(
+    (m: ColorMode, at: Node): MovieKey | null => {
       // Capped like the map's own ranking — a film is a recording of what was on screen, and
       // a key naming sixteen people over a picture drawing eight is the legend-disagrees-with-
       // the-map failure this file has already paid for twice.
@@ -2458,8 +2375,7 @@ export default function App() {
       // out with an empty key and Composition was coloured by rank rather than by kind.
       //
       // The whole calibration, because two lenses name their ramp's ends from it — see
-      // `rampEnds`. Built here rather than reusing `lensViews`, which is memoised on the tree
-      // this callback deliberately does not close over; see `keyNow`.
+      // `rampEnds`.
       return lensKey(
         m,
         {
@@ -2474,11 +2390,8 @@ export default function App() {
         m === 'blame' && holdsUncommitted(at, blameRead),
       )
     },
-    [focus, tree, slotsFor, ageRead, blameRead],
+    [slotsFor, ageRead, blameRead],
   )
-  keyNow.current = keyFor
-  /** Stable across renders, and current when called — see `keyNow`. */
-  const keyLive = useCallback((m: ColorMode) => keyNow.current(m), [])
 
   /** The report dialog is up — File → Export Report as PDF…. */
   const [reporting, setReporting] = useState(false)
@@ -2488,30 +2401,52 @@ export default function App() {
     () => (reporting && filled ? legendFor(filled, 'language') : []),
     [reporting, filled],
   )
-  /** A lens's bands over what is staged, for the facts a report prints — read when a page asks,
-   *  like `keyNow`, so it describes the tree the report staged rather than the one this
-   *  render closed over. */
-  const bucketsNow = useRef<(m: ColorMode) => ReportBucket[]>(() => [])
-  bucketsNow.current = (m) => {
-    const at = focus ?? tree
-    if (!at) return []
-    return bucketsFor(at, m, slotsFor(m, at), lensViews)
-  }
-  const bucketsLive = useCallback((m: ColorMode) => bucketsNow.current(m), [])
-  /** The tree a report has staged, read when a table asks — the same `focus ?? tree` the keys
-   *  and buckets read, for the reason `keyNow` gives. */
-  const treeNow = useRef<() => Node | null>(() => null)
-  treeNow.current = () => focus ?? tree
-  const treeLive = useCallback(() => treeNow.current(), [])
+  /**
+   * The tree with every function in it, for what a report counts and names.
+   *
+   * **A report's numbers were the window's, and the window holds what it has drawn.** Rings are
+   * fetched for files wide enough to show an inside, so a report's tables ranked the functions
+   * earlier pages had happened to fetch — and its own zoomed findings pages fetched more. A
+   * report, then a brief of the same commit twelve seconds later, named different most-complex
+   * functions and counted 84 and then 99 unread. So a report asks for every ring once, grafts
+   * readings in the way `filled` does, and reads its tables off that. Nothing on screen holds
+   * it: it lives as long as the export.
+   */
+  const completeTree = useCallback(async (): Promise<Node | null> => {
+    const key = activeRef.current
+    const base = treeRef.current
+    if (!key || !base) return null
+    const paths: string[] = []
+    const want = (n: Node) => {
+      if (n.kind === 'file') {
+        if (n.funcs > 0) paths.push(n.path)
+        return
+      }
+      n.children.forEach(want)
+    }
+    want(base)
+    if (paths.length === 0) return base
+    const got = await fileFunctions(key, paths)
+    const graft = (n: Node): Node => {
+      if (n.kind === 'file') {
+        const ring = got.get(n.path)
+        // An empty answer is a backend that does not hold the functions yet (see the clear on
+        // `treeRev`), not a file without any — kept as it was, its count still stands.
+        return ring && ring.length > 0
+          ? { ...n, children: readIntoRing(ring, readings.current.byId), funcs: 0 }
+          : n
+      }
+      let moved = false
+      const kids = n.children.map((c) => {
+        const next = graft(c)
+        if (next !== c) moved = true
+        return next
+      })
+      return moved ? { ...n, children: kids } : n
+    }
+    return graft(base)
+  }, [])
   useEffect(() => onExportReport(() => setReporting(true)), [])
-  /** No function ring in flight or waiting to be spliced — what a report waits on before it
-   *  copies a page. See `rest` in `report.ts`; `asked` and `landed` are the two halves. */
-  const ringsSettled = useCallback(() => asked.current.size === 0 && landed.current.size === 0, [])
-  /** Stale and unread over whatever is staged, read when a page asks. */
-  const pendingNow = useCallback(
-    () => (treeRef.current ? countPending(treeRef.current) : { stale: 0, unread: 0 }),
-    [],
-  )
 
   /** The repo's own span for the age ramp. Never consulted during a replay: a frame's
    *  colour is a flare measured in commits, not a position on this scale — see
@@ -2530,26 +2465,17 @@ export default function App() {
    *  Memoised because `Sunburst` is a `memo` and a fresh object per render would make that
    *  memo do nothing. */
   const lensViews = useMemo<Views>(
-    () => ({
-      // `AGE_DEFAULT.span` where there is no tree to measure, not zero: zero is a repo with
-      // no span, which `ageRamp` reads as "everything here is younger than a day".
-      age: { span: ageSpan ?? AGE_DEFAULT.span, read: ageRead },
-      blame: blameRead,
-      churn: {
-        // The repo's own ladder, or the full one where there is no scan yet — a control has
-        // to be able to name its rungs before anything has been walked.
-        windows: scan?.stats.churnWindows ?? VIEWS_DEFAULT.churn.windows,
-        // Clamped, because the ladder can be shorter than the index somebody left on it: a
-        // young repo's rungs are its own days, and switching projects must not leave the map
-        // painted at a rung this one does not have.
-        at: Math.min(Math.max(churnAt, 0), 3),
-        // **The one place the absence lives.** Until the timeline is walked every count is
-        // zero, and zero is a finding — see `ChurnView.measured`.
-        measured: scan?.stats.churned ?? false,
-      },
-      tangle: tangleRead,
-      derivable,
-    }),
+    () =>
+      viewsFor({
+        ageSpan,
+        churnWindows: scan?.stats.churnWindows,
+        churned: scan?.stats.churned,
+        ageRead,
+        blameRead,
+        tangleRead,
+        churnAt,
+        derivable,
+      }),
     // **The stats it reads, not the scan it reads them off.** A landed reading replaces the
     // `Scan` to carry a new tree and leaves `stats` exactly where it was, so depending on the
     // scan handed a fresh `Views` to the map and the panel several times a minute during a
@@ -2557,6 +2483,30 @@ export default function App() {
     // below reads as a reason to rebuild.
     [ageSpan, ageRead, churnAt, tangleRead, blameRead, derivable, scan?.stats.churnWindows, scan?.stats.churned],
   )
+  /** Where an exported movie's maps come from — see `MovieSource`. The window's replay, asked
+   *  for a commit rather than moved to one, so the map on screen stays where it is. */
+  const movieSource = useMemo<MovieSource | null>(() => {
+    const held = history
+    if (!held || historyKey !== activeKey) return null
+    const repoName = activeProject?.name ?? 'repo'
+    return {
+      frame: (real, since, m, px) => {
+        const at = frameTree(held.tables, held.deltas, real, repoName, since, drilled, paneSide > 0 ? px / paneSide : 1, flashes, churnWindows)
+        let root: Node = at
+        for (const id of stack) {
+          const next = findById(at, id)
+          if (!next) break
+          root = next
+        }
+        const cut = root.path.lastIndexOf('/')
+        const parent = root.kind !== 'file' ? null : cut < 0 ? at : (findById(at, root.path.slice(0, cut)) ?? at)
+        return { root, parent, ranks: slotsFor(m, root), key: keyAt(m, root) }
+      },
+      views: lensViews,
+      look: { rings, spacing, rimShare: band, markers, center: hubCenter, circles: circlesLook },
+      sortBy: headOrder,
+    }
+  }, [history, historyKey, activeKey, activeProject?.name, drilled, paneSide, flashes, churnWindows, stack, slotsFor, keyAt, lensViews, rings, spacing, band, markers, hubCenter, circlesLook, headOrder])
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
   const clearPick = useCallback(() => setPicked(null), [])
@@ -3280,6 +3230,23 @@ export default function App() {
                     than as it stands — and Find gets you somewhere inside the subject you
                     already have. Both leave the picture you were looking at, which is what
                     puts them together and after everything that shapes it. */}
+                {/* **Temporary**: which vendored face is `Sanity Mono`, while one is chosen. A choice
+                    reloads the window, because every measurement taken in the old face is cached. */}
+                <select
+                  title="Monospace face (temporary)"
+                  value={chosenMono().id}
+                  onChange={(e) => {
+                    chooseMono(e.target.value)
+                    window.location.reload()
+                  }}
+                  className="mono h-6 rounded border border-[var(--border)] bg-[var(--card)] px-1 text-[11px] text-[var(--muted-foreground)]"
+                >
+                  {MONO_FACES.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
                 {HUB_CONTROLS && (
                 <HubToggle
                   center={hubCenter}
@@ -3353,6 +3320,7 @@ export default function App() {
                 want to rebuild. This one is static text and its cost is its own markup. */}
             {helping && <LensHelp onClose={() => setHelping(false)} />}
             {reporting && (
+              <Suspense fallback={null}>
               <ReportDialog
                 slug={remote ?? activeProject?.name ?? 'repo'}
                 name={activeProject?.name ?? 'sanity'}
@@ -3363,8 +3331,6 @@ export default function App() {
                 groups={findingGroups}
                 locks={locks}
                 mode={mode}
-                keyFor={keyLive}
-                pending={pendingNow}
                 stats={{
                   lines: filled?.loc ?? 0,
                   functions: activeProject?.functions ?? 0,
@@ -3384,27 +3350,20 @@ export default function App() {
                   churnWindows: [...churnWindows],
                   ageSpan: filled ? ageSpanOf(filled) : null,
                 }}
-                bucketsFor={bucketsLive}
-                treeNow={treeLive}
-                settled={ringsSettled}
-                onStage={setStaged}
+                slotsFor={slotsFor}
+                look={{ rings, spacing, rimShare: band, markers, center: hubCenter, circles: circlesLook }}
+                sortBy={headOrder}
+                complete={completeTree}
                 onClose={() => setReporting(false)}
               />
+              </Suspense>
             )}
 
             {/* `data-chart` is how the key finds the circle it has to wrap around — see
                 `useMapEdge`. A marker rather than a class name because the class list here is
                 layout that will change, and the key would break silently when it did. */}
             <div data-chart className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-              {/* **The export's ground goes here, not on the document.** A recording is a copy
-                of the map on screen, so a light file wants a light map — and putting that on
-                `<html>` turned the whole app light in front of somebody who had asked for a
-                file. The palettes are custom properties and custom properties inherit, so
-                one class on the pane dresses everything the map paints with and nothing
-                else. See `Staged`, and the `.light` selector in `index.css`. */}
-              <div
-                className={`relative z-10 h-full bg-[var(--background)]${staged ? ` ${staged.ground}` : ''}`}
-              >
+              <div className="relative z-10 h-full bg-[var(--background)]">
                 {error ? (
                   <div className="flex h-full items-center justify-center p-6">
                     <p className="max-w-[40ch] text-center text-sm text-[var(--destructive)]">
@@ -3428,8 +3387,7 @@ export default function App() {
                   <Sunburst
                     root={focus}
                     faceRev={faceRev}
-                    // No veil while a report stages the map — see `Staged.whole`.
-                    selected={staged?.whole ? null : selected}
+                    selected={selected}
                     mode={viewMode}
                     ranks={ranks}
                     // The age ramp spans the REPO, not a fixed year — so it comes from the
@@ -3451,9 +3409,7 @@ export default function App() {
                     // the legend are: the request comes a few hundred milliseconds before the
                     // first frame, and until that frame exists the live map is still on screen,
                     // where the marks are about exactly the wedges they are sitting on.
-                    // Nor while a report copies it: the pulse is a CSS animation, and a copy of
-                    // the SVG has no stylesheet, so it would print as solid wedges.
-                    reading={replaying || staged?.whole ? undefined : readingNow}
+                    reading={replaying ? undefined : readingNow}
                     // **Through the replay too.** It was held back on the grounds that a run is a
                     // fact about the repo as it is NOW, and a creature working away over a frame
                     // from 2019 would be the claim a replayed temperature would be. That reads
@@ -3472,7 +3428,6 @@ export default function App() {
                     // measurement arriving rather than a story advancing.
                     morph={replaying}
                     replaying={replaying}
-                    density={staged?.px ?? null}
                     onSide={setPaneSide}
                     rings={rings}
                     rimShare={band}
@@ -3481,7 +3436,6 @@ export default function App() {
                     // so it has no marks to suppress, and a prop that can never matter is a
                     // second place to keep in step for nothing.
                     markers={markers}
-                    tagNodes={staged?.whole ?? false}
                     onWantRings={wantRings}
                     sortBy={headOrder}
                     onSelect={pick}
@@ -3638,9 +3592,8 @@ export default function App() {
                 // above is the FILENAME, which wants the drilled path and not the owner.
                 slug={remote ?? activeProject?.name ?? 'repo'}
                 scope={scope}
-                onStage={setStaged}
+                movie={movieSource}
                 mode={viewMode}
-                keyFor={keyLive}
                 // The whole timeline, for an export — the transport's own `onIndex` fetches
                 // the block under the playhead and returns, which is right for watching and
                 // useless to a recorder that must not stall mid-file.
@@ -4240,17 +4193,17 @@ function CirclesMenu({ look, onLook }: { look: CirclesLook; onLook: (look: Circl
               />
             </label>
             {row('shadow size', 'How big the shadow under the dot is', 'shadow', 0.01, look.shadow.toFixed(2))}
-            <label className="mt-2.5 flex items-center gap-2" title="The shadow's colour">
-              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">shadow colour</span>
+            <label className="mt-2.5 flex items-center gap-2" title="The shadow's color">
+              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">shadow color</span>
               <input
                 type="color"
                 value={look.color}
                 onChange={(e) => set({ color: e.target.value })}
-                aria-label="Shadow colour"
+                aria-label="Shadow color"
                 className="h-4 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
               />
             </label>
-            {row('strength', "How strong the shadow's colour is", 'alpha', 0.01, `${Math.round(look.alpha * 100)}%`)}
+            {row('strength', "How strong the shadow's color is", 'alpha', 0.01, `${Math.round(look.alpha * 100)}%`)}
             {row('travel', 'How far the dot moves as it looks around', 'travel', 0.005, look.travel.toFixed(3))}
             {row(
               'step',
@@ -4294,7 +4247,7 @@ function HubToggle({
     monster: 'The monster in the middle of the map',
     wheel: 'A balance wheel in the middle of the map — the findings count stays',
     eye: 'An eye in the middle of the map, looking where the monster would — the findings count stays',
-    circles: 'Two discs in the lens’s colours in the middle of the map — the findings count stays',
+    circles: 'Two discs in the lens’s colors in the middle of the map — the findings count stays',
   }
   return (
     <div
@@ -4515,7 +4468,7 @@ function Empty({ onAdd }: { onAdd: () => void }) {
         <h2
           className="font-display text-[26px] font-normal leading-none text-[var(--foreground)]"
           style={{
-            fontFamily: "'LINE Seed JP', ui-sans-serif, system-ui",
+            fontFamily: "'LINE Seed JP'",
             letterSpacing: '-0.06em',
           }}
         >

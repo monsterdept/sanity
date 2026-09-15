@@ -148,8 +148,8 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       needs="Read"
       swatch={<Ramp from="var(--heat-0)" to="var(--heat-4)" />}
       measures="how much of a function's body the reader failed to predict from its surroundings, before being allowed to read the body itself."
-      values="mundane · typical · quirky · obscure"
-      ramp="mundane (dim) → obscure (bright)"
+      values="predicted: full · most · some · none"
+      ramp="full (dim) → none (bright)"
     >
       The reader sees the documentation before it predicts. A comment that genuinely explains the
       code lowers the score. A comment a model could reproduce from the body alone does not.
@@ -161,8 +161,8 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       needs="Read"
       swatch={<Ramp from="var(--legible-0)" to="var(--legible-4)" />}
       measures="what reading the body was like, by what the reader actually did: understood it in one pass, required several passes, or never got it at all."
-      values="clean · nuanced · tangled · unclear"
-      ramp="clean (dim) → unclear (bright)"
+      values="legible: full · most · some · none"
+      ramp="full (dim) → none (bright)"
     >
       Independent of Surprise. Code can be unpredictable and clearly written.
     </Lens>
@@ -173,8 +173,8 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       needs="Read"
       swatch={<Ramp from="var(--docs-0)" to="var(--docs-4)" />}
       measures="how little of the body its documentation covers."
-      values="full · decent · some · none"
-      ramp="covered (dim) → undocumented (bright)"
+      values="docs: full · most · some · none"
+      ramp="full (dim) → none (bright)"
     >
       Documentation a model could reproduce from the body alone is graded <code>none</code>.
     </Lens>
@@ -198,7 +198,7 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       measures="what this repo is made of: code somebody here wrote, headers, tests, generated code, and vendored code."
       values="code · header · test · generated · vendored"
     >
-      Code has a colour of its own — grey here means only that nothing could place a file,
+      Code has a color of its own — gray here means only that nothing could place a file,
       the way it does on every other lens. What stands out against code is what you are not on
       the hook for.
       A generator's own <code>DO NOT EDIT</code> banner and a <code>linguist-vendored</code>
@@ -215,10 +215,10 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       needs="Read"
       swatch={<Steps fills={['var(--unanalyzed)', 'var(--structure)', 'var(--trap)']} />}
       measures="whether a reader flagged something likely to catch out the next person editing this code."
-      values="not read yet · no trap reported · trap"
+      values="unread · no trap reported · trap"
     >
       A wedge marked <code>no trap reported</code> means a reader looked and found nothing, where{' '}
-      <code>not read yet</code> means no reader has looked. The two are different neutrals and can
+      <code>unread</code> means no reader has looked. The two are different neutrals and can
       be told apart on the map. A clean wedge is not proof that no trap exists.
     </Lens>
   ),
@@ -441,7 +441,7 @@ function Languages() {
       <p className="mb-3 text-[11px] leading-[1.5] text-[var(--muted-foreground)]">
         {langs.length} languages, of which {calls} have their calls followed off the grammar and{' '}
         {branches} have their branches counted. Where a column is blank the lens built on it
-        paints grey and says so — that is a gap in this parser, not a finding about your code.
+        paints gray and says so — that is a gap in this parser, not a finding about your code.
       </p>
       <table className="w-full border-collapse text-[11px]">
         <thead>
@@ -519,7 +519,7 @@ export function LensHelp({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 Every language this build has a grammar for, and what it can do with each. A lens
-                paints grey where its column is blank — that is this parser's limit, and it is
+                paints gray where its column is blank — that is this parser's limit, and it is
                 not a finding about the code.
               </>
             )}

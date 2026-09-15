@@ -1,13 +1,14 @@
 import { createElement } from 'react'
-import { flushSync } from 'react-dom'
-import { createRoot } from 'react-dom/client'
-import type { Locked } from '../components/ColorKey'
+// The browser build, in Node too: the Node build reaches for `util` at load — see `mapMarkup`.
+import { renderToStaticMarkup } from 'react-dom/server.browser'
 import { dirOf, fileOf, lensColor, lensName, nameOf } from '../components/Findings'
 import { Wordmark } from '../components/Wordmark'
-import type { FindingGroup, Node, RepoHead } from './api'
+import { countPending, type FindingGroup, type Node, type RepoHead } from './api'
 import {
+  bucketsFor,
   FAMILIES,
   MODE_LABEL,
+  NAMED,
   paintsFromReadings,
   TANGLE_EDGES,
   type Bucket,
@@ -25,23 +26,11 @@ import {
 } from './findings'
 import { FAMILY } from './labelStyle'
 import type { LensKey } from './lensKey'
-import { mascotClock } from './mascotClock'
-import {
-  CANCELLED,
-  drawCreature,
-  faceCss,
-  flatKey,
-  ink,
-  paint,
-  rastered,
-  settle,
-  varCss,
-  within,
-  type FlatKey,
-  type Staged,
-} from './movie'
-import { writePdf, type PdfPage } from './pdf'
+import type { Locked } from './locks'
+import { MONO_FAMILY } from './monoFaces'
+import { CANCELLED, flatKey, type FlatKey } from './movie'
 import { APPENDIX, ESSAYS, METHODOLOGY, STORY_HEADING, type Prose } from './reportProse'
+import { keyFor } from './reportInputs'
 import {
   FULL_CAST,
   lensFact,
@@ -55,6 +44,11 @@ import {
   type TableContext,
   type TableLimits,
 } from './reportTables'
+import { onPaper, type Vars } from './vector/color'
+import { PdfDoc, PdfPage, type Deflate } from './vector/doc'
+import type { Face } from './vector/fonts'
+import { apply, Surface, VPath, type FontSet, type Matrix } from './vector/surface'
+import { drawSvg, parseSvg, type El } from './vector/svg'
 
 /**
  * The project's analysis as a PDF, written to stand on its own as a document.
@@ -65,16 +59,17 @@ import {
  * findings — an overview, then each group of findings on a map zoomed to where they are. The
  * prose is `reportProse.ts`, written for this and not borrowed from the in-app reference.
  *
- * **Every page is a picture, drawn on a canvas.** A vector PDF would set names in the one face the
- * app ships, a Latin subset, and a CJK author prints as boxes; HTML through the print sheet
- * paginates through a WebKit path nothing here exercises. A canvas has the system's fallback
- * fonts and rasterizes the map through the path the movie proves. The text is pixels, and that is
- * stated rather than hidden.
+ * **Every page is vector: paths, and real text in embedded subsets.** It was a picture — a canvas
+ * encoded as JPEG — so a report of 42 pages was 32MB, blurred when zoomed, and could not be
+ * searched or copied from. Pages are drawn on a `Surface`, which has the canvas's shape and writes
+ * PDF, so the layout below is the layout that was tuned on the canvas. Type is shaped by HarfBuzz
+ * from the same font files that are embedded — see `vector/fonts.ts`.
  *
- * **The map is the map on screen, copied — never a second renderer.** Each figure stages the pane
- * (a lens, a density, a root) and rasterizes the live SVG. What this file draws itself is
- * furniture: type, keys, the grey wash and the marks, which are cut from the drawn paths' own
- * geometry (`data-node`) rather than recomputed from the layout.
+ * **The map is the map's own markup, translated — never a second renderer.** Each figure is the SVG
+ * the map component renders for a lens, a density and a root (`Report.map`): rendered as static
+ * markup rather than staged in the window and copied off the screen, and drawn here by `drawSvg`.
+ * What this file draws itself is furniture: type, keys, the gray wash and the marks, which are cut
+ * from the layout's own wedge geometry (`MapRender.spots`).
  *
  * **Everything is laid out before anything is drawn.** Footers say `n / total`, the contents page
  * names pages, and both need every page counted — so the text is set and poured into its columns,
@@ -117,28 +112,22 @@ const DECK_PAGE = { w: 960, h: 540 }
  *  map. Instrument, Interpretation and Limitations are the report's. */
 const SHORT_SECTIONS = ['Definition', STORY_HEADING, 'Reading the map']
 
-/** Print resolution. At 240 a function patch is still a patch and 8pt type is crisp; 300 made
- *  an eighteen-page report 16MB. */
-const DPI = 240
-/** Canvas pixels per point. */
-const U = DPI / 72
+/** Layout units per point. The layout was tuned in the pixels of a 240 dpi canvas and every length
+ *  below is written in them; a vector page keeps the unit and scales it to points once, in the
+ *  `Surface`. Maps are laid out at these densities too, so what fits on a figure is unchanged. */
+const U = 240 / 72
 /** Outside margin, in points. */
 const MARGIN = 42
-/** JPEG quality for a page. */
-const QUALITY = 0.85
-/** How long the map has to have been still before a figure is copied from it — see `rest`. */
-const QUIET_MS = 400
-/** How long to wait for it at all. Past this the figure is copied from whatever is drawn. */
-const REST_LIMIT = 30_000
-/** A map label that would print smaller than this is left off the copy — see `pruneLabels`. */
+/** A map label that would print smaller than this is left off the figure — see `drawMap`. */
 const MIN_LABEL_PT = 4.5
+/** The density every figure is laid out at, in layout pixels across: a report's full-width figure,
+ *  the largest any form prints. See `figureOf`. */
+const FIGURE_PX = Math.round(528 * U)
 /** A numbered badge on a map: its radius, and the height of the pill it sits in. */
 const BADGE_R = 7 * U
 /** Light pages are white paper — see `ReportDialog`'s ground. */
 const PAPER_WHITE = '#ffffff'
-const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
-/** A first glyph's measured ink offset, by font and character — see `Sheet.bearing`. */
-const BEARINGS = new Map<string, number>()
+const MONO = MONO_FAMILY
 /** Between the two columns of a text page. */
 const GUTTER = 18 * U
 /** Where the body starts under a page header: eyebrow, title, rule, air.
@@ -226,6 +215,32 @@ export interface ReportStats {
  *  nodes, which the examples tables rank. */
 export type ReportBucket = Bucket
 
+/** One figure's map, as the map component renders it without a window. */
+export interface MapRender {
+  markup: string
+  viewBox: [number, number, number, number]
+  /** Every tagged wedge's drawn geometry, by node id: the path and its arc (radians, user units). */
+  spots: Map<string, { d: string; a0: number; a1: number; r0: number; r1: number }>
+}
+
+/** A figure a report asks for: a lens, the density it is laid out at, and the root it is of. */
+export interface MapRequest {
+  mode: ColorMode
+  /** Layout pixels across — see `U`. */
+  px: number
+  /** A node id, or `''` for the whole repository. */
+  root: string
+}
+
+/** What a vector page is written with, which differs between the window and a script. */
+export interface VectorEnv {
+  fonts: FontSet
+  /** The stylesheet's custom properties, which every `var(--…)` resolves through. */
+  vars: Vars
+  subset: (face: Face) => Uint8Array
+  deflate: Deflate
+}
+
 export interface Report {
   /** The repo as the world knows it — `owner/name` where there is a remote. */
   slug: string
@@ -233,29 +248,25 @@ export interface Report {
   head: RepoHead | null
   /** Which of the three shapes to write — see `Form`. */
   form: Form
-  /** Why each lens that cannot paint is locked — `App`'s `locks`. */
+  /** Why each lens that cannot paint is locked — `locksFor`. */
   locks: Partial<Record<ColorMode, Locked>>
   /** How the lenses are set — each page says which reading its figure is. */
   views: Views
-  /** Which lens the findings maps are drawn in — one with nothing to say there; see `ReportDialog`. */
+  /** Which lens the findings maps are drawn in — one with nothing to say there; see `reportLenses`. */
   findingsLens: ColorMode
-  /** The window's lens, which a deck's title slide draws the whole repository in and names. */
+  /** The lens a deck's title slide draws the whole repository in and names. */
   heroLens: ColorMode
   groups: FindingGroup[]
-  /** The key for a lens over what is staged — `App`'s `keyFor`. */
-  keyFor: (mode: ColorMode) => LensKey | null
-  /** Stale and unread counts over the whole repo, for the lenses painted from readings. */
-  pending: () => { stale: number; unread: number }
-  /** A lens's bands over what is staged — `bucketsFor`, which a file answers for when its
-   *  functions were never sent, so the numbers are the whole repo's on a slimmed tree too. */
-  bucketsFor: (mode: ColorMode) => ReportBucket[]
-  /** The tree staged for the report, read when a table asks — see `reportTables.ts`. */
-  treeNow: () => Node | null
+  /** The tree with every function in it, readings folded in. **Every count and name in a report is
+   *  read off this**, never off what a window happened to have drawn: a report and then a brief of
+   *  one commit, twelve seconds apart, once named different most-complex functions. */
+  tree: Node | null
+  /** Category → color slot for a lens over a subtree — `slotsFor`. */
+  slotsFor: (mode: ColorMode, at: Node) => Map<string, number>
   stats: ReportStats
-  /** Dress the pane — see `Staged`. Always handed null again before this returns. */
-  stage: (s: Staged | null) => void
-  /** True when no function rings are in flight — see `rest`. */
-  settled: () => boolean
+  /** A figure's markup — see `MapRender`. */
+  map: (req: MapRequest) => MapRender | Promise<MapRender>
+  env: VectorEnv
   cancelled: () => boolean
   onProgress: (t: ReportTick) => void
 }
@@ -334,7 +345,7 @@ function fontOf(run: Run, size: number): string {
  *  drew as two chips, and padding every word of it spaced `DO NOT EDIT` as `DO  NOT  EDIT`. Only a
  *  word wider than a whole line (a long path) is broken inside — after a `/` or `#` where one
  *  falls late enough, by character where none does. */
-function setLines(c: CanvasRenderingContext2D, runs: Run[], width: number, size: number): Line[] {
+function setLines(c: Surface, runs: Run[], width: number, size: number): Line[] {
   const pad = size * 0.3 * U
   type Piece = { text: string; run: Run; padL: number; padR: number }
   const words: { pieces: Piece[]; space: Run | null }[] = []
@@ -443,7 +454,7 @@ function setLines(c: CanvasRenderingContext2D, runs: Run[], width: number, size:
 }
 
 function drawLine(
-  c: CanvasRenderingContext2D,
+  c: Surface,
   line: Line,
   x: number,
   baseline: number,
@@ -509,7 +520,24 @@ function fillSlots(s: string, vars: Record<string, string>): string {
 function lensGates(o: Report): Record<string, string> {
   const has = (m: ColorMode) => (o.locks[m] ? '' : 'yes')
   const readings = (['surprise', 'legible', 'docs', 'traps'] as ColorMode[]).some((m) => has(m))
-  return { surprise: has('surprise'), legible: has('legible'), docs: has('docs'), traps: has('traps'), readings: readings ? 'yes' : '' }
+  const langs = new Set(o.stats.languages)
+  const yes = (b: boolean) => (b ? 'yes' : '')
+  return {
+    surprise: has('surprise'),
+    legible: has('legible'),
+    docs: has('docs'),
+    traps: has('traps'),
+    readings: readings ? 'yes' : '',
+    // **A caveat about a language prints where that language is.** sanity's report, of Rust and
+    // TypeScript, explained how C headers and Nix are counted, on the page that is supposed to be
+    // about this repository.
+    rust: yes(langs.has('Rust')),
+    nix: yes(langs.has('Nix')),
+    cFamily: yes(['C', 'C++', 'Objective-C'].some((l) => langs.has(l))),
+    manyLanguages: yes(langs.size > NAMED),
+    // Only a report and a deck draw each group on a map of its own.
+    groupMaps: yes(o.form !== 'brief'),
+  }
 }
 
 function proseBlocks(sections: Prose[], vars: Record<string, string> = {}): Block[] {
@@ -544,7 +572,7 @@ interface Row {
   keep: boolean
 }
 
-function flow(c: CanvasRenderingContext2D, blocks: Block[], width: number, size: number): Row[] {
+function flow(c: Surface, blocks: Block[], width: number, size: number): Row[] {
   const rows: Row[] = []
   blocks.forEach((b, i) => {
     const s = b.kind === 'h' ? size + 0.5 : size
@@ -574,7 +602,7 @@ function flow(c: CanvasRenderingContext2D, blocks: Block[], width: number, size:
   return rows
 }
 
-function drawRow(c: CanvasRenderingContext2D, r: Row, x: number, top: number, inks: Inks) {
+function drawRow(c: Surface, r: Row, x: number, top: number, inks: Inks) {
   const baseline = top + r.lead * 0.74
   if (r.label) {
     c.font = fontOf({ text: r.label }, r.size)
@@ -646,8 +674,9 @@ function drawSlices(sheet: Sheet, slices: Slice[]) {
 /* ── The page ─────────────────────────────────────────────────────────── */
 
 class Sheet {
-  readonly canvas: HTMLCanvasElement
-  readonly c: CanvasRenderingContext2D
+  /** The surface of the page being drawn — a measuring one before the first page exists. */
+  c: Surface
+  page: PdfPage | null = null
   readonly W: number
   readonly H: number
   readonly left: number
@@ -655,19 +684,17 @@ class Sheet {
   readonly bottom: number
 
   constructor(
+    readonly doc: PdfDoc,
     readonly paper: { w: number; h: number },
     readonly inks: Inks,
     /** What every page head says it is of — the repo, and the commit. */
     readonly stamp: string,
+    readonly env: VectorEnv,
   ) {
-    this.canvas = document.createElement('canvas')
     this.W = Math.round(paper.w * U)
     this.H = Math.round(paper.h * U)
-    this.canvas.width = this.W
-    this.canvas.height = this.H
-    const c = this.canvas.getContext('2d')
-    if (!c) throw new Error('This machine gave no 2D canvas to draw the pages on.')
-    this.c = c
+    // Measured on a page that is never written: layout runs before the first page is begun.
+    this.c = new Surface(new PdfPage(doc, paper.w, paper.h), env.fonts, env.vars, U)
     this.left = MARGIN * U
     this.right = this.W - MARGIN * U
     this.bottom = this.H - MARGIN * U
@@ -677,13 +704,16 @@ class Sheet {
     return this.right - this.left
   }
 
-  begin() {
-    const c = this.c
-    c.setTransform(1, 0, 0, 1, 0, 0)
-    c.globalAlpha = 1
-    c.globalCompositeOperation = 'source-over'
-    c.fillStyle = this.inks.bg
-    c.fillRect(0, 0, this.W, this.H)
+  /** Page `index` of the document, begun on white paper.
+   *
+   *  **The paper is painted, not assumed.** A PDF page has no backdrop until something is drawn,
+   *  and the findings maps are grayed with a `saturation` blend, which over nothing is the blend's
+   *  own gray: every findings figure came out on a solid gray square. Over white it is white. */
+  begin(index: number) {
+    this.page = this.doc.pageAt(index, this.paper.w, this.paper.h)
+    this.c = new Surface(this.page, this.env.fonts, this.env.vars, U)
+    this.c.fillStyle = this.inks.bg
+    this.c.fillRect(0, 0, this.W, this.H)
   }
 
   text(
@@ -704,43 +734,12 @@ class Sheet {
 
   /** The shift that puts a string's first ink at its origin. **A title aligns by its ink.** The
    *  side bearing grows with the type, so a 22pt title set at the margin sat visibly right of the
-   *  7.5pt eyebrow above it.
-   *
-   *  **Measured off pixels, on a scratch canvas.** It was `actualBoundingBoxLeft`, and the pages
-   *  that came out still had every title 2–8px right of its eyebrow (measured off the exported
-   *  JPEGs, against a 140px margin): WebKit's number is not the one its `fillText` draws by. A
-   *  plain canvas with nothing drawn into it from an SVG can be read back. */
+   *  7.5pt eyebrow above it. Read off the glyph's own side bearing in the face that prints it — it
+   *  was measured off pixels on a scratch canvas, because WebKit's `actualBoundingBoxLeft` was not
+   *  the number its `fillText` drew by. */
   bearing(s: string, size: number, bold = false, mono = false): number {
-    const ch = s.trimStart()[0]
-    if (!ch) return 0
-    const font = fontOf({ text: ch, bold, mono }, size)
-    const key = `${font}|${ch}`
-    const known = BEARINGS.get(key)
-    if (known !== undefined) return known
-    const px = Math.ceil(size * U * 2)
-    const probe = document.createElement('canvas')
-    probe.width = px
-    probe.height = px
-    const c = probe.getContext('2d', { willReadFrequently: true })
-    if (!c) return 0
-    const x0 = Math.round(size * U * 0.5)
-    c.font = font
-    c.fillStyle = '#000'
-    c.textBaseline = 'alphabetic'
-    c.fillText(ch, x0, Math.round(size * U * 1.5))
-    const data = c.getImageData(0, 0, px, px).data
-    let left = -1
-    for (let x = 0; x < px && left < 0; x++) {
-      for (let y = 0; y < px; y++) {
-        if (data[(y * px + x) * 4 + 3] > 64) {
-          left = x
-          break
-        }
-      }
-    }
-    const shift = left < 0 ? 0 : x0 - left
-    BEARINGS.set(key, shift)
-    return shift
+    const f = this.c.fontSpec(fontOf({ text: s, bold, mono }, size))
+    return f.face.bearing(s, f.size)
   }
 
   measure(s: string, size: number, bold = false, mono = false): number {
@@ -751,6 +750,14 @@ class Sheet {
   rule(y: number, x = this.left, w = this.width) {
     this.c.fillStyle = this.inks.border
     this.c.fillRect(x, y, w, Math.max(1, 0.6 * U))
+  }
+
+  /** A link from a rectangle on this page, in layout pixels, to page `target`. */
+  link(x0: number, y0: number, x1: number, y1: number, target: number) {
+    if (!this.page) return
+    const [a, b] = this.c.toPage(x0, y1)
+    const [c, d] = this.c.toPage(x1, y0)
+    this.page.links.push({ rect: [a, b, c, d], page: target })
   }
 
   /** Eyebrow and title. The body starts at `HEADER_BOTTOM`. `width` narrows the head to a column
@@ -787,16 +794,6 @@ class Sheet {
     })
     this.text(`${n} / ${of}`, this.right, y, { size: 7.5, color: this.inks.muted, align: 'right' })
   }
-
-  async jpeg(): Promise<Uint8Array> {
-    const blob = await within(
-      new Promise<Blob | null>((done) => this.canvas.toBlob(done, 'image/jpeg', QUALITY)),
-      20_000,
-      'A page took longer than 20s to encode.',
-    )
-    if (!blob) throw new Error('This machine returned no picture of the page.')
-    return new Uint8Array(await blob.arrayBuffer())
-  }
 }
 
 /** A string that fits `maxW`: shrunk toward `floor`, and only then cut from the middle, where a
@@ -819,7 +816,7 @@ function fitText(
 }
 
 /** A rounded rectangle, spelled out — `roundRect` is newer than the WebKit this has to run on. */
-function pill(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+function pill(c: Surface, x: number, y: number, w: number, h: number) {
   const r = Math.min(h, w) / 2
   c.beginPath()
   c.moveTo(x + r, y)
@@ -886,7 +883,6 @@ function keyHeight(sheet: Sheet, key: LensKey | null, extra: KeyItem[], width: n
 /** The key, centred on `cx` within `width`. Returns where it ends. */
 function drawKey(
   sheet: Sheet,
-  from: Element,
   key: LensKey | null,
   extra: KeyItem[],
   top: number,
@@ -912,7 +908,7 @@ function drawKey(
     x += loW + 8 * U
     const step = bar / ramp.fills.length
     ramp.fills.forEach((f, i) => {
-      c.fillStyle = paint(from, f) || inks.muted
+      c.fillStyle = f || inks.muted
       c.fillRect(x + i * step, base - h + 1 * U, step, h)
     })
     sheet.text(hi, x + bar + 8 * U, base, { size: 8, color: inks.muted })
@@ -929,7 +925,7 @@ function drawKey(
         const by = base - box + 1 * U
         c.save()
         c.globalAlpha = it.alpha ?? 1
-        c.fillStyle = it.fill ? paint(from, it.fill) || inks.muted : inks.bg
+        c.fillStyle = it.fill || inks.bg
         c.fillRect(tx, by, box, box)
         c.restore()
         if (it.hatch) {
@@ -960,8 +956,8 @@ function drawKey(
   return y
 }
 
-function pendingItems(o: Report, m: ColorMode): KeyItem[] {
-  const pend = paintsFromReadings(m) ? o.pending() : { stale: 0, unread: 0 }
+function pendingItems(counts: { stale: number; unread: number }, m: ColorMode): KeyItem[] {
+  const pend = paintsFromReadings(m) ? counts : { stale: 0, unread: 0 }
   return [
     // **Functions, and it says so.** The essay beside it counts functions AND files, so a bare
     // "18 stale" sat next to "24 are stale" and read as a contradiction.
@@ -982,97 +978,35 @@ function pendingItems(o: Report, m: ColorMode): KeyItem[] {
 
 /* ── The map ──────────────────────────────────────────────────────────── */
 
-function mapSvg(): SVGSVGElement {
-  const svg = document.querySelector<SVGSVGElement>('svg[data-sunburst]')
-  if (!svg) throw new Error('The map is not on screen to copy.')
-  return svg
-}
-
-function viewBoxOf(svg: SVGSVGElement): [number, number, number, number] {
-  const vb = (svg.getAttribute('viewBox') ?? '').split(/\s+/).map(Number)
-  return vb.length === 4 && vb.every(Number.isFinite) && vb[2] > 0
-    ? [vb[0], vb[1], vb[2], vb[3]]
-    : [0, 0, 1, 1]
-}
-
-/**
- * Wait for the map to stop changing before a figure is copied from it.
- *
- * **Two things move after the pane is staged, and a copy taken during either is a wrong page.**
- * A change of root is a level change, which animates — and while it does the function patches
- * are not drawn at all. And a denser layout has room to tile files it could not before, which
- * asks the backend for their function rings, landing a batch at a time. So: still for
- * `QUIET_MS`, measured rather than assumed — the rings group turns pointer events off for exactly
- * as long as it is moving, and `settled` is the window's own account of what is in flight.
- */
-async function rest(o: Report): Promise<void> {
-  const start = performance.now()
-  let last = start
-  let quiet = 0
-  for (;;) {
-    await new Promise((r) => requestAnimationFrame(r))
-    if (o.cancelled()) throw new Error(CANCELLED)
-    const now = performance.now()
-    const rings = document.querySelector<SVGGElement>('svg[data-sunburst] [data-rings]')
-    const still = rings !== null && rings.style.pointerEvents !== 'none'
-    quiet = still && o.settled() ? quiet + (now - last) : 0
-    last = now
-    if (quiet >= QUIET_MS || now - start > REST_LIMIT) break
-  }
-  await settle()
-}
-
-/** Where a square picture of the map puts the SVG's user space. */
-function userToPage(svg: SVGSVGElement, x: number, y: number, side: number): DOMMatrix {
-  const [vx, vy, vw, vh] = viewBoxOf(svg)
-  // `xMidYMid meet`, the default the copy is rendered with.
+/** Where a square picture of the map puts its user space, `xMidYMid meet`. */
+function userToPage(vb: [number, number, number, number], x: number, y: number, side: number): Matrix {
+  const [vx, vy, vw, vh] = vb
   const s = side / Math.max(vw, vh)
-  return new DOMMatrix([s, 0, 0, s, x + (side - vw * s) / 2 - vx * s, y + (side - vh * s) / 2 - vy * s])
+  return [s, 0, 0, s, x + (side - vw * s) / 2 - vx * s, y + (side - vh * s) / 2 - vy * s]
 }
 
-/** Drop from the copy every label that would print below `MIN_LABEL_PT`. The window's label
- *  rules are in pixels, and a name that fits at 4pt fits and cannot be read. */
-function pruneLabels(clone: SVGSVGElement, side: number) {
-  const [, , vw, vh] = viewBoxOf(clone)
-  const scale = side / Math.max(vw, vh)
-  for (const t of Array.from(clone.querySelectorAll('text'))) {
-    const fs = parseFloat(t.getAttribute('font-size') ?? '') || parseFloat(t.style.fontSize) || 0
-    if (fs > 0 && (fs * scale) / U < MIN_LABEL_PT) t.remove()
-  }
+/** A figure's map, rendered once and parsed once, however many pages draw it. */
+interface Figure {
+  render: MapRender
+  svg: El
 }
 
-async function drawMap(
+function drawMap(
   sheet: Sheet,
-  svg: SVGSVGElement,
-  style: string,
+  fig: Figure,
   x: number,
   y: number,
   side: number,
-  over?: (img: HTMLImageElement) => void,
+  over?: () => void,
   /** Every label set in this ink. **A findings map has no lens colour left to pick label ink
-   *  against**: it is greyed and shaded, and the window's ink choice — white on Clones' pale
-   *  neutral — turned into white on light grey, which hid every name on the figure. */
+   *  against**: it is grayed and shaded, and the lens's ink choice — white on Clones' pale
+   *  neutral — turned into white on light gray, which hid every name on the figure. */
   labelInk?: string,
 ) {
-  await rastered(
-    svg,
-    Math.round(side),
-    style,
-    (img) => {
-      sheet.c.drawImage(img, x, y, side, side)
-      over?.(img)
-    },
-    'The map took longer than 20s to draw.',
-    (clone) => {
-      pruneLabels(clone, side)
-      if (!labelInk) return
-      for (const t of Array.from(clone.querySelectorAll<SVGTextElement>('text'))) {
-        t.style.setProperty('fill', labelInk)
-        t.style.setProperty('stroke', 'none')
-      }
-    },
-  )
-  drawCreature(sheet.c, svg, { x, y, side })
+  // A label that would print under `MIN_LABEL_PT` is left off: the map's label rules are in
+  // pixels, and a name that fits at 4pt fits and cannot be read.
+  drawSvg(sheet.c, fig.svg, { x, y, side, vars: sheet.env.vars, labelInk, minLabel: MIN_LABEL_PT * U })
+  over?.()
 }
 
 /** Where one thing is on a drawn map. */
@@ -1080,7 +1014,7 @@ interface Spot {
   /** The path drawn for it, or for the nearest container that was drawn. */
   d: string
   /** Path space → page pixels. */
-  m: DOMMatrix
+  m: Matrix
   /** Where its badge goes, on the page — see `locate`. */
   at: { x: number; y: number }
   /** True when the thing itself was not drawn and this is what holds it. */
@@ -1094,40 +1028,22 @@ const parentOf = (p: string) => {
   return i < 0 ? '' : p.slice(0, i)
 }
 
-function tagsOf(svg: SVGSVGElement): Map<string, SVGPathElement> {
-  const tagged = new Map<string, SVGPathElement>()
-  for (const el of Array.from(svg.querySelectorAll<SVGPathElement>('path[data-node]'))) {
-    tagged.set(el.getAttribute('data-node')!, el)
-  }
-  return tagged
-}
-
-/** Find a thing among the tagged paths by any of its own ids, then up its path to the deepest
+/** Find a thing among the drawn wedges by any of its own ids, then up its path to the deepest
  *  drawn container — the rule the selection follows, because "in here" is an answer. */
-function locate(
-  own: string[],
-  fallback: string,
-  tagged: Map<string, SVGPathElement>,
-  svg: SVGSVGElement,
-  page: DOMMatrix,
-): Spot | null {
+function locate(own: string[], fallback: string, spots: MapRender['spots'], page: Matrix): Spot | null {
   const tries = [...own]
   for (let p = fallback; p; p = parentOf(p)) if (!tries.includes(p)) tries.push(p)
-  const screen = svg.getScreenCTM()
-  if (!screen) return null
-  const toUser = screen.inverse()
   for (const id of tries) {
-    const el = tagged.get(id)
-    if (!el) continue
-    const ctm = el.getScreenCTM()
-    const d = el.getAttribute('d')
-    const arc = (el.getAttribute('data-arc') ?? '').split(' ').map(Number)
-    if (!ctm || !d || arc.length !== 4 || !arc.every(Number.isFinite)) continue
-    const m = page.multiply(toUser.multiply(ctm))
-    const [a0, a1, r0, r1] = arc
+    const sp = spots.get(id)
+    if (!sp) continue
+    const m = page
+    const { a0, a1, r0, r1 } = sp
     const am = (a0 + a1) / 2
     const rm = (r0 + r1) / 2
-    const on = (r: number, a = am) => m.transformPoint(new DOMPoint(r * Math.sin(a), -r * Math.cos(a)))
+    const on = (r: number, a = am) => {
+      const [x, y] = apply(m, r * Math.sin(a), -r * Math.cos(a))
+      return { x, y }
+    }
     const inner = on(r0)
     const outer = on(r1)
     const depth = Math.hypot(outer.x - inner.x, outer.y - inner.y)
@@ -1150,7 +1066,7 @@ function locate(
             ? on(r0 + (BADGE_R * 1.1) / scale)
             : on(rm)
     return {
-      d,
+      d: sp.d,
       m,
       at: { x: pt.x, y: pt.y },
       coarse: !own.includes(id),
@@ -1163,9 +1079,9 @@ function locate(
 
 /** **By `finding.key` first, because that is what a function node's id is** — `key_of`, where a
  *  hit's id is spelled `path#name@line` and matches no function at all. */
-function spotOf(item: FindingItem, tagged: Map<string, SVGPathElement>, svg: SVGSVGElement, page: DOMMatrix) {
+function spotOf(item: FindingItem, spots: MapRender['spots'], page: Matrix) {
   const h = item.finding.hit
-  return locate([item.finding.key, h.id], h.kind === 'func' ? h.path : parentOf(h.path), tagged, svg, page)
+  return locate([item.finding.key, h.id], h.kind === 'func' ? h.path : parentOf(h.path), spots, page)
 }
 
 /** The map grey, and every wedge holding a finding shaded in one colour over it. By compositing,
@@ -1190,11 +1106,11 @@ function highlight(sheet: Sheet, spots: (Spot | null)[], x: number, y: number, s
   c.fillRect(x, y, side, side)
   c.restore()
 
-  const union = new Path2D()
+  const union = new VPath()
   let any = false
   for (const s of spots) {
     if (!s) continue
-    union.addPath(new Path2D(s.d), s.m)
+    union.addPath(new VPath(s.d), s.m)
     any = true
   }
   if (!any) return
@@ -1229,8 +1145,8 @@ function drawMarks(sheet: Sheet, marks: Mark[], x: number, y: number, side: numb
   for (const mk of marks) {
     const s = mk.spot
     if (!s || s.small) continue
-    const p = new Path2D()
-    p.addPath(new Path2D(s.d), s.m)
+    const p = new VPath()
+    p.addPath(new VPath(s.d), s.m)
     const dashed = mk.dashed || s.coarse
     c.save()
     c.strokeStyle = mk.quiet ? inks.muted : inks.fg
@@ -1374,7 +1290,6 @@ function partHeight(e: Entry, k: number): number {
 
 function drawPart(
   sheet: Sheet,
-  from: Element,
   e: Entry,
   k: number,
   top: number,
@@ -1426,7 +1341,7 @@ function drawPart(
       c.fillRect(x, y, w, 1.6 * U)
     }
     e.lenses.forEach((id, i) => {
-      c.fillStyle = paint(from, lensColor(id)) || inks.border
+      c.fillStyle = lensColor(id) || inks.border
       c.fillRect(x + i * seg, y, seg, 1.6 * U)
     })
     y += 5.6 * U
@@ -1449,7 +1364,7 @@ function drawPart(
     let cx = x
     const base = y + 8 * U
     for (const id of e.lenses) {
-      c.fillStyle = paint(from, lensColor(id)) || inks.muted
+      c.fillStyle = lensColor(id) || inks.muted
       c.beginPath()
       c.arc(cx + 2 * U, base - 2.4 * U, 2 * U, 0, Math.PI * 2)
       c.fill()
@@ -1602,7 +1517,7 @@ function findingSummary(count: number, groups: FindingGroup[]): Run[] {
     runs.push({
       text:
         setAside > 0
-          ? `Nothing standing. ${setAside.toLocaleString()} ignored.`
+          ? `Nothing standing. ${setAside.toLocaleString()} matches ignored.`
           : 'Nothing in this repo matches the rules.',
     })
   } else {
@@ -1613,7 +1528,7 @@ function findingSummary(count: number, groups: FindingGroup[]): Run[] {
     if (rowsCapped(groups)) {
       runs.push({ text: ' Some rules found more than the report was sent, so the list is short.', muted: true })
     }
-    if (setAside > 0) runs.push({ text: ` ${setAside.toLocaleString()} ignored.`, muted: true })
+    if (setAside > 0) runs.push({ text: ` ${setAside.toLocaleString()} matches ignored.`, muted: true })
   }
   for (const b of blockedByNeed(groups)) {
     runs.push({ text: ` ${b.rules.length} of ${groups.length} rules inactive (${b.need}).`, muted: true })
@@ -1626,23 +1541,12 @@ function findingSummary(count: number, groups: FindingGroup[]): Run[] {
 /** The wordmark's paths, read off the component that draws it in the window — one copy of the
  *  brand's shapes, not a second one typed out here. */
 function wordmarkPaths(): string[] {
-  const host = document.createElement('div')
-  host.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden'
-  document.body.appendChild(host)
-  const root = createRoot(host)
-  try {
-    flushSync(() => root.render(createElement(Wordmark, { height: 10 })))
-    return Array.from(host.querySelectorAll('path'))
-      .map((p) => p.getAttribute('d') ?? '')
-      .filter(Boolean)
-  } finally {
-    root.unmount()
-    host.remove()
-  }
+  const markup = renderToStaticMarkup(createElement(Wordmark, { height: 10 }))
+  return [...markup.matchAll(/\sd="([^"]+)"/g)].map((m) => m[1])
 }
 
 /** The slots the methodology names, filled from this repository. */
-function methodVars(o: Report, findings: number): Record<string, string> {
+function methodVars(o: Report, findings: number, full: Node | null): Record<string, string> {
   const s = o.stats
   const n = (v: number) => v.toLocaleString()
   const langs =
@@ -1673,7 +1577,7 @@ function methodVars(o: Report, findings: number): Record<string, string> {
     findings: n(findings),
     lockedClause: locked.length ? locked.join(', ') : 'none here',
     // Only a report has tables to name functions in, and an appendix.
-    namedClause: o.form === 'report' ? namedClause(o.treeNow()) : '',
+    namedClause: o.form === 'report' ? namedClause(full) : '',
     appendix: o.form === 'report' ? 'yes' : '',
     readerClause: reader,
     assessed: n(s.assessed),
@@ -1693,8 +1597,16 @@ const T_SIZE = 8
 const T_HEAD = 6.5
 const CELL_PAD = 8 * U
 const SWATCH = 7 * U
-/** The share's figure, right-aligned ahead of its bar. */
+/** The share's figure, right-aligned ahead of its bar — at least this wide; see `barTextOf`. */
 const BAR_TEXT = 30 * U
+
+/** The room a bar column's figure takes: `BAR_TEXT`, or its widest figure where that is wider.
+ *  **A fixed well cut the one figure that does not fit it**: a one-author Blame table printed its
+ *  share as `1···%`, beside the rule that no cell is ever cut. */
+function barTextOf(sheet: Sheet, table: Table): number {
+  const figures = table.rows.flatMap((r) => r.filter((c) => c.bar).map((c) => sheet.measure(c.text, T_SIZE) + 8 * U))
+  return Math.max(BAR_TEXT, ...figures)
+}
 
 interface TableLayout {
   table: Table
@@ -1705,6 +1617,8 @@ interface TableLayout {
   cont: Line[]
   xs: number[]
   widths: number[]
+  /** A bar column's figure well — see `barTextOf`. */
+  barText: number
   heads: Line[]
   rows: { cells: Line[][]; h: number }[]
   headH: number
@@ -1845,7 +1759,7 @@ function columnWidths(sheet: Sheet, table: Table, width: number): number[] | nul
   const cell = (c: Cell) => sheet.measure(c.text, T_SIZE, false, !!c.mono) + CELL_PAD + (c.swatch ? SWATCH + 4 * U : 0)
   const need = table.columns.map((_, i) => {
     const cells = table.rows.map((r) => r[i]).filter((c): c is Cell => !!c)
-    if (cells.some((c) => c.bar)) return Math.max(head(i), BAR_TEXT + 40 * U)
+    if (cells.some((c) => c.bar)) return Math.max(head(i), barTextOf(sheet, table) + 40 * U)
     return Math.max(head(i), ...cells.map(cell))
   })
   const rest = need.slice(1).reduce((t, w) => t + w, 0)
@@ -1868,11 +1782,12 @@ function layoutTable(sheet: Sheet, table: Table, n: number, x = sheet.left, widt
   const heads = table.columns.map((col, i) =>
     oneLine(sheet, { text: col.label.toUpperCase(), bold: true, muted: true }, widths[i] - CELL_PAD, T_HEAD),
   )
+  const barText = barTextOf(sheet, table)
   const rows = table.rows.map((cells) => {
     const lines = cells.map((cell, i) => {
       const run: Run = { text: cell.text, mono: cell.mono, muted: cell.muted }
       const room = widths[i] - CELL_PAD - (cell.swatch ? SWATCH + 4 * U : 0)
-      if (cell.bar) return [oneLine(sheet, run, BAR_TEXT - 8 * U, T_SIZE)]
+      if (cell.bar) return [oneLine(sheet, run, barText - 8 * U, T_SIZE)]
       if (table.columns[i]?.wrap) {
         return setLines(sheet.c, cell.markup ? codeRuns(cell.text, run) : [run], room, T_SIZE).slice(0, 10)
       }
@@ -1888,6 +1803,7 @@ function layoutTable(sheet: Sheet, table: Table, n: number, x = sheet.left, widt
     cont: setLines(sheet.c, [{ text: `Table ${n}, continued.`, bold: true }], width, 7.5),
     xs,
     widths,
+    barText,
     heads,
     rows,
     headH: lead(T_HEAD) + 5 * U,
@@ -1981,7 +1897,7 @@ function placeTables(sheet: Sheet, pages: LensPage[], tables: TableLayout[], sta
   }
 }
 
-function drawTable(sheet: Sheet, from: Element, s: TableSlot) {
+function drawTable(sheet: Sheet, s: TableSlot) {
   const c = sheet.c
   const inks = sheet.inks
   const L = s.layout
@@ -2005,20 +1921,20 @@ function drawTable(sheet: Sheet, from: Element, s: TableSlot) {
       const right = L.table.columns[i].align === 'right'
       let x = L.xs[i]
       if (cell.swatch) {
-        c.fillStyle = paint(from, cell.swatch) || inks.muted
+        c.fillStyle = cell.swatch || inks.muted
         c.fillRect(x, base - SWATCH + 1 * U, SWATCH, SWATCH)
         x += SWATCH + 4 * U
       }
       if (cell.bar) {
-        const room = L.widths[i] - CELL_PAD - BAR_TEXT
-        c.fillStyle = paint(from, cell.bar.fill) || inks.muted
-        c.fillRect(x + BAR_TEXT, base - 6 * U, Math.max(0.8 * U, room * Math.max(0, Math.min(1, cell.bar.share))), 5.5 * U)
+        const room = L.widths[i] - CELL_PAD - L.barText
+        c.fillStyle = cell.bar.fill || inks.muted
+        c.fillRect(x + L.barText, base - 6 * U, Math.max(0.8 * U, room * Math.max(0, Math.min(1, cell.bar.share))), 5.5 * U)
       }
       lines.forEach((line, k) => {
         const lx = right
           ? L.xs[i] + L.widths[i] - CELL_PAD - line.w
           : cell.bar
-            ? x + BAR_TEXT - 6 * U - line.w
+            ? x + L.barText - 6 * U - line.w
             : x
         drawLine(c, line, lx, base + k * lead(T_SIZE), T_SIZE, inks)
       })
@@ -2160,7 +2076,7 @@ function drawCover(sheet: Sheet, cover: Cover, paths: string[], facts: string, n
   c.translate(sheet.left, cover.markTop)
   c.scale(s, s)
   c.fillStyle = inks.fg
-  for (const d of paths) c.fill(new Path2D(d))
+  for (const d of paths) c.fill(new VPath(d))
   c.restore()
   sheet.text('sanity.monster', sheet.left + cover.width, cover.markTop + h, { size: 8, color: inks.muted, align: 'right' })
 
@@ -2196,9 +2112,10 @@ function drawCover(sheet: Sheet, cover: Cover, paths: string[], facts: string, n
 export async function buildReport(o: Report): Promise<Uint8Array> {
   const deck = o.form === 'deck'
   const paper = deck ? DECK_PAGE : PAGE
-  const modes = lensPages(o.locks)
+  let modes = lensPages(o.locks)
+  /** Lenses with nothing to say here beyond one sentence, and that sentence — see below. */
+  const skips = new Map<ColorMode, string>()
   const items = mergeFindings(o.groups)
-  const pages: (PdfPage | null)[] = []
   let done = 0
   let total = 0
   const tick = (what: string) => o.onProgress({ done, total, what })
@@ -2207,58 +2124,59 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
   }
   const dirt = o.head?.dirty ? ' + uncommitted' : ''
   const stamp = o.head ? `${o.slug} @ ${o.head.sha}${dirt}` : o.slug
-
-  await Promise.all([
-    document.fonts.load(`700 100px ${FAMILY}`),
-    document.fonts.load(`400 100px ${FAMILY}`),
-  ]).catch(() => {})
   const wordmark = wordmarkPaths()
 
-  const stage = (mode: ColorMode, px: number, root = '') =>
-    o.stage({ px, ground: 'light', mode, whole: true, root })
-  // The creature holds one pose for the whole report, so every figure shows the same face.
-  const clock = mascotClock()
-  let driving = false
-  const pose = () => {
-    if (driving) clock?.step(0)
+  const full = o.tree
+  const pending = full ? countPending(full) : { stale: 0, unread: 0 }
+  const bucketsOf = (m: ColorMode) => (full ? bucketsFor(full, m, o.slotsFor(m, full), o.views) : [])
+  // **A lens with one value gets no page, for the reason a lens with none does not.** sanity's
+  // Blame was a page, a slide and a brief page each of one colour, with an essay about how to
+  // tell authors apart, to say one person wrote it. The sentence is the whole result, so it is
+  // what the contents page prints.
+  if (full && modes.includes('blame')) {
+    const absent = String.fromCharCode(0)
+    const people = bucketsOf('blame').filter((b) => b.lines > 0 && !b.key.startsWith(absent))
+    if (people.length === 1) skips.set('blame', `Every function line is attributed to one author, ${people[0].label}.`)
+  }
+  modes = modes.filter((m) => !skips.has(m))
+
+  /** Figures by lens and root, rendered once: a deck draws a group's map on every slide of the
+   *  group, and the findings overview on every overview slide.
+   *
+   *  **Every figure is laid out at one density, whatever size it prints at** (`FIGURE_PX`). A
+   *  vector figure scales without being drawn again, so a report, a brief and a deck of one commit
+   *  can share every figure — which `Report.map` caches on — and a label too small where a figure
+   *  prints small is left off at draw time (`MIN_LABEL_PT`) rather than laid out differently. */
+  const figures = new Map<string, Figure>()
+  const figureOf = async (mode: ColorMode, _side: number, root = ''): Promise<Figure> => {
+    const key = `${mode}|${root}`
+    const known = figures.get(key)
+    if (known) return known
+    const render = await o.map({ mode, px: FIGURE_PX, root })
+    const made: Figure = { render, svg: parseSvg(render.markup) }
+    figures.set(key, made)
+    return made
   }
 
-  try {
-    tick('staging the map')
+  {
+    tick('laying out the pages')
     const contentW = (paper.w - 2 * MARGIN) * U
     const colW = (contentW - GUTTER) / 2
     /** A deck title slide's map: the whole repository, as tall as the slide's margins allow. */
     const heroSide = (paper.h - 2 * MARGIN) * U
-    stage(o.heroLens, Math.round(deck ? heroSide : contentW))
-    await rest(o)
-    check()
-    driving = clock?.hold() ?? false
-
-    let svg = mapSvg()
     // **Always white paper.** A report is a document, printed or read beside other documents; a
-    // dark page is a screen's choice, and the window's warm light ground prints as a grey wash.
+    // dark page is a screen's choice, and the window's warm light ground prints as a gray wash.
     const inks: Inks = {
       bg: PAPER_WHITE,
-      fg: ink(svg, '--foreground') || '#111',
-      muted: ink(svg, '--muted-foreground') || '#777',
-      border: ink(svg, '--border') || '#ddd',
-      secondary: ink(svg, '--secondary') || '#eee',
-      accent: ink(svg, '--accent') || '#c60',
+      fg: 'var(--foreground)',
+      muted: 'var(--muted-foreground)',
+      border: 'var(--border)',
+      secondary: 'var(--secondary)',
+      accent: 'var(--accent)',
     }
-    const sheet = new Sheet(paper, inks, stamp)
-    /** A fresh page, with the brand face asked for again first. One report page came out in the
-     *  fallback face while its lines had been measured in the brand one, which spread its words
-     *  apart. Why the face was missing is not established — this asks for it before every page
-     *  rather than trusting the load at the start. */
-    const page = async () => {
-      await Promise.all([
-        document.fonts.load(`700 100px ${FAMILY}`),
-        document.fonts.load(`400 100px ${FAMILY}`),
-      ]).catch(() => {})
-      sheet.begin()
-    }
-    // White paper is the map's ground too: its cuts are drawn in `--background`.
-    const style = (await faceCss()) + varCss(svg) + `svg{--background:${PAPER_WHITE}}`
+    const doc = new PdfDoc()
+    const sheet = new Sheet(doc, paper, inks, stamp, { ...o.env, vars: onPaper(o.env.vars, PAPER_WHITE) })
+    const page = (index: number) => sheet.begin(index)
     const col2 = sheet.left + colW + GUTTER
     const twoCols = (top: number): Region[] => [
       { x: sheet.left, top, bottom: sheet.bottom },
@@ -2269,7 +2187,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
 
     // ── Lay out: the cover, and in a report the methodology under and after it.
     tick('setting the methodology')
-    const vars = methodVars(o, items.length)
+    const vars = methodVars(o, items.length, full)
     const cover = coverOf(sheet, o, vars, deck ? sheet.width - heroSide - DECK_GAP : sheet.width)
     const methodBlocks = proseBlocks(METHODOLOGY.sections, vars)
     const onCover = (b: Block[]) => pour(flow(sheet.c, b, colW, 9), () => twoCols(cover.bodyTop))
@@ -2290,8 +2208,8 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
      *  paper sets a figure in. */
     const headsAt = (width: number) =>
       modes.map((m, i) => {
-        const key = o.keyFor(m)
-        const extra = pendingItems(o, m)
+        const key = full ? keyFor(m, full, o.views, o.slotsFor(m, full)) : null
+        const extra = pendingItems(pending, m)
         const setting = settingOf(m, o.views)
         const named = `${MODE_LABEL[m]}${setting ? `, ${setting}` : ''}.`
         // A deck says what width and colour are once, on its title slide, and numbers no figures:
@@ -2302,7 +2220,9 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
             ? [{ text: named, muted: true }]
             : [
                 { text: `Figure ${i + 1}. `, bold: true },
-                { text: `${named} Angular width is lines of code; colour is this lens.`, muted: true },
+                // What width and color are is said once, in the methodology: printed under all
+                // thirteen figures, it was the most repeated sentence in the report.
+                { text: named, muted: true },
               ],
           width,
           7.5,
@@ -2334,8 +2254,8 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     }
     /** A lens's table data, which its tables and its Results are both read off. */
     const ctxOf = (m: ColorMode): TableContext => ({
-      root: o.treeNow(),
-      buckets: o.bucketsFor(m),
+      root: full,
+      buckets: bucketsOf(m),
       views: o.views,
       tangleBands: o.stats.tangleBands,
       mapLines: o.stats.lines,
@@ -2422,11 +2342,17 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         // **Never the type, and never the essay.** Every essay is set at `BODY`: a page whose text
         // is smaller than its neighbour's reads as a different document, and the report is one.
         // The essay is the explanation of the figure, so it is not what gets cut.
-        const full: TableLimits = { cast: FULL_CAST, examples: h.m === 'traps' ? TRAPS_MAX : TOP }
-        const ladder: (TableLimits | null)[] = [full]
-        for (let ex = full.examples - 1; ex >= 3; ex--) ladder.push({ ...full, examples: ex })
-        for (let cast = FULL_CAST - 1; cast >= 4; cast--) ladder.push({ cast, examples: 3 })
-        ladder.push({ cast: 4, examples: 0 }, null)
+        const whole: TableLimits = { cast: FULL_CAST, examples: h.m === 'traps' ? TRAPS_MAX : TOP }
+        const ladder: (TableLimits | null)[] = [whole]
+        // **Except Traps, whose table is the finding.** Every row is a hazard somebody has to
+        // know, in the reader's own words, and the limit cut two of sanity's eleven to keep an
+        // essay that says the same thing on every repository. A Traps section runs as long as
+        // its traps do.
+        if (h.m !== 'traps') {
+          for (let ex = whole.examples - 1; ex >= 3; ex--) ladder.push({ ...whole, examples: ex })
+          for (let cast = FULL_CAST - 1; cast >= 4; cast--) ladder.push({ cast, examples: 3 })
+          ladder.push({ cast: 4, examples: 0 }, null)
+        }
         let chosen = attempt(ladder[0])
         for (const limits of ladder.slice(1)) {
           if (chosen.pages.length <= MAX_LENS_PAGES) break
@@ -2476,18 +2402,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const keyTopOf = (h: Head) => sheet.bottom - h.caption.length * lead(7.5) - 6 * U - h.keyH
       const regionOf = (h: Head): Region[] => [{ x: textX, top: HEADER_BOTTOM, bottom: keyTopOf(h) - 14 * U }]
       const deckVars = lensVars(o, vars.readerClause)
-      const facts = new Map(
-        heads.map((h) => [
-          h.m,
-          lensFact(h.m, {
-            root: o.treeNow(),
-            buckets: o.bucketsFor(h.m),
-            views: o.views,
-            tangleBands: o.stats.tangleBands,
-            mapLines: o.stats.lines,
-          }),
-        ]),
-      )
+      const facts = new Map(heads.map((h) => [h.m, lensFact(h.m, ctxOf(h.m))]))
       const wordsOf = (m: ColorMode) => proseBlocks(deckProse(m, facts.get(m) ?? ''), deckVars)
       const fits = (b: Block[], h: Head, size: number) =>
         pour(flow(sheet.c, b, textW, size), () => regionOf(h)).length === 1
@@ -2699,10 +2614,8 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     at += appendixPages.length
     total = at
 
-    const put = async (index: number, title?: string) => {
-      tick(`encoding page ${index + 1}`)
-      const jpeg = await sheet.jpeg()
-      pages[index] = { jpeg, width: sheet.W, height: sheet.H, pageWidth: paper.w, pageHeight: paper.h, title }
+    const put = (_index: number, title?: string) => {
+      if (title && sheet.page) sheet.page.title = title
       done += 1
     }
 
@@ -2719,7 +2632,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     for (let p = 0; p < methodPages.length; p++) {
       check()
       tick('drawing the methodology')
-      await page()
+      page(p)
       if (p === 0) {
         drawCover(
           sheet,
@@ -2727,14 +2640,11 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
           wordmark,
           facts,
           deck
-            ? `The map beside this is coloured by ${MODE_LABEL[o.heroLens]}. On every map in this deck angular width is lines of code, and on a lens slide colour is the lens it names.`
+            ? `The map beside this is colored by ${MODE_LABEL[o.heroLens]}. On every map in this deck angular width is lines of code, and on a lens slide color is the lens it names.`
             : '',
         )
         // A deck's title slide carries the whole repository beside its name, in the window's lens.
-        if (deck) {
-          pose()
-          await drawMap(sheet, svg, style, sheet.right - heroSide, MARGIN * U, heroSide)
-        }
+        if (deck) drawMap(sheet, await figureOf(o.heroLens, heroSide), sheet.right - heroSide, MARGIN * U, heroSide)
       }
       else sheet.continued('Methodology', 'Methodology, continued')
       drawSlices(sheet, methodPages[p])
@@ -2745,32 +2655,28 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     // ── Draw: a section per lens.
     for (const plan of lensPlans) {
       check()
-      tick(`staging ${MODE_LABEL[plan.m]}`)
-      stage(plan.m, Math.round(plan.figSide))
-      await rest(o)
-      check()
       tick(`drawing ${MODE_LABEL[plan.m]}`)
-      svg = mapSvg()
+      const fig = await figureOf(plan.m, plan.figSide)
+      check()
       const start = lensStart.get(plan.m)!
       const family = FAMILIES.find((f) => f.modes.includes(plan.m))?.label ?? ''
       for (let p = 0; p < plan.pages.length; p++) {
-        await page()
+        page(start + p)
         if (p === 0) {
           if (deck) sheet.header(family, MODE_LABEL[plan.m], false, { width: plan.keyW, stamp: false })
           else sheet.header(family, MODE_LABEL[plan.m])
-          pose()
-          await drawMap(sheet, svg, style, plan.figX, plan.figY, plan.figSide)
+          drawMap(sheet, fig, plan.figX, plan.figY, plan.figSide)
           let y = plan.capTop
           for (const line of plan.caption) {
             drawLine(sheet.c, line, plan.capX, y + lead(7.5) * 0.74, 7.5, inks)
             y += lead(7.5)
           }
-          drawKey(sheet, svg, plan.key, plan.extra, plan.keyTop, plan.keyCx, plan.keyW, plan.keyAlign)
+          drawKey(sheet, plan.key, plan.extra, plan.keyTop, plan.keyCx, plan.keyW, plan.keyAlign)
         } else {
           sheet.continued(family, `${MODE_LABEL[plan.m]}, continued`)
         }
         drawSlices(sheet, plan.pages[p].slices)
-        for (const t of plan.pages[p].tables) drawTable(sheet, svg, t)
+        for (const t of plan.pages[p].tables) drawTable(sheet, t)
         sheet.footer(start + p + 1, total, deck)
         await put(start + p, p === 0 ? MODE_LABEL[plan.m] : undefined)
       }
@@ -2779,26 +2685,22 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     // ── Draw: the findings overview.
     let ovSpots: (Spot | null)[] = []
     let groupMarks: Mark[] = []
+    let ovFigure: Figure | null = null
     if (showOverview) {
       check()
-      tick('staging the findings overview')
-      stage(o.findingsLens, Math.round(ovSide))
-      await rest(o)
-      check()
-      const ovSvg = mapSvg()
-      svg = ovSvg
-      const tagged = tagsOf(ovSvg)
-      const m = userToPage(ovSvg, ovX, ovTop, ovSide)
-      ovSpots = list.map((e) => spotOf(e.item, tagged, ovSvg, m))
+      tick('drawing the findings overview')
+      const fig = await figureOf(o.findingsLens, ovSide)
+      ovFigure = fig
+      const m = userToPage(fig.render.viewBox, ovX, ovTop, ovSide)
+      ovSpots = list.map((e) => spotOf(e.item, fig.render.spots, m))
       groupMarks = sections
         .filter((sec) => sec.root !== '')
-        .map((sec) => ({ spot: locate([sec.root], parentOf(sec.root), tagged, ovSvg, m), label: sec.letter, dashed: true }))
+        .map((sec) => ({ spot: locate([sec.root], parentOf(sec.root), fig.render.spots, m), label: sec.letter, dashed: true }))
     }
     /** The overview map, its marks and its caption. A deck draws it on every overview slide, so the
      *  grid beside it always has the picture it indexes. */
-    const drawOverview = async (here: Set<string> | null) => {
-      pose()
-      await drawMap(sheet, svg, style, ovX, ovTop, ovSide, () => highlight(sheet, ovSpots, ovX, ovTop, ovSide), inks.fg)
+    const drawOverview = (here: Set<string> | null) => {
+      if (ovFigure) drawMap(sheet, ovFigure, ovX, ovTop, ovSide, () => highlight(sheet, ovSpots, ovX, ovTop, ovSide), inks.fg)
       // Letters for groups the grid beside it lists stay loud; the rest go quiet, as a group's
       // repeated map does for its entries.
       drawMarks(
@@ -2814,7 +2716,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         o.form === 'brief'
           ? `Letters mark the ${n} place${n === 1 ? '' : 's'} the findings are grouped by, which the grid lists.`
           : `Letters mark the ${n} group${n === 1 ? '' : 's'} the findings are presented in, each on its own map zoomed to that region.`
-      const text = `Every wedge holding a finding is shaded; the rest of the repository is grey. ${where}${unplaced ? ` ${unplaced} could not be placed at this size.` : ''}`
+      const text = `Every wedge holding a finding is shaded; the rest of the repository is gray. ${where}${unplaced ? ` ${unplaced} could not be placed at this size.` : ''}`
       const lines = setLines(
         sheet.c,
         deck ? [{ text, muted: true }] : [{ text: `Figure ${ovFig}. `, bold: true }, { text, muted: true }],
@@ -2833,7 +2735,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     for (let p = 0; p < ovPages; p++) {
       check()
       tick('drawing the findings overview')
-      await page()
+      page(findingsStart + p)
       let y: number
       const rows = gridPages[p] ?? []
       // Only a deck repeats the overview, and only one on more than one slide has letters to quiet.
@@ -2869,15 +2771,11 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const side = gSides[i]
       check()
       tick(`zooming to ${placeName(sec)}`)
-      stage(o.findingsLens, Math.round(side), sec.root)
-      await rest(o)
+      const gFig = await figureOf(o.findingsLens, side, sec.root)
       check()
-      const gSvg = mapSvg()
-      svg = gSvg
-      const tagged = tagsOf(gSvg)
       const gx = deck ? sheet.left : sheet.left + (sheet.width - side) / 2
-      const m = userToPage(gSvg, gx, HEADER_BOTTOM, side)
-      const spots = sec.entries.map((e) => spotOf(e.item, tagged, gSvg, m))
+      const m = userToPage(gFig.render.viewBox, gx, HEADER_BOTTOM, side)
+      const spots = sec.entries.map((e) => spotOf(e.item, gFig.render.spots, m))
       sec.entries.forEach((e, k) => {
         e.pinned = spots[k] !== null
       })
@@ -2886,7 +2784,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const coarse = sec.entries.filter((_, k) => spots[k]?.coarse).map((e) => e.n)
       const lost = sec.entries.filter((_, k) => !spots[k]).map((e) => e.n)
       const text = [
-        `Zoomed to ${where}: ${sec.entries.length} finding${sec.entries.length === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}. Shaded, numbered wedges are the findings listed ${deck ? 'beside it' : 'below'}; the rest of this region is grey.`,
+        `Zoomed to ${where}: ${sec.entries.length} finding${sec.entries.length === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}. Shaded, numbered wedges are the findings listed ${deck ? 'beside it' : 'below'}; the rest of this region is gray.`,
         coarse.length
           ? ` ${coarse.join(', ')} ${coarse.length === 1 ? 'is' : 'are'} too small to draw at this zoom and ${coarse.length === 1 ? 'is' : 'are'} marked, dashed, on what holds ${coarse.length === 1 ? 'it' : 'them'}.`
           : '',
@@ -2901,9 +2799,8 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       /** The group's map, its numbered marks and its caption. A deck draws it on every slide of the
        *  group, beside the entries that carry on, and quiets the badges of entries on other slides
        *  (`here`) so the same map points at what is beside it. */
-      const drawGroup = async (here: Set<Entry> | null) => {
-        pose()
-        await drawMap(sheet, gSvg, style, gx, HEADER_BOTTOM, side, () => highlight(sheet, spots, gx, HEADER_BOTTOM, side), inks.fg)
+      const drawGroup = (here: Set<Entry> | null) => {
+        drawMap(sheet, gFig, gx, HEADER_BOTTOM, side, () => highlight(sheet, spots, gx, HEADER_BOTTOM, side), inks.fg)
         drawMarks(
           sheet,
           spots.map((sp, k) => ({
@@ -2927,7 +2824,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const pagesHere = sectionPages[i]
       for (let p = 0; p < pagesHere.length; p++) {
         check()
-        await page()
+        page(start + p)
         let y: number
         // Only a deck repeats the map, and only a group on more than one slide has any to quiet.
         const here = deck && pagesHere.length > 1 ? new Set(pagesHere[p].map((slot) => slot.e)) : null
@@ -2940,7 +2837,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
           if (deck) await drawGroup(here)
           y = CONTINUED_TOP
         }
-        for (const slot of pagesHere[p]) y += drawPart(sheet, gSvg, slot.e, slot.k, y, slot.cont, textLeft)
+        for (const slot of pagesHere[p]) y += drawPart(sheet, slot.e, slot.k, y, slot.cont, textLeft)
         sheet.footer(start + p + 1, total)
         await put(start + p, p === 0 ? `Group ${sec.letter} · ${placeName(sec)}` : undefined)
       }
@@ -2950,7 +2847,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     for (let p = 0; p < appendixPages.length; p++) {
       check()
       tick('drawing the appendix')
-      await page()
+      page(appendixStart + p)
       if (p === 0) sheet.header('Appendix', APPENDIX.title)
       else sheet.continued('Appendix', `${APPENDIX.title}, continued`)
       drawSlices(sheet, appendixPages[p])
@@ -2962,7 +2859,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     if (contentsIndex >= 0) {
       check()
       tick('setting the contents')
-      await page()
+      page(contentsIndex)
       contents(
         sheet,
         o,
@@ -2973,18 +2870,19 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         groupStart,
         placeName,
         appendixPages.length ? appendixStart : null,
+        skips,
       )
       sheet.footer(contentsIndex + 1, total)
       await put(contentsIndex, 'Contents')
     }
-  } finally {
-    o.stage(null)
-    if (driving) clock?.release()
+    tick('writing the PDF')
+    return doc.write({
+      title: `${stamp} — sanity ${FORM[o.form].noun}`,
+      created: new Date(),
+      subset: o.env.subset,
+      deflate: o.env.deflate,
+    })
   }
-
-  tick('writing the PDF')
-  const ready = pages.filter((p): p is PdfPage => p !== null)
-  return writePdf(ready, { title: `${stamp} — sanity ${FORM[o.form].noun}`, created: new Date() })
 }
 
 function contents(
@@ -2998,6 +2896,8 @@ function contents(
   placeName: (s: Section) => string,
   /** The appendix's first page, or null where the report has none. */
   appendix: number | null,
+  /** Lenses left out for having one value, with the sentence that is their result. */
+  skips: Map<ColorMode, string>,
 ) {
   const c = sheet.c
   const inks = sheet.inks
@@ -3016,6 +2916,8 @@ function contents(
         c.fillRect(dx, y - 1.5 * U, 1 * U, 1 * U)
       }
       sheet.text(page, sheet.right, y, { size })
+      // The row is a link to what it names.
+      sheet.link(x, y - size * U, sheet.right, y + 4 * U, Number(page) - 1)
     }
   }
   const eyebrow = (text: string) => {
@@ -3039,9 +2941,10 @@ function contents(
         row(MODE_LABEL[m], '', { indent: 20 * U, muted: true })
         // Lenses skipped for one reason share its sentence, set once under the last of them:
         // the four a reading paints printed the same sentence four times.
-        const why = o.locks[m]?.paper ?? ''
+        const whyOf = (x: ColorMode) => o.locks[x]?.paper ?? skips.get(x) ?? ''
+        const why = whyOf(m)
         const next = fam.modes[i + 1]
-        if (next !== undefined && lensStart.get(next) === undefined && (o.locks[next]?.paper ?? '') === why) {
+        if (next !== undefined && lensStart.get(next) === undefined && whyOf(next) === why) {
           y += 16 * U
           continue
         }

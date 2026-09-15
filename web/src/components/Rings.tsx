@@ -175,7 +175,7 @@ export function SpacingMenu({
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        title="How much of the map is separation: the frame around a folder's colour, the gap between two things side by side, and the gap between one level and the next."
+        title="How much of the map is separation: the frame around a folder's color, the gap between two things side by side, and the gap between one level and the next."
         className={`flex items-center gap-1.5 rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] ${CONTROL_H}`}
         style={{
           background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
@@ -209,7 +209,7 @@ export function SpacingMenu({
           >
             <label
               className="flex items-center justify-between gap-2"
-              title="A folder's colour is drawn as a band floated inside its plate, with the ground showing all the way round it. Flush against the edge it reads as the folder's own outline instead — which says the folder is that colour, and a folder's colour is only ever a summary of what is inside it."
+              title="A folder's color is drawn as a band floated inside its plate, with the ground showing all the way round it. Flush against the edge it reads as the folder's own outline instead — which says the folder is that color, and a folder's color is only ever a summary of what is inside it."
             >
               <span className="text-[var(--muted-foreground)]">folder borders</span>
               <button
@@ -355,7 +355,7 @@ export function ColorCount({
         type="button"
         onClick={step(-1)}
         disabled={i <= 0}
-        title={`Fewer colors — the major ${noun}, with everybody else in one grey "other"`}
+        title={`Fewer colors — the major ${noun}, with everybody else in one gray "other"`}
         className="rounded-full px-2 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:text-[var(--muted-foreground)]"
       >
         −
@@ -595,14 +595,14 @@ export function AgeReading({ read, onRead }: { read: AgeRead; onRead: (r: AgeRea
           // eye has to skip to reach the choice.
           said: 'newest line',
           title:
-            'Colour by the NEWEST line here — how long since a commit last touched this body. Bright is recent: where work has been happening.',
+            'Color by the NEWEST line here — how long since a commit last touched this body. Bright is recent: where work has been happening.',
         },
         {
           key: 'oldest',
           word: 'oldest',
           said: 'oldest line',
           title:
-            'Colour by the OLDEST line still standing here. Cold is code nobody has been near in a long while — a different question from what has been touched lately, and on a body rewritten last week out of lines from 2014 the two disagree by a decade. The oldest LINE, not when the code first appeared: a wholesale rewrite leaves nothing behind saying when it was written.',
+            'Color by the OLDEST line still standing here. Cold is code nobody has been near in a long while — a different question from what has been touched lately, and on a body rewritten last week out of lines from 2014 the two disagree by a decade. The oldest LINE, not when the code first appeared: a wholesale rewrite leaves nothing behind saying when it was written.',
         },
       ]}
     />
@@ -839,14 +839,14 @@ export function BlameReading({
           word: 'newest',
           said: 'newest line',
           title:
-            "Colour by the NEWEST line's name — who touched each wedge most recently. A timestamp with a name on it, and what this lens has always painted.",
+            "Color by the NEWEST line's name — who touched each wedge most recently. A timestamp with a name on it, and what this lens has always painted.",
         },
         {
           key: 'lines',
           word: 'most',
           said: 'most lines',
           title:
-            'Colour by whose lines most of each body IS. Not ownership: blame reports who touched each line last, so a body rewritten wholesale reads as new and everyone whose lines were replaced is gone.',
+            'Color by whose lines most of each body IS. Not ownership: blame reports who touched each line last, so a body rewritten wholesale reads as new and everyone whose lines were replaced is gone.',
         },
       ]}
     />

@@ -15,10 +15,8 @@ import {
 } from '../lib/colorMode'
 import {
   DOC_GAP,
-  DOC_WORDS,
+  GRADE_WORDS,
   GRADE_SURPRISE,
-  HEAT_WORDS,
-  LEGIBLE_WORDS,
   functionForks,
   functionHistory,
   functionLinks,
@@ -549,7 +547,7 @@ function RefList({
  *  It is the definition of the LENS, not a fact about the function you clicked, and printed as
  *  a paragraph it was re-read on every clone anybody opened. */
 const CLONE_HINT =
-  'The same body, with names and formatting normalised away. A group is a fact, not a verdict — table-driven tests and trait boilerplate live here too.'
+  'The same body, with names and formatting normalized away. A group is a fact, not a verdict — table-driven tests and trait boilerplate live here too.'
 
 /** The directory a repo-relative path sits in — the empty string at the root.
  *
@@ -565,11 +563,11 @@ function dirOf(path: string): string {
 /** The rungs of `predicted`, in the reader's own words from `mcp.rs`'s report schema.
  *
  *  The grade is about the PREDICTION, not about the code — which is the one thing a person
- *  reading a wedge called `quirky` cannot work out from the word alone, and the reason the
- *  ladder earns its place under the lens the whole app is for. `HEAT_WORDS` names what the
- *  map shows (`mundane`, `typical`, `quirky`, `obscure`); these say what a reader did to
- *  earn one. Same division as Legibility's, and the same rule: lift the wording, never
- *  paraphrase it, or the panel is quietly describing a question nobody was asked. */
+ *  reading `predicted: some` on a wedge cannot work out from the words alone, and the reason
+ *  the ladder earns its place under the lens the whole app is for. The grade names the rung;
+ *  these say what a reader did to earn one. Same division as Legibility's, and the same rule:
+ *  lift the wording, never paraphrase it, or the panel is quietly describing a question nobody
+ *  was asked. */
 const PREDICT_RUNGS: Record<Grade, string> = {
   full: 'called it — nothing missed',
   most: 'broadly right, one detail that was not obvious',
@@ -599,7 +597,7 @@ function SurpriseSection({ node }: { node: Node }) {
   const trapped = trapOf(r) && !node.agentStale
   const predicted: Grade = r.predicted ?? (r.surprised ? 'none' : 'full')
   return (
-    <Block label="Surprise" aside={node.agentStale ? undefined : HEAT_WORDS[predicted]}>
+    <Block label="Surprise" aside={node.agentStale ? undefined : `predicted: ${predicted}`}>
       {node.agentStale && <StaleNote />}
       <div className="space-y-3">
         {!r.cold && (
@@ -615,7 +613,7 @@ function SurpriseSection({ node }: { node: Node }) {
             passages below are the evidence you go to if you doubt it. */}
         <Ladder
           grade={predicted}
-          words={HEAT_WORDS}
+          words={GRADE_WORDS}
           rungs={PREDICT_RUNGS}
           ramp="heat"
           at={GRADE_SURPRISE}
@@ -756,7 +754,7 @@ function LegibleKey() {
     <Block label="What the grades mean">
       <Ladder
         grade={undefined}
-        words={LEGIBLE_WORDS}
+        words={GRADE_WORDS}
         rungs={LEGIBLE_RUNGS}
         ramp="legible"
         at={GRADE_SURPRISE}
@@ -798,7 +796,7 @@ function LegibleSection({ report, stale }: { report?: AgentReport; stale: boolea
   const current = legibleOf(report)
   const dated = report.legibleDated === true
   return (
-    <Block label="Legibility" aside={current && !stale ? LEGIBLE_WORDS[current] : undefined}>
+    <Block label="Legibility" aside={current && !stale ? `legible: ${current}` : undefined}>
       {stale && <StaleNote />}
       {dated && (
         <p className="mb-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
@@ -810,7 +808,7 @@ function LegibleSection({ report, stale }: { report?: AgentReport; stale: boolea
       )}
       <Ladder
         grade={report.legible}
-        words={LEGIBLE_WORDS}
+        words={GRADE_WORDS}
         rungs={LEGIBLE_RUNGS}
         ramp="legible"
         at={GRADE_SURPRISE}
@@ -872,7 +870,7 @@ function DocsSection({
   return (
     <Block
       label={node.kind === 'file' ? 'File header' : 'Docs'}
-      aside={graded ? DOC_WORDS[graded] : undefined}
+      aside={graded ? `docs: ${graded}` : undefined}
     >
       {stale && <StaleNote />}
       {/* **Grade, then scale, then the thing itself — the order Legibility already had.**
@@ -883,7 +881,7 @@ function DocsSection({
       {report ? (
         <Ladder
           grade={graded}
-          words={DOC_WORDS}
+          words={GRADE_WORDS}
           rungs={DOC_RUNGS}
           ramp="docs"
           at={DOC_GAP}
@@ -891,7 +889,7 @@ function DocsSection({
         />
       ) : (
         <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
-          Ungraded — nobody has read this, so there is no judgement of whether the words below match
+          Ungraded — nobody has read this, so there is no judgment of whether the words below match
           the code they describe.
         </p>
       )}
@@ -1031,7 +1029,7 @@ function TrapsSection({
         ) : r.trapDated ? (
           <Absent>
             The reader answered an earlier version of this question, which has since narrowed. A
-            narrowing can only take answers away, so the yes it gave is expired and the axis is grey
+            narrowing can only take answers away, so the yes it gave is stale and the axis is gray
             until this is read again — it is not a no.
           </Absent>
         ) : (
@@ -1271,7 +1269,7 @@ function LanguageSection({ node }: { node: Node }) {
   // is nothing to say here beyond the name.
   const gaps = [
     !wired &&
-      'Calls have never been parsed for this language, so Callers and Reach paint grey here rather than zero — nobody looked.',
+      'Calls have never been parsed for this language, so Callers and Reach paint gray here rather than zero — nobody looked.',
     !comparable &&
       'Too short to compare for copies, so the Clones lens has no opinion about it either way.',
     !historied &&
@@ -1420,7 +1418,7 @@ function TangleSection({
         <Absent>
           Nobody has taught the parser which nodes fork in {node.lang ?? 'this language'}, so there
           is no count here \u2014 which is not the same as a body that never branches. The lens
-          paints these grey rather than cold for that reason.
+          paints these gray rather than cold for that reason.
         </Absent>
       </Block>
     )

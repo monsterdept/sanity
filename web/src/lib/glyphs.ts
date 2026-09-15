@@ -1,3 +1,5 @@
+import { MONO_FAMILY } from './monoFaces'
+
 /**
  * A sprite sheet of every printable ASCII character, at two pixels tall.
  *
@@ -53,7 +55,7 @@ export function glyphSheet(): Uint8Array | null {
   // what makes an `l` lighter than an `M`, which is the entire signal at this scale.
   ctx.fillStyle = '#000'
   ctx.textBaseline = 'alphabetic'
-  ctx.font = `${CELL_H * scale * 0.82}px ui-monospace, SFMono-Regular, Menlo, monospace`
+  ctx.font = `${CELL_H * scale * 0.82}px ${MONO_FAMILY}`
   for (let i = 0; i < GLYPHS; i++) {
     ctx.fillText(String.fromCharCode(FIRST + i), i * CELL_W * scale, CELL_H * scale * 0.8)
   }

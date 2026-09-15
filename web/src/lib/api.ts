@@ -635,7 +635,7 @@ export interface Progress {
 }
 
 /** Serde renames these to snake_case on the wire; Tauri does not convert for us. */
-interface WireScore {
+export interface WireScore {
   surprise: number
   documented: number
   churn: ChurnWindows
@@ -652,7 +652,7 @@ interface WireScore {
   source: 'proxy' | 'model' | 'agent'
   analyzed_share: number
 }
-interface WireNode {
+export interface WireNode {
   cols?: Cols
   id: string
   name: string
@@ -701,7 +701,7 @@ interface WireNode {
   children?: WireNode[]
   funcs?: number
 }
-interface WireScan {
+export interface WireScan {
   root: WireNode
   stats: {
     files_scanned: number
@@ -743,7 +743,8 @@ export function unreadable(node: { bytes: number | null }): boolean {
   return node.bytes !== null && node.bytes > READ_CEILING
 }
 
-function toNode(w: WireNode): Node {
+/** A node off the wire. Exported for the headless renderer, which reads the same JSON. */
+export function toNode(w: WireNode): Node {
   return {
     id: w.id,
     name: w.name,
@@ -1915,7 +1916,7 @@ export function isReportStale(r: AgentReport, node: Node): boolean {
  *  sent over the wire because the mapping is a claim about the metric, and it should be
  *  reviewable in the two places the metric is computed. */
 /** Exported so the summary can paint a grade with the ramp the map paints it with. The
- *  spacing is deliberately uneven — see `HEAT_WORDS` — so a panel that re-derived its own
+ *  spacing is deliberately uneven — the two confident steps sit close together — so a panel that re-derived its own
  *  swatches from an even 0/⅓/⅔/1 would show four colors the map never uses. */
 export const GRADE_SURPRISE: Record<Grade, number> = {
   full: 0.08,
@@ -1991,122 +1992,36 @@ export function reportGrades(r: AgentReport): { surprise: number; documented: nu
   }
 }
 
-/** What one reading is called on screen, cold to hot.
- *
- *  A reader's judgement has four steps and no more, so `62°` was inviting a comparison
- *  that cannot be made — four wedges reading `30°` are not four measurements that happened
- *  to agree, they are one grade. Two digits also need a legend before they mean anything,
- *  and the legend was never on screen.
- *
- *  **What the CODE was like, not how much the reader scored.** They were temperatures — cold,
- *  warm, hot, blazing — a fourth vocabulary that appeared in neither the store's bullet nor
- *  its heading, so one four-step judgement had three names and `blazing` existed only on
- *  screen. Then they were amounts of surprise, which was accurate and put `none` at the calm
- *  end of one lens and the alarming end of the next.
- *
- *  These name the thing on the map. A wedge is `mundane`, `typical`, `quirky` or
- *  `obscure` — properties of the code a person can go and look at — where "some surprise" is
- *  a property of somebody's reading of it. It also sidesteps the inversion entirely: the
- *  grade is `predicted` because that is what a reader can answer honestly about its own work,
- *  the lens is Surprise because that is what a person wants to know, and these four words
- *  belong to neither frame. Nothing has to be read backwards to be understood.
- *
- *  `mundane` was `predictable`, and it was the one word here still describing the READER.
- *  Everything else in this list is a property of the code — `quirky` is a thing a wedge is,
- *  where "predictable" is a claim about whether somebody managed to predict it, which is what
- *  `predicted` already records one field over. It was also the only one too wide for the
- *  ladder's name column, and it ran into the rung it was labelling.
- *
- *  `nuanced` is no longer shared with `LEGIBLE_WORDS`, and the two second rungs are better
- *  apart: here it is code that holds nothing its neighbors have not already taught you,
- *  which is `typical`; there it is a body with one wrinkle to go back for, which is
- *  `nuanced`. One word for both said they were the same finding.
- *
- *  `assessment::render_entry`'s markers are the twin — `QUIRKY` and `OBSCURE` are these words
- *  shouting. If these move, those move.
- *
- *  They also carry no spacing, which is the point. `Grade.surprise` is deliberately uneven
- *  (0.08 / 0.30 / 0.62 / 0.92) because the two confident steps belong close together; a
- *  1-4 integer would have flattened that claim on screen while the constants went on
- *  asserting it underneath. Numbers stay where they are earned: on containers, which
- *  average many readings in surprise space and mean every digit they show. */
-export const HEAT_WORDS: Record<Grade, string> = {
-  full: 'mundane',
-  most: 'typical',
-  some: 'quirky',
-  none: 'obscure',
-}
-
 /**
- * What reading the body was like, in words of its own.
+ * A grade's name on screen, which is the grade's own name: `full`, `most`, `some`, `none`.
  *
- * **Not `HEAT_WORDS`.** This reused those at first, so the panel offered rows reading "hot
- * once open" and "cold once open" — which asks the reader to know that hot means hard, a
- * mapping that exists nowhere and that surprise only gets away with because a temperature is
- * the thing it is actually measuring.
+ * **Three lenses grade on one scale, and they used to print it in three vocabularies.** Surprise
+ * said `mundane / typical / quirky / obscure`, Legibility `clean / nuanced / tangled / unclear`
+ * and Docs `full / decent / some / none`, so a report defining Surprise had to translate its own
+ * figure before a word of its results could be read, and `tangled` was a Legibility grade on one
+ * page and the Complexity rule "Tangled for its size" on the next. The store, the reader's
+ * schema, the CLI and the rule grammar all said `full / most / some / none` throughout.
  *
- * **And not optical words either, which is what replaced them.** `crystal` and `murky` are
- * about light passing through, so they fought the ramp: clear means light gets through, and
- * the ramp puts the thing you must act on at the BRIGHT end. `murky` therefore named a bright
- * wedge with a word meaning cloudy, and `crystal` named a dark one with a word meaning
- * transparent. Nothing was mis-colored; the vocabulary was arguing with the color. These
- * are structural — how tangled it was to get through — and carry no brightness at all.
- *
- * `nuanced` was briefly shared with `HEAT_WORDS`, which read as the two scales making the
- * same finding. They are not: surprise's second rung is code that holds nothing its
- * neighbors have not already taught you, and this one is a body with one wrinkle to go back
- * for. Surprise's is `typical` now, and the word belongs here.
- *
- * Display only. `.sanity/` records the GRADE a reader sent — `legible: full` — so renaming
- * these can never invalidate a committed corpus, and the store never has to know which lens
- * is asking. Worth knowing when reading old readings: the QUESTION behind the grade changed
- * when these words did. It used to be "how clear is it on its own terms", which defined no
- * rung but the top one and produced 84.5% `full` across two repos; it now asks what the
- * reader actually did — one pass, a second look, jumping around, or never being sure. Grades
- * banked before that answer a softer question — and now say so, rather than being something
- * you had to know. See `legibleOf`.
+ * **The inversion those words were chosen to hide is answered by naming the question.** Bare,
+ * `none` is the calm end of one lens and the alarming end of the next, which is what the
+ * temperatures and then the amounts of surprise before them ran into. `predicted: none`,
+ * `legible: none` and `docs: none` are each the bright end, because every one of these grades
+ * is an answer about coverage and `full` is dim on all three. So a surface that shows a grade
+ * outside its own lens's section says which question it answers.
  */
-export const LEGIBLE_WORDS: Record<Grade, string> = {
-  full: 'clean',
-  most: 'nuanced',
-  some: 'tangled',
-  none: 'unclear',
-}
+export const GRADE_WORDS: Record<Grade, string> = { full: 'full', most: 'most', some: 'some', none: 'none' }
 
-/**
- * How well documented, in words of its own.
- *
- * Post-provenance, so a doc the reader judged derivable reads `none` here — the same rule
- * `reportGrades` applies to the number.
- *
- * `most` displays as `decent`, and that is the only place these part company with the grade
- * names. A ladder reads as a ladder — none, some, decent, full — where `most` sits oddly
- * between `some` and `full` and invites the reading "most of them" rather than "most of it".
- *
- * Display only, exactly as `LEGIBLE_WORDS` is: `.sanity/` records the GRADE a reader sent,
- * `documented: most`, so renaming these can never invalidate a committed corpus and the store
- * never has to know which words a pane is using this week.
- */
-export const DOC_WORDS: Record<Grade, string> = {
-  full: 'full',
-  most: 'decent',
-  some: 'some',
-  none: 'none',
-}
-
-/** The word for a wedge a reader actually read, or null if nobody has.
+/** The grades a reader gave a wedge it actually read, or null if nobody has.
  *
  *  Null for a proxy or model score on purpose: those are continuous and mean something
- *  different, and giving them one of four words would claim a reader's judgement where
- *  there is an estimate. A stale reading is null too — it has already stopped coloring
- *  the wedge, and a word is a color in text. */
-export function readingWords(node: Node): { heat: string; documented: string | null } | null {
+ *  different, and giving them a grade would claim a reader's judgment where there is an
+ *  estimate. A stale reading is null too: it has already stopped coloring the wedge. */
+export function readingWords(node: Node): { predicted: Grade; documented: Grade | null } | null {
   if (node.kind !== 'func' || !node.agent || node.agentStale) return null
   const r = node.agent
-  const predicted = r.predicted ?? (r.surprised ? 'none' : 'full')
   return {
-    heat: HEAT_WORDS[predicted],
-    documented: r.derivable ? DOC_WORDS.none : r.documented ? DOC_WORDS[r.documented] : null,
+    predicted: r.predicted ?? (r.surprised ? 'none' : 'full'),
+    documented: r.derivable ? 'none' : (r.documented ?? null),
   }
 }
 
@@ -2339,18 +2254,33 @@ export function applyAgentReports(root: Node, reports: AgentReport[]): Node {
  * and by-grade arrays would be thousands of pushes a frame.
  */
 export function countPending(root: Node): { stale: number; unread: number } {
+  let functions = 0
+  let read = 0
   let stale = 0
-  let unread = 0
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
-    if (n.kind === 'func' && !outOfScope) {
+    // **A file counts the functions it has not handed over, and the readings riding on it** —
+    // `summarize`'s accounting, which this claimed to share and did not. Counted over function
+    // nodes alone, the key described whichever rings had been fetched: one report of sanity
+    // said 84 unread and the brief exported twelve seconds later said 99, of the same commit,
+    // because the report's own zoomed pages had fetched more rings in between.
+    if (!outOfScope && n.kind === 'file' && n.funcs > 0) {
+      functions += n.funcs
+      for (const r of n.pending ?? []) {
+        if (r.stale) stale++
+        else read++
+      }
+    }
+    if (!outOfScope && n.kind === 'func') {
+      functions++
       if (n.agentStale) stale++
-      else if (!n.agent) unread++
+      else if (n.agent) read++
     }
     for (const c of n.children) walk(c, outOfScope)
   }
   walk(root, false)
-  return { stale, unread }
+  // Derived, as `summarize` derives it, so the three add up to the total.
+  return { stale, unread: Math.max(0, functions - read - stale) }
 }
 
 /** Temperature at which a function counts as hot. Mirrors `HOT` in `model.rs` — the
@@ -2517,7 +2447,8 @@ export async function scanRepo(path: string): Promise<Scan> {
   return toScan(w)
 }
 
-function toScan(w: WireScan): Scan {
+/** A scan off the wire — see `toNode`. */
+export function toScan(w: WireScan): Scan {
   return {
     root: toNode(w.root),
     stats: {

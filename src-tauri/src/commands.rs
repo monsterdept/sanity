@@ -113,7 +113,7 @@ pub async fn scan_repo(
     let progress_state = (*state).clone();
     let progress_key = pending_key.clone();
     let scan_started = std::time::Instant::now();
-    let scanned = tauri::async_runtime::spawn_blocking(move || {
+    let mut scanned = tauri::async_runtime::spawn_blocking(move || {
         let model = HeuristicModel;
 
         let emit = |p: Progress| {
@@ -214,7 +214,7 @@ pub async fn scan_repo(
     // Publish as a project so an MCP client can pull a work queue from the very scan the
     // user is looking at. The window's own Open button and an agent's sanity_open land in
     // the same place — there is one list of projects, however it got filled.
-    if let Ok(scan) = scanned.as_ref() {
+    if let Ok(scan) = scanned.as_mut() {
         let mut shared = crate::agentapi::lock(&state);
         let key = crate::agentapi::project_key(&root_for_state);
         let key_path = root_for_state.clone();
@@ -231,6 +231,11 @@ pub async fn scan_repo(
             .get(&key)
             .map(|p| p.reports.clone())
             .unwrap_or_else(|| crate::assessment::load(&root_for_state, scan));
+        // **Applied to the fresh tree, whichever door the readings came through** — see
+        // `agentapi::load_reports`. A scan is the structural half only; without this the map
+        // this returns, and the project every finding is asked of, drew a reader's tests as
+        // dependents until the next test classification landed, where `export-data` did not.
+        crate::links::retest_tree(scan, &reports);
         // Carried across rather than rebuilt, the same way `reports` above already is —
         // see `Project::rescan` for what a fresh one destroys, and why a rescan being an
         // ordinary event is the point.
@@ -745,55 +750,59 @@ pub fn agent_reports(
     let Some(key) = key.or_else(|| s.active.clone()) else {
         return Vec::new();
     };
-    s.projects
-        .get(&key)
-        .map(|p| {
-            // **What the window cannot work out for itself: how big each read function is,
-            // and whether the reading has expired.** Both need the live tree, which the
-            // window has only in part — a large repo arrives without its functions. Built
-            // once per poll rather than per report, and not at all for a repo nobody has
-            // read, which is the common case and the expensive one: the walk is proportional
-            // to the repo and the reports are proportional to the reading somebody has done.
-            let mut live: std::collections::HashMap<&str, (Option<&str>, Option<u32>, u32)> =
-                std::collections::HashMap::new();
-            if !p.reports.is_empty() {
-                p.scan.root.visit(&mut |n| {
-                    if n.kind == crate::model::NodeKind::Func {
-                        live.insert(n.id.as_str(), (n.body.as_deref(), n.bytes, n.loc));
-                    }
-                });
+    s.projects.get(&key).map(|p| stamp_reports(&p.scan.root, &p.reports)).unwrap_or_default()
+}
+
+/// The readings as the window receives them: each stamped against the live tree.
+///
+/// **Pure, and shared by `agent_reports` and `sanity export-data`**, so the offline report is
+/// handed exactly what the window is — the same `loc`, the same `stale`, the same dating.
+pub fn stamp_reports(
+    root: &crate::model::Node,
+    reports: &std::collections::HashMap<String, crate::agentapi::Report>,
+) -> Vec<crate::agentapi::Report> {
+    // **What the window cannot work out for itself: how big each read function is, and
+    // whether the reading has expired.** Both need the live tree, which the window has only in
+    // part — a large repo arrives without its functions. Built once per poll rather than per
+    // report, and not at all for a repo nobody has read, which is the common case and the
+    // expensive one: the walk is proportional to the repo and the reports are proportional to
+    // the reading somebody has done.
+    let mut live: std::collections::HashMap<&str, (Option<&str>, Option<u32>, u32)> =
+        std::collections::HashMap::new();
+    if !reports.is_empty() {
+        root.visit(&mut |n| {
+            if n.kind == crate::model::NodeKind::Func {
+                live.insert(n.id.as_str(), (n.body.as_deref(), n.bytes, n.loc));
             }
-            p.reports
-                .values()
-                .cloned()
-                .map(|mut r| {
-                    // A reading whose function is gone reports `loc: 0` and is dropped by the
-                    // window — it is not stale, it is about code that no longer exists, and
-                    // the two are different facts.
-                    let found = live.get(r.id.as_str()).copied();
-                    r.loc = found.map(|(_, _, loc)| loc).unwrap_or(0);
-                    r.stale = found
-                        .map(|(body, bytes, _)| crate::assessment::is_stale(&r, body, bytes))
-                        .unwrap_or(false);
-                    // Stamped on the way out, never stored: `legible_dated` is a judgement
-                    // THIS build makes about a fact the file records, so it has to be
-                    // recomputed every time the constants move. Writing it into `.sanity/`
-                    // would freeze one build's opinion into the store and make the next
-                    // bump invisible.
-                    r.legible_dated = !crate::assessment::legible_current(r.spec);
-                    // **Only a `true` expires.** Spec 3 narrowed what counts as a trap —
-                    // a hazard the code already warns about stopped being one — and a
-                    // narrowing can only turn old trues into falses, never the other way
-                    // round. So a reader that looked under the old question and found
-                    // nothing has still found nothing under this one, and greying its
-                    // answer would throw away 855 clear readings in this repo alone to
-                    // re-ask a question whose answer cannot have changed.
-                    r.trap_dated = r.trap && !crate::assessment::trap_current(r.spec);
-                    r
-                })
-                .collect()
+        });
+    }
+    reports
+        .values()
+        .cloned()
+        .map(|mut r| {
+            // A reading whose function is gone reports `loc: 0` and is dropped by the window —
+            // it is not stale, it is about code that no longer exists, and the two are
+            // different facts.
+            let found = live.get(r.id.as_str()).copied();
+            r.loc = found.map(|(_, _, loc)| loc).unwrap_or(0);
+            r.stale = found
+                .map(|(body, bytes, _)| crate::assessment::is_stale(&r, body, bytes))
+                .unwrap_or(false);
+            // Stamped on the way out, never stored: `legible_dated` is a judgement THIS build
+            // makes about a fact the file records, so it has to be recomputed every time the
+            // constants move. Writing it into `.sanity/` would freeze one build's opinion into
+            // the store and make the next bump invisible.
+            r.legible_dated = !crate::assessment::legible_current(r.spec);
+            // **Only a `true` expires.** Spec 3 narrowed what counts as a trap — a hazard the
+            // code already warns about stopped being one — and a narrowing can only turn old
+            // trues into falses, never the other way round. So a reader that looked under the
+            // old question and found nothing has still found nothing under this one, and
+            // greying its answer would throw away 855 clear readings in this repo alone to
+            // re-ask a question whose answer cannot have changed.
+            r.trap_dated = r.trap && !crate::assessment::trap_current(r.spec);
+            r
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Whether an agent is working right now.
@@ -978,39 +987,16 @@ pub fn project_report(
         }
     }
 
-    let traced = crate::findings::Traced {
-        // What the map itself knows: whether anybody has read the log yet. NOT
-        // `stats::without_history`, which is true for an untraced repo as well as for one
-        // with no history — the two absences must never render alike, and here they would
-        // both come out as "no git history" over a repo whose trace simply has not run.
-        git: p.trace.depth != crate::trace::Depth::Untraced,
-        churned: p.scan.stats.churned,
-        blamed: p.trace.depth >= crate::trace::Depth::Lines,
-        headcount: p.scan.stats.headcount,
-        age_days: p.scan.stats.age_days,
-    };
+    // What the map itself knows: whether anybody has read the log yet — see `Traced::of`.
     // **This repo's own thresholds, not the catalog's shipped ones.** A shipped constant is
     // wrong nearly everywhere — `loc >= 200` is eight findings on htop and 2,292 on kibana — so
     // the numbers are calibrated against the repo the first time it is asked and then saved
-    // and left alone. Saved is what makes the list drainable; see `findings::rules_for`.
-    let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
-    let rules = crate::findings::rules_for(&p.repo, &facts);
-    let read = !p.reports.is_empty();
-    let fresh = crate::findings::ProjectReport {
-        groups: crate::findings::report(
-            &facts,
-            traced,
-            read,
-            &rules,
-            // Read from the repo on every ask rather than held in state. The archive is small,
-            // it is a file somebody may well have edited by hand or merged from a branch, and a
-            // cached copy is how the panel comes to disagree with `.sanity/` about what has
-            // been dismissed — which is the one thing this store must never do.
-            &crate::findings::archive(&p.repo),
-        ),
-        rules: crate::findings::rules_view(&p.repo, &facts, traced, read),
-        grammar: crate::findings::grammar(&facts),
-    };
+    // and left alone. Saved is what makes the list drainable; see `findings::rules_for`. The
+    // archive is read from the repo on every ask rather than held in state: a cached copy is
+    // how the panel comes to disagree with `.sanity/` about what has been dismissed.
+    // One assembly shared with `sanity export-data` — see `findings::project_report`.
+    let traced = crate::findings::Traced::of(&p.scan.stats, p.trace.depth);
+    let fresh = crate::findings::project_report(&p.repo, &p.scan.root, &p.reports, traced);
 
     // Stored against the key it was taken at, which is re-read rather than reused: computing
     // the report may have WRITTEN `catalog.md`, since `rules_for` calibrates and saves on
@@ -1053,13 +1039,7 @@ fn finding_pin(
     rule: &str,
 ) -> Result<(std::path::PathBuf, String, String), String> {
     let p = st.projects.get(project).ok_or("that project is not open")?;
-    let traced = crate::findings::Traced {
-        git: p.trace.depth != crate::trace::Depth::Untraced,
-        churned: p.scan.stats.churned,
-        blamed: p.trace.depth >= crate::trace::Depth::Lines,
-        headcount: p.scan.stats.headcount,
-        age_days: p.scan.stats.age_days,
-    };
+    let traced = crate::findings::Traced::of(&p.scan.stats, p.trace.depth);
     let facts = crate::findings::subjects(&p.scan.root, &p.reports, traced);
     // The repo's rules, not the shipped ones: a pin records the values the rule MEASURED, and
     // one computed against a different threshold is a dismissal that never matches.
@@ -1138,13 +1118,7 @@ fn project_facts(
 ) -> Result<(std::path::PathBuf, Vec<crate::findings::Facts>, crate::findings::Traced), String> {
     let st = crate::agentapi::lock(state);
     let p = st.projects.get(project).ok_or("that project is not open")?;
-    let traced = crate::findings::Traced {
-        git: p.trace.depth != crate::trace::Depth::Untraced,
-        churned: p.scan.stats.churned,
-        blamed: p.trace.depth >= crate::trace::Depth::Lines,
-        headcount: p.scan.stats.headcount,
-        age_days: p.scan.stats.age_days,
-    };
+    let traced = crate::findings::Traced::of(&p.scan.stats, p.trace.depth);
     Ok((p.repo.clone(), crate::findings::subjects(&p.scan.root, &p.reports, traced), traced))
 }
 

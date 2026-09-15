@@ -3,7 +3,6 @@ import { clsx } from '../lib/cn'
 import { compactCount, elide } from '../lib/text'
 import {
   GRADE_SURPRISE,
-  HEAT_WORDS,
   heatColor,
   summarize,
   temperature,
@@ -283,10 +282,10 @@ function Spread({
     ...GRADES.map((g) => ({
       key: g as string,
       n: spread[g],
-      label: HEAT_WORDS[g],
+      label: g as string,
       fill: heatColor(GRADE_SURPRISE[g]),
     })),
-    { key: 'stale', n: stale, label: 'expired', fill: 'var(--unanalyzed)' },
+    { key: 'stale', n: stale, label: 'stale', fill: 'var(--unanalyzed)' },
     { key: 'unread', n: unread, label: 'unread', fill: 'var(--structure)' },
   ].filter((s) => s.n > 0)
 
@@ -671,7 +670,7 @@ export function Summary({
               <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-[var(--border)] pt-3">
                 <div className="mb-2 flex items-baseline justify-between">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                    {HEAT_WORDS[shown]}
+                    predicted: {shown}
                   </p>
                   <p className="mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
                     {list.length}

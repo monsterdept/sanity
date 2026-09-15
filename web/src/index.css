@@ -16,6 +16,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Vendored faces only, for Tailwind's own rules too — its preflight sets `code`, `pre` and `kbd`
+   * from these, and its defaults are system stacks. */
+  --font-sans: 'LINE Seed JP';
+  --font-mono: 'Sanity Mono';
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -36,22 +40,10 @@
   --color-sidebar-border: var(--sidebar-border);
 }
 
-/* **The ground is a palette, and a palette can be scoped.** `dark` on `<html>` is how the
- * app itself switches (see `lib/theme.ts`) and that has not changed — what these two extra
- * selectors buy is the ability to put a ground on ONE SUBTREE. The movie export needs it:
- * it records the map on screen, so asking for a light file used to mean flipping the whole
- * window to light for the length of the recording, sidebar, dialogs and menus included, in
- * front of somebody who only asked for a file.
- *
- * Custom properties inherit, so a `light` or `dark` class on the pane is enough for
- * everything the map paints with. The one thing it does NOT reach is Tailwind's `dark:`
- * variant, which is `&:is(.dark *)` and therefore answers to the nearest `.dark` ANCESTOR —
- * a `light` subtree inside a dark document keeps any `dark:` utilities it contains. That is
- * fine here and checked rather than assumed: `Sunburst` has none, it paints in `var(--…)`
- * throughout, which is the same property that lets one geometry serve seven lenses. Put a
- * `dark:` utility inside the map and this stops being true. */
-:root,
-.light {
+/* **The ground is a palette.** `dark` on `<html>` is how the app switches (see `lib/theme.ts`),
+ * and the movie export reads these same two rules off this file as text (`groundVars`), so it
+ * can write a file on either ground without the window changing. */
+:root {
   --radius: 0.625rem;
   --titlebar-h: 43px;
   /* Room for the macOS overlay traffic lights, which float over the sidebar header. */
@@ -642,13 +634,8 @@
   --muted: color-mix(in oklch, #1a1a1a 88%, #f5f1ea 12%);
   --muted-foreground: color-mix(in oklch, #8b8279 72%, #f5f1ea 28%);
   --border: color-mix(in oklch, #1a1a1a 82%, #f5f1ea 18%);
-  /* Repeated rather than inherited, and the reason is the paragraph at the top of this file:
-   * a ground can be scoped to a SUBTREE. A custom property whose value contains `var()` is
-   * substituted where it is DECLARED, so a `--note-ink` living only on `:root` would inherit
-   * into a scoped `.dark` pane already resolved against the light foreground — the one failure
-   * mode that looks fine in the app's own theme switch (which is on `<html>`, where the two
-   * selectors land on one element) and wrong everywhere the scoping is used. Same construction,
-   * both ends of the scale. */
+  /* Repeated rather than inherited: a custom property whose value contains `var()` is
+   * substituted where it is DECLARED, so the dark mix is declared beside the dark inks it mixes. */
   --note-ink: color-mix(in srgb, var(--foreground) 68%, var(--card));
   /* Ink itself — the panel is a lighter mix of it, so the code sits BELOW the chrome here
    * exactly as it sits above it in light mode. Same rule, opposite direction. */
@@ -714,15 +701,9 @@ body,
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    'Helvetica Neue',
-    Arial,
-    sans-serif;
+  /* Vendored, and alone: a system face differs by machine, so a fallback stack is a promise
+   * about what the window looks like that nothing here can keep. */
+  font-family: 'LINE Seed JP';
   -webkit-font-smoothing: antialiased;
 }
 
@@ -805,8 +786,9 @@ textarea,
   letter-spacing: 0.06em;
 }
 
+/* `Sanity Mono` is whichever vendored face `monoFaces.ts` installs — see `installMono`. */
 .mono {
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: 'Sanity Mono';
 }
 
 /* Chrome surface — shared with the sibling projects so a block lifted from one drops
@@ -993,6 +975,19 @@ textarea,
 @media (prefers-reduced-motion: reduce) {
   .patches-in {
     animation: none;
+  }
+}
+
+/* The hub's circles, fading to a new colour — see `HubCircles`. Long enough to read as a fade
+ * through a replay's steady stream of commits, short enough that the middle is still the map's
+ * colours a moment after the map changed. */
+.hub-fade {
+  transition: fill 600ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hub-fade {
+    transition: none;
   }
 }
 

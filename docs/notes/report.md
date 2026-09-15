@@ -4,7 +4,7 @@ File → Export Report as PDF… (⇧⌘E) writes the project's analysis as a PD
 own, like a paper. It opens with a cover (wordmark, abstract, methodology), then a contents page,
 one section per lens the repo can paint, and the findings: an overview, then each group of
 findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out and draws it,
-`lib/reportProse.ts` holds the words, `lib/pdf.ts` writes the file, and `ReportDialog` asks for it.
+`lib/reportProse.ts` holds the words, `lib/vector/` writes the file, and `ReportDialog` asks for it.
 
 - **It comes in three forms (`Form`), and only the report is the paper.** Everything below is
   the report's unless it says otherwise.
@@ -50,6 +50,14 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
     at (`DECK_TEXT`). Past either floor, whole paragraphs go from the end (`trimToFit`), never part
     of a sentence: a brief and a deck are already excerpts.
 
+- **Every count and name is read off a complete tree, never off the window's.** The window holds
+  the function rings it has drawn, and a report's own zoomed pages fetch more, so a report and then
+  a brief of one commit, twelve seconds apart, named different most-complex functions and counted
+  84 and then 99 unread. `Report.complete` (App's `completeTree`) asks for every ring once, grafts
+  the readings in as `filled` does, and every table, Results sentence, key count and
+  `bucketsFor` call reads that. The window's own key and panel had the same fault and are fixed
+  where they live: `countPending` counts what a file holds but has not handed over, and a
+  ring-less file's bucket row counts its functions, not one.
 - **It is a research report, and each lens page states its Results.** The tables held what the
   map showed in this repository and the prose never said it: the page defined, measured and
   caveated, and the one fact about the repository was a list of medians inside the Instrument
@@ -58,7 +66,14 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   in the register of the rest. **Stated, not narrated**: a first draft said short bodies "barely
   branch", which is a story drawn from the numbers. A brief keeps Results with the definition.
   Every essay has the same sections, and a caveat that holds for every lens (colours across
-  repositories, mixed models, how much has been read) is said once, in the methodology.
+  repositories, mixed models, how much has been read) is said once, in the methodology. So is what
+  width and color are: it was every figure's caption, and every breakdown opened on the same
+  sentence and the same total. **Results' shares are of every function line, as the tables' are**:
+  shares of the lines read printed 35% beside a table's 28% of the same bucket.
+- **A grade is printed by its name, `full / most / some / none`, on every lens** (`GRADE_WORDS`).
+  Surprise, Legibility and Docs each had their own words for the one scale, so an essay translated
+  its own figure before its results, and Legibility's `tangled` sat a page from the rule "Tangled
+  for its size". Where a grade stands outside its lens it names its question: `predicted: none`.
 - **A code span may break after a separator, and prose stays ragged-right.** Two columns of prose
   with long unbreakable spans had jagged edges, so a span that would leave its line well short
   breaks after `/ . - _ : # ( ,`, where a path or call already divides. Full justification was
@@ -77,7 +92,10 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   **A sentence that leans on another lens is gated on that lens having a page**: `{?legible …}`
   prints only with a Legibility page, `{!readings …}` only with none of the four a reading
   paints (`lensGates`). grype's report had no readings, and its abstract still described the
-  reader as the main instrument while Complexity told it to compare against Legibility.
+  reader as the main instrument while Complexity told it to compare against Legibility. **A
+  caveat about a language is gated on that language being present** (`rust`, `nix`, `cFamily`,
+  `manyLanguages`): sanity's report, of Rust and TypeScript, explained how C headers and Nix are
+  counted.
   **Essays carry facts too.** `lensVars` fills each with this repo's numbers:
   - Complexity's band medians;
   - the share of calls resolved;
@@ -93,17 +111,22 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   one falls late enough.
 - **A title aligns by its ink** (`Sheet.bearing`). A glyph's side bearing grows with its size,
   so a 22pt title set at the margin sat visibly right of the eyebrow and body text beside it. The
-  bearing is measured off pixels on a scratch canvas: `actualBoundingBoxLeft` was tried first and
-  the exported pages still had every title 2–8px right of its eyebrow, measured off the JPEGs.
-- **Every page is a picture drawn on a canvas, and the text is pixels.** Three shapes were
-  weighed before any was built. pdf-lib with an embedded face gives real text, but the only
-  face the app ships is a Latin subset, so a CJK author prints as empty boxes. HTML through the
-  webview's print sheet paginates through a WebKit path nothing here exercises and that cannot
-  be checked without a window. A canvas falls back to system fonts for any script and
-  rasterizes the map through the path the movie already proves. The text can't be selected or
-  searched, and that is stated, not hidden. It prints at 240 dpi, JPEG 0.85, always on white
-  paper, with `--background` overridden in the map's copy too. There is no dark option: a report
-  is a document, and the window's warm light ground prints as a grey wash.
+  bearing is the first glyph's own left side bearing, from the face that prints it. On the canvas
+  it had to be measured off pixels, because `actualBoundingBoxLeft` left every title 2–8px right
+  of its eyebrow.
+- **Every page is vector: paths, and real text in embedded font subsets.** It was a canvas
+  encoded as JPEG, chosen because the one face the app shipped was a Latin woff2 and a canvas
+  falls back to system fonts for any script. That cost a 42-page report 32MB, text nobody could
+  search, select or copy, and blur at any zoom, and it tied every export to a window. Pages are
+  drawn on `vector/surface.ts`, which has the part of the canvas's shape `report.ts` uses and
+  writes PDF, so the layout below is still the layout tuned on the canvas, in the same units
+  (`U`). Type is shaped by HarfBuzz (`harfbuzzjs`) from TTF subsets vendored in
+  `public/fonts/pdf` (LINE Seed JP) and `public/fonts/mono` (`Sanity Mono`, whichever face
+  `monoFaces.ts` names; all OFL), and the same files are subset again into the PDF with their
+  glyph ids kept, so a line's measured width is the width it prints at.
+  **What that gives up is scripts the faces lack**: LINE Seed covers Latin, kana and CJK
+  ideographs, not Hangul. Always white paper; there is no dark option, because a report is a
+  document and the window's warm light ground prints as a gray wash.
 - **Everything is laid out before anything is drawn.** Footers read `n / total` and the contents
   page names pages, so text is set and poured into columns (`flow`, `pour`), findings are grouped
   and paginated, and every page is numbered first. Only then is each figure staged and drawn.
@@ -127,7 +150,8 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   **A table in a column is sized to what it holds** (`columnWidths`), not by the weights, which are
   for the full width: set by weight in a column, `16,021` printed as `16···3`. Where its numbers
   leave too little room for its widest label, it goes full width instead: no cell in a column
-  table is ever cut, label or number. `reportTables.ts` decides what is
+  table is ever cut, label or number. Nor is a bar's figure: its well is as wide as its widest
+  figure (`barTextOf`), after a fixed one printed a one-author table's `100%` as `1···%`. `reportTables.ts` decides what is
   in them; `report.ts` sets and draws them, running onto further pages with the header repeated
   and never splitting a row.
   - **Table 1 is the breakdown:** lines and functions per band, with a share bar in the band's
@@ -137,11 +161,12 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
     its own and its lines are its functions', so counting both printed 119,381 lines over a
     59,804-line map. A breakdown that counts fewer lines than the map draws says so in its caption.
   - **Table 2 names examples:** the most complex for their size, the most called, the longest
-    untouched, every trap with the reader's own note. It can only name functions the window holds,
-    so where it holds fewer than the repo has, the methodology says how many it could name
-    (`namedClause`) rather than passing a sample off as the top. Once: it was every table's note,
-    and a report printed it a dozen times. Blame and Language have no Table 2; the breakdown is already
-    the list.
+    untouched, every trap with the reader's own note. **It leaves out test, generated and vendored
+    code** (`Walked.named`), as the findings rules do: "least predicted" was six tests of ten,
+    whose names are sentences nobody could guess. The methodology says so once (`namedClause`),
+    and says how many functions it could name if the complete tree ever came back short. A table
+    whose ranked column is one value throughout is left out: every row of Age's was 42 days.
+    Blame and Language have no Table 2; the breakdown is already the list.
   - **No lens section runs past two pages**, its figure page and one more. When a section would,
     the report gives way in a fixed order and keeps the first layout that fits:
     1. Table 2 down to three rows.
@@ -150,29 +175,31 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
     4. Table 1 left out.
     **The type never shrinks to fit.** Every essay is set at one size, because a page whose text
     is smaller than its neighbour's reads as a different document. The essay is never cut either,
-    because it explains the figure. Traps start from forty rows and still say how many they leave
-    out.
+    because it explains the figure. **Traps are the exception to the two pages**: their table is
+    the finding, each row a hazard in the reader's own words, and the limit cut two of eleven to
+    keep an essay that reads the same on every repository. They run to forty rows and say how
+    many they leave out past that.
   - **The essay's last page is balanced into even columns first.** A table goes under both
     columns, and an unbalanced last page is one full column beside a few lines, so the table
     started below the full one and the short one's half page stayed empty, which is the space the
     tables were added to use.
-- **The map is copied from the screen, as the movie's is** (see [history.md](history.md)).
-  `Staged.whole` roots `focus` at the repo, or at `Staged.root` for a group, clears the selection
-  veil, stops the reading pulse (a CSS animation a copy has no stylesheet for, so it would print as
-  solid wedges), and turns on `tagNodes` in `Sunburst` and `FileZoom`. `whole` applies to
-  `focus` and not only to the map's root, because the ranking, the key and the counts all read
-  `focus`. The creature is held on the movie's clock, so every figure shows the same face.
-  **The window is covered while the report runs** (`Overlay`'s `opaque`). Re-rooting and
-  redrawing the map for every figure, seen through a dimmed pane, is the machinery showing. The
-  copy is taken from the SVG's markup, not from the screen, so covering it changes nothing in the
-  file.
-  Labels that would print under 4.5pt are dropped from the copy (`pruneLabels`).
-- **Two things move after staging, and a figure copied during either is wrong.** A change of root
-  is a level change, which animates, and function patches are not drawn while it runs. A denser
-  layout also asks for function rings, which arrive in batches. `rest` waits until the rings
-  group has pointer events back AND `settled()` (App's `asked` and `landed` both empty) has held
-  for 400ms, and copies whatever is drawn after 30s.
-- **A lens with nothing to show gets no page.** A grey map would read as a finding. The contents
+- **A figure is the map's own markup, rendered without a window, and translated — never
+  redrawn.** `Report.map` renders the map component's SVG for a lens and a root as static markup
+  (`renderToStaticMarkup`) over the complete tree, and `vector/svg.ts` translates it to PDF:
+  arc paths, circles, text along arcs, and the hatches as tiling patterns. It throws on an
+  element it does not know, because a dropped element is a missing wedge. It used to stage the
+  window's map, wait for it to stop moving and copy it off the screen, which meant a report
+  depended on timing it inferred — one copied a group map before its function rings arrived —
+  covered the window while it ran, and could not run without one. **Every figure is laid out at
+  one density** (`FIGURE_PX`) whatever size it prints at, so a report, a brief and a deck share
+  their figures; a label that would print under 4.5pt is left off at draw time. The hub is the
+  window's own (the circles, by default), drawn at rest.
+- **A figure is rendered once per commit, not once per page.** `figureOf` keeps each within a
+  build; `just render` also keeps them on disk under the CLI's `renders` cache slot, keyed on the
+  export's bytes rather than the sha, since a dirty tree is another repository at the same sha.
+- **A lens with nothing to show gets no page, and nor does a lens with one value.** A grey map
+  would read as a finding; a one-colour Blame was a page, a brief page and a slide saying one
+  person wrote it, which is a sentence, and the contents page prints that sentence (`skips`). The contents
   page names each skipped lens with `locks[m].paper`, set once under a run of lenses skipped for
   the same reason. Not `why`, the switcher's sentence: that one names the button to press, and a
   PDF has none.
@@ -197,7 +224,8 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   group past the cap had nothing under it to split into, and every root holds its findings.
 - **One merge, the panel's.** `mergeFindings` keeps one entry per subject with every rule's
   sentence under it. Findings are numbered in the order printed, group by group.
-- **A mark points at the drawn path, never at a recomputed layout.**
+- **A mark points at the geometry the map drew, returned with its markup (`MapRender.spots`),
+  never recomputed apart from it.**
   - **Match by `finding.key`, not `hit.id`.** A function node's id is `key_of(path, name, ord)`,
     while `hit.id` is spelled `path#name@line`. Asking by `hit.id` matched no function at all.
   - **One shade is the mark** (`highlight`). Each findings map is greyed, and the wedges holding
@@ -234,10 +262,15 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   not reported as clean. Changes under the root `.sanity/` are not dirt: reading writes there, so
   a repo being read was always stamped `with uncommitted changes`. The methodology also states which model read the corpus
   (`banked_model`), or that it mixes models and so is not on one scale.
-- **The writer is by hand, because a page of pixels needs almost none of PDF**: a JPEG XObject
-  (`/DCTDecode` carries the canvas's bytes as they are), a content stream to paint it, and a
-  cross-reference table. The table is the part that is easy to get wrong, because a reader seeks
-  by offset. `just pdf-check` follows `startxref` and every entry the way a reader would, asks
-  poppler's `pdfinfo` too where it is installed, and fails on a one-byte-short entry.
+- **The writer is still by hand** (`vector/doc.ts`): content streams of paths and glyph-id text,
+  Type0 fonts with `/W` widths and a `ToUnicode` map so text can be found and copied, tiling
+  patterns, blend-mode graphics states, links and an outline. The cross-reference table is the
+  part that is easy to get wrong, because a reader seeks by offset. `just vector-check` draws a
+  page through every part of the surface and the translator, follows `startxref` and every entry
+  the way a reader would, and asks poppler whether the file opens, whether its fonts are embedded
+  subsets and whether its text layer holds what was set.
+- **`just render <repo> [report|brief|deck|all]` writes them without a window**: the CLI's
+  `export-data` gives every input as JSON, and `scripts/render.ts` builds the report's inputs
+  from the same functions the window uses (`locksFor`, `viewsFor`, `slotsFor`, `reportLenses`).
 - `save_pdf` sits next to `save_movie`, and both go through `write_export`, which refuses a
   path whose extension is not the kind being written.

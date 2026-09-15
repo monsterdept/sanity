@@ -66,16 +66,9 @@ export function Lock({
  *  the first shape and it asked the user to find out by pressing: the tab looked available,
  *  the map went grey, and the control that would fix it was in another panel. A lock says the
  *  same thing before the click and costs nothing to read. */
-export interface Locked {
-  /** What would open it, in a sentence, on the tab's own tooltip. */
-  why: string
-  /** Why it is empty, for a document — the report's contents page. **Paper has no buttons**,
-   *  so this states the absence and never says what to press: `why` printed there told the
-   *  reader of a PDF to press Read. */
-  paper: string
-  /** Is there a control that opens it? Colours the lock — see `Lock`. */
-  keyed: boolean
-}
+import type { Locked } from '../lib/locks'
+
+export type { Locked }
 
 /** The legend follows the mode. A heat ramp under a categorical encoding would be a
  *  lie — "owner" has no order, so showing a gradient would invent one. */

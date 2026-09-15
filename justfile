@@ -149,7 +149,8 @@ test:
     just rim-check
     just keys-check
     just identity-check
-    just pdf-check
+    just map-check
+    just vector-check
     just group-check
     cd src-tauri && cargo test
     cd src-tauri && cargo clippy --all-targets -- -D warnings
@@ -246,18 +247,64 @@ identity-check:
         --platform=node --outfile="$out" --log-level=warning
     node "$out"
 
-# What a report's PDF needs to get right to open at all — see `web/scripts/pdf-check.ts`.
-#
-# The writer is by hand, and a PDF is read by seeking: an offset one byte out breaks the file
-# in a way only a viewer notices. Bundled and run like the other checks.
-pdf-check:
+# The monospace candidates, fetched, pinned to 400 and 700 and subset — see `web/scripts/vendor-mono.ts`.
+# Temporary, while the toolbar's picker chooses one.
+vendor-mono:
     #!/usr/bin/env bash
     set -euo pipefail
     cd web
-    out="$(mktemp -d)/pdf-check.mjs"
-    ./node_modules/.bin/esbuild scripts/pdf-check.ts --bundle --format=esm \
+    mkdir -p node_modules/.cache
+    ./node_modules/.bin/esbuild scripts/vendor-mono.ts --bundle --format=esm \
+        --platform=node --outfile=node_modules/.cache/vendor-mono.mjs --log-level=warning
+    node node_modules/.cache/vendor-mono.mjs
+
+# What the map's picture is without a window — see `web/scripts/map-check.ts`.
+#
+# A report draws the map from its markup, rendered by `mapMarkup` with no page to measure against,
+# so the markup has to stand on its own: a real viewBox, every tagged wedge's geometry beside it,
+# names measured by the measurer it was handed. Bundled and run like the other checks.
+map-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    out="$(mktemp -d)/map-check.mjs"
+    ./node_modules/.bin/esbuild scripts/map-check.ts --bundle --format=esm \
         --platform=node --outfile="$out" --log-level=warning
     node "$out"
+
+# What the vector PDF writer has to get right — see `web/scripts/vector-check.ts`.
+#
+# Draws a page through every part of the surface and the SVG translator and asks poppler about the
+# file: that it opens, that its fonts are embedded subsets, that its text can be found. harfbuzzjs
+# stays external and the bundle sits under `node_modules`, because its wasm is found beside its own
+# module rather than beside the bundle.
+vector-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    mkdir -p node_modules/.cache
+    ./node_modules/.bin/esbuild scripts/vector-check.ts --bundle --format=esm \
+        --platform=node --external:harfbuzzjs --loader:.css=empty \
+        --outfile=node_modules/.cache/vector-check.mjs --log-level=warning
+    node node_modules/.cache/vector-check.mjs
+
+# A repository's report, brief or deck without a window — `just render ../tally all`. Exports the
+# repo's data with the CLI, then draws the PDFs from it; see `web/scripts/render.ts`. `--out <dir>`
+# says where they go (default: the current directory).
+render repo *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{repo}}" && pwd)"
+    data="$(mktemp -d)/export.json"
+    cargo run --manifest-path src-tauri/Cargo.toml --quiet --bin sanity -- export-data "$target" --out "$data"
+    here="$(pwd)"
+    cd web
+    mkdir -p node_modules/.cache
+    ./node_modules/.bin/esbuild scripts/render.ts --bundle --format=esm --jsx=automatic \
+        --platform=node --external:harfbuzzjs --loader:.css=empty --loader:.wasm=empty \
+        --outfile=node_modules/.cache/render.mjs --log-level=warning
+    cd "$here"
+    SANITY_WEB="$here/web" node web/node_modules/.cache/render.mjs --data "$data" {{flags}}
 
 # How a report groups its findings by place — see `web/scripts/group-check.ts`.
 group-check:

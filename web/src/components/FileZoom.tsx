@@ -2,12 +2,12 @@ import { useMemo } from 'react'
 import { type Node } from '../lib/api'
 import { clsx } from '../lib/cn'
 import { colorFor, type Views, type ColorMode, paintsFromReadings } from '../lib/colorMode'
-import { CHROME_INK } from '../lib/ink'
+import { CHROME_INK, inkBy, type Resolve } from '../lib/ink'
 import { arcPath, tileFunctions, type Slot } from '../lib/sunburst'
 import { arcOf, center, fanFor, lerpSector, place, room, type Arc, type Sector } from '../lib/fan'
 import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
 import { WedgeLabel } from './WedgeLabel'
-import { fitLabel } from '../lib/label'
+import { fitLabel, type Measure } from '../lib/label'
 import { WEIGHT } from '../lib/labelStyle'
 
 /**
@@ -71,6 +71,19 @@ export interface FileZoomProps {
   /** Put each cell's node id and arc on its path — see `Sunburst`'s `tagNodes`. A report zooms
    *  a group of findings into one file, and marks them on these cells. */
   tagNodes?: boolean
+  /** What a cell's name is measured with — see `MapSvg`. The canvas when absent. */
+  measure?: Measure
+  /** Where a name's ink is looked up — see `MapSvg`. Each paint's own `ink`, which is the
+   *  document's, when absent. */
+  ink?: Resolve
+}
+
+/** The cells a file's functions tile into, laid out against the fan they are read in. The
+ *  same call `FileZoom` draws from and a report's marks are placed from, so the two cannot
+ *  disagree about where a function is. */
+export function cellsOf(root: Node, dest: Sector, minPatchArea?: number): Slot[] {
+  const g = arcOf(dest)
+  return tileFunctions(root.children, g.r0, g.r1, g.a0, g.a1, { minPatchArea })
 }
 
 /** The fan a wedge opens into. Exported so the caller can fit its viewBox to where the
@@ -103,6 +116,8 @@ export function FileZoom({
   onHover,
   settled = t >= 1,
   tagNodes = false,
+  measure,
+  ink,
 }: FileZoomProps) {
   const dest = useMemo(() => fanOf(from, paneAspect), [from, paneAspect])
 
@@ -116,10 +131,7 @@ export function FileZoom({
    *  The ring refuses to draw patches while it moves, because a repo holds several thousand
    *  across every file at once. Priced against one file that argument does not reach, and
    *  here the patches ARE the movement rather than detail that can arrive at the end. */
-  const cells = useMemo<Slot[]>(() => {
-    const g = arcOf(dest)
-    return tileFunctions(root.children, g.r0, g.r1, g.a0, g.a1, { minPatchArea })
-  }, [root, dest, minPatchArea])
+  const cells = useMemo<Slot[]>(() => cellsOf(root, dest, minPatchArea), [root, dest, minPatchArea])
 
   const fills = useMemo(() => {
     const m = new Map<string, ReturnType<typeof colorFor>>()
@@ -228,6 +240,7 @@ export function FileZoom({
               // treemap that happens to be drawn in polar coordinates — so a name bending
               // through a cell is distortion rather than convention.
               maxBend: FUNC_BEND,
+              measure,
             })
             if (!at) return null
             return (
@@ -239,7 +252,7 @@ export function FileZoom({
                 // once and a single foreground was worst, names on the hot end sunk into
                 // their own cells. An unread patch is `--unanalyzed` at 0.4, near enough to
                 // the ground that the chrome's own foreground is the right answer.
-                fill={paint ? paint.ink : CHROME_INK}
+                fill={paint ? (ink ? inkBy(ink, paint.stop) : paint.ink) : CHROME_INK}
                 // A clipped name is a weaker claim than a whole one and is drawn as one, so
                 // the eye lands on the complete labels first.
                 opacity={at.clipped ? 0.62 : 0.88}

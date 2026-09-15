@@ -80,9 +80,8 @@ export function HistoryBar({
   scope,
   ensure,
   dateOf,
-  onStage,
   mode,
-  keyFor,
+  movie,
 }: {
   /** The commits in scope, as indices into `hist.commits`. Everything the transport
    *  addresses is a position in HERE; the map is still drawn at the real commit, because
@@ -109,17 +108,14 @@ export function HistoryBar({
   dateOf: (real: number) => number | null
   /** Fetch the timeline as far as a given commit — see `ExportDialog`. */
   ensure: (index: number) => Promise<void>
-  /** Lay the map out for a file of this many pixels, or null to go back to the pane — see
-   *  `App`'s `staged`. */
   /** **TEMPORARY** — whether the commit under the playhead flashes what it touched. See the
    *  button, and `frameTree`'s own `flashes`, which is where it actually takes effect. */
   flashes: boolean
   onFlashes: (on: boolean) => void
-  onStage: (stage: import('../lib/movie').Staged | null) => void
-  /** The lens on screen, and how to build a key for one — both handed straight to the export
-   *  dialog, which is the only thing here with an opinion about either. */
+  /** The lens on screen, and where a movie's maps come from — both handed straight to the
+   *  export dialog, which is the only thing here with an opinion about either. */
   mode: import('../lib/colorMode').ColorMode
-  keyFor: (mode: import('../lib/colorMode').ColorMode) => import('../lib/movie').MovieKey | null
+  movie: import('../lib/movie').MovieSource | null
 }) {
   const [exporting, setExporting] = useState(false)
   const last = frames.length - 1
@@ -384,20 +380,17 @@ export function HistoryBar({
         </button>
       </div>
 
-      {exporting && (
+      {exporting && movie && (
         <ExportDialog
           frames={frames}
-          index={index}
-          onIndex={onIndex}
           name={name}
           slug={slug}
           scope={scope}
           duration={duration}
           mode={mode}
-          keyFor={keyFor}
+          source={movie}
           ensure={ensure}
           dateOf={dateOf}
-          onStage={onStage}
           onClose={() => setExporting(false)}
         />
       )}

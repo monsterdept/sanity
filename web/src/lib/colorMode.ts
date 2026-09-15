@@ -1,8 +1,6 @@
 import {
   DOC_GAP,
-  DOC_WORDS,
   GRADE_SURPRISE,
-  LEGIBLE_WORDS,
   heatColor,
   isAnalyzed,
   legibleOf,
@@ -15,7 +13,6 @@ import {
   type Node,
   type Ramp,
   type Score,
-  HEAT_WORDS,
   type AgentReport,
   type ChurnWindows,
   churnSaturation,
@@ -503,12 +500,12 @@ export const NAMED = 16
  *  one already had, when the key read `clear → unclear` while the rows beneath it said
  *  something else. One table, two surfaces. */
 export const RAMP_ENDS: Partial<Record<ColorMode, [string, string]>> = {
-  surprise: ['mundane', 'obscure'],
-  // Same direction as heat: the bright end is the one you have to do something about.
-  legible: ['clean', 'unclear'],
-  // Named for the ends the ramp actually paints, and the bright one is an absence: this is
-  // the only lens whose input is the GAP. See the `--docs-*` ramp.
-  docs: ['covered', 'undocumented'],
+  // The grades themselves, with the question named once at the dim end — see `GRADE_WORDS`.
+  // `full` is dim on all three: the bright end is the one you have to do something about.
+  surprise: ['predicted: full', 'none'],
+  legible: ['legible: full', 'none'],
+  // The only lens whose input is the GAP, which is why `none` is bright here too.
+  docs: ['docs: full', 'none'],
   churn: ['settled', 'churning'],
   // Both readings run one way — see `Bands::ramp`, where normal is anchored at the cold end
   // rather than in the middle. The words differ because the questions do: one is measured
@@ -1170,11 +1167,13 @@ export function colorFor(
     return {
       ...ramped(share ? shareRamp(t) : t),
       label: share
-        ? // `hot` was the last of the temperatures, left behind when the rows became
-          // `mundane / typical / quirky / obscure`. The threshold this counts is
-          // "quirky or worse", and `surprising` is the word for that on this tab.
+        ? // The threshold this counts is `some` or `none`, and `surprising` is the word for
+          // that on this tab.
           `${Math.round(t * 100)}% surprising`
-        : (readingWords(node)?.heat ?? `${Math.round(t * 100)}°`),
+        : (() => {
+            const w = readingWords(node)
+            return w ? `predicted: ${w.predicted}` : `${Math.round(t * 100)}°`
+          })(),
     }
   }
 
@@ -1192,12 +1191,13 @@ export function colorFor(
       if (share === null) return null
       return {
         ...ramped(shareRamp(share), 'legible'),
-        label: `${Math.round(share * 100)}% tangled`,
+        // Not `tangled`, which is the Complexity rule "Tangled for its size".
+        label: `${Math.round(share * 100)}% hard to follow`,
       }
     }
     const g = node.agentStale ? undefined : legibleOf(node.agent)
     if (!g) return null
-    return { ...ramped(GRADE_SURPRISE[g], 'legible'), label: LEGIBLE_WORDS[g] }
+    return { ...ramped(GRADE_SURPRISE[g], 'legible'), label: `legible: ${g}` }
   }
 
   if (mode === 'docs') {
@@ -1220,7 +1220,7 @@ export function colorFor(
       const own = docGrade(node, derived)
       // `header: none` rather than "covers none": the word is a rung on a ladder, and a
       // sentence built round it has to bend for the bottom one.
-      if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header: ${DOC_WORDS[own]}` }
+      if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header: ${own}` }
       // A file nobody has read yet is gray, not an average of its functions. Its own header
       // is the thing this lens asks a file about, and guessing it from the contents would
       // be the map answering a question nobody put to it.
@@ -1243,7 +1243,7 @@ export function colorFor(
     }
     const g = docGrade(node, derived)
     if (!g) return null
-    return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${DOC_WORDS[g]}` }
+    return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${g}` }
   }
 
   if (mode === 'composition') {
@@ -2015,8 +2015,8 @@ function contribute(
   }
   if (n.kind === 'file' && !outOfScope && mode === 'docs') {
     const g = docGrade(n, view.derivable)
-    if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
-    else put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+    if (g) put(g, g,heatColor(DOC_GAP[g], 'docs'), n)
+    else put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
   }
   if (n.kind === 'func' && !outOfScope) {
     const s = n.score
@@ -2032,10 +2032,10 @@ function contribute(
       // `predicted` falls back to the boolean it replaced, the same fallback `summarize`
       // makes, so a reading banked before the grades still lands somewhere real.
       if (n.agentStale) {
-        put('\u0000expired', 'expired', 'var(--unanalyzed)', n)
+        put('\u0000expired', 'stale', 'var(--unanalyzed)', n)
       } else if (n.agent) {
         const g = n.agent.predicted ?? (n.agent.surprised ? 'none' : 'full')
-        put(g, HEAT_WORDS[g], heatColor(GRADE_SURPRISE[g]), n)
+        put(g, g, heatColor(GRADE_SURPRISE[g]), n)
       } else {
         put(UNKNOWN, 'unread', 'var(--structure)', n)
       }
@@ -2057,12 +2057,12 @@ function contribute(
       // reports a coverage it has not got.
       const r = n.agent && !n.agentStale ? n.agent : undefined
       if (!r) {
-        put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+        put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
       } else if (mode === 'traps') {
         // A dated answer falls in with the unread, one bucket, for the reason the legible
         // branch below gives: from where the reader stands they are the same fact.
         if (r.trapDated) {
-          put(UNKNOWN, 'not read yet', 'var(--unanalyzed)', n)
+          put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
         } else {
           const trap = trapOf(r)
           put(
@@ -2074,11 +2074,11 @@ function contribute(
         }
       } else if (mode === 'docs') {
         const g = docGrade(n, view.derivable)
-        if (g) put(g, DOC_WORDS[g], heatColor(DOC_GAP[g], 'docs'), n)
+        if (g) put(g, g,heatColor(DOC_GAP[g], 'docs'), n)
         else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
       } else if (legibleOf(r)) {
         const g = legibleOf(r)!
-        put(g, LEGIBLE_WORDS[g], heatColor(GRADE_SURPRISE[g], 'legible'), n)
+        put(g, g, heatColor(GRADE_SURPRISE[g], 'legible'), n)
       } else {
         // Covers both a reading that never graded legibility and one that graded it under
         // a question since rewritten. Deliberately one bucket: from where the reader is
@@ -2301,6 +2301,8 @@ function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): voi
     loc: number
     agent?: AgentReport
     agentStale?: boolean
+    /** How many functions this stand-in speaks for — see `put` in `bucketsFor`. */
+    count?: number
     children: Node[]
   } = { synthetic: true, kind: 'func', loc: 0, children: [] }
   let read = 0
@@ -2308,6 +2310,7 @@ function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): voi
     stand.loc = r.loc ?? 0
     stand.agent = r
     stand.agentStale = r.stale === true
+    stand.count = 1
     read += stand.loc
     contribute(stand as unknown as Node, false, mode, undefined, view, put)
   }
@@ -2316,6 +2319,8 @@ function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): voi
     stand.loc = rest
     stand.agent = undefined
     stand.agentStale = false
+    // The remainder is every function no reading covers, not one.
+    stand.count = Math.max(0, file.funcs - held.length)
     contribute(stand as unknown as Node, false, mode, undefined, view, put)
   }
 }
@@ -2507,7 +2512,15 @@ export function bucketsFor(
     // bucket can therefore hold more lines than it can name, which is the honest shape: the
     // breakdown is of the whole subtree, and the list is of what there is a node for.
     if (!(n as { synthetic?: boolean }).synthetic) b.nodes.push(n)
-    b.count += 1
+    // **How many functions this row stands for, which is not always one.** A file whose ring has
+    // not arrived answers Blame and Language for every function in it at once, and a file's
+    // unread remainder is every function no held reading covers. Each counted as one, and a
+    // breakdown's function totals depended on which rings had happened to be fetched: sanity's
+    // Blame table listed 1,852 functions for a repo of 1,960.
+    b.count +=
+      n.kind === 'file' && (mode === 'blame' || mode === 'language')
+        ? n.funcs
+        : ((n as { count?: number }).count ?? 1)
     b.lines += n.loc
     if (ramp !== undefined) {
       const r = ramps.get(key) ?? []

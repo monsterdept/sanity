@@ -15,7 +15,9 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["node"]
+    "types": ["node"],
+    // `scripts/render.ts` draws a report, and a report reaches the map component and the wordmark.
+    "jsx": "react-jsx"
   },
   "include": ["scripts"]
 }

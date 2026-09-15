@@ -34,6 +34,10 @@ import { useHubGaze } from './useHubGaze'
  * path, so going back up takes the innermost circle away and leaves the rest as they were.
  * Recolouring the whole stack for the level on screen made every drill repaint the history.
  *
+ * **A new colour fades in rather than cutting** (`hub-fade`): a replay repaints the circles every
+ * commit it lands on, and a cut at that rate is a flicker in the middle of the picture. A copy of
+ * the map has no stylesheet, so a report or a movie frame gets the colour itself.
+ *
  * Drawn in SVG inside the map, like the eye and the wheel, and moved by writing attributes a
  * frame, never by rendering.
  */
@@ -164,7 +168,7 @@ export function HubCircles({
       {/* One scale for all of it, so the discs, the shadows and the travel keep their proportions. */}
       <g transform={`scale(${look.size})`}>
         <circle cy={OUTER_DROP * r} r={OUTER * r} fill="black" fillOpacity={OUTER_SHADOW} />
-        <circle r={OUTER * r} fill={fills[0]} />
+        <circle className="hub-fade" r={OUTER * r} fill={fills[0]} />
         {Array.from({ length: n - 1 }, (_, i) => {
           const k = i + 1
           const rk = radiusOf(k, n, INNER * target)
@@ -182,6 +186,7 @@ export function HubCircles({
                 ref={(el) => {
                   discs.current[k] = el
                 }}
+                className="hub-fade"
                 r={rk * r}
                 fill={fills[k]}
               />

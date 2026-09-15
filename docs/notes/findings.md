@@ -981,7 +981,10 @@ It refuses, on purpose and with a reason each:
   There is one cost to weigh when it arrives: `check_template` only lets the report text name
   a field the rule GUARANTEES, and under OR no branch field is guaranteed. `{{commits}}` is
   unfillable for a subject that matched the other branch, so a rule using OR loses its
-  tailored paragraph and falls back to the flat impact line.
+  tailored paragraph and falls back to the flat impact line. `{{window}}` rides on `commits`
+  the same way: it is the days of the narrowest churn window, which is what `commits` counts,
+  and a sentence stating a count must name it — "changed in 8 commits recently" sat beside the
+  Churn lens's 38 in 21 days for the same function.
 - **Four operators, and no `==` or `!=`.** Two directions, each with and without the boundary,
   is the whole grammar. Half the fields are continuous — `tangle`, `surprise`, `documented`
   and `illegible` are 0–1 grades, `age` and `touched` are fractional days — and `tangle == 0.8`

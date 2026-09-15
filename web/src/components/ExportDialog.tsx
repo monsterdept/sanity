@@ -3,7 +3,8 @@ import { Choice, Field } from './Fields'
 import { Overlay } from './Overlay'
 import { saveMovie } from '../lib/api'
 import { CANCELLED, CODEC_NAME, FPS, mapSide, record, type Codec, type Tick } from '../lib/movie'
-import type { MovieKey, Staged } from '../lib/movie'
+import type { MovieSource } from '../lib/movie'
+import { groundVars } from '../lib/vector/color'
 import { MODE_LABEL, REPLAY, type ColorMode } from '../lib/colorMode'
 
 /**
@@ -55,7 +56,6 @@ const STAGE: Record<Tick['stage'], string> = {
   fetch: 'fetching commits',
   fold: 'rebuilding the map',
   raster: 'rastering the frame',
-  draw: 'drawing the frame',
   encode: 'encoding',
 }
 
@@ -103,7 +103,7 @@ const GROUNDS = [
  * Export the replay as a movie.
  *
  * **It records the map, not the screen.** Each frame is the sunburst as the window is
- * drawing it, copied out and rasterized at the chosen size — so the dimmed backdrop this
+ * drawing it at that commit, laid out and rasterized at the chosen size — so the dimmed backdrop this
  * dialog is sitting on, the log beside the map and the transport under it are all absent
  * from the file, and the picture is the one the replay is about.
  *
@@ -112,25 +112,19 @@ const GROUNDS = [
  */
 export function ExportDialog({
   frames,
-  index,
-  onIndex,
   name,
   slug,
   scope,
   duration,
   ensure,
   dateOf,
-  onStage,
   mode,
-  keyFor,
+  source,
   onClose,
 }: {
   /** The commits in scope, as the transport addresses them. A drilled-in directory exports
    *  its own story, for the same reason its transport plays it. */
   frames: number[]
-  /** Where the playhead stands, so it can be put back when the export is done. */
-  index: number
-  onIndex: (i: number) => void
   /** The repo, for the suggested filename. */
   name: string
   /** The repo as the world knows it, for the caption — see `HistoryBar`. */
@@ -149,14 +143,10 @@ export function ExportDialog({
   ensure: (index: number) => Promise<void>
   /** When a commit landed, for the timeline under the caption. Null before the window. */
   dateOf: (real: number) => number | null
-  /** Dress the map for the file being written — its size and its ground — or null to give
-   *  the pane back. See `Staged`. */
-  onStage: (stage: Staged | null) => void
   /** The lens the map is showing, which the dialog opens on. */
   mode: ColorMode
-  /** The key for a given lens, built by the window because it is the side that knows the
-   *  ranking — see `MovieKey`. */
-  keyFor: (mode: ColorMode) => MovieKey | null
+  /** Where each commit's map comes from — see `MovieSource`. */
+  source: MovieSource
   onClose: () => void
 }) {
   const [seconds, setSeconds] = useState(duration)
@@ -190,32 +180,19 @@ export function ExportDialog({
     setAt(null)
     try {
       setPhase('recording')
-      // **Staged before a single frame is read, and the map is left to settle.**
-      // `record` resolves the custom properties and the background once, on its way in, so
-      // the ground has to be on the map by then or the file comes out in the other one with
-      // the right wedges. Two animation frames is the same wait every frame of the recording
-      // makes for the same reason — see `settle` there.
-      //
-      // **On the map, not on the window.** This used to flip the whole app to the chosen
-      // ground for the length of the export — sidebar, dialogs and menus included, in front
-      // of somebody who had only asked for a file. The map paints in `var(--…)` throughout,
-      // so a class on the pane is enough; see the `.light` selector in `index.css`.
-      //
-      // The px is the map's own side inside the frame, not the frame's — every threshold
-      // that decides whether a wedge is worth drawing is a pixel size, and the pixels the
-      // map gets are the square part of a 16:9 picture with a margin round it.
-      onStage({ px: mapSide(size), ground, mode: lens })
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      // The stylesheet as text, read when a movie is made rather than carried by every launch.
+      // Its variables on the chosen ground are what the frames are painted with, so a dark
+      // window writes a light file without the window changing — see `groundVars`.
+      const { default: sheet } = await import('../index.css?raw')
       const bytes = await record({
         frames,
         seconds,
         ...frameOf(size),
         title: slug,
         scope,
-        // A thunk, not a value: the cast grows as the replay runs and the key follows it,
-        // the same way the one on screen does. See `Recording.legend`.
-        legend: () => keyFor(lens),
-        setIndex: onIndex,
+        mode: lens,
+        source,
+        vars: groundVars(sheet, ground),
         ensure,
         dateOf,
         onProgress: setAt,
@@ -236,15 +213,6 @@ export function ExportDialog({
       const why = e instanceof Error ? e.message : String(e)
       setPhase('idle')
       if (why !== CANCELLED) setError(why)
-    } finally {
-      // The pane goes back to being a pane: its own ground, its own density, and the commit
-      // it was on. The recording drove the playhead across the whole timeline, and leaving
-      // any of that behind would be the export having rearranged the view as a side effect.
-      // Dropping the staged ground is all it takes to restore the window's own — including
-      // `system`, which is a live relationship the export never touched and so cannot have
-      // flattened.
-      onStage(null)
-      onIndex(index)
     }
   }
 
@@ -264,11 +232,8 @@ export function ExportDialog({
           </p>
         </div>
 
-        {/* **The lens the file is recorded in.** The export copies what is on screen, so
-            choosing one here changes the map for the length of the recording — the same
-            bargain the ground and the resolution already make, and the same reason: a movie
-            drawn by a second renderer nobody has checked against the first is a picture of a
-            map that does not exist. Only the lenses a replay can actually paint are offered;
+        {/* **The lens the file is recorded in**, which need not be the one on screen: the frames
+            are drawn aside, so choosing one here leaves the window's map alone. Only the lenses a replay can actually paint are offered;
             the rest would record a grey film. */}
         <Field label="Lens">
           <div className="flex flex-wrap gap-2">
@@ -315,7 +280,7 @@ export function ExportDialog({
           </div>
           {/* Stated rather than left to be discovered at the end: the frame is 16:9 with
               the map in the square part of it, and that square is the LAYOUT as well as the
-              file — see `Sunburst`'s `density`. */}
+              file — see `mapSide`. */}
           <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
             {frameOf(size).width} × {size} at {FPS} fps —{' '}
             {Math.round(seconds * FPS).toLocaleString()} frames, with the map laid out for{' '}
@@ -361,7 +326,7 @@ export function ExportDialog({
             {at && at.done > 0 && (
               <p className="mono mt-1 text-[10px] text-[var(--muted-foreground)]">
                 fetch {ms(at.cost.fetch)} · fold {ms(at.cost.fold)} · raster {ms(at.cost.raster)} ·
-                draw {ms(at.cost.draw)} · encode {ms(at.cost.encode)}
+                encode {ms(at.cost.encode)}
               </p>
             )}
           </div>

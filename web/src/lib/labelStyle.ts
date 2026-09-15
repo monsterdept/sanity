@@ -16,18 +16,19 @@
 
 /** The face, vendored — see the `@font-face` rules in `index.css`.
  *
- *  A concrete stack, never a keyword like `ui-sans-serif`: the canvas and the SVG renderer
+ *  A concrete family, never a keyword like `ui-sans-serif`: the canvas and the SVG renderer
  *  resolve keywords independently, and measuring in one face while drawing in another is
  *  how every label in the app came to overrun its wedge. `widthPerPx` and `WedgeLabel`
  *  both read THIS string. */
 /** The face the map is set in, alone — for asking whether it has actually LOADED.
  *
- *  `FAMILY` is a stack, so `document.fonts.check(FAMILY)` is true the moment `system-ui`
- *  answers, which is always. Only the primary can say whether the metrics a measurement got
- *  are the metrics the browser will paint with. */
+ *  `FAMILY` is this same string now; the two names stay because a stack after it would make
+ *  `document.fonts.check(FAMILY)` true the moment a system face answered, which is always. */
 export const PRIMARY = '"LINE Seed JP"'
 
-export const FAMILY = `${PRIMARY}, system-ui, -apple-system, sans-serif`
+/** The face, alone. **No system fallback**: a system face differs by machine and cannot be
+ *  embedded in a PDF, so a stack after the primary is a picture nobody here has seen. */
+export const FAMILY = PRIMARY
 
 /** One weight for all three kinds of label.
  *

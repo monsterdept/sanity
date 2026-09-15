@@ -369,7 +369,8 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
             w.callers += 1;
             // Counted up from zero only for languages we can actually ask; everywhere else it
             // stays `None` rather than becoming a zero nobody measured.
-            // `dependents` is a DIRECT question — how many call sites depend on this — so it
+            // `dependents` is a DIRECT question — how many distinct non-test functions call
+            // this, one per caller however many times it calls — so it
             // is counted here. Reach is not, and is walked below.
             if told[to.0] && !tests.contains(from) {
                 *w.dependents.get_or_insert(0) += 1;
