@@ -1920,18 +1920,20 @@ export default function App() {
     const out: Partial<Record<ColorMode, Locked>> = {}
     for (const m of Object.keys(MODE_LABEL) as ColorMode[]) {
       if (replaying) {
-        if (REPLAY[m] !== 'live') out[m] = { why: replayNote(m) ?? '', keyed: false }
+        if (REPLAY[m] !== 'live') out[m] = { why: replayNote(m) ?? '', paper: replayNote(m) ?? '', keyed: false }
         continue
       }
       if (!tree) continue
       if (paintsFromReadings(m) && (activeProject?.assessed ?? 0) === 0) {
         out[m] = {
           why: 'No readings yet. Press Read on the project to fill Surprise, Legibility, Docs and Traps.',
+          paper: 'This repository has no current readings.',
           keyed: true,
         }
       } else if (paintsFromWiring(m) && tree.resolvable === null) {
         out[m] = {
           why: `${MODE_LABEL[m]} needs this language's calls read off its grammar, which Sanity does not do for it. A guessed edge would be worse than a stated absence.`,
+          paper: 'The calls of the languages here are not read off their grammars, and a guessed edge would be worse than a stated absence.',
           keyed: false,
         }
       } else if (
@@ -1944,11 +1946,13 @@ export default function App() {
         // tells somebody their repo has no git in it while its log sits there unread.
         out[m] = {
           why: `${MODE_LABEL[m]} reads git, and this repo's history has not been read yet. Press Trace on the project.`,
+          paper: "This repository's git history had not been read when the report was made.",
           keyed: true,
         }
       } else if ((m === 'blame' || m === 'churn' || m === 'age') && tree.score?.ageDays === null) {
         out[m] = {
           why: `${MODE_LABEL[m]} reads git, and this folder has no history.`,
+          paper: 'This folder has no git history.',
           keyed: false,
         }
       } else if (m === 'tangle' && (scan?.stats.tangleBands ?? []).every((b) => b === null)) {
@@ -1958,6 +1962,7 @@ export default function App() {
         // were never parsed: an absence in the instrument rather than work somebody owes.
         out[m] = {
           why: 'Complexity counts branches off the grammar, and none of the languages here have been taught where they fork. Nothing to press — it needs a table in the parser.',
+          paper: 'None of the languages here has been taught where its code branches.',
           keyed: false,
         }
       } else if (m === 'churn' && !(scan?.stats.churned ?? false)) {
@@ -1972,6 +1977,7 @@ export default function App() {
         // fourth rung and pressing it again takes the next one.
         out[m] = {
           why: 'Churn counts how many times each function has actually changed, which only the timeline can say — blame keeps one commit per line, so a body rewritten in place erases its own history. Press Trace on the project to walk it.',
+          paper: 'The commit timeline, the only record of how often a body changed, had not been walked when the report was made.',
           keyed: true,
         }
       }

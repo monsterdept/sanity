@@ -10,19 +10,11 @@ import {
   buildReport,
   FORM,
   lensPages,
-  PAPER,
   type Form,
-  type Paper,
   type ReportBucket,
   type ReportStats,
   type ReportTick,
 } from '../lib/report'
-
-/** Letter where the paper in the drawer is Letter, A4 everywhere else. A guess from the locale,
- *  offered as the opening answer and one click from the other. */
-function paperFor(locale: string): Paper {
-  return /^(en-(US|CA)|es-(MX|US)|fil)\b/i.test(locale) ? 'letter' : 'a4'
-}
 
 /** A filename somebody will recognise a week later — `ExportDialog`'s rule. */
 function suggest(name: string, form: Form): string {
@@ -91,7 +83,6 @@ export function ReportDialog({
   onStage: (stage: Staged | null) => void
   onClose: () => void
 }) {
-  const [paper, setPaper] = useState<Paper>(() => paperFor(navigator.language))
   /** Which shape to write — see `Form`. */
   const [form, setForm] = useState<Form>('report')
   /** The commit, once asked — `undefined` while it is being asked, `null` for no answer. */
@@ -132,7 +123,13 @@ export function ReportDialog({
 
   const modes = lensPages(locks)
   const skipped = (Object.keys(MODE_LABEL) as ColorMode[]).filter((m) => locks[m])
-  const findingsLens = locks[mode] ? (modes[0] ?? mode) : mode
+  // The window's lens, for a deck's title slide — or the first with a page, where it has none.
+  const heroLens = locks[mode] ? (modes[0] ?? mode) : mode
+  // **Findings maps are drawn in a lens with nothing to say there.** They are greyed and shaded,
+  // so the lens's colour is gone from them — but not its texture: drawn in the window's reading
+  // lens, a stale wedge's hatching showed through the shade, a pattern no key explained. Clones
+  // is one flat neutral nearly everywhere; the others stand in where it is locked.
+  const findingsLens = (['clones', 'composition', 'language'] as ColorMode[]).find((m) => !locks[m]) ?? heroLens
   const why = !ready
     ? 'Open a repo to export a report of it.'
     : replaying
@@ -153,11 +150,11 @@ export function ReportDialog({
       const bytes = await buildReport({
         slug,
         head: stamp,
-        paper,
         form,
         locks,
         views,
         findingsLens,
+        heroLens,
         groups,
         keyFor,
         pending,
@@ -244,23 +241,6 @@ export function ReportDialog({
                 ))}
               </div>
             </Field>
-
-            {/* A deck is a 16:9 slide, not a sheet of paper, so the paper does not apply to it. */}
-            {form !== 'deck' && (
-              <Field label="Paper">
-                <div className="flex flex-wrap gap-2">
-                  {(Object.keys(PAPER) as Paper[]).map((p) => (
-                    <Choice
-                      key={p}
-                      on={paper === p}
-                      disabled={busy}
-                      onClick={() => setPaper(p)}
-                      label={PAPER[p].label}
-                    />
-                  ))}
-                </div>
-              </Field>
-            )}
 
             {/* Said before the export rather than discovered in the file: a lens with nothing to
                 show gets no page, and the contents page says why for each. */}

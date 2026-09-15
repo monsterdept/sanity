@@ -102,7 +102,7 @@ export const CIRCLES = {
     size: 1,
     mouse: false,
     idle: false,
-    nest: true,
+    nest: false,
   } as CirclesLook,
 } as const
 

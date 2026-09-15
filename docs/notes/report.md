@@ -11,17 +11,38 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   - **Report:** as described here.
   - **Brief:** a cover with the abstract and the methodology under it (no contents), one page per
     lens, and the findings overview with its grid. No group pages. The methodology is held to the
-    cover, which has the room, and gives up paragraphs from the end rather than taking a page. A
+    cover, which has the room, rather than taking a page. **What it gives up first is what the rest of
+    the brief already says** (`BRIEF_GIVES`): the four family paragraphs, each of whose lenses has
+    a page defining it; then Reproducibility, how the map is drawn, and where readings are kept. Then it
+    takes back, last given first, whatever fits again, since giving up a long paragraph can leave
+    room for a short one given up before it.
+    Cut from the end, sanity's brief lost Assessment, and giving up Findings and the disclaimers
+    first still left no room for it. A
     lens page keeps two sections of its essay, Definition and Reading the map (`SHORT_SECTIONS`),
     and no tables.
-  - **Deck:** 16:9 slides (960 × 540 pt, whatever the paper): a title slide, a slide per lens, the
+  - **Deck:** 16:9 slides (960 × 540 pt). A lens slide sets its words on the left and its map on
+    the right, rising past a head that spans only the text column, so the map takes the slide's
+    height from margin to margin and the commit stamp moves to the footer. A title slide, a slide per lens, the
     findings overview, and a slide per group of findings. **The map is the full height of every
     slide's body**, on the left; the words go beside it, and the key and caption go to the foot of
     that column rather than under the map, where they shortened it. The first deck set two whole
-    essay sections at slide size, which made the words the larger half of every slide; a deck
-    keeps the first sentence of each (`deckProse`). The title slide has the whole repository's map
+    essay sections at slide size, which made the words the larger half of every slide. The first
+    sentence of each came next and made teasers ("Three states are drawn."), so each essay carries
+    two lines written for a slide (`Essay.deck`), and a slide adds one fact about this repository
+    off Table 1's buckets (`lensFact`). A deck numbers no figures and says what width and colour
+    are once, on its title slide, which also names the lens its own map is in (`heroLens`). The title slide has the whole repository's map
     beside its name, since a name and an abstract alone left most of it blank. A findings slide
-    that carries on draws its map again, so the list is never beside nothing.
+    that carries on draws its map again, so the list is never beside nothing; its badges for
+    entries on other slides are drawn quiet, so the repeated map points at what is beside it. A
+    group's entries are balanced across the slides it needs, not filled greedily, which ran six
+    findings 3 / 2 / 1 — and whole findings, unless one is taller than a slide, since balancing by
+    rule ran one finding over two slides beside a half-empty one. The overview's grid is balanced
+    the same way on every form, whole groups where a page can hold them, and a deck's overview
+    quiets the letters of groups on other slides.
+  - **A report and a brief are US Letter, and there is no A4.** There was a switch. Every
+    choice about what gives way below was tuned on one sheet, and A4 is 17pt narrower and 50pt
+    taller, so two sizes meant every layout checked twice or one shipped unchecked. Letter
+    printed on A4 scales to 97%, which nobody sees; A4 on Letter would have been 94%.
   - **What gives when a page is too full is different in each.** The report never shrinks type or
     cuts an essay, and gives up table rows instead. A brief keeps the report's type size and shrinks
     the figure, one size for every lens so the maps still compare, down to `BRIEF_FIGURE_MIN` of the
@@ -29,6 +50,23 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
     at (`DECK_TEXT`). Past either floor, whole paragraphs go from the end (`trimToFit`), never part
     of a sentence: a brief and a deck are already excerpts.
 
+- **It is a research report, and each lens page states its Results.** The tables held what the
+  map showed in this repository and the prose never said it: the page defined, measured and
+  caveated, and the one fact about the repository was a list of medians inside the Instrument
+  paragraph. So a lens page carries a Results section after its definition (`lensStory`, read
+  off the tables' own data): shares, medians, the extreme and where the top of a ranking falls,
+  in the register of the rest. **Stated, not narrated**: a first draft said short bodies "barely
+  branch", which is a story drawn from the numbers. A brief keeps Results with the definition.
+  Every essay has the same sections, and a caveat that holds for every lens (colours across
+  repositories, mixed models, how much has been read) is said once, in the methodology.
+- **A code span may break after a separator, and prose stays ragged-right.** Two columns of prose
+  with long unbreakable spans had jagged edges, so a span that would leave its line well short
+  breaks after `/ . - _ : # ( ,`, where a path or call already divides. Full justification was
+  tried alongside it and taken out: it was not wanted.
+- **How a lens is measured goes to the appendix** (`Essay.method`, `APPENDIX`). An Instrument
+  section between Definition and Reading the map took the reader through FNV-1a and a
+  2,048-call limit before saying what a bright wedge is. The appendix keeps it whole, for the
+  reader checking the method against the code, and the contents page names it.
 - **The prose is its own, and not the lens reference.** `LensHelp` is a lookup for somebody
   already on the map. A report is read by somebody who has never seen the app, so each lens gets
   an essay (Definition, Instrument, Reading the map, Interpretation, Limitations) and the cover
@@ -36,6 +74,10 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   several notes turned out to be behind it. Change a measurement and the essay describing it is
   now an unchecked claim: read it in the same edit. The markup is small on purpose: `- `,
   `1. `, `*italic*`, `**bold**`, `` `code` ``, and `{slots}` that `methodVars` fills from the repo.
+  **A sentence that leans on another lens is gated on that lens having a page**: `{?legible …}`
+  prints only with a Legibility page, `{!readings …}` only with none of the four a reading
+  paints (`lensGates`). grype's report had no readings, and its abstract still described the
+  reader as the main instrument while Complexity told it to compare against Legibility.
   **Essays carry facts too.** `lensVars` fills each with this repo's numbers:
   - Complexity's band medians;
   - the share of calls resolved;
@@ -45,6 +87,14 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   - reading coverage.
   Every token is a whole sentence or nothing: a fact the repo cannot supply fills as empty and
   its sentence goes with it, so no essay prints a zero standing in for a number it lacks.
+- **No line opens on punctuation, and no code chip breaks** (`setLines`). A word is what sits
+  between spaces across runs, so a chip and the full stop after it move together; a code span is
+  one piece, spaces and all. Only a word wider than a line is broken, after a `/` or `#` where
+  one falls late enough.
+- **A title aligns by its ink** (`Sheet.bearing`). A glyph's side bearing grows with its size,
+  so a 22pt title set at the margin sat visibly right of the eyebrow and body text beside it. The
+  bearing is measured off pixels on a scratch canvas: `actualBoundingBoxLeft` was tried first and
+  the exported pages still had every title 2–8px right of its eyebrow, measured off the JPEGs.
 - **Every page is a picture drawn on a canvas, and the text is pixels.** Three shapes were
   weighed before any was built. pdf-lib with an embedded face gives real text, but the only
   face the app ships is a Latin subset, so a CJK author prints as empty boxes. HTML through the
@@ -68,17 +118,29 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   9pt, never clipped. Every lens map is one square, sized for the tallest caption and key, so the
   maps compare page to page. Findings maps stay full width. The one-line hints under titles were
   the switcher's tooltip set in type and are gone; what a figure is drawn at goes in its caption.
-- **Each lens ends in tables, set full width after the essay.** `reportTables.ts` decides what is
+- **Each lens ends in tables.** The first, the breakdown, goes at the foot of the essay's second
+  column with the columns balanced around it, where the page holds it; the rest run full width
+  under both. Two full-width tables one under the other read as slapped together, and a
+  breakdown is a column's worth. Where it will not fit there, every table goes full width, and
+  so does a breakdown with no table after it (Language, Blame), which in one column left the
+  other half of the page empty.
+  **A table in a column is sized to what it holds** (`columnWidths`), not by the weights, which are
+  for the full width: set by weight in a column, `16,021` printed as `16···3`. Where its numbers
+  leave too little room for its widest label, it goes full width instead: no cell in a column
+  table is ever cut, label or number. `reportTables.ts` decides what is
   in them; `report.ts` sets and draws them, running onto further pages with the header repeated
   and never splitting a row.
   - **Table 1 is the breakdown:** lines and functions per band, with a share bar in the band's
     colour (Language adds files). It replaced a sentence that was a table written as prose. It is
     complete on any repo, because it is `bucketsFor`, which a file answers for when its functions
-    were never sent.
+    were never sent. **Docs takes the files out** (`functionsOnly`): a file's header is a reading of
+    its own and its lines are its functions', so counting both printed 119,381 lines over a
+    59,804-line map. A breakdown that counts fewer lines than the map draws says so in its caption.
   - **Table 2 names examples:** the most complex for their size, the most called, the longest
     untouched, every trap with the reader's own note. It can only name functions the window holds,
-    so where it holds fewer than the repo has, the table says how many it could name rather than
-    passing a sample off as the top. Blame and Language have no Table 2; the breakdown is already
+    so where it holds fewer than the repo has, the methodology says how many it could name
+    (`namedClause`) rather than passing a sample off as the top. Once: it was every table's note,
+    and a report printed it a dozen times. Blame and Language have no Table 2; the breakdown is already
     the list.
   - **No lens section runs past two pages**, its figure page and one more. When a section would,
     the report gives way in a fixed order and keeps the first layout that fits:
@@ -111,7 +173,9 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   group has pointer events back AND `settled()` (App's `asked` and `landed` both empty) has held
   for 400ms, and copies whatever is drawn after 30s.
 - **A lens with nothing to show gets no page.** A grey map would read as a finding. The contents
-  page names each skipped lens with `locks[m].why`, the sentence the switcher uses.
+  page names each skipped lens with `locks[m].paper`, set once under a run of lenses skipped for
+  the same reason. Not `why`, the switcher's sentence: that one names the button to press, and a
+  PDF has none.
 - **The key is `lensKey`'s, and so is the window's and the movie's.** The movie's own copy knew
   ramps and ranked casts and nothing else, so Callers, Reach, Clones and Traps had an empty key
   and Composition was coloured by rank. Blame's key names uncommitted lines when the picture has
@@ -136,19 +200,39 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
 - **A mark points at the drawn path, never at a recomputed layout.**
   - **Match by `finding.key`, not `hit.id`.** A function node's id is `key_of(path, name, ord)`,
     while `hit.id` is spelled `path#name@line`. Asking by `hit.id` matched no function at all.
-  - **Colour is the mark.** Each findings map is greyed, and only the wedges holding its findings
-    keep their colour. This is done by compositing, not `getImageData`, which WebKit can refuse
-    on an SVG-tainted canvas.
-  - **A place holds one label.** Marks within a label's width share it (`4 · 8 · 11`), kept
-    inside the map's square. On the overview, letters mark each group's region, dashed.
+  - **One shade is the mark** (`highlight`). Each findings map is greyed, and the wedges holding
+    its findings are shaded in the accent, whatever the lens said there — multiplied and then
+    coloured, so the shade keeps the map's lightness: filled over at 80%, it hid the names of the
+    functions it marked. **Findings maps are drawn in Clones** (Composition, then Language, where
+    it is locked), a lens with nothing to say there: drawn in the window's reading lens, a stale
+    wedge's hatching showed through the shade. **Its labels are all set in the page's ink**: the
+    window picks label ink against a lens colour the figure no longer has, and Clones' white
+    labels on the greyed map hid every name. They kept their
+    lens colour once, which left a finding at the dim end of a ramp a step off the grey and read
+    as a second kind of finding. By compositing, not `getImageData`, which WebKit can refuse on
+    an SVG-tainted canvas.
+  - **A place holds one label, by its inner edge.** Marks within a label's width share it
+    (`4 · 8 · 11`), kept inside the map's square. The map sets a wedge's name in its middle and a
+    badge there covered it, so a deep wedge takes its badge by the inner edge, and a ring too thin
+    to clear its name that way takes it along the arc, near its start. A mark smaller than its
+    badge gets no outline, which drew as brackets round the badge.
+    On the overview, letters mark each group's region, dashed.
   - **Too small falls back to its container.** Something the map cannot draw falls back up its
     path to the deepest drawn container and is outlined dashed, as `selCoarse` is.
 - **An entry breaks at its rules**, so a page break can fall between two rules of one finding,
   and the continuation repeats the number and address.
+- **A report's group starts under its map only when the whole group fits there.** Otherwise the
+  map shrinks, down to `GROUP_FIGURE_MIN` of the width, to keep it on one page; past that the map
+  has its page and the entries start on the next. Started under the map and carried on, one
+  finding split across two pages and the second was three quarters blank. After the map, an
+  entry that fits on a page is kept whole on one.
+- **The overview's grid names a group again at the top of a page it carries onto**, or its rows
+  read as the group before's.
 - **The report is stamped with its commit** (`repo_head`: the short sha, and whether the tree is
   dirty) on the cover, every page head and the PDF title. Readings expire when code moves, so a
   report read next month has to be checkable against the repo. A dirty flag git would not give is
-  not reported as clean. The methodology also states which model read the corpus
+  not reported as clean. Changes under the root `.sanity/` are not dirt: reading writes there, so
+  a repo being read was always stamped `with uncommitted changes`. The methodology also states which model read the corpus
   (`banked_model`), or that it mixes models and so is not on one scale.
 - **The writer is by hand, because a page of pixels needs almost none of PDF**: a JPEG XObject
   (`/DCTDecode` carries the canvas's bytes as they are), a content stream to paint it, and a

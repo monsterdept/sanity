@@ -69,6 +69,10 @@ export function Lock({
 export interface Locked {
   /** What would open it, in a sentence, on the tab's own tooltip. */
   why: string
+  /** Why it is empty, for a document — the report's contents page. **Paper has no buttons**,
+   *  so this states the absence and never says what to press: `why` printed there told the
+   *  reader of a PDF to press Read. */
+  paper: string
   /** Is there a control that opens it? Colours the lock — see `Lock`. */
   keyed: boolean
 }

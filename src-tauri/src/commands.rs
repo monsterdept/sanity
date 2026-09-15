@@ -407,6 +407,10 @@ pub struct RepoHead {
 /// uncommitted lines are on it under their own name — so a report of a dirty tree is of a state
 /// no commit holds, and that is worth saying rather than implying the sha is the whole story.
 ///
+/// **`.sanity/` is not dirt.** Reading a repo writes there, so every report of a repo mid-read
+/// was stamped `with uncommitted changes` for a tree whose code sat exactly at the sha. Only the
+/// root's is left out: `.sanity/` has one home, and a directory elsewhere spelled like it is code.
+///
 /// Bare `git`, the way `repo_remote` beside it runs it: this is display, and a machine where it
 /// fails gets a report with no stamp rather than a wrong one.
 #[tauri::command]
@@ -418,7 +422,8 @@ pub fn repo_head(path: String) -> Option<RepoHead> {
         out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
     };
     let sha = git(&["rev-parse", "--short=10", "HEAD"]).filter(|s| !s.is_empty())?;
-    let dirty = git(&["status", "--porcelain"]).map(|s| !s.is_empty());
+    let dirty =
+        git(&["status", "--porcelain", "--", ".", ":(exclude).sanity"]).map(|s| !s.is_empty());
     Some(RepoHead { sha, dirty })
 }
 

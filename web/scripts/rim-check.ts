@@ -657,6 +657,44 @@ console.log('docs — the derivable switch decides what a useless comment is pai
   check('and a doc nobody judged derivable keeps its grade', lines(false, 'full', 'some') === 100)
 }
 
+console.log('held readings — a ring-less file nobody has read still counts its lines')
+{
+  // **`contributeHeld` returned before its remainder when a file held no readings.** A file whose
+  // functions were never fetched and that nobody had read put its lines in no band at all — while
+  // `histogramsFor` still called its directory whole, on the stated ground that held readings and
+  // the remainder "together cover every line". It surfaced as a report whose Surprise breakdown
+  // counted fewer lines than its map.
+  const unfetched = (loc: number, pending?: unknown[]): Node =>
+    ({
+      kind: 'file',
+      id: `f${loc}`,
+      path: `f${loc}.rs`,
+      loc,
+      excluded: false,
+      funcs: 3,
+      children: [],
+      pending,
+    }) as unknown as Node
+  const dir = (kids: Node[]): Node =>
+    ({ kind: 'dir', id: 'd', path: 'd', loc: 0, excluded: false, children: kids }) as unknown as Node
+  const read = { id: 'f100.rs#a', predicted: 'full', loc: 40, stale: false }
+  const tree = () => dir([unfetched(120), unfetched(100, [read])])
+  const total = (mode: 'surprise' | 'legible' | 'traps' | 'docs') =>
+    bucketsFor(tree(), mode, undefined, VIEWS_DEFAULT).reduce((t, b) => t + b.lines, 0)
+  for (const mode of ['surprise', 'legible', 'traps'] as const) {
+    check(`${mode}: every line of a ring-less file is in a band, read or not`, total(mode) === 220, total(mode))
+  }
+  // Docs counts a file's header as a reading beside its functions, so its lines come twice by
+  // design — the pane counts readings, not lines. What must not happen is the unread half vanishing.
+  check('docs: the header and every function line, read or not', total('docs') === 440, total('docs'))
+  const rim = histogramsFor(dir([unfetched(120)]), 'surprise', undefined, VIEWS_DEFAULT).get('d') ?? []
+  check(
+    'and a directory of unread ring-less files has a rim that holds their lines',
+    rim.reduce((t, s) => t + s.lines, 0) === 120,
+    rim.map((s) => [s.label, s.lines]),
+  )
+}
+
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed`)
   process.exit(1)

@@ -1031,7 +1031,7 @@ function opaqueShare(node: Node): number | null {
  *  the finding, and both readings of it are about that. Every Docs surface asks here with
  *  the same `Views`, because a lens that disagreed with the breakdown beside it would be two
  *  answers to one question. */
-function docGrade(n: Node, derived: DerivableRead): Grade | undefined {
+export function docGrade(n: Node, derived: DerivableRead): Grade | undefined {
   if (!n.agent || n.agentStale) return undefined
   return n.agent.derivable ? derived : (n.agent.documented ?? undefined)
 }
@@ -1800,7 +1800,7 @@ type Put = (key: string, label: string, fill: string, n: Node, ramp?: number) =>
  *  nothing in it and said so only if asked, `git diff` refused to show it, and one editor
  *  round-trip would have dropped the byte and folded the absence row into a real category
  *  with nothing failing. Identical at runtime, legible in the source. */
-const UNKNOWN = '\u0000unknown'
+export const UNKNOWN ='\u0000unknown'
 
 /** What each kind is painted with — see `model::Kind`.
  *
@@ -2288,8 +2288,12 @@ function contributeCols(
  */
 function contributeHeld(file: Node, mode: ColorMode, view: Views, put: Put): void {
   if (mode !== 'legible' && mode !== 'docs' && mode !== 'traps' && mode !== 'surprise') return
-  const held = file.pending
-  if (!held || held.length === 0) return
+  // **No held readings is a file nobody has read, not a file with nothing to say.** This returned
+  // here, before the remainder, so a ring-less file with no readings put its lines in no band —
+  // while `histogramsFor` called its directory whole on the promise below, and a breakdown under
+  // any reading lens came up short of the map. `pending` is only ever set where readings exist
+  // (see `held` in `applyAgentReports`), so its absence always means unread.
+  const held = file.pending ?? []
   /** Never listed, only counted — see `put` in `bucketsFor`. */
   const stand: {
     synthetic: true
