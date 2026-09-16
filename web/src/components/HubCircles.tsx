@@ -86,7 +86,7 @@ export function HubCircles({
 }: {
   r: number
   mode: ColorMode
-  /** The creature's gaze targets, x right and **y up** — see `gaze` in `Sunburst` — or null. */
+  /** The gaze targets, x right and **y up** — see `gaze` in `Sunburst` — or null. */
   gaze: Array<{ x: number; y: number }> | null
   look: CirclesLook
   /** How many levels below the repo root the map is. The dot shrinks with it — see `step` — and

@@ -29,7 +29,6 @@ export function SideBar({
   onRead,
   onForget,
   onReset,
-  onRemintMascot,
   onError,
   onReplay,
   onTrace,
@@ -72,8 +71,6 @@ export function SideBar({
   /** Drop every cache this app keeps for a repo and start it over — see `reset_project`.
    *  The row stays in the list; a forget takes it out. */
   onReset: (key: string) => void
-  /** Throw this project's creature away; the next look at the map mints another. */
-  onRemintMascot: (key: string) => void
   /** Report a refused action. The rows can fail — stopping a run, cancelling a replay — and
    *  the window owns the one place failures are said out loud. */
   onError: (message: string) => void
@@ -223,9 +220,9 @@ export function SideBar({
   // already been narrowed once for exactly that reason. Narrowing it again meant putting it
   // where the subject is named.
   //
-  // What the panel was really buying was a place for the mascot, which is the one element
-  // here that is not per project — it is the app's own pulse. That went to the middle of
-  // the map, where there is room for it and where the eye already is.
+  // What the panel was really buying was a place for the app's own pulse, which is the one
+  // thing here that is not per project. That went to the middle of the map, and the middle now
+  // carries the findings count instead.
   //
   // The row shows its controls when it is the one you are pointing at or the one selected,
   // and ALWAYS while it has readers out: a run is the case where somebody needs Stop, and
@@ -451,22 +448,6 @@ export function SideBar({
                 Reset
               </button>
             )}
-            {/* **Named, in the project's own menu.** It used to be six clicks on the
-                creature itself — a gesture with nothing to discover it by and nothing to
-                say what it did, on a decoration sitting next to a real button. A creature
-                belongs to its repo, so the place to ask for another one is the repo's row.
-                No confirmation: the blueprint is random, so the old one cannot be described
-                in a dialog, and another is one more click. */}
-            <button
-              type="button"
-              className="block w-full px-3 py-1 text-left hover:bg-[var(--secondary)]"
-              onClick={() => {
-                onRemintMascot(menu.key)
-                setMenu(null)
-              }}
-            >
-              New monster
-            </button>
             <button
               type="button"
               className="block w-full px-3 py-1 text-left hover:bg-[var(--secondary)]"

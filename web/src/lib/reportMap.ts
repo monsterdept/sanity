@@ -3,7 +3,7 @@ import type { ColorMode, Views } from './colorMode'
 import { sectorOf } from './fan'
 import { mapMarkup } from './mapMarkup'
 import type { MapRender, MapRequest } from './report'
-import { CIRCLES, type CirclesLook, type HubCenter } from './hub'
+import { CIRCLES, type CirclesLook } from './hub'
 import { RINGS_DEFAULT } from './rings'
 import { BAND_SHARE, SPACING_DEFAULT, type Spacing } from './spacing'
 import { hexOf, type Vars } from './vector/color'
@@ -24,8 +24,7 @@ export interface ReportLook {
   spacing: Spacing
   rimShare: number
   markers: boolean
-  /** What sits in the middle of the map, and how the circles there are drawn. */
-  center: HubCenter
+  /** How the circles in the middle of the map are drawn. */
   circles: CirclesLook
 }
 
@@ -35,8 +34,7 @@ export const REPORT_LOOK: ReportLook = {
   spacing: SPACING_DEFAULT,
   rimShare: BAND_SHARE,
   markers: false,
-  center: 'circles',
-  circles: CIRCLES.initial,
+  circles: CIRCLES,
 }
 
 /** The measurer's inflation over the advance, as `widthPerPx` has it: an advance is not ink. */
@@ -72,7 +70,6 @@ export function reportMap(o: {
       views: o.views,
       ...o.look,
       sortBy: o.sortBy,
-      hasMascot: false,
       tagNodes: true,
       measure,
       ink: hex,

@@ -963,7 +963,6 @@ export async function record(o: Recording): Promise<Uint8Array> {
       ...o.source.look,
       sortBy: o.source.sortBy,
       replaying: true,
-      hasMascot: false,
       measure: widthPerPx,
       ink,
     }

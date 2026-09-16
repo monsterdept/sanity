@@ -281,8 +281,8 @@ second metric, and the line between those is the whole design.
   pictures nobody has checked against each other; one component rendered twice is not. What the
   picture has to carry is everything a document supplied: the stylesheet's custom properties on
   the chosen ground (`groundVars`, read off `index.css` as text, so a dark window writes a light
-  file) and the label face, inlined as woff2. The creature is not in the markup and is not
-  composited any more; the hub draws what `center` says, circles by default.
+  file) and the label face, inlined as woff2. The creature is gone from the app entirely, so
+  nothing is composited over a frame any more: the hub is the circles, drawn in the markup.
   **It is not a realtime capture, and that is the same argument the transport's duration
   rests on from the other side.** On screen a duration is held by SKIPPING commits, which is
   right for something being watched; a file made that way would be as good as the machine

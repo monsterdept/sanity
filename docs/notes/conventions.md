@@ -47,9 +47,11 @@
   into `/usr/local/bin` or `~/.local/bin`. **Never tell anyone to put `Contents/MacOS` on their
   PATH** — `sanity-history`, `sanity-sample` and `sanity-tokens` live there
   too — and never an alias, which no script can see.
-- `web/src/lib/mascot.js` is a committed placeholder. `just mascot` replaces it with the
-  real bundle from the private lapbar/neo-mascots repo; the placeholder exists so a
-  fresh checkout and CI both build without SSH access to that org. Don't delete it.
+- **The app draws no creature.** It had one in the middle of the map, behind a picker that
+  also offered a balance wheel and an eye; the question settled on the circles, so the picker,
+  the other two and the creature's bundle are gone from `web/`. `just mascot` still builds the
+  monsters lib for the WEBSITE's masthead (`website/assets/mascot.js`), and needs SSH access to
+  the private repo — nothing in the app or CI depends on it.
 - New language = a `Lang` variant, a grammar in Cargo.toml, an entry in
   `parse::func_kinds`, an entry in `parse::call_sites` if its calls can be read off the
   grammar, and a test in `parse.rs`. The kind names are matched literally,

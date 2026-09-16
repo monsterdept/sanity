@@ -116,7 +116,13 @@ export class Face {
     this.descent = this.t.descent
     this.capHeight = this.t.capHeight
     this.bbox = this.t.bbox
-    const copy = file.bytes.slice().buffer
+    // **The face's own bytes, copied out.** `slice` on a node `Buffer` is `subarray` — a VIEW —
+    // so `.buffer` is whatever allocation it sits in, and node pools small files: a 32KB font read
+    // at offset 31,768 of a 64KB pool handed HarfBuzz the pool, which starts inside some other
+    // file. Every glyph came back `.notdef`, every code span in the PDFs printed as an empty box,
+    // and the one face large enough to get an allocation of its own was fine — which is what hid
+    // it. `new Uint8Array(bytes)` copies the contents, so the blob is the font and nothing else.
+    const copy = new Uint8Array(file.bytes).buffer
     this.font = new hb.Font(new hb.Face(new hb.Blob(copy)))
   }
 

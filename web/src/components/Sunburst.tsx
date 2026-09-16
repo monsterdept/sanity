@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type AgentCall, type Node } from '../lib/api'
+import { type Node } from '../lib/api'
 import { type Views, type ColorMode } from '../lib/colorMode'
 import { PAPER } from '../lib/ink'
 import { type Wedge } from '../lib/sunburst'
@@ -23,9 +23,7 @@ import {
 import { widthPerPx } from '../lib/label'
 import { FAMILY, TRACKING, WEIGHT } from '../lib/labelStyle'
 import { WedgeTip } from './WedgeTip'
-import { AgentMascot } from './AgentMascot'
-import { CIRCLES, type CirclesLook, type HubCenter } from '../lib/hub'
-import type { MascotState } from './MascotFigure'
+import { CIRCLES, type CirclesLook } from '../lib/hub'
 import {
   FUNC_RIM,
   FUNC_RIM_MAX_SHARE,
@@ -40,27 +38,27 @@ import {
 
 /* The picture itself — every wedge, rim, label and the hub — is `MapSvg`, in `MapArt.tsx`, and
    so are the constants it is drawn to. What stays here is the WINDOW: the pane it measures, the
-   level change and the chase it runs, the pointer, the folds, the creature over the hub and the
+   level change and the chase it runs, the pointer, the folds, the badge over the hub and the
    corner chip. A report draws the same element with none of those, which is why they are apart. */
 export { DIM, LABEL_BAND, LABEL_GAP } from './MapArt'
 
 
-/** How many lit wedges the creature will look at one at a time before giving up and taking
+/** How many lit wedges the dot will look at one at a time before giving up and taking
  *  them as a region — see `gaze`. Small, because this is the number of things a glance can
  *  distinguish, not a display limit. */
 const GAZE_INDIVIDUALS = 6
 
-/** The mascot's box in the hub, in user units, and where its middle sits.
+/** The badge's box in the hub, in user units, and where its middle sits.
  *
  *  Centred, and large, because it is the only thing in the disc — the name and the line
- *  count both went, being answered by the crumbs and the panel. The box is a little taller
- *  than the creature, since the bundle renders into a square with room underneath, so the y
- *  is eyeballed against the rendered thing rather than derived from the geometry. Every
- *  value this has held was arrived at by looking at it.
+ *  count both went, being answered by the crumbs and the panel. The size is the creature's
+ *  that stood here before it, kept so the badge holds its place and its scale as the hub
+ *  grows and shrinks with the ring count.
  *
- *  **In user units, drawn in pixels.** The creature is a three.js canvas and canvases do not
- *  scale like paths, so it is not in the SVG at all — it is an HTML layer over the pane,
- *  moved and scaled to wherever the hub currently is. `HUB_MASCOT` is therefore both: the
+ *  **In user units, drawn in pixels.** The badge is HTML rather than SVG — it was a layer over
+ *  the pane for the creature's WebGL canvas, which does not scale like a path, and it stayed
+ *  there because type in a layer stays type. It is moved and scaled to wherever the hub
+ *  currently is. `HUB_BADGE` is therefore both: the
  *  side of the box in user units AND the canvas's own pixel size at scale 1, which is what
  *  keeps it crisp at the sizes the map actually draws at. */
 /** How fast a ring catches up with a shape that changed under it, as a time constant in ms.
@@ -88,8 +86,8 @@ const MORPH_TAU_MS = 90
  *  pixel. */
 const MORPH_EPS = 0.02
 
-const HUB_MASCOT = 94
-const HUB_MASCOT_Y = 0
+const HUB_BADGE = 94
+const HUB_BADGE_Y = 0
 
 
 
@@ -189,9 +187,6 @@ const DIAL_PAD_V = 1.35
 const DIAL_LABEL = 0.84
 /** Ground between the markings and the dial's edge, in type sizes. */
 const DIAL_INSET = 1.1
-/** How much of its box the creature takes while the dial is round it. */
-const DIAL_MASCOT = 0.75
-
 const ON_CURVE = 0.34
 
 /** A sector of an annulus with rounded corners.
@@ -248,7 +243,7 @@ function sectorPath(
   ].join(' ')
 }
 
-/** How many findings are standing, drawn on the creature as a watch dial.
+/** How many findings are standing, drawn in the hub as a watch dial.
  *
  *  **One shape, chosen by looking.** Six were built and offered in the toolbar while the
  *  question was open — a disc on the shoulder, a band over the head, a curved bar with round
@@ -276,11 +271,10 @@ function FindingBadge({
   onFound,
   onRules,
 }: {
-  /** Which side of the creature this sits on. */
+  /** Which side of the hub this sits on. */
   layer: number
-  /** The side of the mascot's box, in screen pixels. Everything here is a fraction of it, so
-   *  the dial holds its relationship to the creature as the hub grows and shrinks with the
-   *  ring count. */
+  /** The side of the badge's box, in screen pixels. Everything here is a fraction of it, so
+   *  the dial holds its proportions as the hub grows and shrinks with the ring count. */
   box: number
   count: number
   /** How many rules are running here — the number at six o'clock, and the denominator the
@@ -318,7 +312,7 @@ function FindingBadge({
     const thick = font * DIAL_PAD_V
     const cx = box / 2
     const cy = box * 0.5
-    const disc = box * (R_INNER / HUB_MASCOT)
+    const disc = box * (R_INNER / HUB_BADGE)
     // Clear of the disc's edge rather than against it: at nothing it read as a bar stuck to
     // the rim, and the markings are meant to sit inside that. In type sizes like everything
     // else here, so it holds its look if the dial is ever drawn bigger.
@@ -580,7 +574,7 @@ function SunburstView({
   ranks,
   views,
   onUp,
-  mascot,
+  findings,
   morph,
   replaying = false,
   sortBy,
@@ -590,9 +584,7 @@ function SunburstView({
   spacing = SPACING_DEFAULT,
   markers = true,
   tagNodes = false,
-  center = 'monster',
-  wheelHz = 1,
-  circles = CIRCLES.initial,
+  circles = CIRCLES,
   onWantRings,
 }: {
   root: Node
@@ -620,25 +612,18 @@ function SunburstView({
    *
    *  Absent is a legitimate value — the history replay has no run to depict — and absence
    *  draws nothing rather than a sleeping creature over a story from 2019. */
-  mascot?: {
-    events: AgentCall[]
-    state: MascotState
-    project?: string | null
-    remint?: number
-    /** How many findings are standing — found, and not set aside. `0` draws nothing.
-     *
-     *  **A count is honest here because the archive makes it drainable.** Before dismissals
-     *  existed the only number available was the total, and ceph's four thousand is a
-     *  baseline rather than a notification; what a person can work down to nothing is worth
-     *  printing. See `docs/notes/findings.md`. */
-    findings?: number
-    /** Open the findings panel. **On the badge, never on the creature** — the mascot's single
-     *  clicks are already spoken for (six of them remint it, and the hub underneath means go
-     *  up a level), so a click handler on the figure would fire on the first click of a
-     *  gesture and open a panel in the middle of it. */
-    onFindings?: (view?: 'findings' | 'rules') => void
-    /** How many rules are running here — the second number on the `label` badge. */
+  /** What the badge in the hub says, and what a click on it opens. Absent draws nothing — a
+   *  replay has no findings to report on a story from 2019.
+   *
+   *  **A count is honest here because the archive makes it drainable.** Before dismissals
+   *  existed the only number available was the total, and ceph's four thousand is a baseline
+   *  rather than a notification; what a person can work down to nothing is worth printing.
+   *  See `docs/notes/findings.md`. */
+  findings?: {
+    count: number
+    /** How many rules are running here — the second number on the badge. */
     rules?: number
+    onOpen?: (view?: 'findings' | 'rules') => void
   }
   /** Ease the rings toward the shape they are given, instead of taking it.
    *
@@ -704,11 +689,7 @@ function SunburstView({
    *  landed is the path that was drawn for it. Off otherwise: thousands of attribute strings
    *  per render for a question only an export asks. */
   tagNodes?: boolean
-  /** What the hub holds — see `lib/hub.ts`. Anything but `monster` takes the creature out of
-   *  its layer and keeps the layer, which carries the findings count and its click. */
-  center?: HubCenter
   /** The balance wheel's speed, in full swings a second — see `WHEEL_HZ`. */
-  wheelHz?: number
   /** The circles' shadow and the dot's travel — see `CirclesLook`. */
   circles?: CirclesLook
   /** Which files the map has somewhere to draw the insides of.
@@ -748,7 +729,7 @@ function SunburstView({
    *  container's corner for one frame before the next mousemove corrected it. */
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [box, setBox] = useState({ w: 0, h: 0 })
-  const hubMascot = useRef<HTMLDivElement>(null)
+  const hubBadge = useRef<HTMLDivElement>(null)
   const art = useRef<SVGGElement>(null)
   const pane = useRef<HTMLDivElement>(null)
   /** The pane's size, measured rather than inferred from pointer traffic.
@@ -783,7 +764,7 @@ function SunburstView({
    *  on the element and in a ref rather than in state — see the fit effect. */
   const svg = useRef<SVGSVGElement>(null)
   const fitted = useRef('-360 -360 720 720')
-  /** The mascot layer, moved with the hub. A ref rather than state for the same reason the
+  /** The badge's layer, moved with the hub. A ref rather than state for the same reason the
    *  viewBox is written to the element: this is updated every frame of a level change, and
    *  a second React render per frame to carry two numbers is most of what made the motion
    *  feel heavy. */
@@ -828,7 +809,6 @@ function SunburstView({
     collapsed,
     selected,
     reading,
-    center,
   })
   const {
     rIn,
@@ -1010,7 +990,7 @@ function SunburstView({
    *  `gaze`. When the wedge itself is not drawn, the nearest drawn wedge that holds it, which
    *  is where it is on screen. Null for the level itself, which is all around the hub. */
   const selectedGaze = useMemo(() => {
-    if (center !== 'circles' || !selected || selected.id === root.id) return null
+    if (!selected || selected.id === root.id) return null
     let best: (typeof wedges)[number] | null = null
     for (const w of wedges) {
       if (w.node.id === root.id) continue
@@ -1024,7 +1004,7 @@ function SunburstView({
     if (!best) return null
     const mid = (best.a0 + best.a1) / 2
     return { x: Math.sin(mid), y: Math.cos(mid) }
-  }, [center, selected, wedges, root.id])
+  }, [selected, wedges, root.id])
 
 
   /** The wedges of the level currently on screen, kept so the one being left can still be
@@ -1359,17 +1339,17 @@ function SunburstView({
     void h
   })
   place.current = (w: number, h: number) => {
-    const el = hubMascot.current
+    const el = hubBadge.current
     if (!el || w <= 0 || h <= 0) return
     const v = viewNow.current
     const s = Math.min(w, h) / v.side
     const x = w / 2 + (0 - v.cx) * s
-    const y = h / 2 + (HUB_MASCOT_Y - v.cy) * s
+    const y = h / 2 + (HUB_BADGE_Y - v.cy) * s
     el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${s})`
     // Hidden until it has been placed. Untransformed it sits in the pane's top-left corner,
-    // which is a creature in the wrong place for however long the first measurement takes —
-    // and `mascot` in the effect's deps is what re-places it after a replay is switched off
-    // and the layer mounts again with no transform on it.
+    // which is a badge in the wrong place for however long the first measurement takes — and
+    // `findings` in the effect's deps is what re-places it after a replay is switched off and
+    // the layer mounts again with no transform on it.
     el.style.visibility = 'visible'
   }
   if (startedRun.current !== run) {
@@ -1395,7 +1375,7 @@ function SunburstView({
     // on the SAME frame as the wedges: a creature that arrives one frame late slides across
     // the map behind the disc it belongs to.
     place.current(box.w, box.h)
-  }, [viewTo, e, moving, box.w, box.h, mascot])
+  }, [viewTo, e, moving, box.w, box.h, findings])
 
   /** Which segment of a directory's rim the pointer is over, if any.
    *
@@ -1506,8 +1486,6 @@ function SunburstView({
         paneAspect={paneAspect}
         hover={hoverNode}
         tagNodes={tagNodes}
-        hasMascot={!!mascot}
-        wheelHz={wheelHz}
         circles={circles}
         gaze={gaze}
         selectedGaze={selectedGaze}
@@ -1517,146 +1495,64 @@ function SunburstView({
         artRef={art}
       />
 
-      {/* The creature in the hub.
-          A layer over the SVG rather than a `foreignObject` inside it: what is being placed
-          is a WebGL canvas, and a canvas scaled by an SVG transform is a bitmap stretched
-          rather than a picture redrawn. Positioned imperatively in the fit effect above, so
-          it travels with the disc through a level change instead of jumping to the new
-          middle a frame early.
+      {/* The badge's layer, over the SVG rather than inside it.
+          A creature used to stand here — a WebGL canvas, which is why this is a layer and not
+          a `foreignObject`: a canvas scaled by an SVG transform is a bitmap stretched rather
+          than a picture redrawn. The creature is gone and the layer stays, because what it
+          carries is the findings count and the hub's own gesture. Positioned imperatively in
+          the fit effect above, so it travels with the disc through a level change instead of
+          jumping to the new middle a frame early.
 
-          It sits at the top-left with everything in one transform, which is what lets the
-          effect write a single property. `pointer-events` stay on: the six-click remint is
-          the only way to get another creature, and this is now the only creature there is.
+          **It carries the hub's gesture rather than swallowing it.** The layer covers most of
+          the disc, and the disc means "go up a level", so the double-click passes through to
+          the same place the ring underneath would take it. */}
+      {findings && (
+        <div
+          ref={hubBadge}
+          className="absolute left-0 top-0 origin-center"
+          style={{
+            width: HUB_BADGE * hubK,
+            height: HUB_BADGE * hubK,
+            visibility: 'hidden',
+            cursor: onUp ? 'zoom-out' : undefined,
+          }}
+          onDoubleClick={
+            onUp
+              ? (ev) => {
+                  ev.stopPropagation()
+                  onUp()
+                }
+              : undefined
+          }
+        >
+          {/* **The count, as a badge.** A cloud and a tail of dots were both tried here and
+              both lost to the plain thing: what this has to do is carry a number legibly at a
+              fifth of the hub's height, over whatever colour the innermost wedges happen to
+              be, and every bit of shape spent on saying "thought" came out of the part that
+              had to stay readable.
 
-          **It carries the hub's own gesture rather than swallowing it.** The creature covers
-          most of the disc, and the disc means "go up a level" — a dead patch in the middle
-          of that target is worse than the one thing it costs, which is that six rapid clicks
-          at a drilled-in level walk you out as well as reminting. Six clicks is a gesture
-          people perform at rest, on the repo root, where there is nowhere to go up to. */}
-      {mascot &&
-        ((): React.ReactNode => {
-          return (
-            <div
-              ref={hubMascot}
-              /* Where the creature sits in the map's OWN coordinates — its centre's y and the
-             side of its box, both in user units. The movie export composites this canvas
-             into its frames (it is not in the SVG, so a copy of the SVG does not carry it)
-             and needs to know where: reading it off the element keeps the one geometry
-             here, rather than a second copy of these two numbers in `movie.ts` that nobody
-             would think to move when the hub does. */
-              data-hub-mascot={`${HUB_MASCOT_Y} ${HUB_MASCOT * hubK}`}
-              className="absolute left-0 top-0 origin-center"
-              style={{
-                width: HUB_MASCOT * hubK,
-                height: HUB_MASCOT * hubK,
-                visibility: 'hidden',
-                cursor:
-                  center === 'monster' && mascot.onFindings && mascot.findings
-                    ? 'pointer'
-                    : onUp
-                      ? 'zoom-out'
-                      : undefined,
-              }}
-              onDoubleClick={
-                onUp
-                  ? (ev) => {
-                      ev.stopPropagation()
-                      onUp()
-                    }
-                  : undefined
-              }
-              /** **The whole creature opens the findings, and only while it has some to show.**
-               *
-               *  This does sit in front of the six-click remint, which is the cost: with a bubble
-               *  up, clicking the mascot opens a panel instead of counting toward a new creature.
-               *  Reminting is still there on a repo with nothing standing, and the trade was
-               *  asked for — the creature having something to say is the more common state and
-               *  the more useful click. The disc's own "go up" is untouched, because that is a
-               *  DOUBLE click and this stops the event before it reaches the ring underneath. */
-              // Only the creature opens the panel on a click. Anything else in the middle leaves a
-              // click to the dial's two halves, so a double-click there goes up a level.
-              onClick={
-                center === 'monster' && mascot.onFindings && mascot.findings
-                  ? (ev) => {
-                      ev.stopPropagation()
-                      mascot.onFindings?.()
-                    }
-                  : undefined
-              }
-            >
-              {/* **The badge shape changes the creature, not just what is drawn over it.**
-                  The arc needs air above the head — at full size the band lands ON the head
-                  and reads as a hat — so the creature shrinks and keeps its footing, origin
-                  at the bottom of the box, which is the ground it was already standing on.
-                  The plinth takes the ground shadow out of the blueprint: a soft ellipse
-                  spreading from behind a solid block is two grounds, and the block is the
-                  one the creature is standing on. */}
-              <div
-                style={{
-                  /* **The dial takes a squidge of width off the creature.** It carries a line
-                     of type at twelve and another at six; at full size the head reaches the
-                     first and the feet reach the second.
+              **Drawn whatever the readers are doing.** It used to be gated on a sleeping
+              creature, which is not an argument anybody made, and what it did was take the
+              count off the map for the whole of a reading pass. Kibana's is minutes long;
+              sanity's is 1,700 functions. For all of that the map said nothing while the panel
+              behind it said forty-nine, and silence standing in for a clean bill is the one
+              thing this surface is written never to do.
 
-                     Scaled about its CENTRE, which is the part that took two goes to get
-                     right. Anchoring at the bottom keeps the footing where it is, which is
-                     what a badge under the feet would want — but with type above AND below,
-                     the creature has to stay centred between them, and scaling about the feet
-                     pulled it down into the lower line. */
-                  transform: `scale(${DIAL_MASCOT})`,
-                  transformOrigin: '50% 50%',
-                  // The badge draws over the figure, not under it.
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
-                {center === 'monster' && (
-                  <AgentMascot
-                    size={HUB_MASCOT * hubK}
-                    events={mascot.events}
-                    state={mascot.state}
-                    gaze={gaze}
-                    project={mascot.project}
-                    remint={mascot.remint}
-                  />
-                )}
-              </div>
-              {/* **The count, as a badge.** A cloud and a tail of dots were both tried here
-                  and both lost to the plain thing: what this has to do is carry a number
-                  legibly at a fifth of the creature's height, over whatever colour the
-                  innermost wedges happen to be, and every bit of shape spent on saying
-                  "thought" came out of the part that had to stay readable.
-
-                  Top-right and clear of the head — it sat over the face at first, which reads
-                  as a creature wearing a number rather than having one.
-
-                  `pointer-events: none`: the CLICK is the whole creature's, one level up.
-                  This is the thing being pointed at, not the target.
-
-                  **Drawn whatever the creature is doing.** It used to be gated on `sleeping`,
-                  which is not an argument anybody made — it is a condition that was written
-                  and never justified, and what it did was take the count off the map for the
-                  whole of a reading pass. Kibana's is minutes long; sanity's is 1,700
-                  functions. For all of that the map said nothing while the panel behind it
-                  said forty-nine, and silence standing in for a clean bill is the one thing
-                  this surface is written never to do.
-
-                  The count is honest during a run, and interestingly so: tier-2 rules are
-                  blocked until something has been read, so the number GROWS as the readers
-                  land — which is the reading pass paying off, said in the one place you are
-                  already looking. */}
-              {!!mascot.findings && (
-                <FindingBadge
-                  layer={2}
-                  box={HUB_MASCOT * hubK}
-                  rules={mascot.rules ?? 0}
-                  count={mascot.findings}
-                  onFound={mascot.onFindings ? () => mascot.onFindings?.('findings') : undefined}
-                  onRules={mascot.onFindings ? () => mascot.onFindings?.('rules') : undefined}
-                />
-              )}
-            </div>
-          )
-        })()}
+              The count is honest during a run, and interestingly so: tier-2 rules are blocked
+              until something has been read, so the number GROWS as the readers land — which is
+              the reading pass paying off, said in the one place you are already looking. */}
+          {!!findings.count && (
+            <FindingBadge
+              layer={2}
+              box={HUB_BADGE * hubK}
+              rules={findings.rules ?? 0}
+              count={findings.count}
+              onFound={findings.onOpen ? () => findings.onOpen?.('findings') : undefined}
+              onRules={findings.onOpen ? () => findings.onOpen?.('rules') : undefined}
+            />
+          )}
+        </div>
+      )}
 
       {/* The tooltip. Instant, because it is ours: it appears the moment a wedge is
           entered instead of waiting out the OS delay, and it can say what is actually

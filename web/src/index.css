@@ -126,7 +126,7 @@
   --accent-foreground: #f5f1ea;
 
   --destructive: #8f5753; /* Danger */
-  /* The finding count on the mascot, and nothing else.
+  /* The finding count in the hub, and nothing else.
    *
    * **A notification red of its own, rather than one of the two reds already here.**
    * `--destructive` is the app's ERROR red — it marks something that went wrong for the

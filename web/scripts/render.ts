@@ -23,7 +23,7 @@ import { READINGS_DEFAULT, reportLenses, slotsFor, viewsFor } from '../src/lib/r
 import { REPORT_LOOK, reportMap } from '../src/lib/reportMap'
 import { onPaper, rootVars } from '../src/lib/vector/color'
 import { Face, subsetter } from '../src/lib/vector/fonts'
-import { MONO_DEFAULT, monoFaceOf } from '../src/lib/monoFaces'
+import { MONO } from '../src/lib/monoFaces'
 
 interface Export {
   version: number
@@ -53,14 +53,13 @@ interface Export {
 const RENDER_VERSION = 2
 
 function args() {
-  const out = { data: '', forms: [] as Form[], dir: '.', cache: true, mono: MONO_DEFAULT }
+  const out = { data: '', forms: [] as Form[], dir: '.', cache: true }
   const argv = process.argv.slice(2)
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--data') out.data = argv[++i]
     else if (a === '--out') out.dir = argv[++i]
     else if (a === '--no-cache') out.cache = false
-    else if (a === '--mono') out.mono = argv[++i]
     else if (a === 'all') out.forms.push('report', 'brief', 'deck')
     else if (a in FORM) out.forms.push(a as Form)
     else throw new Error(`Not an argument this knows: ${a}`)
@@ -120,15 +119,12 @@ console.log(`read ${data.name} (${data.summary.functions.toLocaleString()} funct
 // The recipe says where `web/` is: the bundle runs from `node_modules/.cache`, two levels down.
 const web = process.env.SANITY_WEB ?? resolve(import.meta.dirname ?? '.', '../..')
 const fontFile = (file: string) => readFileSync(join(web, 'public/fonts/pdf', file))
-// `--mono <id>` sets a candidate from `monoFaces.ts`; the default is the app's.
-const monoFace = monoFaceOf(opts.mono)
-const monoName = monoFace.label.replace(/[^A-Za-z0-9]/g, '')
 const env = {
   fonts: {
     sans: new Face({ key: 'sans', name: 'LINESeedJP-Regular', bytes: fontFile('LINESeedJP-Regular.ttf') }),
     sansBold: new Face({ key: 'sans-bold', name: 'LINESeedJP-Bold', bytes: fontFile('LINESeedJP-Bold.ttf') }),
-    mono: new Face({ key: 'mono', name: `${monoName}-Regular`, bytes: readFileSync(join(web, 'public/fonts/mono', `${monoFace.id}-400.ttf`)) }),
-    monoBold: new Face({ key: 'mono-bold', name: `${monoName}-Bold`, bytes: readFileSync(join(web, 'public/fonts/mono', `${monoFace.id}-700.ttf`)) }),
+    mono: new Face({ key: 'mono', name: `${MONO.postscript}-Regular`, bytes: readFileSync(join(web, 'public/fonts/mono', `${MONO.id}-400.ttf`)) }),
+    monoBold: new Face({ key: 'mono-bold', name: `${MONO.postscript}-Bold`, bytes: readFileSync(join(web, 'public/fonts/mono', `${MONO.id}-700.ttf`)) }),
   },
   vars: rootVars(readFileSync(join(web, 'src/index.css'), 'utf8')),
   subset: await subsetter(readFileSync(join(web, 'node_modules/harfbuzzjs/dist/harfbuzz-subset.wasm'))),

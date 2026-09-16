@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  agentActivity,
   agentReports,
   listProjects,
   projectScan,
@@ -53,7 +52,6 @@ import {
   type FindingGroup,
   type Node,
   type Progress,
-  type AgentActivity,
   type ProjectSummary,
   type Scan,
   type Upgrade,
@@ -79,9 +77,7 @@ import {
 import { Sunburst } from './components/Sunburst'
 import type { MovieKey, MovieSource } from './lib/movie'
 import { lensKey } from './lib/lensKey'
-import { forgetMonster } from './lib/monster'
 import { onScanShape, shapeTree, type ShapeFile } from './lib/shape'
-import type { MascotState } from './components/MascotFigure'
 import { CommitLog } from './components/CommitLog'
 import { HistoryBar } from './components/HistoryBar'
 import { Crumbs } from './components/Crumbs'
@@ -132,23 +128,8 @@ import {
   RingCount,
 } from './components/Rings'
 import { loadRings, saveRings } from './lib/rings'
-import {
-  HUB_CENTERS,
-  loadHubCenter,
-  CIRCLES,
-  HUB_CONTROLS,
-  loadCirclesLook,
-  loadWheelHz,
-  saveCirclesLook,
-  saveHubCenter,
-  saveWheelHz,
-  wheelHzAt,
-  wheelPosOf,
-  type CirclesLook,
-  type HubCenter,
-} from './lib/hub'
+import { CIRCLES } from './lib/hub'
 import { BAND_SHARE, SPACING_DEFAULT } from './lib/spacing'
-import { chooseMono, chosenMono, MONO_FACES } from './lib/monoFaces'
 import { isCapped, loadCap, saveCap, type Capped } from './lib/palette'
 import { ReadDialog } from './components/ReadDialog'
 
@@ -203,29 +184,6 @@ function sameRanks(
 /** The same containers, in the same order. */
 function sameNodes(a: readonly Node[], b: readonly Node[]): boolean {
   return a.length === b.length && a.every((n, i) => n === b[i])
-}
-
-/** Does an activity poll say what the last one said?
- *
- *  **A poll that learns nothing must not re-render the window.** `agent_activity` is a few
- *  bytes and is fetched every two seconds whether or not an agent is doing anything, and it
- *  arrives as a fresh object every time — so storing it unconditionally re-rendered the whole
- *  app twice a minute, for the life of the window, over an answer that had not changed. That
- *  is the panel beside the map redrawing on a period while somebody reads it, and the same
- *  trap `sameProjects` and `live` are already written against.
- *
- *  The events are compared by their COUNT and their last sequence number, which is what
- *  `lastCall` reads: the list is append-only and bounded, so a new call at the end is the only
- *  way it moves. */
-function sameActivity(a: AgentActivity, b: AgentActivity): boolean {
-  const last = (x: AgentActivity) => (x.events.length > 0 ? x.events[x.events.length - 1].seq : 0)
-  return (
-    a.active === b.active &&
-    a.tool === b.tool &&
-    a.nonce === b.nonce &&
-    a.events.length === b.events.length &&
-    last(a) === last(b)
-  )
 }
 
 /** Do two project lists say the same thing?
@@ -483,7 +441,7 @@ export default function App() {
   /** Bumped after a dismissal lands, to re-ask for both halves.
    *
    *  **Re-asked rather than patched in place.** Setting a finding aside changes the list, the
-   *  archive, every group's marginal count and the number on the mascot — and a local edit
+   *  archive, every group's marginal count and the number in the hub — and a local edit
    *  that got any one of those wrong would leave the panel disagreeing with `.sanity/`, which
    *  is the failure this store is most careful about. One extra walk of a tree that is
    *  already in memory is the cheaper mistake. */
@@ -576,22 +534,6 @@ export default function App() {
     setRings(n)
     saveRings(n)
   }, [])
-  /** What the hub holds — see `lib/hub.ts`. A display preference like the ring count. */
-  const [hubCenter, setHubCenter] = useState<HubCenter>(loadHubCenter)
-  const chooseHubCenter = useCallback((c: HubCenter) => {
-    setHubCenter(c)
-    saveHubCenter(c)
-  }, [])
-  const [wheelHz, setWheelHz] = useState(loadWheelHz)
-  const chooseWheelHz = useCallback((hz: number) => {
-    setWheelHz(hz)
-    saveWheelHz(hz)
-  }, [])
-  const [circlesLook, setCirclesLook] = useState<CirclesLook>(loadCirclesLook)
-  const chooseCircles = useCallback((look: CirclesLook) => {
-    setCirclesLook(look)
-    saveCirclesLook(look)
-  }, [])
   /** How many colors each categorical lens spends — see `lib/palette.ts`. A display
    *  preference like the ring count, read once and written back on every change, and held
    *  per lens because the two lenses are asking different questions of it.
@@ -657,12 +599,6 @@ export default function App() {
   useEffect(() => {
     void syncThemeMenu(theme)
   }, [theme])
-  const [agent, setAgent] = useState<AgentActivity>({
-    active: false,
-    tool: '',
-    nonce: 0,
-    events: [],
-  })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
   /** Whether any MCP client is registered against THIS binary.
@@ -899,11 +835,8 @@ export default function App() {
   // this timer. Nothing is lost by waiting: readings are recovered on the next tick after
   // history closes, and the live map is not being looked at meanwhile.
   //
-  // Activity keeps polling. That one is a few bytes, and it drives the mascot — an agent
-  // that goes to sleep behind a replay should not still be reported as working.
   useEffect(() => {
     const timer = setInterval(() => {
-      void agentActivity().then((a) => setAgent((prev) => (sameActivity(prev, a) ? prev : a)))
       if (historyOn) return
       void agentReports(activeKey).then((reports) => {
         if (reports.length === 0) return
@@ -1322,41 +1255,6 @@ export default function App() {
   const activeProject = useMemo(
     () => projects.find((p) => p.key === activeKey) ?? null,
     [projects, activeKey],
-  )
-
-  /** What the creature in the hub is doing.
-   *
-   *  The same three-rung ladder the sidebar panel used to run, and about the project on
-   *  SCREEN — which is what the hub is about. It was global once ("an agent called Sanity
-   *  recently, about anything"), and that was fine while an agent was the only way in and
-   *  wrong for a picture of one repo: `project.working` is the backend's per-project answer
-   *  and it discounts a finished run's dying calls, which is what used to leave this reading
-   *  WORKING for a minute over a run that had stopped.
-   *
-   *  **A wave that has ended is not finished while its readers are alive.** `live` counts
-   *  processes the backend has not yet reaped, so the creature stays flustered until the
-   *  last one is gone rather than snapping back to work on the readers' own last calls. */
-  const mascotState = useMemo<MascotState>(() => {
-    const run = activeProject?.run ?? null
-    const running = !!run?.running
-    const winding = !!run && !running && (run.live ?? 0) > 0
-    if (run?.stopping || winding) return 'stopping'
-    return running || activeProject?.working ? 'working' : 'sleeping'
-  }, [activeProject])
-  /** Kept stable between polls, on the SEQUENCE rather than on the array.
-   *
-   *  `agentActivity` returns a fresh object every two seconds whether or not anything
-   *  happened, and this prop reaches the sunburst — which is a few thousand arcs. A new
-   *  identity per poll is a re-render of the whole map twice a minute to carry a list that
-   *  did not change. The last call's `seq` is the one thing that moves when it does. */
-  const lastCall = agent.events.length > 0 ? agent.events[agent.events.length - 1].seq : 0
-  /** Bumped when somebody asks the sidebar for a new creature — see `remintMascot`. The
-   *  blueprint itself lives in storage, per project, so this only has to say "look again". */
-  const [remint, setRemint] = useState(0)
-  const mascot = useMemo(
-    () => ({ events: agent.events, state: mascotState, project: activeKey, remint }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lastCall, mascotState, activeKey, remint],
   )
 
   useEffect(() => onHistoryProgress(setHistoryProgress), [])
@@ -2503,10 +2401,10 @@ export default function App() {
         return { root, parent, ranks: slotsFor(m, root), key: keyAt(m, root) }
       },
       views: lensViews,
-      look: { rings, spacing, rimShare: band, markers, center: hubCenter, circles: circlesLook },
+      look: { rings, spacing, rimShare: band, markers, circles: CIRCLES },
       sortBy: headOrder,
     }
-  }, [history, historyKey, activeKey, activeProject?.name, drilled, paneSide, flashes, churnWindows, stack, slotsFor, keyAt, lensViews, rings, spacing, band, markers, hubCenter, circlesLook, headOrder])
+  }, [history, historyKey, activeKey, activeProject?.name, drilled, paneSide, flashes, churnWindows, stack, slotsFor, keyAt, lensViews, rings, spacing, band, markers, headOrder])
   /** Stable identities, because an inline lambda makes the memo below do nothing. */
   const pick = useCallback((n: Node) => setPicked(n), [])
   const clearPick = useCallback(() => setPicked(null), [])
@@ -2848,7 +2746,7 @@ export default function App() {
    *  each command built the whole fact set for itself: three walks of the tree, under one
    *  lock, which on kibana is 540,000 records to answer three questions about one repo. They
    *  are also the same measurement seen three ways — the counts in the grid, the tiles in the
-   *  list and the number on the creature — so three fetches were three chances for them to
+   *  list and the number in the hub — so three fetches were three chances for them to
    *  describe different states of the repo.
    *
    *  **Asked when the ANSWER could have changed, never on the tree's identity.** It was keyed
@@ -3003,20 +2901,14 @@ export default function App() {
     setFindingsOpen(true)
   }, [])
 
-  /** The creature, plus what it has to tell you.
+
+  /** What the hub's badge says, and what a click on it opens — see `Sunburst`'s `findings`.
    *
-   *  **A second memo rather than a spread at the call site.** `mascot` is memoised because it
-   *  reaches the sunburst, which is a few thousand arcs — building a fresh object inline
-   *  would re-render the whole map on every render of this component, which is the exact cost
-   *  that memo exists to avoid. Same discipline, one layer out. */
-  const mascotForMap = useMemo(
-    () => ({
-      ...mascot,
-      findings: findingTotal,
-      onFindings: openFindings,
-      rules: liveRules,
-    }),
-    [mascot, findingTotal, openFindings, liveRules],
+   *  **Memoised because it reaches the sunburst**, which is a few thousand arcs: a fresh object
+   *  per render would redraw the whole map to carry three numbers that did not change. */
+  const findingsForMap = useMemo(
+    () => ({ count: findingTotal, rules: liveRules, onOpen: openFindings }),
+    [findingTotal, liveRules, openFindings],
   )
 
   return (
@@ -3043,10 +2935,6 @@ export default function App() {
           onAdd={addProject}
           onForget={forget}
           onReset={reset}
-          onRemintMascot={(key) => {
-            forgetMonster(key)
-            setRemint((n) => n + 1)
-          }}
           onError={setError}
           // **Both pill actions are the same press.** `phasesOf` reports `replay` for the
           // column's last third and `trace` for the first two, which is right for naming what
@@ -3230,33 +3118,6 @@ export default function App() {
                     than as it stands — and Find gets you somewhere inside the subject you
                     already have. Both leave the picture you were looking at, which is what
                     puts them together and after everything that shapes it. */}
-                {/* **Temporary**: which vendored face is `Sanity Mono`, while one is chosen. A choice
-                    reloads the window, because every measurement taken in the old face is cached. */}
-                <select
-                  title="Monospace face (temporary)"
-                  value={chosenMono().id}
-                  onChange={(e) => {
-                    chooseMono(e.target.value)
-                    window.location.reload()
-                  }}
-                  className="mono h-6 rounded border border-[var(--border)] bg-[var(--card)] px-1 text-[11px] text-[var(--muted-foreground)]"
-                >
-                  {MONO_FACES.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-                {HUB_CONTROLS && (
-                <HubToggle
-                  center={hubCenter}
-                  onCenter={chooseHubCenter}
-                  hz={wheelHz}
-                  onHz={chooseWheelHz}
-                  circles={circlesLook}
-                  onCircles={chooseCircles}
-                />
-                )}
                 <HistoryToggle
                   on={historyOn}
                   busy={historyBusy}
@@ -3351,7 +3212,7 @@ export default function App() {
                   ageSpan: filled ? ageSpanOf(filled) : null,
                 }}
                 slotsFor={slotsFor}
-                look={{ rings, spacing, rimShare: band, markers, center: hubCenter, circles: circlesLook }}
+                look={{ rings, spacing, rimShare: band, markers, circles: CIRCLES }}
                 sortBy={headOrder}
                 complete={completeTree}
                 onClose={() => setReporting(false)}
@@ -3395,8 +3256,7 @@ export default function App() {
                     // to `focus` would make a wedge change color on the way in, which is the
                     // one thing drilling must not do.
                     views={lensViews}
-                    // **Never into a replay**, and this is the creature's argument running the
-                    // other way. A lease says a reader is opening THIS function right now, and
+                    // **Never into a replay.** A lease says a reader is opening THIS function right now, and
                     // the marker is keyed by path — `path` for the file, `path#name` for the
                     // function — so on a frame from 2019 it lights whatever happens to sit at
                     // that path in 2019, which is frequently a different function and sometimes
@@ -3410,18 +3270,7 @@ export default function App() {
                     // first frame, and until that frame exists the live map is still on screen,
                     // where the marks are about exactly the wedges they are sitting on.
                     reading={replaying ? undefined : readingNow}
-                    // **Through the replay too.** It was held back on the grounds that a run is a
-                    // fact about the repo as it is NOW, and a creature working away over a frame
-                    // from 2019 would be the claim a replayed temperature would be. That reads
-                    // the creature as a reading, and it is not one: it is the app's own pulse,
-                    // and it is doing the same thing in History that it does anywhere else —
-                    // being awake because somebody is here. What must not travel back in time is
-                    // a MEASUREMENT, which is why the lens switcher greys out. Nothing in the
-                    // creature's three states says anything about the code on screen.
-                    mascot={mascotForMap}
-                    center={hubCenter}
-                    wheelHz={wheelHz}
-                    circles={circlesLook}
+                    findings={findingsForMap}
                     // Only the replay. A commit landing is a change the viewer asked to watch,
                     // so it should move; a rescan or a landed reading changes the live map under
                     // somebody who is reading it, and sliding the wedges there would animate a
@@ -3467,10 +3316,6 @@ export default function App() {
                     // leases, because it is the same claim about a wedge, and the two phases
                     // never overlap.
                     reading={live}
-                    mascot={mascot}
-                    center={hubCenter}
-                    wheelHz={wheelHz}
-                    circles={circlesLook}
                     onSelect={noop}
                     onClear={noop}
                     onDrill={noop}
@@ -4085,223 +3930,6 @@ function FindButton({
         <path d="M9.9 9.9 L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     </button>
-  )
-}
-
-/**
- * The door into the replay.
- *
- * Beside the lens switcher rather than inside it, because it is not a sixth lens. The
- * lenses answer "what should the color mean"; this one changes what the rings ARE — the
- * repo as it stood at some commit rather than as it stands now — and folding a change of
- * subject into a row of encodings would make the two look interchangeable.
- */
-/**
- * What the middle of the map holds — see `lib/hub.ts`.
- *
- * Segments rather than a menu: the words are short, they fit, and showing them is how somebody
- * finds out the monster can be put away. Pressed in the accent, the way History is, because
- * this is a statement about the window rather than about what a lens's colour means.
- */
-/**
- * The circles' shadow and the dot's motion, behind one pill — see `CirclesLook`. Built the way
- * `SpacingMenu` is: a panel under the pill, over a backdrop that closes it on any click outside.
- */
-function CirclesMenu({ look, onLook }: { look: CirclesLook; onLook: (look: CirclesLook) => void }) {
-  const [open, setOpen] = useState(false)
-  const set = (patch: Partial<CirclesLook>) => onLook({ ...look, ...patch })
-  const row = (
-    label: string,
-    hint: string,
-    key: 'shadow' | 'alpha' | 'travel' | 'step' | 'size',
-    step: number,
-    shown: string,
-  ) => (
-    <label className="mt-2.5 flex items-center gap-2" title={hint}>
-      <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">{label}</span>
-      <input
-        type="range"
-        min={CIRCLES[key].min}
-        max={CIRCLES[key].max}
-        step={step}
-        value={look[key]}
-        onChange={(e) => set({ [key]: Number(e.target.value) })}
-        className="h-1 min-w-0 flex-1 cursor-pointer accent-[var(--accent)]"
-        aria-label={label}
-      />
-      <span className="w-10 shrink-0 text-right tabular-nums text-[var(--muted-foreground)]">{shown}</span>
-    </label>
-  )
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        title="The dot's shadow, how far it moves, and how it shrinks as you drill in"
-        className="flex h-full items-center gap-1 rounded-full px-1.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-      >
-        <span>tune</span>
-        <svg width="7" height="4" viewBox="0 0 7 4" aria-hidden>
-          <path d="M0 0 L3.5 4 L7 0 Z" fill="currentColor" />
-        </svg>
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            role="dialog"
-            aria-label="Circles"
-            className="absolute right-0 top-full z-50 mt-1 w-80 rounded-md border border-[var(--border)] bg-[var(--card)] p-3 pt-0.5 text-[11px] shadow-lg"
-          >
-            {row('size', 'How big the circles are, all of them together', 'size', 0.01, `${Math.round(look.size * 100)}%`)}
-            <label
-              className="mt-2.5 flex items-center gap-2"
-              title="Whether the dot follows the mouse. Off, it follows only the wedges being read, and glances around on its own."
-            >
-              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">follow mouse</span>
-              <input
-                type="checkbox"
-                checked={look.mouse}
-                onChange={(e) => set({ mouse: e.target.checked })}
-                className="cursor-pointer accent-[var(--accent)]"
-              />
-            </label>
-            <label
-              className="mt-2.5 flex items-center gap-2"
-              title="Whether the dot moves on its own: glancing around when there is nothing to look at, glancing away from what it is looking at, and a tiny jitter. Off, it only looks where it is asked and rests in the middle otherwise."
-            >
-              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">idle motion</span>
-              <input
-                type="checkbox"
-                checked={look.idle}
-                onChange={(e) => set({ idle: e.target.checked })}
-                className="cursor-pointer accent-[var(--accent)]"
-              />
-            </label>
-            <label
-              className="mt-2.5 flex items-center gap-2"
-              title="One more circle for each level you drill in: two at the root, three one level down, six four levels down."
-            >
-              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">circle per level</span>
-              <input
-                type="checkbox"
-                checked={look.nest}
-                onChange={(e) => set({ nest: e.target.checked })}
-                className="cursor-pointer accent-[var(--accent)]"
-              />
-            </label>
-            {row('shadow size', 'How big the shadow under the dot is', 'shadow', 0.01, look.shadow.toFixed(2))}
-            <label className="mt-2.5 flex items-center gap-2" title="The shadow's color">
-              <span className="w-[92px] shrink-0 text-[var(--muted-foreground)]">shadow color</span>
-              <input
-                type="color"
-                value={look.color}
-                onChange={(e) => set({ color: e.target.value })}
-                aria-label="Shadow color"
-                className="h-4 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
-              />
-            </label>
-            {row('strength', "How strong the shadow's color is", 'alpha', 0.01, `${Math.round(look.alpha * 100)}%`)}
-            {row('travel', 'How far the dot moves as it looks around', 'travel', 0.005, look.travel.toFixed(3))}
-            {row(
-              'step',
-              'How much the dot shrinks for each level drilled in, and grows back coming out',
-              'step',
-              0.01,
-              `${Math.round(look.step * 100)}%`,
-            )}
-            <button
-              type="button"
-              onClick={() => onLook(CIRCLES.initial)}
-              className="mt-2.5 w-full rounded-sm py-1 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-            >
-              reset
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function HubToggle({
-  center,
-  onCenter,
-  hz,
-  onHz,
-  circles,
-  onCircles,
-}: {
-  center: HubCenter
-  onCenter: (c: HubCenter) => void
-  /** The wheel's speed, full swings a second. */
-  hz: number
-  onHz: (hz: number) => void
-  /** The circles' shadow and the dot's travel — see `CirclesLook`. */
-  circles: CirclesLook
-  onCircles: (look: CirclesLook) => void
-}) {
-  const titles: Record<HubCenter, string> = {
-    monster: 'The monster in the middle of the map',
-    wheel: 'A balance wheel in the middle of the map — the findings count stays',
-    eye: 'An eye in the middle of the map, looking where the monster would — the findings count stays',
-    circles: 'Two discs in the lens’s colors in the middle of the map — the findings count stays',
-  }
-  return (
-    <div
-      className={`flex items-center gap-0.5 rounded-full px-[3px] ${CONTROL_H}`}
-      style={{
-        background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
-        boxShadow: 'inset 0 1px 2px color-mix(in oklch, var(--foreground) 12%, transparent)',
-      }}
-    >
-      {HUB_CENTERS.map((c) => {
-        const on = center === c
-        return (
-          <button
-            key={c}
-            type="button"
-            aria-pressed={on}
-            onClick={() => onCenter(c)}
-            title={titles[c]}
-            className="rounded-full px-2 text-[11px] transition-colors"
-            style={
-              on
-                ? { background: 'var(--accent)', color: 'var(--accent-foreground)', fontWeight: 600 }
-                : { color: 'var(--muted-foreground)' }
-            }
-          >
-            {c}
-          </button>
-        )
-      })}
-      {/* The wheel's speed, beside the wheel's segment and only while it is chosen: a speed
-          for a picture that is not showing is a control that does nothing. */}
-      {center === 'wheel' && (
-        <label
-          className="flex items-center gap-1 pl-1 pr-1.5 text-[11px] text-[var(--muted-foreground)]"
-          title="How fast the wheel swings — full swings a second"
-        >
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={wheelPosOf(hz)}
-            onChange={(e) => onHz(wheelHzAt(Number(e.target.value)))}
-            aria-label="Wheel speed"
-            className="w-16"
-            style={{ accentColor: 'var(--accent)' }}
-          />
-          <span className="mono w-[5em] tabular-nums">{hz} Hz</span>
-        </label>
-      )}
-      {/* The circles' controls, on the same rule as the wheel's speed, but behind a pill: five
-          of them inline ran the bar off the edge of the window. */}
-      {center === 'circles' && <CirclesMenu look={circles} onLook={onCircles} />}
-    </div>
   )
 }
 

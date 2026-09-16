@@ -357,9 +357,6 @@ const cases: Case[] = [
   { name: 'clones', mode: 'clones' },
   { name: 'traps', mode: 'traps' },
   { name: 'selected', mode: 'surprise', extra: { selected: find(tree, 'src/main.rs#handle_1') } },
-  { name: 'circles', mode: 'surprise', extra: { center: 'circles' } },
-  { name: 'wheel', mode: 'callers', extra: { center: 'wheel' } },
-  { name: 'eye', mode: 'callers', extra: { center: 'eye' } },
   { name: 'file-root', mode: 'surprise', root: openFile, cells: true },
   { name: 'file-root-from-wedge', mode: 'surprise', root: openFile, cells: true, extra: { fileFrom: from, aspect: 1.6 } },
 ]
@@ -420,7 +417,7 @@ for (const c of cases) {
   const labels = (markup.match(/<text\b/g) ?? []).length
   check('names are drawn', labels > 0, labels)
   check('with the measurer it was handed', measured > 0, measured)
-  if (c.mode === 'surprise' && !c.extra?.center) {
+  if (c.mode === 'surprise') {
     const fills = new Set([...markup.matchAll(/<text\b[^>]*\bfill="([^"]*)"/g)].map((m) => m[1]))
     check(
       'a name on a read patch takes its ink from the table, not the document',
@@ -428,12 +425,7 @@ for (const c of cases) {
       [...fills],
     )
   }
-  if (!c.cells && !c.extra?.center) {
-    check('the hub names the repo', markup.includes('>fixture</text>'))
-  }
-  if (c.extra?.center === 'circles') check('the circles are drawn', (markup.match(/<circle\b/g) ?? []).length >= 3)
-  if (c.extra?.center === 'eye') check('the eye is drawn', markup.includes('clipPath'))
-  if (c.extra?.center === 'wheel') check('the wheel is drawn', markup.includes('<rect'))
+  check('the hub draws its circles', (markup.match(/<circle\b/g) ?? []).length >= 3)
   if (c.extra?.selected) check('the selection veils the rest', markup.includes('fill-rule="evenodd"'))
   if (c.name === 'surprise') check('an expired reading is hatched', markup.includes('url(#stale-hatch)'))
   if (c.name === 'clones') check('a clone is marked on its directory', markup.includes('var(--clone)'))

@@ -236,11 +236,11 @@ a big repo has a lot to look at. What must drain is the badge.
 already sized by, and it does not invent a severity the instrument cannot support. Ranking
 by "number of rules matched" is a severity claim; two rules firing is not twice as bad.
 
-**On the mascot rather than a bell.** It is already per-project and per-repo minted, and
-"the creature that read your repo has something to tell you" is the right sentence. The one
-care needed is that a badge must not fight the working states — a scanning mascot wearing a
-badge is two sentences at once, so the badge is suppressed while it is working and appears
-when it settles.
+**In the hub rather than on a bell.** The middle of the map is where the eye already is, and
+the count belongs over the thing it is counting. It sat on a creature that stood there once,
+which is why the badge is sized against the hub's own box; the creature is gone and the badge
+kept its place. It is drawn whatever the readers are doing — suppressing it during a pass took
+the count off the map for the whole of one, which is silence standing in for a clean bill.
 
 ## Three surfaces
 

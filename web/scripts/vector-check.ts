@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
-import { MONO_DEFAULT } from '../src/lib/monoFaces'
+import { MONO } from '../src/lib/monoFaces'
 import { rootVars } from '../src/lib/vector/color'
 import { PdfDoc } from '../src/lib/vector/doc'
 import { Face, subsetter } from '../src/lib/vector/fonts'
@@ -33,8 +33,8 @@ const font = (key: string, file: string, name: string) => new Face({ key, name, 
 const fonts = {
   sans: font('sans', 'LINESeedJP-Regular.ttf', 'LINESeedJP-Regular'),
   sansBold: font('sans-bold', 'LINESeedJP-Bold.ttf', 'LINESeedJP-Bold'),
-  mono: new Face({ key: 'mono', name: 'SplineSansMono-Regular', bytes: readFileSync(`public/fonts/mono/${MONO_DEFAULT}-400.ttf`) }),
-  monoBold: new Face({ key: 'mono-bold', name: 'SplineSansMono-Bold', bytes: readFileSync(`public/fonts/mono/${MONO_DEFAULT}-700.ttf`) }),
+  mono: new Face({ key: 'mono', name: `${MONO.postscript}-Regular`, bytes: readFileSync(`public/fonts/mono/${MONO.id}-400.ttf`) }),
+  monoBold: new Face({ key: 'mono-bold', name: `${MONO.postscript}-Bold`, bytes: readFileSync(`public/fonts/mono/${MONO.id}-700.ttf`) }),
 }
 const vars = rootVars(readFileSync('src/index.css', 'utf8'))
 console.log('colors')

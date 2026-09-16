@@ -247,17 +247,6 @@ identity-check:
         --platform=node --outfile="$out" --log-level=warning
     node "$out"
 
-# The monospace candidates, fetched, pinned to 400 and 700 and subset — see `web/scripts/vendor-mono.ts`.
-# Temporary, while the toolbar's picker chooses one.
-vendor-mono:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    mkdir -p node_modules/.cache
-    ./node_modules/.bin/esbuild scripts/vendor-mono.ts --bundle --format=esm \
-        --platform=node --outfile=node_modules/.cache/vendor-mono.mjs --log-level=warning
-    node node_modules/.cache/vendor-mono.mjs
-
 # What the map's picture is without a window — see `web/scripts/map-check.ts`.
 #
 # A report draws the map from its markup, rendered by `mapMarkup` with no page to measure against,
@@ -352,7 +341,9 @@ sample path out n="10":
     cd src-tauri && cargo run --quiet --bin sanity-sample -- "$target" "$out" {{n}}
 
 # Clone the monsters repo at `ref` (branch/tag/sha; default main), build the lib, copy the
-# bundle to web/src/lib/mascot.js. Vendored rather than depended on: it's a private repo,
+# bundle to the WEBSITE's assets. The app used to draw a creature in the middle of the map and
+# does not any more — the hub is the circles, and the findings count sits over them — so this
+# feeds the habitat sheet's masthead alone. Vendored rather than depended on: it's a private repo,
 # so a plain `npm install` on a fresh checkout (or in CI) can't fetch it. Same recipe as
 # tally's and fussy's. The hand-written mascot.d.ts next to it declares only the surface
 # we use, so re-check it after a bundle update.
@@ -369,12 +360,8 @@ mascot ref="main":
     cd "$tmp/monsters"
     npm install
     npm run build:lib
-    cp dist/index.js "{{justfile_directory()}}/web/src/lib/mascot.js"
-    # The habitat sheet runs the same creatures in its masthead, so one build feeds
-    # both — the app and the site drifting to different mascot versions is the kind
-    # of thing nobody notices until the site's crew stops rendering.
     cp dist/index.js "{{justfile_directory()}}/website/assets/mascot.js"
-    echo "mascot.js updated from monsters@{{ref}} (app + website)"
+    echo "mascot.js updated from monsters@{{ref}} (website)"
 
 # Tag + push a release, e.g. `just release 0.1.0` (-suffix = prerelease).
 release version:

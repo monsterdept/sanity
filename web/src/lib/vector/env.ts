@@ -3,7 +3,7 @@ import subsetWasm from 'harfbuzzjs/dist/harfbuzz-subset.wasm?url'
 import type { VectorEnv } from '../report'
 import { rootVars } from './color'
 import { Face, subsetter } from './fonts'
-import { chosenMono, monoUrl } from '../monoFaces'
+import { MONO, monoUrl } from '../monoFaces'
 
 /**
  * What a vector report is written with in the window: the four faces off `/fonts/pdf`, the
@@ -24,9 +24,7 @@ export function windowEnv(): Promise<VectorEnv> {
 }
 
 async function load(): Promise<VectorEnv> {
-  // The monospace face is whichever `Sanity Mono` is in this window — see `monoFaces.ts`.
-  const choice = chosenMono()
-  const ps = (label: string) => label.replace(/[^A-Za-z0-9]/g, '')
+  // The monospace face is `Sanity Mono` — see `monoFaces.ts`.
   const faceAt = async (key: string, url: string, name: string) => {
     const res = await fetch(url)
     if (!res.ok) throw new Error(`The report's face ${url} did not load.`)
@@ -36,8 +34,8 @@ async function load(): Promise<VectorEnv> {
   const [sans, sansBold, mono, monoBold, wasm] = await Promise.all([
     face('sans', 'LINESeedJP-Regular.ttf', 'LINESeedJP-Regular'),
     face('sans-bold', 'LINESeedJP-Bold.ttf', 'LINESeedJP-Bold'),
-    faceAt('mono', monoUrl(choice, 400), `${ps(choice.label)}-Regular`),
-    faceAt('mono-bold', monoUrl(choice, 700), `${ps(choice.label)}-Bold`),
+    faceAt('mono', monoUrl(400), `${MONO.postscript}-Regular`),
+    faceAt('mono-bold', monoUrl(700), `${MONO.postscript}-Bold`),
     fetch(subsetWasm).then((r) => r.arrayBuffer()),
   ])
   return {

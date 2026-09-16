@@ -172,7 +172,6 @@ These are the ones with a body count. Each is written up in its note.
 - **Never resolve a tool by bare name** — a GUI app does not inherit your shell's PATH.
   `Harness::resolve` exists for this.
 - **Read grammar node kinds off a real parse, never off memory.**
-- `web/src/lib/mascot.js` is a committed placeholder; don't delete it.
 
 ## Commits
 

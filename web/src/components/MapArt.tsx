@@ -19,7 +19,6 @@ import { SPACING_DEFAULT, type Spacing } from '../lib/spacing'
 import { rimRuns as runsOf } from '../lib/rim'
 import { FileZoom, cellsOf, fanOf } from './FileZoom'
 import { arcOf, lerpSector, place, type Arc, type Sector } from '../lib/fan'
-import { elide } from '../lib/text'
 import {
   extentOf,
   geoOf,
@@ -33,12 +32,10 @@ import {
 import { RollupDots, dotsId, ROLLUP_TEXTURE_PX } from './RollupDots'
 import { WedgeLabel } from './WedgeLabel'
 import { fitLabel, type Measure } from '../lib/label'
-import { FAMILY, WEIGHT } from '../lib/labelStyle'
+import { WEIGHT } from '../lib/labelStyle'
 import { StaleHatch } from './StaleHatch'
-import { BalanceWheel } from './BalanceWheel'
-import { HubEye } from './HubEye'
 import { HubCircles } from './HubCircles'
-import { CIRCLES, type CirclesLook, type HubCenter } from '../lib/hub'
+import { CIRCLES, type CirclesLook } from '../lib/hub'
 
 /**
  * The map's picture, drawn from what it is handed and from nothing else.
@@ -56,7 +53,7 @@ import { CIRCLES, type CirclesLook, type HubCenter } from '../lib/hub'
  * as a prop, and is never set on a module, because the window and an export can be drawing
  * at the same moment in one webview.
  *
- * The hub's pictures (`BalanceWheel`, `HubEye`, `HubCircles`) move themselves from effects. A
+ * The hub's circles (`HubCircles`) move themselves from effects. A
  * static render runs none, so what it draws is their first frame, which is their rest.
  */
 /** A function's name inside its file's band: the same treatment the fan gives it, at the
@@ -79,14 +76,6 @@ const FILE_MAX = 11
  *  and holding one end still is what keeps every threshold stated against `R_OUTER` true. */
 export const R_INNER = 62
 export const R_OUTER = 340
-
-/** How much of a name the hub can hold at the smallest size it will shrink to.
- *
- *  The shrink-to-fit sizing spends a fixed ~90px of width, so `150 / length` and a 9px
- *  floor between them buy about seventeen characters; past that the size stops falling
- *  and the string simply gets longer than the disc. Kept as a character count rather than
- *  a measurement because the two numbers it has to agree with are right here beside it. */
-const HUB_FITS = 17
 
 /** Gap between one ring level and the next.
  *
@@ -433,7 +422,6 @@ export interface MapInput {
   collapsed: ReadonlySet<string>
   selected: Node | null
   reading?: Set<string>
-  center: HubCenter
   /** Where a colour token's value is looked up, for the hub's circles — see `Resolve`. The
    *  document, when absent. */
   ink?: Resolve
@@ -467,7 +455,6 @@ function buildModel(i: MapInput, memo: Memo) {
     collapsed,
     selected,
     reading,
-    center,
     ink,
   } = i
   /** How light a token is, looked up where this picture's colours are. */
@@ -608,7 +595,6 @@ function buildModel(i: MapInput, memo: Memo) {
     return Math.max(d, 1)
   }, [wedges])
   const band = (R_OUTER - rIn) / structDepth
-  const hubName = elide(root.name, HUB_FITS)
   /** Where every wedge in THIS layout belongs, by id. The renderer below reads geometry
    *  from here rather than recomputing it, so the moving picture and the settled one are
    *  the same arithmetic and cannot drift apart. */
@@ -665,7 +651,6 @@ function buildModel(i: MapInput, memo: Memo) {
    *  in a ring beyond it, and they cover the file's fill there. So a file with functions is
    *  counted as its functions, each at the depth the file is drawn at. */
   const hubDiscs = memo(() => {
-    if (center !== 'circles') return null
     const neutral = new Set(['--structure', '--unanalyzed'])
     const area = new Map<string, number>()
     for (const w of wedges) {
@@ -690,7 +675,7 @@ function buildModel(i: MapInput, memo: Memo) {
     // Every colour, most area first, for the circle a level adds — see `nest` in `HubCircles`.
     return { ranked: ranked.map((t) => `var(${t})`), pair }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [center, wedges, fills, root.id, mode, ranks, views, ink])
+  }, [wedges, fills, root.id, mode, ranks, views, ink])
   /** The cut between two neighbouring wedges, at the reader's scale — `CUT` is the argued
    *  shape and this is where it is spent. The three stay in proportion because one multiplier
    *  moves all of them; see `lib/spacing.ts` for why that is not a convenience. */
@@ -968,7 +953,6 @@ function buildModel(i: MapInput, memo: Memo) {
     fileWedges,
     fileIds,
     band,
-    hubName,
     hist,
     fills,
     hubDiscs,
@@ -1104,18 +1088,14 @@ export interface MapSvgProps {
   hover: Node | null
   /** Put each wedge's id and arc on its path — see `Sunburst`'s `tagNodes`. */
   tagNodes: boolean
-  /** Whether the creature is in the hub. It is an HTML layer the window draws over this, and
-   *  where it is, the repo's name is not. */
-  hasMascot: boolean
   /** What names are measured with — see `Measure`. The canvas when absent, which is the
    *  window. */
   measure?: Measure
   /** Where a name's ink is looked up — see `Resolve`. When absent, each paint's own `ink`,
    *  which `colorFor` picked against the document. */
   ink?: Resolve
-  wheelHz: number
   circles: CirclesLook
-  /** Where the hub's pictures look. Only their effects read these; the markup does not. */
+  /** Where the circles look. Only their effects read these; the markup does not. */
   gaze: Array<{ x: number; y: number }> | null
   selectedGaze: { x: number; y: number } | null
   onUp?: () => void
@@ -1132,10 +1112,8 @@ export function MapSvg({
   paneAspect,
   hover,
   tagNodes,
-  hasMascot,
   measure,
   ink,
-  wheelHz,
   circles,
   gaze,
   selectedGaze,
@@ -1154,16 +1132,13 @@ export function MapSvg({
     replaying,
     collapsed,
     selected,
-    center,
     rIn,
-    hubK,
     minPatchArea,
     selTrail,
     wedges,
     pulsing,
     fileWedges,
     band,
-    hubName,
     hist,
     fills,
     hubDiscs,
@@ -2209,74 +2184,17 @@ export function MapSvg({
           style={onUp ? { cursor: 'zoom-out' } : undefined}
         >
           <circle r={rIn - 4} fill="var(--card)" stroke="var(--border)" />
-          {/* Outside the keyed group below, so a level change does not restart its swing. */}
-          {center === 'wheel' && <BalanceWheel r={rIn - 4} hz={wheelHz} />}
-          {center === 'eye' && <HubEye r={rIn - 4} gaze={gaze} />}
-          {center === 'circles' && (
-            <HubCircles
-              r={rIn - 4}
-              mode={mode}
-              gaze={gaze}
-              look={circles}
-              palette={hubDiscs}
-              path={root.path}
-              selected={selectedGaze}
-              depth={root.path === '' ? 0 : root.path.split('/').length}
-            />
-          )}
-          {onUp && <title>Double-click to go up a level</title>}
-          {/* The disc is solid throughout — it is what the directory you clicked is turning
-            INTO, so it has to be there to be turned into. Its label is not: swapping the
-            name on the first frame would announce the destination before the thing that is
-            traveling has arrived. It fades up with the rest of the detail. */}
-          <g className="patches-in" key={`hub-${root.id}`}>
-            {/* Sized to the hub rather than fixed: a long repo name at a fixed size either
-            overflows the circle or gets truncated to nothing useful. Shrinking to fit
-            keeps the whole name, which is the one label that must always be readable.
-
-            But shrinking stops at 9px, because below that the name is not readable either
-            — so past HUB_FITS characters the size is pinned and the text runs straight out
-            of the disc and across the wedges. A file view is where this bites: repo names
-            are short, function-bearing test files like `dsd_reference_qualification.rs` are
-            not. So the string is elided FIRST and the size computed from what will actually
-            be drawn. Elided from the middle, keeping the extension, for the reason `elide`
-            gives: the tail is the answer. The full name is a hover away and is already in
-            the crumbs and the panel. */}
-            {/* The label face, the same one every name on the map is drawn in — see `FAMILY`.
-            The hub was the one name in the chart still set in the UI's system stack, which
-            made the middle of the picture a different typeface from everything around it
-            while naming the same kind of thing. Imported rather than restated, because the
-            canvas measures in `FAMILY` and a second copy here would be a face that drifts
-            out of agreement with the one the widths were computed in.
-
-            `WEIGHT` too, for the same reason it is one constant for all three kinds of
-            label: it was 600, and a semibold hub in the middle of a chart of regular-weight
-            names read as emphasis rather than as the center. Size and position already say
-            which one this is. */}
-            {/* **The disc holds one thing, and the creature is it.**
-            It held three: a name repeated verbatim in the breadcrumb an inch above and again
-            in the panel's header, a line count the panel also states, and the one fact
-            nothing else on screen carries — what the readers are doing. Two of those were
-            already answered elsewhere on the same screen, and the middle of the map is the
-            worst place to answer a question twice: it is the smallest surface here and the
-            one every wedge points at.
-            The name survives where the creature does not — the history replay has no run to
-            depict, and a hub with neither would be a blank disc in the middle of the story. */}
-            {center === 'monster' && !hasMascot && (
-              <text
-                textAnchor="middle"
-                y={4}
-                fontFamily={FAMILY}
-                fontSize={hubK * Math.max(9, Math.min(15, 150 / Math.max(hubName.length, 5)))}
-                fill="var(--foreground)"
-                fontWeight={WEIGHT}
-              >
-                {hubName !== root.name && <title>{root.name}</title>}
-                {hubName}
-              </text>
-            )}
-          </g>
-        </g>
+          <HubCircles
+            r={rIn - 4}
+            mode={mode}
+            gaze={gaze}
+            look={circles}
+            palette={hubDiscs}
+            path={root.path}
+            selected={selectedGaze}
+            depth={root.path === '' ? 0 : root.path.split('/').length}
+          />
+          {onUp && <title>Double-click to go up a level</title>}        </g>
       </svg>
   )
 }
@@ -2310,9 +2228,6 @@ export interface MapArtProps {
   px: number
   sortBy?: ReadonlyMap<string, number>
   replaying?: boolean
-  center?: HubCenter
-  /** Whether the creature will be laid over the hub, which takes the repo's name out of it. */
-  hasMascot?: boolean
   tagNodes?: boolean
   collapsed?: ReadonlySet<string>
   selected?: Node | null
@@ -2325,7 +2240,6 @@ export interface MapArtProps {
   /** Node ids out with a reader. A copy has no stylesheet for the pulse, so a report passes
    *  none. */
   reading?: Set<string>
-  wheelHz?: number
   circles?: CirclesLook
   /** What names are measured with, in width per pixel of font size — see `Measure`. */
   measure: Measure
@@ -2356,7 +2270,6 @@ function inputOf(p: MapArtProps, ink: Resolve): MapInput {
     collapsed: p.collapsed ?? NONE,
     selected: p.selected ?? null,
     reading: p.reading,
-    center: p.center ?? 'monster',
     ink,
   }
 }
@@ -2383,11 +2296,9 @@ function svgPropsOf(p: MapArtProps, m: MapModel, view: View, ink: Resolve): MapS
     paneAspect: p.aspect ?? 1,
     hover: p.hover ?? null,
     tagNodes: p.tagNodes ?? false,
-    hasMascot: p.hasMascot ?? false,
     measure: p.measure,
     ink,
-    wheelHz: p.wheelHz ?? 1,
-    circles: p.circles ?? CIRCLES.initial,
+    circles: p.circles ?? CIRCLES,
     gaze: null,
     selectedGaze: null,
   }
