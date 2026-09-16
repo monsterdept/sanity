@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1275 of 1275 read · 230 unpredicted
+1286 of 1286 read · 233 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -2319,11 +2319,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/cli.rs
 
-### the file itself
-- spec 3 · served in 5 parts · read at `6300277cd583` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:20:17Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The headless CLI entry point: implements `sanity serve`/`check`/etc. by talking to a single per-machine backend process over HTTP (get/post helpers), with spawn-lock machinery (spawn_lock_path, take_spawn_lock, await_backend, probe/health) ensuring only one process starts and boots it if not already running. The bulk of the file is individual subcommands (init, check, resume, trace, status, findings, survey, decide, clear, list, summary, refresh, grades, export_of) that call the backend and format results for a terminal (fancy, plural, bar, elapsed, wrap, commas, num), dispatched from `main`, plus unit tests for the spawn-lock and export/progress-formatting edge cases.
-- found: Matches prediction on the big shape (spawn-lock, backend HTTP client, per-verb commands, terminal formatting, clap CLI struct, main dispatch, tests) but is far more elaborate than expected: it includes a live-tailing progress UI with raw-mode keyboard capture (Ctrl-X vs Ctrl-C), offline (no-backend) fallback computation for status/summary read directly from the repo, a findings/decide/clear subsystem with its own survey and archive-writing logic, a refresh/migration-free rewrite mechanism for .sanity/, and an export-data command that builds the full report payload for an offline PDF renderer.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+### the file itself — LEGIBLE SOME
+- spec 3 · served in 5 parts · read at `9d029be5f44d` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: The CLI binary's implementation - defines all `sanity` subcommands (serve, check, status, summary, findings, callers, trace, refresh, export_data, decide, clear) as read-only verbs that talk to a single per-machine backend daemon rather than embedding app state directly. Contains backend lifecycle management (spawn lock file, health probing, waiting for backend startup, retiring stale backends), a small HTTP client (get/post) to talk to that backend, terminal-output formatting helpers (bar, plural, commas, fancy, wrap, elapsed, grade_ink), an interactive picker mode (interactive/choose/reveal_in_window), and unit tests for formatting and locking logic.
+- found: Confirmed the predicted shape (backend lifecycle via spawn lock/health probe/ensure_backend, HTTP get/post client, terminal formatting helpers, interactive picker, tests) but the file is far larger and richer than the prediction captured: it defines the full clap CLI grammar (Cli/Verb/Decide/Decided), implements every verb's actual logic (init's interactive harness/model prompts, check's live-tailing progress bar with terminal redraw escape codes, findings/decide/clear against an on-disk decision archive with read-back verification, callers' call-graph lookup, trace, refresh's format-migration-by-rewrite, export_data for the offline PDF renderer, and offline_status/offline_summary that answer without a running backend), plus cross-build backend retirement (retire_stale_backend) and signal handling for clean shutdown.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
 
 ### `spawn_lock_path`
 - spec 2 · read at `d361e1076438` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2550,24 +2550,32 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: full · trap: no
 - note: I predicted use of bar/elapsed/grade_ink formatting helpers and an explicit offline_status fallback call, but the function is much plainer — no progress bar or color, and the online/offline distinction is handled inside read_verb rather than here.
 
-### `findings` — PREDICTED SOME
-- spec 3 · read at `4f6a0597acd8` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:59:15Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Reads the on-disk scan/readings/rules for the repo at `path` (no daemon call, since findings are static/on-disk), computes findings merged one-per-subject, and prints up to `limit` of them; `edits` and `blame` toggle extra printed detail (e.g. an edit/suggestion column and blame/author info). Returns a process exit code.
-- found: Delegates almost everything: calls `survey(path, edits, blame)` to gather facts/rules/traced/read state (or bail with an error code), builds findings groups via `findings::report` against the on-disk archive, and hands off to `list` to print up to `limit` of them.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: edits/blame are inputs to what facts survey() gathers, not output-formatting toggles as I guessed — the real behavior is buried in survey/report/list rather than in this thin wrapper.
+### `findings`
+- spec 3 · read at `b71ea4ec61a8` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Reads the on-disk repo state (parsed tree, .sanity/ readings and rules) directly rather than asking the backend, merges multiple rule-flags on the same function into one entry (one subject per line, not one per rule), ranks them, truncates to `limit`, and prints them - optionally annotating with diffs (edits) or git blame info (blame). Returns an exit code, likely via read_repo/read_verb helpers for error handling.
+- found: Thin composition: calls survey() to load repo facts/rules/traced/read state (handling edits/blame), passes them to findings::report() to merge and group findings by subject, then hands the groups to list() for printing/truncation to limit. Error from survey short-circuits with its code.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `callers`
+- spec 3 · read at `7735ed2b1330` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:51Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Runs a survey of the repo at `path`, looks up the function identified by `key`, and prints out its named callers (not just a count) grouped by file — marking which are in the subject's own file — using the edge list from edges::wire; returns 0 on success or a nonzero exit code if the path or key can't be resolved.
+- found: Surveys the repo, finds the Facts for the given key, rejects file-level (not function) subjects and unresolved line numbers, looks up the function's call-link Ref via links.at, distinguishes 'not read for calls' (unwired language) from a true empty caller list, then prints callers grouped by file (own file marked), sorted by line, with owner-qualified names.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Prediction matched closely; missed only the explicit file-vs-function guard and the wired/unwired distinction for silent languages.
 
 ### `survey` — PREDICTED SOME
-- spec 3 · read at `37f8a9a6ea9b` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:05:36Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Performs an offline, headless scan of the repo at path - parsing/analyzing files directly without going through the app's Project/window state - optionally including uncommitted edits (edits) and git blame data (blame), and returns a Survey struct summarizing the scan (facts/grades/findings) for CLI consumption, or an exit-code error (i32) if the path isn't a valid repo.
-- found: Canonicalizes path (exit 2 on failure), picks a trace Depth (Edits/Lines/Files) from the edits/blame flags to avoid the cost of full blame by default, runs crate::scan::scan with ephemeral score cache and Ordering fidelity (exit 1 on failure), loads assessment reports, applies retest_tree to fold reader test-classification into the scan (since this headless path never gets the app's live-reading step), then builds Traced/subjects/rules and returns a Survey with a 'read' flag for whether any reports existed.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- spec 3 · read at `57045459a6a0` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:47Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Reads/opens the repo at `path`, builds its node tree and scoring reports, and assembles a Survey summary (likely counts/grades across the project), optionally enriching it with git blame data when `blame` is true and recent edit/diff info when `edits` is true, returning Err(i32) as an exit code on failure.
+- found: Canonicalizes the path, opens a ScanCache, picks a trace Depth (Edits/Lines/Files) based on the edits/blame flags, runs crate::scan::scan with an Ordering fidelity heuristic model, loads assessment reports, retests the scan tree against reader-marked test bodies, builds Traced state and per-subject Facts, derives rules, and returns a Survey struct bundling path/facts/rules/traced/read/links.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: My prediction had the right shape (build tree + reports + survey, blame/edits affecting behavior) but missed that edits/blame select a trace Depth rather than 'enriching' the result, and missed the specific pipeline (ScanCache, retest_tree, Traced::of, subjects, rules_for).
 
 ### `decide`
-- spec 3 · read at `fc6ed17d8722` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:09:33Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This CLI verb records a verdict (accept/reject/etc.) for a finding at `path`/`key`, applying it to every rule under that finding unless `rule` narrows it to one; it refuses to record a decision for any rule with no measured value (skips "dark" rules), writes reason text into a persisted decision/pin record, and the `edits`/`blame` flags control whether it also captures the current diff/git-blame context alongside the decision. Returns 0 on success, nonzero (e.g. 1) if the finding/rule/key couldn't be found or the rule can't be decided under.
-- found: Surveys the repo, finds the finding by key, filters rules to those raising it (optionally narrowed by --rule), skips any rule that is "blocked" (cannot answer given available edits/blame data) printing why, writes a Decision (with a pin of what the rule measured) for each remaining rule via findings::decide, then reads the archive back and verifies the written decisions actually round-tripped before printing a summary. Returns 1 on any lookup/write/verification failure, 0 on success. edits/blame are survey-time flags controlling what history is available to rules, not something decide() itself records.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `7325448fda40` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Opens/loads the project containing `path`, locates the finding subject at `key`, and determines which rule(s) to record a decision for — either the single named `rule` or all rules that raised that subject. For each applicable rule it captures a "pin" of what the rule currently measures (skipping/refusing rules whose measurement is unavailable/dark, e.g. churn rules), writes the verdict and reason to persistent storage, optionally including edits/blame info, and returns an exit code (0 success, nonzero on error like missing subject or unresolvable rule).
+- found: Surveys the repo, finds the finding by key, filters rules that raise it (optionally narrowed to one named rule), skips rules that are `blocked` (cannot answer without --edits/--blame) with an explanatory message, writes a Decision per remaining rule via findings::decide, then re-reads the archive back to verify the writes actually landed before printing a summary and returning an exit code.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The read-back-and-verify step after writing decisions is a notable defensive pattern not obvious from the signature.
 
 ### `verdict_note`
 - spec 3 · read at `5424b9f25e6d` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:09:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2628,9 +2636,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file doc describes the whole CLI module, not this function specifically, so per-function coverage is partial.
 
 ### `main`
-- spec 3 · read at `cb67aa711a1c` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:42:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Parses args[0] as a subcommand name and dispatches via match to the corresponding peer function (serve, check, status, findings, survey, decide, clear, list, summary, refresh, grades, export...), forwarding remaining args/flags to it. Prints usage/help and returns nonzero on unknown/missing subcommand or a failing call; returns 0 on success.
-- found: Parses argv via clap (re-prepending the binary name), then matches the resulting Verb enum to dispatch to the corresponding function; the Findings verb's `decide` field is destructured further into a Verdict or a Clear early-return, and clap parse errors return 0 or 2 depending on whether clap classifies it as help/version vs. a real usage error.
+- spec 3 · read at `e17f06d82797` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:24Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Parses args for a subcommand name (serve, check, findings, list, clear, survey, etc.), dispatches to the corresponding handler function, prints error/usage to stderr and returns nonzero exit code for unknown/missing subcommands or handler failures, returns 0 on success.
+- found: Uses clap::Parser to parse args (re-prepending the "sanity" argv[0] since main.rs strips it), handling --help/--version/parse-error exit codes via clap (2 for stderr errors, 0 otherwise). Then matches on the parsed Verb enum to dispatch to handler functions (serve, init, trace, check, status, summary, findings, callers, refresh, export_data), with special handling for Findings' nested `decide` subcommand that maps Decide variants to Verdict values or short-circuits to `clear`.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `the_progress_line_reads_correctly_at_both_ends` — PREDICTED SOME
@@ -3151,11 +3159,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/edges.rs
 
-### the file itself
-- spec 3 · served in 3 parts · read at `fddf1b9a13d5` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: This module reconstructs the call graph from parsed functions (without a full compiler/linker) to compute two cheap, deterministic, model-free facts per function: how many other functions call it (callers/wiring), and what share of its calls/callers cross outside its own directory (locality). It resolves call names to definitions with tiered disambiguation (local file/owner beats same-directory beats global, ambiguous names either credit every candidate or resolve to nothing), respecting language "families" so e.g. C and C++ headers count as one. A second responsibility bundled in the same file is test detection/classification: deciding whether a function is a test (by naming convention, a test-runner contract, or explicit declaration) and, via the call graph, which functions are "under test" — reached by a test's calls — versus merely called by one. The large `tests` module at the bottom is unit tests covering these resolution-tier and test-classification edge cases directly (not exported production code).
-- found: Builds a tiered, deliberately conservative call-name resolver (owner beats file beats directory beats global-unique) respecting language families, producing per-function caller/callee/locality counts, plus a separate `dependents` count that excludes the repo's own tests and a transitive `under_test` reachability walk from test entry points — both kept three-valued (yes/no/unknown) rather than defaulting to false when a language's test code can't be told apart. A second bundled concern, `kind_of`/`Attributes`/`Declarations`, classifies whole files as generated/vendored/header code from gitattributes, banner text, or path convention, and layered test detection (contract > convention > name-dispatch > declared-absence) feeds both. Nearly half the file (~400 lines) is a `tests` module pinning specific resolver bugs found on real repos (ceph, flox) — receiver-vs-free-function confusion, cfg(test) sealing, super/crate scoping, shell TEST_ prefix dispatch, etc.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+### the file itself — PREDICTED SOME
+- spec 3 · served in 3 parts · read at `368ba46e76d7` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:31Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds a lightweight, deterministic, model-free call graph purely from the already-parsed source (no git, no LLM). Resolves raw call expressions to the functions they name, handling scoping rules (self/super/crate, visibility, shadowing, ambiguity), grouping file types into language "families", and distinguishing test callers from production callers, in order to compute two cheap per-function facts: caller count and locality (share of callers outside its own directory). Shape: a resolution pipeline (Declarations::of -> wire/wire_with -> resolve/reaches) producing Wire/Wiring structures, backed by a large unit-test suite pinning down edge-case semantics.
+- found: Correctly the file builds a deterministic, model-free call graph from parsed source to compute per-function callers/locality, with careful scoping/visibility/family/ambiguity resolution rules and a large pinning test suite. But it also bundles a second, undocumented-by-the-header concern: classifying whole files as generated/vendored/header code (kind_of, Attributes/.gitattributes parsing, glob_ish), a richer test-detection stack than I predicted (contract vs convention vs name-dispatch vs declared-silence, with Declarations tracking per-language manifest declarations), and a callers/dependents/under_test three-way distinction (a test counts as a caller but not a dependent, and under_test is computed via transitive BFS from test nodes, not a direct edge check) that I did not anticipate at all.
+- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
+- note: The module doc only describes the call-edge/locality purpose; the substantial generated/vendored/header file-kind classification and the manifest-declared-silence test inference are separate concerns living in the same file with no header coverage.
 
 ### `locality_gap`
 - spec 3 · read at `2d7696bf7f63` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3195,12 +3204,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 - note: The docs describe the three-pass algorithm as if `wire` does it, but the actual work is in `wire_with`; `wire` itself is just the default-args entry point.
 
-### `wire_with` — PREDICTED SOME
-- spec 3 · read at `7d09ac4467bd` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:42:31Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Walks all parsed files/functions, resolves each call expression to a target function (using file-local scope first, then cross-file resolution aided by `declared` manifest info for imports/module paths), and accumulates per-function caller counts plus a locality metric (fraction of calls that leave the function's own directory), returning it all packaged in a Wiring struct. Likely iterates functions, extracts call sites, and does name/path matching with fallback heuristics for ambiguous calls.
-- found: Builds a Wiring: resolves each call to candidate definitions (name/family/dir-based), dedupes into edges excluding recursion and calls into #[cfg(test)]-sealed code from non-test callers, computes callers/dependents/calls/incident/away counts per function, does a BFS from test sites over the call graph to mark everything transitively reached by a test as under_test, and returns per_site wiring plus resolved/unresolved counts and a sorted edge list.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The transitive test-reach BFS and the sealed-vs-tests distinction (contract vs convention) are the load-bearing parts a name/signature reader would never guess.
+### `wire_with` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `b4acc962435a` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: wire_with builds the full call graph from parsed files. It first indexes all definitions (by name, owner, family) and collects the sets of owner/module names needed by resolve, then walks every file's parsed calls, invoking resolve for each to find candidate call sites, and accumulates per-definition caller counts plus the locality-gap (share of calls leaving the definition's own directory) into a Wiring result — using declared to account for manifest-declared reachability/visibility alongside what the parse alone found.
+- found: Two-pass builder: first pass indexes every definition (defs/owners/modules) per resolvable file, also computing per-function testness (via toolchain contract, convention, or declared corroboration) and marking sealed (compiler-excluded) sites. Second pass walks each function's calls, skipping names shadowed by locals, resolving the rest via resolve(), discarding hits into sealed test-only code from non-test callers and self-recursive edges, and deduplicating into an edge set. Then it seeds a Wire per resolvable function, tallies calls/callers/dependents from edges, does a BFS from all test sites over the edge graph to compute transitive under_test reach, computes incident/away counts (locality gap) per function from a neighbour set, and returns a Wiring with sorted edges plus resolved/unresolved/resolvable counts.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `contract_of`
 - spec 3 · read at `94332b1260f1` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:06:06Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3280,11 +3288,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: split_once('.') takes only the part before the FIRST dot, so a file like "foo.test.rs" yields "foo", not "foo.test" — fine for this repo's needs but worth knowing.
 
-### `resolve` — LEGIBLE SOME
-- spec 3 · read at `49eb6f192e72` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:53:56Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Classifies the call's spelling (bare f(), owner-qualified A::f()/x.f(), module-qualified m::f(), or a call through a foreign/non-local receiver) to decide which tiers apply, then searches defs in order (same file, same directory, whole family) filtering by the qualifier when present (owner match beats locality; module qualifier restricts then falls through to normal tiers; foreign receiver skips the directory tier and only allows file-local or globally-unique names), returning every plausible Site rather than picking one, since ambiguous names get all candidates instead of a guessed edge.
-- found: Looks up same-name/same-family defs, classifies the call's Via (bare, super/crate treated as unnameable-scope bare calls, dot/path qualifier), resolves self/this/Self to the calling owner, and if the qualifier names a real owner returns only that owner's definitions. Otherwise determines locality (bare or module-qualified is local; anything through a foreign/unnameable receiver is not, and is restricted to owned defs), then checks file tier first (always), and for local calls falls through to directory tier and finally whole-family (only if candidate count is within GLOBAL_UNIQUE); non-local calls that miss the file tier return nothing rather than falling through further.
-- predicted: most · documented: full · derivable: no · legible: some · trap: no
+### `reaches` — PREDICTED NONE
+- spec 3 · read at `1370c9d7794b` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:31Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Given a candidate definition `d` and a call site `caller`, returns whether the call could plausibly reach that definition based on how the call was spelled (its `Via`): for an owner-qualified call (`A::f()`/`x.f()`) it checks `d`'s owner matches the qualifier; for a module-qualified call (`m::f()`) it checks `d`'s file/module matches; for a bare free call it returns true, deferring to the locality-tier search elsewhere in `resolve`.
+- found: Returns true trivially unless `d` is a free, explicitly-unexported function called from a different file — then applies per-language visibility scope: Rust module-tree (caller must be under the definition's file-stem directory), Go same-directory/package, and everything else (no module system this parse can see) is refused as unreachable.
+- predicted: none · documented: most · derivable: no · legible: most · trap: no
+- note: Method/owned defs and anything not definitively unexported are always considered reachable — the function is really about excluding calls that a language's own visibility rules would refuse, not about matching call-site spelling.
+
+### `resolve` — PREDICTED SOME
+- spec 3 · read at `d942c3400967` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: resolve takes one parsed Call and looks up candidate definitions by name in defs, using fam to distinguish call syntax (free call, method/dot call, path-qualified call) and dispatching accordingly — for method calls it narrows candidates using owners (matching receiver type), for path calls it checks modules to confirm the qualifier is a real module rather than some other expression, and for plain calls it just matches free functions. It returns the list of resolved Sites (possibly empty if nothing matches, possibly multiple if the name is ambiguous across owners/modules).
+- found: Resolves a call to candidate definition sites via a strict tiered fallback: filters to same-family defs reachable by visibility; strips super/crate qualifiers as non-receivers; resolves self/this/Self to the caller's own type; if the qualifier names a known owner, returns matches scoped to that owner directly (no locality tiers); otherwise determines whether the call is 'local' (bare name or qualifier matching a known module) vs through an unknown receiver (must have an owner, i.e. be a method); then falls back through same-file, same-directory, then repo-wide-if-unique-enough (GLOBAL_UNIQUE cap) tiers, returning the first non-empty tier.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
 
 ### `free`
 - spec 3 · read at `2fe97ac0d8dc` · commit `c67382e` · read by claude-sonnet-5 · via claude · when 2026-09-06T19:15:21Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -3293,9 +3308,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `def`
-- spec 3 · read at `18bae07a9047` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:58:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Test-fixture helper building a minimal FuncDef with the given name and a calls list populated from the calls slice argument, with other fields defaulted, for terser test setup in edge-resolution tests.
-- found: Builds a minimal fake FuncDef with the given name and defaulted fields, mapping each string in `calls` through a `free()` constructor to build the calls list.
+- spec 3 · read at `3091d14aa91b` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:37Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Test helper that builds a minimal FuncDef fixture with the given name and calls list, filling other FuncDef fields (body, owner, line numbers, etc.) with defaults so other tests in the file can quickly construct call graphs.
+- found: Test helper building a minimal FuncDef fixture with given name, a synthesized signature, empty body, and defaults for the rest; the calls list is mapped through a `free()` helper to produce free-function call refs.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `method`
@@ -3370,6 +3385,19 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A test constructing a call through a receiver whose type can't be resolved (unnameable), asserting the edge is only matched to a same-named function within the same file as the call site, not to a same-named function elsewhere in the repo (guarding against the old env.rs-style false positive).
 - found: Test builds a call to `held.len()` inside a.rs (which also defines `impl Blame { fn len }`) and a separate call to `held.len()` in b.rs which has no such method. Asserts the a.rs call site is wired as a caller of the a.rs impl method (callers=1), and that b.rs's call does not resolve to any function (calls=0), confirming an unresolvable receiver only matches within its own file.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_private_name_is_not_reachable_from_another_module`
+- spec 3 · read at `107165a5dd6f` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:42:08Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds two synthetic files/modules where one has a private (non-pub) function, and asserts that a call site in a different file referencing that name by short name does NOT get resolved into a cross-file call edge (since Rust privacy rules mean the compiler would not allow it), while confirming the same name still resolves as a call edge from within its own module/file.
+- found: Confirms private (non-exported) Rust fn is not callable cross-file (0 callers) while pub is (1 caller), as predicted. But also covers two more scenarios I missed: a Rust child module (src/a/b.rs) CAN name its parent's private fn (module tree, not file, is the privacy boundary), and Go's unexported names are visible package-wide (same directory) but not beyond it.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no · test: yes
+
+### `a_body_calling_a_name_it_defines_itself_reaches_no_stranger`
+- spec 3 · read at `57528a1f195c` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:42:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Builds a fixture where a function defines a local helper (recorded in FuncDef::locals) named the same as an unrelated top-level function elsewhere in the repo, and calls it. Asserts that wiring/resolve does not credit the unrelated top-level function as reached/called — i.e. the presence of a same-named local suppresses the cross-file match, closing the false-caller bug described in the docs (e.g. the `walk` example).
+- found: Asserts a caller with a same-named local (`walk` in `locals`) does not get credited as a caller of an unrelated top-level `walk` in another file (0 callers), then re-runs the identical fixture minus the local shadow to confirm the cross-file edge still resolves normally (1 caller) — proving the fix is scoped to the shadowed case only.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The doc is attached to the whole edges.rs module rather than this specific test.
 
 ### `a_production_body_cannot_call_into_cfg_test`
 - spec 3 · read at `85c628f072e0` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:09:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3717,12 +3745,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/findings.rs
 
-### the file itself
-- spec 3 · served in 8 parts · read at `6dc56920f231` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:27:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Implements the core rule-based evaluator that turns computed code metrics (Score/Facts) into actionable "findings" — a small grammar (Field, Op, Rule) for parsing clause-based rules matched against per-subject facts to produce ranked hits, with calibration logic (calibrate, tighten, Marginal, Spreads) that tunes thresholds against a target count/percentile. It also owns the findings lifecycle — verdicts (decide/undecide/pin), persistence of rules and findings to disk (rules_dir, findings_dir, save_rules, archive), and rendering/report generation (render, project_report, rules_view) — the backend that decides which measured extremes deserve attention and remembers past decisions.
-- found: The prediction of the file's overall shape and responsibility (grammar/Field/Op/Rule parsing, matching facts to produce ranked hits, calibration against a target count, findings lifecycle with verdicts/decisions/persistence, and rendering/report generation) was correct. What it missed: the depth of the Verdict lifecycle (four verdicts — Flagged/FineForNow/FineAlways/FalsePositive — each with different expiry semantics tied to a body-hash-plus-clause-values "pin"), the `Blocked` reasoning that names *why* a rule can't answer and what would fix it, the `Marginal`/`solo.only` optimization for measuring a rule's unique contribution, the large batteries-included catalog of ~22 hand-tuned rules with extensive rationale, the repo-scope vs subject-scope clause distinction (gates vs filters), and the file being nearly half tests that double as a design-decision log.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: This file's test suite is effectively a second design document — nearly every regression it guards against (stale pins, verdict semantics, calibration direction, gate vs clause) is explained inline, which is unusually thorough for a codebase.
+### the file itself — PREDICTED SOME
+- spec 3 · served in 8 parts · read at `9dabb4e0bdd0` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:22Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: The rules engine that turns measured facts into human-readable findings: defines a small DSL (Field/Op/Rule clause parsing), evaluates rules against per-subject Facts (hits, matches, rank, spread for percentile comparisons), calibrates thresholds against a target hit count so the default catalog scales across repo sizes, renders findings into sentences, and persists/loads rule definitions and user decisions (accept/dismiss, pin to body hash, archive) so edits to a function don't keep a stale finding alive.
+- found: A large module (~3000 lines) implementing sanity's rules/findings engine end to end: a Field/Op/Rule DSL and parser; per-subject Facts assembly (facts_of/subjects/walk) with careful None-vs-zero semantics; population classification (not_ours/skipped) that excludes generated/vendored/test code from consideration; rule matching, ranking, and per-subject sentence rendering with token substitution (render/check_template); marginal-contribution and distribution (Spreads/Marginal) computations optimized to avoid quadratic/per-clause recomputation at scale; a `blocked` explainer for why a rule can't yet answer (needs reading/tracing/blame); the full ~20-rule shipped catalog with detailed threshold reasoning; calibration that only tightens thresholds against a target hit count and persists them; a settings-page RuleView/apply_edit/mint_id editing surface; and a Decision archive (Verdict: Flagged/FineForNow/FineAlways/FalsePositive) with pin-based staleness so dismissals expire correctly when code or rules change. Very heavily tested and documented with extensive prose rationale in doc comments.
+- predicted: some · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `parse` — PREDICTED SOME
 - spec 3 · read at `aed8ff5b10ec` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:04:29Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3890,17 +3917,25 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: The doc comment's detail about ord counting per file belongs to `walk`, not this thin wrapper.
 
-### `walk` — PREDICTED SOME
-- spec 3 · read at `694e3676a6f0` · commit `d456616` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:02:42Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Recursively traverses the Node tree (files → funcs, dirs → children), and for each function builds a Facts struct (combining relevant score fields from its Report needed for multi-lens findings) via facts_of, skipping nodes that are excluded/tests/not-ours (using Skipped/in_a_test_module/not_ours), threading traced down to carry accumulated context (e.g. whether an ancestor was already skipped) and appending each function's Facts to out.
-- found: Dispatches on NodeKind: recurses over Dir children; for File, skips it via not_ours (excluding generated/vendored/etc.), else emits a file-level Facts and then, for each func child, skips compiler-recognized test functions (tested.is_test), computes its ordinal assessment key, looks up its (non-stale) Report, and emits its Facts along with a 'within' tuple (file loc/funcs/headcount) giving file-level context; Func nodes reached directly (an unexpected tree shape) are a no-op rather than guessed at.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+### `funcs_held`
+- spec 3 · read at `c92553daf953` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:42:08Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Counts the function-kind children of `node`, excluding any marked as test (#[cfg(test)]) bodies, to give the file's held function count for crowding rules — falling back to node.funcs directly when the tree is slim (no children) since that case can't distinguish tests.
+- found: Counts non-test Func children, then takes the max with node.funcs rather than a conditional fallback — so on a slim tree (children empty, node.funcs the only signal) it still returns the right number, and on a full tree it never returns less than node.funcs.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: I expected an if/else fallback to node.funcs on a slim tree; the actual code uses max() instead, which is a subtly different (and more robust) way to unify the two cases.
 
-### `facts_of` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `bf8f37c830bb` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: facts_of assembles a Facts struct for one subject (a function or file node) by pulling together the node's own metrics (loc, name, path), any git/history data from traced (age, touched, commit counts), scores/values looked up from report if one was passed, and the enclosing file's loc/func count from within when this is a function rather than a file — essentially the single place that gathers every Field value a rule might reference for this subject.
-- found: Builds a Facts struct by setting each Field slot from node/traced/report/within data with careful None-vs-zero semantics throughout (loc, funcs, callers, headcount, repo-level headcount/age, calls, clone size, cognitive/tangle scores, git-gated age/touched/commits, and for functions: read/hasDoc/dependents/underTest/header plus report-derived surprise/documented/legible/trap grades), then wraps it with the Subject identity fields.
-- predicted: some · documented: none · derivable: no · legible: some · trap: no
+### `walk` — PREDICTED SOME
+- spec 3 · read at `8df8b9b16ae7` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively traverses a tree of Node (function/module hierarchy), looks up each node's Report in `reports` by name, combines with inherited Traced state to build a Facts value pushed to `out`, then recurses into children propagating updated traced state.
+- found: Recursively walks Dir/File/Func tree nodes. For Dir, recurses into children. For File, skips excluded/non-owned files, pushes file-level Facts, then computes file-wide stats (loc, funcs_held, headcount), dedups function names with an ordinal for key_of, skips test-marked functions, looks up a non-stale Report by key, and pushes per-function Facts. Func nodes reached directly are no-ops (unexpected tree shape).
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: My prediction correctly guessed generic tree recursion + facts collection but missed the Dir/File/Func-specific handling, test exclusion, stale-report filtering, and duplicate-name ordinal keying.
+
+### `facts_of` — PREDICTED SOME
+- spec 3 · read at `5d1eae46abad` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:50Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Gathers raw measurable facts about a Node (loc, cognitive complexity, call counts, doc presence, exported/test flags, its key's value from report/traced, and relative size via `within`) into a Facts struct used by the findings/rule engine to decide whether the node merits a finding.
+- found: Builds a fixed-size array of Option<f32> fields (loc, funcs, callers, headcount, repo headcount/age, calls, clone size, cognitive/tangle/age/churn from score, and for functions: whether it's been read/documented/surprising/legible/a trap, doc presence, dependents, under_test, header classification) using a `set` closure that only overwrites on Some so missing data stays None rather than defaulting to zero — carefully distinguishing 'not measured' from 'measured as zero' throughout. Wraps it with a Subject identity into a Facts struct.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
 
 ### `years`
 - spec 3 · read at `0975b931429e` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4345,6 +4380,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Confirms a `file: funcs >= 3` rule matches both when the file node has real Func children with the funcs count field zeroed (the "full tree" case, count derived by counting children) and when children are dropped but the funcs count field is carried instead (the "slimmed tree" case) — so the logic handles both representations of a file's population.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: There are two tree representations in play (full-with-children vs slimmed-with-count-field) and the counting logic must reconcile both, not just fall back from one to the other.
+
+### `a_body_outside_the_population_is_not_counted_as_crowding`
+- spec 3 · read at `b1faca406b2e` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:55Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This test builds a small file with a normal function plus a #[cfg(test)] function, runs the crowding measurement, and asserts the file's function count (used for the "crowded file" finding) excludes the test body — so a file whose bulk is its own test suite isn't flagged as crowded on the strength of code the rule already treats as a caller rather than a subject.
+- found: Builds a file with 2 real functions and 3 test-contract functions, computes subjects/facts, asserts the file's Funcs field is 2 (excluding tests), that a >=3 crowding rule does not fire, and that every function under the file is told the same FileFuncs=2 value.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no · test: yes
 
 ### `a_decision_survives_being_written_down`
 - spec 3 · read at `de108611bd78` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:05Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -5443,11 +5484,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/links.rs
 
 ### the file itself
-- spec 3 · read at `a0d45a2fbe08` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:00:10Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A Links lookup table built once alongside the scan tree from edges (callers/callees) and clones data, letting the panel answer which specific functions rather than just a count. Supports build, lookup by key/line (at, at_line, key_at), calls_of, and a retest mechanism to refresh entries from a reading without a full rescan; also involves test-reach depth logic.
-- found: A Links lookup table (callers/calls/clone-groups keyed by dense ids, indexed by (file,line)) built once from edges::wire and clones::find, giving the panel per-function neighbour lists instead of bare counts. Also includes retest_tree/Links::retest, which folds reader verdicts about test-vs-subject status into dependents/under_test without a rescan, plus a reach-depth measurement test and standard unit tests.
+- spec 3 · served in 2 parts · read at `18b1c1476955` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Defines a `Links` lookup table, built once alongside the parsed tree (`Links::build`), that maps each function to concrete lists of its callers, callees, and clone-group siblings rather than just counts — the detail behind the summary numbers shown elsewhere (edges/clones). Provides accessors (`at`, `at_line`, `key_at`, `reference`, `calls_of`, `len`/`is_empty`) to look up a function's neighbours by key or source line, an incremental `retest` to refresh the table after a partial rescan, a `reach_depth` submodule computing how far test functions reach into the call graph, and unit tests covering these behaviors.
+- found: Defines `Links`, a lookup table (Entry/Ref/Related structs) built once beside the parsed tree from edges::wire and clones::find output, giving concrete caller/callee/clone-sibling lists per function via `at`/`at_line`/`calls_of`/`key_at`, with `wired`/`comparable` flags distinguishing 'not parsed' from 'genuinely empty'. Also includes `Links::retest` (recompute dependents/under_test from reader classifications without reparsing) and a module-level `retest_tree` that applies reader test-verdicts onto a live Scan tree in place; plus unit tests and two ignored real-repo measurement tests (`neighbours`, `wiring_audit` — auditing cross-file call edges against per-language visibility rules for Rust/Go/JS).
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The module doc is thorough and matches the code closely; the retest/reader-integration half is a substantial second responsibility beyond the plain lookup-table framing the header leads with.
 
 ### `retest` — LEGIBLE SOME
 - spec 3 · read at `074519f6f582` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:05:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -5525,10 +5565,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The comment about keying off the tree (not hand-written ids) explains a real historical bug the code itself doesn't show.
 
 ### `func`
-- spec 3 · read at `30d13dd4b9a5` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:57:56Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Test-fixture helper that constructs a FuncDef with the given name, line, and calls (converting &[&str] into owned strings), setting shape as the clone-comparability hash (None meaning too short to compare), and filling every other field of FuncDef with a default/placeholder value so tests can build minimal function records without specifying irrelevant fields.
-- found: Test-fixture builder for FuncDef, exactly as predicted: name/calls converted to owned data, shape passed through as the clone hash, and other fields defaulted — the one detail I missed is end_line is set to line + 4 (an arbitrary fixed span) and calls are tagged Via::Free.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+- spec 3 · read at `422e2fac2889` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:30Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A test helper that builds a FuncDef for links.rs tests, setting name, start_line (from `line`), a synthesized signature, the given `calls` list (converted to owned Strings) and optional `shape` clone-hash, with other fields defaulted (doc None, owner None, empty locals, etc.) so tests can construct small call graphs easily.
+- found: Test helper building a FuncDef with name, start_line=line, end_line=line+4, empty signature/body, calls mapped into parse::Call{name, via: Via::Free}, given shape, and all other fields defaulted.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `table`
 - spec 3 · read at `b91a4ffa1194` · commit `d92c31f` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:24:53Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -5567,6 +5607,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: An #[ignore]d test reading REPO env var, building Links::build over that real repo, then printing the top 10 most-called functions (by caller count) and the largest clone group found, as a cheap sanity check that results are non-trivial rather than an empty/well-formed table.
 - found: Reads REPO env var, scans that real repo via crate::scan::scan, encodes the links table to measure its size, then prints scan time, table size, edge/coverage stats, the 10 most-called functions, and the biggest clone group with a few of its members — a smoke test that the pipeline produces real, sized, non-trivial output on an actual repo.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `wiring_audit`
+- spec 3 · read at `e91fd90fafad` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:56Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: An #[ignore]d integration test driven by a REPO env var: scans the real repo, builds the Links call graph, and for every cross-file call edge into a free function, checks whether the callee is actually visible outside its file per language convention (pub in Rust, export in JS, capitalized in Go). It counts and prints violations vs total checkable edges, skipping methods and unreadable languages/files as silence rather than violations, surfacing the violation share as a measurement rather than asserting a hard pass/fail.
+- found: An ignored integration test reading REPO from env, scanning it (without git), and finding every cross-file call edge to a free function (methods excluded via owner check). For each checkable edge it asks a per-language `reachable` closure whether the callee's visibility actually permits the call — correctly scoped to each language's real visibility unit (Rust's module subtree, not just the file; Go's package/directory, not just the file; JS/TS only when the file is an actual module, detected via import/export lines) rather than naive per-file text matching. It prints total edges, checkable count, contradicted percentage, and the top 10 worst-offending callees.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no · test: yes
 
 ### `a_line_no_function_starts_at_is_absent`
 - spec 3 · read at `324cc6de97de` · commit `d92c31f` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-20T23:30:36Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -5966,10 +6012,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/parse.rs
 
 ### the file itself
-- spec 3 · served in 7 parts · read at `0b91050d7aca` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:01:22Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The tree-sitter-based multi-language parser at the core of the scan — walks each file's syntax tree matching node kinds per language (deliberately not queries, so a grammar rename fails loudly instead of silently returning empty) to produce FuncDefs: name, signature, body span, doc comment (with rules distinguishing file-level module docs from item docs and per-language docstring conventions), owner (for methods), call sites (with per-language call-spelling detection feeding edges.rs), and cognitive-complexity scoring via per-language branch/fork/binary-operator kind tables. Also defines the language-to-extension mapping and carries a large test suite validating these behaviors across every supported language.
-- found: Confirmed: multi-language tree-sitter parser producing FuncDef (name/signature/body/doc/owner/calls/cognitive/in_cfg_test) via literal per-language node-kind tables rather than queries, with careful doc-comment attribution (file vs item, wrapper-walking for `const Foo = () => {}`, per-language docstrings), owner resolution (including Go receivers and nested-type dotted paths), call-site extraction with Via spelling for edges.rs, and cognitive complexity via branch/logical-operator kind tables with per-site breakdown for a panel. Beyond my prediction: it also does structural clone detection (shape_of, token-shape hashing with a MIN_SHAPE_TOKENS floor), carries heavy PARSE_VERSION/cache-invalidation documentation explaining exactly why each bump happened, and includes a large diagnostic test harness (Spearman correlation, band populations, residual-vs-line-count) used to empirically justify the complexity formula's design, plus safeguards against stack overflow via cursor-based (non-recursive) tree walks.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- spec 3 · served in 8 parts · read at `605f36b3621b` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:32Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: parse.rs is the tree-sitter front end for the whole repo — given a file's language and bytes, it walks the syntax tree via cursor/node-kind matching (not queries, per the header) to extract: function definitions with name/owner/signature/span/doc-comment/exported flag, the file-level module doc, cognitive complexity (fork/chain counting per branch/binary node kinds), and call sites (callee name plus how it was reached — dot/path/free) with locals collected for shadow-detection. It supports many languages via per-language kind tables (func_kinds, branch_kinds, binary_kinds, etc.), and carries extensive inline test modules (languages, kinds, complexity, tests) validating each language's table and extraction behavior individually — this is clearly the biggest, most load-bearing file in the project.
+- found: Confirmed: tree-sitter front end extracting FuncDef (name/owner/signature/doc/calls/locals/exported/shape/cognitive/in_cfg_test) across 63 languages via literal node-kind tables (func_kinds, branch_kinds, call_sites, etc.), each pinned by tests reading real parses. But missed several major subsystems: file-level module-doc extraction with license filtering and truncation (file_doc), a clone-detection token-shape hash (shape_of/MIN_SHAPE_TOKENS), per-site cognitive-complexity breakdown for a UI panel (forks_at/Fork/ForkKind/cognitive_walk), visibility/exported resolution per language (exported_of/is_module), nested-owner chain resolution, cfg(test) contract detection, and heavy cache-versioning discipline (PARSE_VERSION/PARSE_OUTPUT_STABLE_SINCE) — plus a whole diagnostic/measurement test module (complexity) validating the cognitive-complexity formula against real repos via Spearman correlation.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
 
 ### `loc`
 - spec 2 · read at `0e1677eba3db` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -6053,11 +6099,30 @@ What this is and how to add to it: [README.md](README.md)
 - found: Creates a tree-sitter Parser, sets language (returning empty vec on failure), parses source (returning empty vec if None), then gets func_kinds for the language and calls collect() on the root node to populate a Vec<FuncDef>, which is returned.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
+### `is_module`
+- spec 3 · read at `e2a48131b392` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:44Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Scans the file's lines for any trimmed line starting with "import ", "import{", "export ", or "export{", returning whether the file uses ES module syntax at all. I recall this exactly from having read it already in the file-task for parse.rs (part 4).
+- found: Exactly as predicted — line-prefix scan for import/export keywords, textual rather than AST-based.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: This was a warm reading — I had already seen this exact function's body while reading parse.rs as a whole-file task earlier in this session.
+
+### `exported_of`
+- spec 3 · read at `1df87a1eea03` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:42Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Determines whether a function is publicly exported using language-specific conventions: checks for a `pub` modifier in the signature for Rust, an `export` keyword for JS/TS, capitalized first letter of name for Go, etc., returning None for languages with no reliable convention rather than guessing.
+- found: Per-language export check: Rust checks the signature starts with `pub`; Go checks the name's first letter is uppercase; TS/JS returns None if the file isn't a module, otherwise walks up to 3 parent levels through doc-wrapper node kinds looking for an `export_statement` ancestor; all other languages return None.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `locals_in`
+- spec 3 · read at `86e3fdb3caf0` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:32Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Walks the tree with a cursor like collect, using the same acceptance/kind-matching logic to find function-defining nodes, extracts each one's name and pushes it into a Vec<String>; unlike collect it keeps descending into matched nodes since nested closures' names are still visible inside the outer body, and skips the root node itself.
+- found: Same cursor-walk shape as collect, skipping the root node by id comparison, matching function-defining nodes via accepts() plus the variable_declarator special case, extracting each match's name via name_node, and deduping into a Vec<String>; keeps descending into matches (unlike collect) since nested names are still visible; returns early if the language has no function kinds.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `collect`
-- spec 3 · read at `7e01b7267ae9` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:34:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks the syntax tree using a TreeCursor (goto_first_child/goto_next_sibling/goto_parent) instead of recursive calls, to keep stack usage O(1) regardless of tree depth. For each node visited, checks if its kind is in `kinds`; if so, extracts a FuncDef (name, signature, doc, span, etc., likely via helper functions like name_node/body_node/leading_doc) and pushes it into `out`. The traversal continues until the cursor returns to the root and has no more siblings, implementing a manual pre-order traversal stack/loop.
-- found: Iterative pre-order traversal via TreeCursor. For each node, if it matches a target kind (and, for variable_declarator, only if it's actually a function-valued declarator), extract a FuncDef and push it, and skip descending into that node's children (so nested closures aren't double-counted as separate top-level entries or double-counted in line spans). Otherwise descend into the first child; when no child, climb via next-sibling/goto-parent until a sibling is found or the walk returns to root and terminates.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `52e5d01b9045` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the tree-sitter cursor tree from root; for each node whose kind matches one in `kinds`, builds a FuncDef using helper functions (name_node, body_node, owner_of, exported_of, etc.) and pushes it into out, then continues recursing into children to find nested functions.
+- found: Iteratively walks the tree with a cursor (not true recursion) doing a manual pre-order traversal. When a node matches one of the target kinds (and, for variable_declarator nodes, only if it's actually a function), it extracts a FuncDef and pushes it, but deliberately skips descending into that node's children so nested closures aren't double-counted as separate top-level matches diluting the enclosing function's line count. Otherwise descends into children, and backtracks via goto_next_sibling/goto_parent when no children remain, terminating when goto_parent fails at the root.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `accepts` — PREDICTED SOME
 - spec 3 · read at `5b99000898b6` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:09Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -6158,9 +6223,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc describes only two of the three cases (own-kind vs. C-family else-wrapping); the third case (Swift's else-as-sibling) is explained purely in an inline comment on that branch, not in the function's leading doc comment.
 
 ### `extract` — PREDICTED SOME
-- spec 3 · read at `81bd573fc996` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:00:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Takes a tree-sitter node candidate and, by matching its kind() against the function-like node kinds for the given lang (rather than a tree-sitter query), extracts a FuncDef — name, signature, body span, owner (for methods), and maybe leading doc comment — returning None if the node isn't actually a function/method definition for that language.
-- found: Given a node already known to be a function/method, pulls out its name and body span, slices the signature as the text before the body, and extracts a doc comment with per-language logic (Python/Elisp docstring fields vs. leading-comment-with-wrapper-walk for others, to handle `export const Foo = () => {}`); then builds a FuncDef also carrying calls_in, owner_of, shape_of, cognitive_of, and whether it sits under a #[cfg(test)] guard.
+- spec 3 · read at `14362f3c0858` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes a tree-sitter node already identified as a function/method definition, and using language-specific field names via `lang`, pulls out its name, enclosing owner type (if it's a method), signature text, and doc comments, along with line-range info, building a FuncDef. Returns None when a required field (like the name) is missing for that node kind.
+- found: Extracts name, signature, and body text via byte-range slicing; resolves doc comments with language-specific strategies (Python docstring-as-first-statement, Elisp docstring field, else leading comment or wrapper doc walking out through const/export declarations). Also computes owner, calls made, local variables, exported status, cyclomatic 'shape', cognitive complexity, and whether it sits under a #[cfg(test)] — assembling all of it into a FuncDef.
 - predicted: some · documented: none · derivable: yes · legible: most · trap: no
 
 ### `shape_of`
@@ -6376,6 +6441,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: For ~20 languages with hand-written control-flow-heavy snippets, gets the tree-sitter parse as an s-expression string, tokenizes it and keeps tokens containing any of a fixed control-flow keyword list, dedupes/sorts, and prints per-language for manual curation of branch_kinds tables.
 - predicted: most · documented: full · derivable: no · legible: most · trap: no
 - note: Uses the s-expression text of the parse tree plus substring token filtering rather than an actual cursor walk over node kinds.
+
+### `print_visibility_kinds`
+- spec 3 · read at `c3a38c713f96` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:46Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: An ignored diagnostic test/helper, mirroring `print_control_flow_kinds`, that parses small sample snippets in each supported language containing a public/exported declaration and a private one, then prints the tree-sitter node kinds found around them — used to manually discover/verify the grammar node kinds that mark visibility (`pub`, `export`, etc.) for the exported-detection logic.
+- found: Diagnostic (non-#[test]-looking, likely ignored/manual) function that, for a fixed set of Rust/TypeScript/Go/Python snippets mixing exported and unexported functions, prints the raw tree-sitter s-expression plus the parsed FuncDef name/signature for each, so a human can inspect which grammar node kinds correspond to visibility.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The doc comment is attached to the whole `kinds` module/file rather than specifically explaining this function's printing behavior.
 
 ### `print_control_flow_kinds`
 - spec 3 · read at `6ae3eda9d63d` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:51:46Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -7145,10 +7217,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `a_functions_context_is_its_neighbors`
-- spec 3 · read at `4b5b9e509fec` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:54:13Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a fixture file with several functions, then scans/scores a function that isn't first or second in the file, and asserts that the neighbor/context list used for its prompt is drawn from functions actually near it in the file rather than always the first two functions in the file — regression test for the "context depended on position" bug the doc describes.
-- found: Builds an 8-function fixture file and calls context_for at index 6, asserting the context contains the immediately preceding function (f5) but not the top-of-file function (f0) nor itself (f6); also checks the top-of-file edge case (index 0) gets a full window from the side that has neighbors (f1, f2) without f0.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no · test: yes
+- spec 3 · read at `7c5721607410` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:28Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a fixture with several functions, scans it, and asserts that the neighbor context for a function later in the file is the functions actually adjacent to it, not the first two functions in the file (guarding against a bug where context was computed from the start of the file after excluding the scored function).
+- found: Builds a fixture of 8 functions f0..f7, calls context_for(&file, 6) and asserts the returned context includes the immediate neighbor f5 but excludes f0 (top of file) and f6 (itself). Also tests context_for(&file, 0), asserting that a function at the top of the file still gets a full window pulled from the side that does have neighbors (f1, f2), not just an empty/truncated one.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `an_edit_above_a_function_does_not_change_its_identity`
 - spec 3 · read at `b8bdae76b417` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -7325,15 +7397,15 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc's warning about the multiplier being intentionally non-standard (and matching a twin in cache.rs) is the kind of fact you could never derive from this function alone — it explains why nobody should "fix" it.
 
 ### `func`
-- spec 3 · read at `2cc1837d0522` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:53:52Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Test-fixture helper that builds a minimal fake FuncDef for a given name, with default/dummy values for the other fields (line span, hash, etc.), used to keep test setup terse.
-- found: Builds a minimal fake FuncDef with the given name, a trivial synthesized signature/body, and default/empty values for everything else (no doc, no owner, no calls, line 1-1).
+- spec 3 · read at `9a0b5efb1db6` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:19Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test-only helper that constructs a minimal/dummy FuncDef given just a name, filling in other required fields (e.g. line ranges, signature, body hash) with placeholder/default values so the various scancache tests can quickly build fake function records without repeating boilerplate.
+- found: Test helper building a minimal FuncDef with the given name, a synthesized `fn {name}()` signature, trivial body "{ 1 }", and default/empty values for all other fields (doc, owner, shape, cognitive, calls, locals, exported all None/empty).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `a_new_cached_field_cannot_be_added_silently`
-- spec 3 · read at `d25a7d2c8084` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:59:05Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a sample Entry (or uses serde_json::to_value on a default instance), extracts its set of field names, and asserts that set equals a hardcoded literal list of expected field names, so adding a new field to Entry without updating this list fails the test.
-- found: Matches prediction for Entry's field-set pin, but there's a second identical pin one level down for FuncDef's fields (the funcs list inside Entry), which I didn't anticipate — a #[serde(default)] field added there is just as silent a cache-staleness bug as one on Entry itself.
+- spec 3 · read at `3e79c9114c09` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This test serializes (or otherwise introspects) an Entry value and asserts its field set exactly matches a hardcoded list of field names — so adding/removing a field to the struct without updating this test fails, per the docs, which is a deliberate tripwire reminding the author to consider bumping FORMAT_VERSION.
+- found: Constructs an Entry, serializes it to JSON, sorts its keys and asserts them against a hardcoded list (tripwire for FORMAT_VERSION); then does the same one level down for the nested FuncDef.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no · test: yes
 
 ### `seeded`
