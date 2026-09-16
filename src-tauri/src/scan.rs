@@ -2697,6 +2697,8 @@ mod tests {
                 shape: None,
                 calls: Vec::new(),
                 cognitive: None,
+                locals: Vec::new(),
+                exported: None,
             })
             .collect();
         let file = ParsedFile {

@@ -239,6 +239,128 @@ it is the only thing bounding a generated file's initializer, and the list is ca
 function forever. 2048 is 2.6× the largest real body and 13× the 99.99th percentile, and costs
 nothing that is not actually there.
 
+## The third time, and the first one a verb could find
+
+**A body defines a helper inside itself, calls it, and the call is credited to a stranger.**
+`web/src/lib/reportTables.ts#walk` is a 21-line module-private helper with five call sites in
+its own file. It was reported with **21 callers across nine files that cannot import it** —
+`App`, `buildModel`, `countPending`, `summarize`, `opaqueShare`, `undocShare`, `bucketsFor`,
+`histogramsFor`, `holdsUncommitted`, `legendFor`, `headSizes`, `frameTree`, `layout`,
+`drawSvg` — and every one of those holds its own `const walk = …` and calls that.
+
+The mechanism is two rules that were each right alone:
+
+- `collect` stops descending the moment it extracts a function, deliberately, so a closure is
+  part of its enclosing body rather than a wedge of its own. The nested definition therefore
+  never enters `defs`.
+- The call walk descends into everything, nested definitions included, so the CALL is
+  recorded against the enclosing body.
+
+A name defined nowhere the index can see is a name `resolve` will place somewhere else, and in
+a TypeScript corpus the one top-level `walk` was globally unique, so `GLOBAL_UNIQUE` was
+satisfied and every spelling of it landed there. Rust had the same disease one tier down:
+`findings.rs#walk`, `search.rs#walk` and `churn.rs#walk` share a directory with five nested
+`fn walk`s in `agentapi.rs`, and the `near` tier credited each of them 6-7 callers. After the
+fix they report 1, 1 and their own.
+
+`FuncDef::locals` is the close: the names a body defines inside itself, refused before
+`resolve` is asked. **It is a fact about the languages rather than a guess about a receiver** —
+a local definition shadows an outer name of the same spelling, so the call goes to the local
+one wherever both exist. That is the same footing as `#[cfg(test)]`, and it is why this is not
+the over-refusing that cost 180 functions their last caller: it removes only edges whose
+target is a body the index does not hold.
+
+**And the instrument is now in the tool.** The previous two rounds of this were caught by a
+blind reviewer reading a body and checking a number by hand, which the note above says outright
+was the only way it was ever going to be caught. `sanity callers <KEY>` prints the pairs the
+counts are folded from, grouped by file and marking the subject's own — because "21 callers, 16
+of them in files that cannot import it" is a sentence a person can refute, where "21 callers"
+is not.
+
+## The fourth one, found by the verb rather than by a person
+
+**A private helper collects the calls of every same-named helper in the repo.** The audit's
+first run on this repo reported **113 edges — 11.4% of the checkable cross-file ones —
+landing on bodies the caller cannot name**: `git` holding 23, `insert` 11, `get` 10 and 10,
+`key_of` 9, `f` 9. `assessment.rs`'s `fn git(repo, args)` is private, and every one of its
+credited callers was some other file's own `let git = |args| …`.
+
+`GLOBAL_UNIQUE` cannot see this, and that is the point: each of those names is defined exactly
+once, so the guard against common words never fires. The directory tier then hands the call
+over, because locality is evidence about where a NAME was written and says nothing about
+whether the module lets anyone else say it.
+
+**Visibility is the evidence, and it is a fact rather than a guess** — the same footing as
+`#[cfg(test)]`. [`crate::parse::FuncDef::exported`] is three-state, and the absent state is the
+load-bearing one: `None` means the language does not say (Python exports everything and marks
+nothing, C++ has no module system a parse can see) and refuses nothing at all. Read off a real
+parse, because the three that DO say, say it in three different places:
+
+| | where it is written | scope a private name reaches |
+|---|---|---|
+| Rust | `visibility_modifier` inside `function_item`, so the signature carries it | the module TREE — `src/a.rs`'s private `f` is reachable from `src/a/b.rs` |
+| JS family | an `export_statement` WRAPPING the declaration, invisible to the signature | the file, and nothing further |
+| Go | nothing at all; the initial capital is the rule | the package, which is the directory |
+
+Applied before the tiers rather than inside them, and to FREE FUNCTIONS only: a method's
+reachability belongs to its type, a JS class method carries no `export` of its own, and refusing
+those would strike out every cross-file receiver call in a repo.
+
+**What it cost, measured.** Contradicted edges went to zero on every repo that can be checked —
+sanity 113 → 0, tonepoet 59 → 0, styx 2 → 0 — for 105 edges on sanity and five functions losing
+their last caller. All five were read by hand and all five were wrong before: a private axum
+handler that is routed rather than called, a check script's `main()` invoked from module-level
+code, and three private helpers whose callers each held a closure of the same name.
+
+**One of those five is the argument for having both fixes.** `findings.rs`'s private `yes` was
+credited to `edges.rs`, which holds `let yes = |is_test| …` — a Rust CLOSURE, which
+`func_kinds` does not index, so `FuncDef::locals` structurally cannot see it. Shadowing catches
+what visibility cannot when the callee is exported; visibility catches what shadowing cannot
+when the shadow is a closure the parse does not record. Neither is a superset of the other.
+
+**And the harness found its own bug first.** Its opening run reported 29.88% of Go's checkable
+edges as contradicted, naming `rollbackCmd`, `publishCmd` and `devboxForTesting` — all
+unexported names called from files beside them in the same package, which is ordinary Go. A
+file is not the unit of visibility in every language, and reading it as one made the audit
+commit the exact error it exists to catch. Package-aware, the real number is 0.45%.
+
+### A file is only file-private if it is a MODULE
+
+**The first cut of the visibility rule invented 28 absences, in the direction this note keeps
+warning about.** Reading "no `export` on the declaration" as "not reachable" is right for an ES
+module and wrong for a classic script: a page of `<script>` tags shares one global scope, so a
+component defined in one file is nameable from the next without anything being exported.
+
+Both repos on hand that have such files are design mocks — VectorLand's three
+`docs/design/.../*.jsx` beside a standalone HTML page, fussystuff's `docs/answer-design/*.jsx` —
+and every one of them is `import=0 export=0`. They lost 9 and 19 edges respectively, every one
+of them real, and the functions concerned were drawn as called by nothing.
+
+So `is_module` gates the whole JS branch: a file with no static `import` and no `export`
+anywhere answers `None`, which refuses nothing. **The evidence for "this name is private" is not
+the absence of a keyword — it is the presence of a module system to be private within.**
+
+The cost of being wrong in each direction is the same asymmetry as everywhere else here: a
+missed refusal leaves an inflated count that the audit will find, and a wrong refusal draws live
+code as dead, which nothing will.
+
+### A refusal can ADD an edge, and the count is not monotone
+
+**ceph went 249,256 edges → 249,066 with the shadowing rule → 249,088 with visibility as well.**
+The second fix removed edges and the total went UP by 22, which looks impossible and is not.
+
+`resolve` refuses a repo-wide match for a name with more than one definition — past that it is a
+common word and the honest answer is that we do not know. Filtering an unreachable candidate out
+of the set BEFORE the tiers can take a name from two candidates to one, and one satisfies
+`GLOBAL_UNIQUE`. A call that was previously refused as ambiguous now has exactly one definition
+it could possibly mean, and resolves.
+
+That is the right answer — a candidate the module system would refuse was never a real
+alternative, and pretending it made the name ambiguous is the same overclaim one level up — but
+it means **"edges removed" is the wrong thing to measure a refusal by.** What to watch is
+functions losing their LAST caller, which is the failure that draws live code as dead, and that
+number is monotone in the direction it matters.
+
 ## What it still cannot do
 
 `project.scan()` from another file is a real edge and it is now dropped: the receiver is a
@@ -264,3 +386,16 @@ more than it looks: the field kept its name when it changed type, so the field-l
 and a function that calls nothing is a sink under Reach. `treecache` keys on `PARSE_VERSION`
 and needs nothing of its own. No reading expires — `reading_hash` covers the header, the doc
 and the body, and how a call was spelled is none of them.
+
+`FuncDef::locals` moved the same two for the same reason — `PARSE_VERSION` 11→12 and
+`scancache::FORMAT_VERSION` 9→10 — and there the field-list guard in `scancache`'s tests DOES
+see it, because the field is new rather than merely retyped. It fails until the list is updated
+by hand, which is the acknowledgement the bump is supposed to cost somebody.
+
+`treecache::VERSION` moved too, 28→29. It keys on `PARSE_VERSION` and so would have been
+invalidated anyway; the bump is there because the rule is that a change to `resolve` moves it,
+and a rule that is skipped whenever somebody works out it was redundant this time is not a rule.
+What a warm version-28 tree holds is the old call graph — `reportTables.ts#walk` banked at 21
+callers where it has five — and nothing about the records changed shape, so it would serve them
+in silence. No reading expires: `reading_hash` covers the header, the doc and the body, and what
+a body defines inside itself is none of them.

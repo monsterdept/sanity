@@ -291,6 +291,9 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
             defs.entry(func.name.as_str()).or_default().push(Def {
                 fam,
                 dir,
+                path: file.path,
+                lang: file.lang,
+                exported: func.exported,
                 site: (fi, gi),
                 owner,
             });
@@ -309,9 +312,27 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
         let dir = dir_of(file.path);
         for (gi, func) in file.funcs.iter().enumerate() {
             let from = (fi, gi);
+            let caller =
+                Caller { file: fi, dir, path: file.path, mine: func.owner.as_deref() };
             for call in &func.calls {
-                let hits =
-                    resolve(&defs, call, fam, fi, dir, func.owner.as_deref(), &owners, &modules);
+                // **A name this body defines itself is not a name to look up.** A closure or a
+                // nested function shadows an outer definition of the same spelling in every
+                // language read here, so the call goes to the local one — and the local one is
+                // not in `defs`, because `parse::collect` stops descending at a function
+                // boundary while the call walk does not. Left to `resolve`, the call goes to
+                // whichever stranger shares the spelling: `reportTables.ts#walk`, a
+                // module-private helper with five call sites in its own file, was credited
+                // with 21 callers across nine files that cannot import it. See
+                // [`crate::parse::FuncDef::locals`] and `docs/notes/wiring.md`.
+                //
+                // Counted as RESOLVED rather than dropped: the call found its callee, which is
+                // a body this index does not hold. `unresolved` is the share that says the
+                // family rule or the grammar is wrong, and a shadowed call is neither.
+                if func.locals.iter().any(|l| l == &call.name) {
+                    resolved += 1;
+                    continue;
+                }
+                let hits = resolve(&defs, call, fam, &caller, &owners, &modules);
                 if hits.is_empty() {
                     unresolved += 1;
                     continue;
@@ -430,6 +451,16 @@ pub fn wire_with(files: &[FileView<'_>], declared: &Declarations) -> Wiring {
 struct Def<'a> {
     fam: u8,
     dir: &'a str,
+    /// The file it is defined in, which is the unit its visibility is measured from — and in
+    /// Rust the root of the module subtree that can still name it.
+    path: &'a str,
+    /// What the definition is written in. The scope a private name reaches is a property of the
+    /// LANGUAGE rather than of the repo: a file in the JS family, a directory in Go, a module
+    /// tree in Rust. See [`reaches`].
+    lang: Lang,
+    /// Whether another module may name it — see [`crate::parse::FuncDef::exported`]. `None` is
+    /// "this language does not say", and it refuses nothing.
+    exported: Option<bool>,
     site: Site,
     /// The type or module it is defined in — see [`crate::parse::FuncDef::owner`]. `None` is
     /// a free function, and that is the half of this the dot rule turns on.
@@ -787,20 +818,75 @@ fn stem_of(path: &str) -> &str {
 /// only ever read as "roughly how wired is this" — one extra candidate in a directory changes
 /// a caller count by one, where a wrong pick changes two functions' wiring and looks certain.
 #[allow(clippy::too_many_arguments)]
+/// Whether a definition can be NAMED from the file doing the calling.
+///
+/// **A refusal on evidence, never a guess.** [`crate::parse::FuncDef::exported`] is `None`
+/// wherever the language does not say — Python exports everything and marks nothing, C++ has no
+/// module system a parse can see — and `None` reaches everything. A `Some(false)` is a fact
+/// about what the compiler or the module system would allow, which is the same footing as
+/// `#[cfg(test)]` and not the same as a guess about a receiver.
+///
+/// **Free functions only, deliberately.** A method's reachability belongs to its type: a JS
+/// class method carries no `export` of its own, and refusing on that would strike out every
+/// cross-file receiver call in a repo. Refusing an edge is cheap and inventing an absence is
+/// not, and this is the side of that line to be on.
+///
+/// The scope a private name reaches differs per language, and that IS the rule:
+/// - **Rust**: the module tree. `src/a.rs`'s private `f` is reachable from `src/a/b.rs`.
+/// - **The JS family**: the file, and nothing further.
+/// - **Go**: the package, which is the directory.
+///
+/// Measured on this repo before it existed: 113 edges, 11.4% of the checkable cross-file ones,
+/// including a private `fn git` holding 23. See `links::tests::wiring_audit`.
+fn reaches(d: &Def<'_>, caller: &Caller<'_>) -> bool {
+    if d.owner.is_some() || d.exported != Some(false) || d.site.0 == caller.file {
+        return true;
+    }
+    match d.lang {
+        Lang::Rust => d
+            .path
+            .strip_suffix(".rs")
+            .is_some_and(|stem| caller.path.starts_with(&format!("{stem}/"))),
+        Lang::Go => d.dir == caller.dir,
+        // **A known limit, stated rather than hidden.** `function f(){}` exported later by
+        // `export { f }` reads as unexported here, because only the declaration's own ancestors
+        // are inspected. That form appears nowhere in this repo, and the failure it would cause
+        // is a refused real edge — so if it starts appearing, `wiring_audit` is the wrong
+        // instrument to notice it and a function losing its last caller is the right one.
+        _ => false,
+    }
+}
+
+/// Where a call was written from — the facts every tier asks about the CALLER.
+///
+/// Bundled rather than passed one by one: the visibility rule needs the calling file's path as
+/// well as its index and directory, and nine positional arguments is both a clippy error and a
+/// signature nobody can read at the call site.
+struct Caller<'a> {
+    file: usize,
+    dir: &'a str,
+    /// The calling file's own path, for the languages whose visibility scope is not the file —
+    /// Rust's is the module tree, so a child module may name what its parent keeps private.
+    path: &'a str,
+    /// The owner of the body making the call, which is the one receiver type that can be
+    /// known: `self` is whatever this is defined in.
+    mine: Option<&'a str>,
+}
+
 fn resolve(
     defs: &HashMap<&str, Vec<Def<'_>>>,
     call: &crate::parse::Call,
     fam: u8,
-    file: usize,
-    dir: &str,
-    // The owner of the body making the call, which is the one receiver type that can be
-    // known: `self` is whatever this is defined in.
-    mine: Option<&str>,
+    caller: &Caller<'_>,
     owners: &HashSet<&str>,
     modules: &HashSet<&str>,
 ) -> Vec<Site> {
     let Some(all) = defs.get(call.name.as_str()) else { return Vec::new() };
-    let same_family: Vec<&Def<'_>> = all.iter().filter(|d| d.fam == fam).collect();
+    // Visibility is applied BEFORE the tiers rather than inside them: a name this file cannot
+    // reach is not a candidate the locality rules should get to weigh, and filtering here means
+    // the owner, file, directory and repo-wide tiers all work on the same honest set.
+    let same_family: Vec<&Def<'_>> =
+        all.iter().filter(|d| d.fam == fam).filter(|d| reaches(d, caller)).collect();
     if same_family.is_empty() {
         return Vec::new();
     }
@@ -824,7 +910,7 @@ fn resolve(
     // `self.f()` means that something's `f`. `this` and `Self` are the same word in the other
     // languages read here.
     let named = match qualifier {
-        Some("self" | "this" | "Self") => mine,
+        Some("self" | "this" | "Self") => caller.mine,
         other => other,
     };
     // Named the owner: that IS the answer, and locality has nothing to add to it.
@@ -867,7 +953,8 @@ fn resolve(
     // whether some file in the repo happened to be named `env.rs`, because that would make
     // the receiver a module name and reopen every tier. An accident of naming deciding a real
     // edge is worse than either answer.
-    let here: Vec<Site> = reachable.iter().filter(|d| d.site.0 == file).map(|d| d.site).collect();
+    let here: Vec<Site> =
+        reachable.iter().filter(|d| d.site.0 == caller.file).map(|d| d.site).collect();
     if !here.is_empty() {
         return here;
     }
@@ -878,7 +965,8 @@ fn resolve(
     if !local {
         return Vec::new();
     }
-    let near: Vec<Site> = reachable.iter().filter(|d| d.dir == dir).map(|d| d.site).collect();
+    let near: Vec<Site> =
+        reachable.iter().filter(|d| d.dir == caller.dir).map(|d| d.site).collect();
     if !near.is_empty() {
         return near;
     }
@@ -911,6 +999,10 @@ mod tests {
             cognitive: None,
             in_cfg_test: false,
             calls: calls.iter().map(|c| free(c)).collect(),
+            locals: Vec::new(),
+            // `None` is "the language does not say", which refuses nothing — so a fixture that
+            // means to test the refusal has to say `Some(false)` out loud.
+            exported: None,
         }
     }
 
@@ -1058,6 +1150,104 @@ mod tests {
         ]);
         assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "its own file, where the impl is");
         assert_eq!(w.at(1, 0).map(|x| x.calls), Some(0), "and not the next file over");
+    }
+
+    /// **A name its module does not export cannot be reached from outside it.**
+    ///
+    /// Measured before this existed: 113 edges on this repo — 11.4% of the checkable cross-file
+    /// ones — landed on bodies the compiler would not let the caller name, `assessment.rs`'s
+    /// private `fn git` holding 23 of them while every caller was some other file's own `let git
+    /// = |args| …`. See `links::tests::wiring_audit`, which counts them.
+    ///
+    /// Each half of this asserts in BOTH directions, because a refusal measured only by what it
+    /// removes cannot notice that it removed too much — the failure that cost 180 functions
+    /// their last caller when the strict receiver rule was tried.
+    #[test]
+    fn a_private_name_is_not_reachable_from_another_module() {
+        let caller = || spells("range_detail", &[free("git")]);
+        let w = wired(&[
+            ("src/assessment.rs", Lang::Rust, vec![FuncDef {
+                exported: Some(false),
+                ..def("git", &[])
+            }]),
+            ("src/blame.rs", Lang::Rust, vec![caller()]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(0), "another file cannot name it");
+
+        let w = wired(&[
+            ("src/assessment.rs", Lang::Rust, vec![FuncDef {
+                exported: Some(true),
+                ..def("git", &[])
+            }]),
+            ("src/blame.rs", Lang::Rust, vec![caller()]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "`pub` reaches past its own file");
+
+        // **Rust privacy is a module TREE, not a file.** A child module may name what its
+        // parent keeps private, so this is a real edge and refusing it would draw live code as
+        // dead.
+        let w = wired(&[
+            ("src/a.rs", Lang::Rust, vec![FuncDef {
+                exported: Some(false),
+                ..def("helper", &[])
+            }]),
+            ("src/a/b.rs", Lang::Rust, vec![spells("inner", &[free("helper")])]),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "a child module may name it");
+
+        // **Go's unit is the package, which is the directory.** An unexported name is visible
+        // to every file beside it and to nothing further — the distinction that took the Go
+        // audit from a reported 29.88% to 0.45%, all of it the harness's own error.
+        let w = wired(&[
+            ("internal/csi/store.go", Lang::Go, vec![FuncDef {
+                exported: Some(false),
+                ..def("newStore", &[])
+            }]),
+            ("internal/csi/node.go", Lang::Go, vec![spells("run", &[free("newStore")])]),
+            ("cmd/main.go", Lang::Go, vec![spells("main", &[free("newStore")])]),
+        ]);
+        assert_eq!(
+            w.at(0, 0).map(|x| x.callers),
+            Some(1),
+            "the file beside it in the package, and not the one outside it",
+        );
+    }
+
+    /// **A body that defines a name calls its own, never a stranger's.**
+    ///
+    /// Measured rather than imagined: `web/src/lib/reportTables.ts#walk` is a 21-line
+    /// module-private helper with five call sites in its own file, and it was reported with 21
+    /// callers across nine files that cannot import it — every one of them a body holding its
+    /// own `walk` and calling that. `parse::collect` stops descending at a function boundary so
+    /// the local definition never reaches `defs`, while the call walk descends into everything
+    /// and records the call. [`crate::parse::FuncDef::locals`] is what closes it.
+    #[test]
+    fn a_body_calling_a_name_it_defines_itself_reaches_no_stranger() {
+        let mut shadows = spells("buildModel", &[free("walk")]);
+        shadows.locals = vec!["walk".to_string()];
+        let w = wired(&[
+            ("web/src/lib/reportTables.ts", Lang::TypeScript, vec![def("walk", &[])]),
+            ("web/src/components/MapArt.tsx", Lang::Tsx, vec![shadows]),
+        ]);
+        assert_eq!(
+            w.at(0, 0).map(|x| x.callers),
+            Some(0),
+            "its own closure, not the module-private helper it cannot import",
+        );
+
+        // **And the refusal is about the shadowed name alone.** A fix measured only by what it
+        // removes has no way to notice that it removed too much, so the same pair with nothing
+        // local of that name still resolves — which is the behaviour every cross-file call in
+        // two whole languages depends on.
+        let w = wired(&[
+            ("web/src/lib/reportTables.ts", Lang::TypeScript, vec![def("walk", &[])]),
+            (
+                "web/src/components/MapArt.tsx",
+                Lang::Tsx,
+                vec![spells("buildModel", &[free("walk")])],
+            ),
+        ]);
+        assert_eq!(w.at(0, 0).map(|x| x.callers), Some(1), "nothing local shadows it here");
     }
 
     /// **A body outside `#[cfg(test)]` cannot call one inside it**, because the compiler does

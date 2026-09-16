@@ -188,7 +188,18 @@ use std::path::{Path, PathBuf};
 ///    63 files) was baked into a version-27 tree as hand-written code, and its helpers carry
 ///    those calls as dependents. Nothing about the records changed shape, so a warm repo
 ///    would serve the old classification in silence.
-const VERSION: u32 = 28;
+/// 29: a call to a name the calling body defines itself is refused — see
+///    `parse::FuncDef::locals`. Caller, dependent and reach counts all move, and a version-28
+///    tree carries the old ones: `reportTables.ts#walk` was banked with 21 callers where it
+///    has five. Nothing about the records changed shape, so a warm repo would serve the old
+///    call graph in silence.
+/// 30: a cross-module call into a name the module does not export is refused — see
+///    `parse::FuncDef::exported`. Caller, dependent and reach counts move again, and a
+///    version-29 tree carries the old ones: `assessment.rs`'s private `git` banked with 23
+///    callers in files that cannot name it, and 11.4% of this repo's checkable cross-file edges
+///    of that shape. Nothing about the records changed shape, so a warm repo would serve them
+///    in silence.
+const VERSION: u32 = 30;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

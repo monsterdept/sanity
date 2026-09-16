@@ -470,6 +470,8 @@ pub(crate) mod tests {
             shape,
             cognitive: None,
             in_cfg_test: false,
+            locals: Vec::new(),
+            exported: None,
         }
     }
 
@@ -601,6 +603,157 @@ pub(crate) mod tests {
                 let e = &links.entries[*id as usize];
                 println!("    {}  {}:{}", e.name, links.files[e.file as usize], e.line);
             }
+        }
+    }
+
+    /// **What the call graph claims that its own evidence refuses.** Ignored: a measurement,
+    /// `REPO=/path/to/repo cargo test -- --ignored --nocapture wiring_audit`.
+    ///
+    /// Callers and Reach are built by matching NAMES, so the standing question is not whether
+    /// the graph is sound — it cannot be, and `docs/notes/wiring.md` says so at length — but
+    /// how much of what it says is contradicted by something already on the page. Three
+    /// overclaims have been found here so far (`collect` at 175 callers, a test-only `walk` at
+    /// 19, a module-private `walk` at 21) and every one was caught by a person noticing an odd
+    /// number. That is not a process. This asks the question in a loop instead.
+    ///
+    /// **One check, and it is a fact about the languages rather than a guess about a receiver.**
+    /// A call that crosses a FILE boundary has to land on something another file is allowed to
+    /// name: `pub` in Rust, `export` in the JS family, a capitalised name in Go. An edge into
+    /// something none of those mark is one the compiler or the module system would refuse,
+    /// whatever the parse thought it saw.
+    ///
+    /// **Methods are out of scope, deliberately.** A method's reachability is its type's rather
+    /// than its own, so flagging them would measure this test's naivety instead of the graph's
+    /// accuracy. What is left is free functions, where the claim is unambiguous.
+    ///
+    /// Everything it cannot read reports as SILENCE and never as a violation — a language whose
+    /// visibility it does not know, a file it could not open. The number to watch is the
+    /// violation share of the edges it could actually check.
+    #[test]
+    #[ignore]
+    fn wiring_audit() {
+        let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
+        let repo = std::path::Path::new(&repo);
+        let m = crate::scan::Memos::ephemeral();
+        let scan = crate::scan::scan(
+            repo,
+            &crate::surprise::HeuristicModel,
+            &|_| {},
+            &|_, _: &crate::surprise::Reading| {},
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            crate::scan::Fidelity::Ordering,
+            // No git: this asks about the parse and the module systems, and blame is the
+            // expensive half of a scan — 206s of a 214s cold ceph run, per `budgets.md`.
+            crate::trace::Depth::Untraced,
+        )
+        .expect("scans");
+        let links = &scan.links;
+
+        let mut cross: Vec<(u32, u32)> = Vec::new();
+        let mut want: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for (to, froms) in &links.callers {
+            for from in froms {
+                if links.entries[*from as usize].file != links.entries[*to as usize].file {
+                    cross.push((*from, *to));
+                    want.insert(links.entries[*to as usize].file);
+                }
+            }
+        }
+        let mut src: HashMap<u32, Vec<String>> = HashMap::new();
+        for f in want {
+            if let Ok(text) = std::fs::read_to_string(repo.join(&links.files[f as usize])) {
+                src.insert(f, text.lines().map(str::to_string).collect());
+            }
+        }
+
+        // The package a file sits in. A nested `fn` rather than a closure, because a closure
+        // returning a borrow of its own argument needs a higher-ranked lifetime that inference
+        // will not guess at — and `move`, which the compiler suggests, does not supply it.
+        fn dir_of(p: &str) -> &str {
+            p.rsplit_once('/').map_or("", |(d, _)| d)
+        }
+
+        // `None` is "this test cannot say", which is a different answer from `Some(false)` and
+        // must never be counted as one.
+        //
+        // **A file is not the unit of visibility in every language, and reading it as one made
+        // this harness commit the error it exists to find.** Its first run reported 29.88% of
+        // Go's checkable edges as contradicted, and the top offenders — `rollbackCmd`,
+        // `publishCmd`, `devboxForTesting` — are unexported names called from files sitting
+        // beside them in the same package, which is legal and ordinary Go.
+        let reachable = |e: &Entry, from: &Entry| -> Option<bool> {
+            if e.owner.is_some() {
+                return None;
+            }
+            let path = &links.files[e.file as usize];
+            let caller = &links.files[from.file as usize];
+            let line = src.get(&e.file)?.get(e.line.checked_sub(1)? as usize)?;
+            match path.rsplit_once('.')?.1 {
+                // **Rust privacy is a module TREE.** A private item is visible to its own module
+                // and every descendant, so `src/a.rs`'s private `f` is legitimately reachable
+                // from `src/a/b.rs`. Only a call from outside that subtree can be refused.
+                "rs" => {
+                    if caller.starts_with(&format!("{}/", path.strip_suffix(".rs")?)) {
+                        return None;
+                    }
+                    Some(line.contains("pub ") || line.contains("pub("))
+                }
+                // The JS family is the case where a file IS the unit — but only if it is a
+                // MODULE. A file with no `import` and no `export` anywhere is a classic script,
+                // and classic scripts share one global scope, so nothing in them is
+                // file-private. Reading them as modules made this harness report VectorLand's
+                // three design mocks as 9 contradictions out of 9 checkable, every one of them
+                // a real edge that `parse::is_module` had just correctly restored — the same
+                // error as the Go packages, one language over.
+                "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => {
+                    let modular = src.get(&e.file)?.iter().map(|l| l.trim_start()).any(|l| {
+                        l.starts_with("import ")
+                            || l.starts_with("import{")
+                            || l.starts_with("export ")
+                            || l.starts_with("export{")
+                    });
+                    modular.then(|| line.contains("export"))
+                }
+                // **Go's unit is the package, which is the directory.** An unexported name is
+                // visible to every file beside it, so only a call from another package can be
+                // refused — and then the capital letter is the whole rule.
+                "go" => {
+                    if dir_of(path) == dir_of(caller) {
+                        return None;
+                    }
+                    Some(e.name.chars().next().is_some_and(char::is_uppercase))
+                }
+                _ => None,
+            }
+        };
+
+        let mut checked = 0usize;
+        let mut refused: HashMap<u32, usize> = HashMap::new();
+        for (from, to) in &cross {
+            match reachable(&links.entries[*to as usize], &links.entries[*from as usize]) {
+                Some(true) => checked += 1,
+                Some(false) => {
+                    checked += 1;
+                    *refused.entry(*to).or_default() += 1;
+                }
+                None => {}
+            }
+        }
+        let bad: usize = refused.values().sum();
+        let edges: usize = links.callers.values().map(Vec::len).sum();
+        println!("{} functions · {edges} edges", links.len());
+        println!("  {} cross-file, {checked} of them checkable", cross.len());
+        println!(
+            "  {bad} contradicted ({:.2}% of checkable) — a file reaching a name it cannot name",
+            if checked == 0 { 0.0 } else { 100.0 * bad as f64 / checked as f64 }
+        );
+        let mut worst: Vec<(&u32, &usize)> = refused.iter().collect();
+        worst.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+        for (id, n) in worst.iter().take(10) {
+            let e = &links.entries[**id as usize];
+            println!("  {n:>4} false  {}  {}:{}", e.name, links.files[e.file as usize], e.line);
         }
     }
 

@@ -1038,6 +1038,33 @@ pub fn subjects(root: &Node, reports: &HashMap<String, Report>, traced: Traced) 
     out
 }
 
+/// How many functions a file HOLDS, for the rules that ask about crowding.
+///
+/// **Test bodies are not part of it, because they are not part of the population either.**
+/// [`walk`] drops a `#[cfg(test)]` body from the subjects — a unit test is a function-level
+/// exclusion, since it lives in the file it tests and no path can see it — and counting those
+/// same bodies toward that file's crowding is the two halves of one pass disagreeing about what
+/// a test is. Measured on this repo: `agentapi.rs` was reported as "167 functions" where 63 are
+/// its own test suite, and `edges.rs` fired as crowded at 57 where 37 are tests and 20 are code.
+///
+/// It also made the rule mean different things in different languages, without saying so: Rust
+/// keeps unit tests in the file they test, so they were counted, while a TypeScript suite lives
+/// in its own file and `not_ours` had already excluded it.
+///
+/// **On a SLIM tree this cannot be asked.** The children are gone and [`Node::funcs`] is all
+/// there is, which cannot tell a test from anything else, so that path keeps the old answer
+/// rather than inventing a better one. Reading the field on a FULL tree is its own recorded
+/// trap — see the note in [`facts_of`].
+fn funcs_held(node: &Node) -> u32 {
+    let held = node
+        .children
+        .iter()
+        .filter(|c| c.kind == NodeKind::Func)
+        .filter(|c| !c.tested.is_some_and(|t| t.is_test))
+        .count() as u32;
+    held.max(node.funcs)
+}
+
 fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mut Vec<Facts>) {
     match node.kind {
         NodeKind::Dir => {
@@ -1056,9 +1083,9 @@ fn walk(node: &Node, reports: &HashMap<String, Report>, traced: Traced, out: &mu
             out.push(facts_of(node, &node.path, None, traced, None));
             // What every function under it is asked about the file it is in. Counted here
             // rather than read off `Node::funcs`, which is zero on a full tree — the same
-            // trap `Field::Funcs` records, one caller over.
-            let held = node.children.iter().filter(|c| c.kind == NodeKind::Func).count() as u32;
-            let within = Some((node.loc, held.max(node.funcs), node.headcount));
+            // trap `Field::Funcs` records, one caller over — and counted WITHOUT the test
+            // bodies this same loop is about to drop from the population: see [`funcs_held`].
+            let within = Some((node.loc, funcs_held(node), node.headcount));
             let mut seen: HashMap<&str, usize> = HashMap::new();
             for c in &node.children {
                 if c.kind != NodeKind::Func {
@@ -1114,8 +1141,7 @@ fn facts_of(
         // otherwise be the answer. Reading it here made "crowded file" find nothing at all
         // on a repo whose widest file holds 161 functions, and find it silently, because a
         // rule with no hits looks exactly like a repo with no problem.
-        let held = node.children.iter().filter(|c| c.kind == NodeKind::Func).count() as u32;
-        set(Field::Funcs, Some(held.max(node.funcs) as f32));
+        set(Field::Funcs, Some(funcs_held(node) as f32));
     }
     if let Some((loc, funcs, hands)) = within {
         set(Field::FileLoc, Some(loc as f32));
@@ -3866,6 +3892,54 @@ mod tests {
         slim.children[0].children.clear();
         let facts = subjects(&slim, &HashMap::new(), Traced::default());
         assert_eq!(hits(&crowded, &facts).len(), 1);
+    }
+
+    /// **The two halves of one pass agree about what a test is.**
+    ///
+    /// `walk` drops a `#[cfg(test)]` body from the subjects, because a unit test lives in the
+    /// file it tests and no path can see it. The file's own function count did not drop the
+    /// same bodies, so the same walk excluded a body from the population and then counted it
+    /// toward that file's crowding. Measured before the fix: `agentapi.rs` reported "167
+    /// functions" with 63 of them its own test suite, and `edges.rs` fired as crowded at 57
+    /// where 20 are code — a finding about a test module, in a tool whose own note says a test
+    /// is a caller and not a dependent.
+    #[test]
+    fn a_body_outside_the_population_is_not_counted_as_crowding() {
+        let test_of = |name: &str| {
+            let mut n = func(name, 10);
+            n.tested = Some(crate::model::Testness {
+                is_test: true,
+                how: crate::model::Tested::Contract,
+            });
+            n
+        };
+        let tree = file_with(vec![
+            func("a", 10),
+            func("b", 10),
+            test_of("covers_a"),
+            test_of("covers_b"),
+            test_of("covers_both"),
+        ]);
+        let mut full = tree.clone();
+        // The state a full tree is in: children present, the count field unset.
+        full.children[0].funcs = 0;
+        let facts = subjects(&full, &HashMap::new(), Traced::default());
+
+        // Three of the five are the file's own tests, so the file holds two.
+        let file = facts.iter().find(|f| f.subject.kind == NodeKind::File).expect("the file");
+        assert_eq!(value_of(file, Field::Funcs), Some(2.0), "its tests are not its crowding");
+        let crowded = Rule::parse("file: funcs >= 3").expect("parses");
+        assert!(hits(&crowded, &facts).is_empty(), "a file of two functions is not crowded");
+
+        // And every function under it is told the same number the file was.
+        for f in facts.iter().filter(|f| f.subject.kind == NodeKind::Func) {
+            assert_eq!(
+                value_of(f, Field::FileFuncs),
+                Some(2.0),
+                "`{}` was told its file holds something else",
+                f.subject.key,
+            );
+        }
     }
 
     /// **The archive round-trips through Markdown, because rewriting is reading and writing.**

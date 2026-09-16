@@ -66,12 +66,53 @@ pub struct FuncDef {
     /// how a map reports dead code in a language it never read.
     ///
     /// Collected over the whole function node, closures included, which is the same
-    /// extent `body` covers. A nested named function is its own `FuncDef` AND its calls
-    /// are counted against the enclosing one; that is the price of keeping this
-    /// consistent with the body text a reader is handed, and it is confined to the
-    /// languages where a named definition can nest inside another.
+    /// extent `body` covers — and a nested definition's calls are therefore counted against
+    /// the enclosing one. That is the price of keeping this consistent with the body text a
+    /// reader is handed.
+    ///
+    /// **A nested definition is NOT its own `FuncDef`**, which this said for a long time and
+    /// which [`collect`] has never done: it stops descending the moment it extracts a
+    /// function, so a closure is part of its enclosing body rather than a wedge of its own.
+    /// The two halves together are what made the bug [`FuncDef::locals`] exists for — the call
+    /// recorded, the definition never indexed, and the name handed to whichever file shares
+    /// its spelling.
     #[serde(default)]
     pub calls: Vec<Call>,
+    /// The names this body defines INSIDE itself — closures bound to a name, and named
+    /// functions nested in it.
+    ///
+    /// **A call to one of these reaches nothing the index holds, and must not be offered to a
+    /// stranger.** [`collect`] stops descending the moment it extracts a function, on purpose:
+    /// a closure is part of its enclosing body rather than a wedge of its own. But the call
+    /// walk descends into everything, so the CALL is recorded while the DEFINITION never
+    /// reaches `defs` — and [`crate::edges::resolve`], asked to place a name nothing local
+    /// defines, hands it to whichever file shares the spelling.
+    ///
+    /// Measured on this repo before the fix: `reportTables.ts#walk`, a 21-line module-private
+    /// helper with five call sites in its own file, was credited with 21 callers across nine
+    /// files that cannot import it — every one of them a body holding its own `walk` and
+    /// calling that.
+    ///
+    /// **Refusing these is a fact about the languages, not a guess about a receiver.** A local
+    /// definition shadows an outer name of the same spelling, so wherever both exist the call
+    /// goes to the local one. That is the test `docs/notes/wiring.md` sets for a refusal, and
+    /// it is why this is not the over-refusing that cost 180 functions their last caller.
+    #[serde(default)]
+    pub locals: Vec<String>,
+    /// Whether this can be NAMED from outside its own module — `None` where the language does
+    /// not say.
+    ///
+    /// **The absent state is not a `false`, and everything turns on that.** Python exports
+    /// everything and marks nothing, C++ has no module system a parse can see, and a language
+    /// nobody has taught this answers for itself. Each is "we cannot tell", and
+    /// [`crate::edges::resolve`] refuses nothing on that basis — the same discipline
+    /// `Testness` keeps for tests and `dependents` keeps for callers.
+    ///
+    /// Measured before it existed: a private `fn git` in `assessment.rs` was credited with 23
+    /// callers in files that cannot name it, and 11.4% of this repo's checkable cross-file
+    /// edges were of that shape. See `links::tests::wiring_audit`, which is what counts them.
+    #[serde(default)]
+    pub exported: Option<bool>,
     /// A structural fingerprint of the body, for finding copies of it — see [`shape_of`].
     ///
     /// `None` means "too small to say anything", never "unique": below the token floor
@@ -240,7 +281,26 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// entry has it `false` everywhere, which is not a wrong-looking value — it is "this code
 /// ships", asserted about a repo's whole test suite. No reading expires: `reading_hash` covers
 /// the header, the doc and the body, and an attribute above the item is none of them.
-pub const PARSE_VERSION: u32 = 11;
+/// 12 because `FuncDef` carries [`FuncDef::locals`] — the names a body defines inside itself.
+/// A cached entry has it EMPTY on every function, which is not a wrong-looking value: it is
+/// "this body defines nothing locally", asserted about every closure in the repo, and it is
+/// what let a module-private `walk` collect 21 callers across nine files that cannot import
+/// it. No reading expires: `reading_hash` covers the header, the doc and the body, and what a
+/// body defines inside itself is none of them.
+/// 13 because `FuncDef` carries [`FuncDef::exported`] — whether a name can be reached from
+/// outside its own module. A cached entry has it `None` everywhere, which is the one value that
+/// refuses nothing, so a warm repo goes on crediting private helpers with callers in files that
+/// cannot name them: 11.4% of this repo's checkable cross-file edges, and a private `fn git`
+/// holding 23 of them. No reading expires: `reading_hash` covers the header, the doc and the
+/// body, and a visibility keyword in front of a signature is none of them —
+/// [`PARSE_OUTPUT_STABLE_SINCE`] stays at 3 because the text handed to a reader is unchanged.
+/// 14 because `exported` now answers `None` for a JS-family file that is not a MODULE — see
+/// `is_module`. A classic script shares one global scope, so nothing in it is file-private, and
+/// reading the absence of `export` as privacy refused 28 real edges across two repos. A cached
+/// entry holds the `Some(false)` those files were given, which is the value that refuses, so
+/// without this the fix reaches no repo that has already been scanned. No reading expires and
+/// [`PARSE_OUTPUT_STABLE_SINCE`] stays at 3: the text handed to a reader is untouched.
+pub const PARSE_VERSION: u32 = 14;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -870,6 +930,124 @@ pub fn parse_functions(lang: Lang, src: &str) -> Vec<FuncDef> {
 /// thousand took the whole app down mid-scan, and what reached the window was a progress
 /// bar stopped on the phase before. A cursor walk is O(1) stack, so the depth stops being
 /// something the repo gets to decide.
+/// Whether a definition can be named from outside its own module — see [`FuncDef::exported`].
+///
+/// **Three languages, answered in three different PLACES, which is why this is not one rule
+/// with a table.** Read off a real parse (`print_visibility_kinds`), not off memory:
+///
+/// - Rust puts `visibility_modifier` INSIDE `function_item`, so the captured signature carries
+///   it: `pub fn a()`, `fn b()`, `pub(crate) fn c()`.
+/// - The JS family wraps the declaration from OUTSIDE in an `export_statement`, so neither
+///   `function_declaration` nor `variable_declarator` can see it — the signatures of an
+///   exported and an unexported arrow function are byte for byte identical — and the parents
+///   have to be walked. `export const c = () => {}` is two levels up, through
+///   `lexical_declaration`.
+/// - Go marks nothing at all: an initial capital IS the rule.
+///
+/// Everything else answers `None`, which is a refusal to guess rather than a `false`.
+/// Does this file use ES modules at all?
+///
+/// **A JS-family file with no `import` and no `export` anywhere is not a module**, and its names
+/// are not file-private: classic scripts share ONE global scope, which is how a page of
+/// `<script>` tags has always worked. VectorLand's and fussystuff's design mocks are exactly
+/// that — `.jsx` files beside a standalone HTML page, using each other's components with no
+/// import anywhere — and reading them as modules refused 28 real edges across the two repos,
+/// drawing live components as called by nothing. That is the absence-inventing
+/// [`crate::edges::reaches`] exists to avoid, arriving through the back door.
+///
+/// Textual on purpose: the question is about the FILE rather than about any node, and a second
+/// tree walk to find two keywords would cost more than it buys. Static forms only — a dynamic
+/// `import()` works in a classic script and says nothing about the file.
+fn is_module(src: &str) -> bool {
+    src.lines().map(str::trim_start).any(|l| {
+        l.starts_with("import ")
+            || l.starts_with("import{")
+            || l.starts_with("export ")
+            || l.starts_with("export{")
+    })
+}
+
+fn exported_of(node: TsNode, lang: Lang, name: &str, signature: &str, src: &str) -> Option<bool> {
+    match lang {
+        // `pub`, `pub(crate)`, `pub(super)` — all of them reach past the file, which is the
+        // only question here. A `pub fn` inside a private `mod` is not reachable and this says
+        // it is; that errs toward allowing an edge, which is the safe direction.
+        Lang::Rust => Some(signature.trim_start().starts_with("pub")),
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript => {
+            // Not a module, so the file is not the unit of visibility and this cannot say.
+            if !is_module(src) {
+                return None;
+            }
+            let mut cur = node;
+            // The same three-step bound and the same stop rule as `wrapper_doc`: a parent that
+            // is not a wrapper is a different thing rather than a wider spelling of this one.
+            for _ in 0..3 {
+                let Some(parent) = cur.parent() else { return Some(false) };
+                if parent.kind() == "export_statement" {
+                    return Some(true);
+                }
+                if !DOC_WRAPPERS.contains(&parent.kind()) {
+                    return Some(false);
+                }
+                cur = parent;
+            }
+            Some(false)
+        }
+        Lang::Go => Some(name.chars().next().is_some_and(char::is_uppercase)),
+        _ => None,
+    }
+}
+
+/// The names a body defines inside itself — see [`FuncDef::locals`].
+///
+/// **Every depth, and the acceptance rules are [`collect`]'s exactly.** A call can be to a
+/// closure nested two deep, and any name defined anywhere inside this body is a name its calls
+/// may mean. The same `func_kinds` and the same declarator check are used rather than a second
+/// reading of "what counts as a definition", because two spellings of that is how the index and
+/// this list would come to disagree — and the disagreement would be invisible, since both
+/// answers look like ordinary numbers.
+///
+/// Unlike [`collect`] this keeps descending after a match: a nested function's own nested
+/// functions are still names the outer body could be calling.
+///
+/// The root is skipped. A body does not shadow its own name, and recursion is dropped by
+/// [`crate::edges::wire`] anyway.
+fn locals_in(root: TsNode, lang: Lang, src: &str) -> Vec<String> {
+    let kinds = func_kinds(lang);
+    if kinds.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        if node.id() != root.id() && accepts(node, lang, kinds, src) {
+            let is_decl = node.kind() == "variable_declarator";
+            if !is_decl || declarator_is_function(node) {
+                if let Some(n) = name_node(node, lang) {
+                    let name = text(n, src);
+                    if !name.is_empty() && !out.iter().any(|o| o == name) {
+                        out.push(name.to_string());
+                    }
+                }
+            }
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        // Climb until there is a sibling. The cursor was made from `root`, so `goto_parent`
+        // returning false at the top is the walk finishing — the same exit `collect` uses.
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return out;
+            }
+        }
+    }
+}
+
 fn collect(root: TsNode, lang: Lang, kinds: &[&str], src: &str, out: &mut Vec<FuncDef>) {
     let mut cursor = root.walk();
     loop {
@@ -1726,6 +1904,8 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
     };
 
     let calls = calls_in(node, lang, &name, src);
+    let locals = locals_in(node, lang, src);
+    let exported = exported_of(node, lang, &name, &signature, src);
     Some(FuncDef {
         name,
         signature,
@@ -1735,6 +1915,8 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         start_line: node.start_position().row as u32 + 1,
         end_line: node.end_position().row as u32 + 1,
         calls,
+        locals,
+        exported,
         shape: shape_of(node, body_start, body_end),
         cognitive: cognitive_of(node, lang, src),
         in_cfg_test: under_cfg_test(node, lang, src),
@@ -2945,6 +3127,33 @@ fn f(a: u32, b: u32) -> u32 {
             kinds.dedup();
             let err = if tree.contains("ERROR") { "  [SNIPPET HAS ERROR]" } else { "" };
             println!("{:<12} {}{}", format!("{lang:?}"), kinds.join(" "), err);
+        }
+    }
+
+    /// What marks a definition as reachable from outside its own module, per language, read
+    /// off a real parse rather than off anybody's memory of the grammar.
+    ///
+    /// The question `crate::edges::resolve` needs answered is whether a name can be called from
+    /// another file at all — `pub` in Rust, `export` in the JS family — and the two are not in
+    /// the same PLACE: Rust's visibility sits inside the item, while `export` wraps the
+    /// declaration from outside, which is why `variable_declarator` never sees it.
+    #[test]
+    #[ignore = "diagnostic"]
+    fn print_visibility_kinds() {
+        let cases: &[(Lang, &str)] = &[
+            (Lang::Rust, "pub fn a(){} fn b(){} pub(crate) fn c(){}"),
+            (
+                Lang::TypeScript,
+                "export function a(){}\nfunction b(){}\nexport const c = () => {}\nconst d = () => {}",
+            ),
+            (Lang::Go, "func Exported(){}\nfunc unexported(){}"),
+            (Lang::Python, "def a():\n  pass\ndef _b():\n  pass"),
+        ];
+        for (lang, src) in cases {
+            println!("\n===== {lang:?}\n{}", sexp(*lang, src));
+            for f in parse_functions(*lang, src) {
+                println!("  name={:<12} signature={:?}", f.name, f.signature);
+            }
         }
     }
 

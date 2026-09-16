@@ -1773,7 +1773,7 @@ pub fn status(path: &str) -> i32 {
 /// view, per rule with its calibration and its marginal contribution; that is a question about
 /// the CATALOG and this is a question about the repo.
 pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
-    let Survey { path, facts, rules, traced, read } = match survey(path, edits, blame) {
+    let Survey { path, facts, rules, traced, read, .. } = match survey(path, edits, blame) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -1785,6 +1785,83 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         &crate::findings::archive(&path),
     );
     list(&path, limit, &groups)
+}
+
+/// Who calls one function, named rather than counted.
+///
+/// **The pairs behind the number, because a count cannot be argued with.** `callers` and
+/// `dependents` are folded from the edge list [`crate::edges::wire`] builds, and a finding
+/// spends them in a sentence — *a change here has to be checked against all 21*. Whether that
+/// sentence is true is not something the number can answer: calls resolve by NAME and there is
+/// no type checker, so the only check available is to read the callers back and see whether
+/// they are the ones a person would name. See `docs/notes/wiring.md`, which is the record of
+/// this going wrong twice.
+///
+/// **Grouped by file, with the subject's own file marked, because that split is the tell.**
+/// A caller in another file is a claim that one file reaches into another, and for a body its
+/// language cannot export that claim is false by construction rather than merely unlikely.
+fn callers(path: &str, key: &str) -> i32 {
+    let Survey { facts, links, .. } = match survey(path, false, false) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let Some(f) = facts.iter().find(|f| f.subject.key == key) else {
+        eprintln!("sanity: `{key}` is not on the map.");
+        eprintln!("       `sanity findings` prints the key of every finding, which is this.");
+        return 1;
+    };
+    let s = &f.subject;
+    // A file has no body and makes no calls; the question only means something about a
+    // function, and answering it with an empty list would read as one nothing calls.
+    let Some(line) = s.line else {
+        eprintln!("sanity: `{key}` is a file, and callers are a question about a function.");
+        return 1;
+    };
+    if links.is_empty() {
+        eprintln!("sanity: this scan built no call graph, so nothing here can be answered.");
+        return 1;
+    }
+    let Some(rel) = links.at(&s.path, line) else {
+        eprintln!("sanity: no function starts at {}:{line}.", s.path);
+        return 1;
+    };
+
+    println!();
+    println!("{key}");
+    // **Not read for calls is not "nothing calls it".** The same distinction `Related::wired`
+    // is carried for: an empty list from a language nobody taught this to follow is a silence,
+    // and printing it as a zero would be the instrument claiming a measurement it never took.
+    if !rel.wired {
+        let lang = s.lang.clone().unwrap_or_else(|| "this language".to_string());
+        println!("  {lang} is not read for calls here, so no caller is claimed.");
+        println!();
+        return 0;
+    }
+    let here = rel.callers.iter().filter(|r| r.path == s.path).count();
+    let away = rel.callers.len() - here;
+    println!(
+        "  {}, {here} in this file and {away} elsewhere",
+        plural(rel.callers.len() as u64, "caller")
+    );
+    println!();
+    let mut by_file: std::collections::BTreeMap<&str, Vec<&crate::links::Ref>> = Default::default();
+    for r in &rel.callers {
+        by_file.entry(r.path.as_str()).or_default().push(r);
+    }
+    for (file, mut refs) in by_file {
+        refs.sort_by_key(|r| r.line);
+        let own = if file == s.path { "  (its own file)" } else { "" };
+        println!("  {file}{own}");
+        for r in refs {
+            let name = match &r.owner {
+                Some(o) => format!("{o}::{}", r.name),
+                None => r.name.clone(),
+            };
+            println!("    {:>5}  {name}", r.line);
+        }
+    }
+    println!();
+    0
 }
 
 /// Everything a question about this repo's findings is answered from.
@@ -1802,6 +1879,10 @@ struct Survey {
     /// Whether anything here has been read. `report` needs it to tell a rule nobody can answer
     /// yet from one that is answered and silent.
     read: bool,
+    /// Who calls whom, off the same scan the facts came from — see [`crate::links`]. The
+    /// counts a finding quotes are folded from these edges, so a verb that shows the pairs
+    /// reads them from here rather than building a second graph that could disagree.
+    links: std::sync::Arc<crate::links::Links>,
 }
 
 fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
@@ -1859,7 +1940,8 @@ fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
     let facts = crate::findings::subjects(&scan.root, &reports, traced);
     let rules = crate::findings::rules_for(&path, &facts);
     let read = !reports.is_empty();
-    Ok(Survey { path, facts, rules, traced, read })
+    let links = scan.links.clone();
+    Ok(Survey { path, facts, rules, traced, read, links })
 }
 
 /// Record what somebody decided about a finding — the CLI's copy of the three buttons.
@@ -1881,7 +1963,7 @@ fn decide(
     edits: bool,
     blame: bool,
 ) -> i32 {
-    let Survey { path, facts, rules, traced, read } = match survey(path, edits, blame) {
+    let Survey { path, facts, rules, traced, read, .. } = match survey(path, edits, blame) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -2766,6 +2848,14 @@ enum Verb {
         #[arg(long, value_name = "FILE")]
         out: Option<String>,
     },
+    /// Who calls one function, by name
+    Callers {
+        /// The function, as `sanity findings` prints it — `path/to/file.rs#name`.
+        key: String,
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+    },
     /// The backend, with no window. Idempotent.
     #[command(hide = true)]
     Serve,
@@ -2828,6 +2918,7 @@ pub fn main(args: &[String]) -> i32 {
             };
             decide(&d.path, &d.key, d.rule.as_deref(), verdict, &d.reason, d.edits, d.blame)
         }
+        Verb::Callers { key, path } => callers(&path, &key),
         Verb::Refresh { path } => refresh(&path),
         Verb::ExportData { path, depth, out } => {
             export_data(&path, depth.as_deref().map(crate::trace::Depth::from_tag), out.as_deref())

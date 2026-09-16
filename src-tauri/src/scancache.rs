@@ -105,7 +105,18 @@ use crate::parse::FuncDef;
 /// so a version-8 entry loads it `false` on every function, and `false` is indistinguishable
 /// from "this ships": every test in a warm repo would be counted as a dependent of what it
 /// exercises, which is the exact overclaim the field exists to stop.
-const FORMAT_VERSION: u32 = 9;
+/// 10 because `FuncDef` gained `locals` — the names a body defines inside itself, which is
+/// what stops a call to a local closure being credited to a stranger that shares its spelling.
+/// `#[serde(default)]`, so a version-9 entry loads it EMPTY on every function, and empty is
+/// indistinguishable from "this body defines nothing locally": a warm repo would go on
+/// crediting a module-private helper with callers in files that cannot import it, which is the
+/// exact overclaim the field exists to stop.
+/// 11 because `FuncDef` gained `exported` — whether a name can be reached from outside its own
+/// module, which is what stops a private helper collecting calls from files that cannot name it.
+/// `#[serde(default)]`, so a version-10 entry loads it `None` on every function, and `None` is
+/// the one value that refuses nothing: a warm repo would go on reporting 11.4% of its
+/// cross-file edges against bodies the compiler would not let it reach.
+const FORMAT_VERSION: u32 = 11;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -833,6 +844,8 @@ mod tests {
             cognitive: None,
             in_cfg_test: false,
             calls: Vec::new(),
+            locals: Vec::new(),
+            exported: None,
         }
     }
 
@@ -907,7 +920,9 @@ mod tests {
                 "cognitive",
                 "doc",
                 "end_line",
+                "exported",
                 "in_cfg_test",
+                "locals",
                 "name",
                 "owner",
                 "shape",
