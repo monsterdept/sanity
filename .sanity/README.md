@@ -12,18 +12,18 @@ and asked to explain the difference.
 You do not need the Sanity CLI or GUI to get the information out of them: open
 one and read it like notes from a code review.
 
-| area | read | of | surprising | stale |
+| area | read | of | unpredicted | stale |
 |---|---|---|---|---|
 | [docs](readings/docs.md) | 2 | 2 | 1 | 0 |
 | [scripts](readings/scripts.md) | 39 | 39 | 4 | 0 |
-| [src-tauri](readings/src-tauri.md) | 1261 | 1262 | 232 | 0 |
-| [web](readings/web.md) | 663 | 719 | 126 | 0 |
-| **total** | **1965** | **2022** | **363** | **0** |
+| [src-tauri](readings/src-tauri.md) | 1275 | 1275 | 230 | 0 |
+| [web](readings/web.md) | 924 | 924 | 182 | 0 |
+| **total** | **2240** | **2240** | **417** | **0** |
 
 ## Seeing it as a map
 
 Sanity draws this repo as a sunburst with every file and function represented,
-colored by surprise, legibility, doc coverage, churn, and four other
+colored by predictability, legibility, doc coverage, churn, and four other
 dimensions. Open the app to visualize these readings.
 
 ```

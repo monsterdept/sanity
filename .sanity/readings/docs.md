@@ -1,6 +1,6 @@
 # docs — sanity assessment
 
-2 of 2 read · 1 surprising
+2 of 2 read · 1 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -24,7 +24,7 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 - note: Correctly guessed the domain (view-mode persistence repro) but didn't anticipate it reads specific UserDefaults keys directly rather than using some enum/mode abstraction.
 
-### `mode` — QUIRKY
+### `mode` — PREDICTED SOME
 - spec 2 · read at `a24c4861041e` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:46:58Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Reads a key from NSGlobalDomain UserDefaults (the open/save panel's persisted last-used view mode), extracts an integer value, and maps 1/2/3 to "icon"/"list"/"column" strings, with some fallback string for anything else/missing.
 - found: Reads NSGlobalDomain's persistent domain and checks three candidate key names for the open panel's last list-view mode setting, returning a string listing each key and its raw value (or \"unset\") joined together — a diagnostic dump rather than a single decoded mode.

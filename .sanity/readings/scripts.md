@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-39 of 39 read · 4 surprising
+39 of 39 read · 4 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -71,7 +71,7 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 - note: Predicted a continuous gradient; actual is discrete ring bands with per-ring wedge-count spokes and separator gaps, which I didn't anticipate.
 
-### `pixel` — QUIRKY
+### `pixel` — PREDICTED SOME
 - spec 2 · read at `d5c463cd7bcd` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:45:01Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: Computes the distance of (x, y) from the image center, and uses that distance to pick a color along a cool-to-hot ramp (e.g. blue near center transitioning to orange/red at the edges), producing concentric rings. Returns an (r, g, b) tuple, likely with some banding/quantization by ring index to make discrete rings rather than a smooth gradient.
 - found: Computes normalized radius and angle from center, finds which ring band the radius falls in, then within that ring divides the circle into spoke wedges by angle (using SPOKES[i] count) and draws a thin background-colored gap at each wedge boundary, else colors by RAMP indexed by ring — producing a sunburst of colored wedged rings, not a smooth or purely radial gradient.
@@ -154,7 +154,7 @@ What this is and how to add to it: [README.md](README.md)
 - found: Standard CIEDE2000 ΔE color-difference formula between two Lab colors: computes chroma/hue primes with the G rotation correction, weighting functions SL/SC/SH, the T and RT rotation terms, and combines into the final perceptual distance.
 - predicted: full · documented: most · derivable: no · legible: most · trap: no
 
-### `simulate` — QUIRKY
+### `simulate` — PREDICTED SOME
 - spec 3 · read at `4be0dae768a1` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:47:31Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Builds the 5-stop color ramp for hue `h` (via the `ramp` helper) and then applies a colorblindness simulation transform selected by `kind` (e.g. protanopia/deuteranopia/tritanopia) to each stop, returning the simulated colors. This is used elsewhere to check that the ramp still reads correctly (e.g. via `margins`/`worst`) under simulated color vision deficiency.
 - found: Takes a single hex color `h` (not a hue) and a colorblindness `kind`; if kind is "normal" returns it unchanged, otherwise converts to linear sRGB, applies a fixed CVD confusion matrix (`_CVD[kind]`), clamps, and converts back to a hex color.
@@ -228,7 +228,7 @@ What this is and how to add to it: [README.md](README.md)
 - found: Walks consecutive MENU pairs, computes plain() distance for each, tags whether the pair crosses a family boundary via _family_of, and returns (min distance among cross-family pairs, max distance among within-family pairs).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: no
 
-### `ordered_score` — QUIRKY — TANGLED
+### `ordered_score` — PREDICTED SOME — LEGIBLE SOME
 - spec 3 · read at `97ea1262acbc` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Takes a candidate hue assignment, runs it through simulate/worst to get worst-pair distances across cold, hot, chip, boundary, and inner comparisons, then combines them into a single weighted scalar score: weighting cold ends, hot ends, and chips above their plain share, penalizing a family boundary that isn't sufficiently louder than the loudest inner step, and penalizing cold/hot ends falling under fixed floor thresholds (8.2, 11.0). Returns a scalar used by the search/order function to drive a hill-climb toward better palettes. Not test code — an offline generator script producing the actual palette values used in index.css.
 - found: Rounds hues to whole degrees, builds ramps, computes worst-pair distances for cold ends, hot ends, chips, family boundary vs inner step, plus three more floors (unread-vs-neutral, marks-vs-trap/clone, structure) each contributing a penalty; combines into an objective as a weighted min minus penalties, and returns a 6-tuple (obj, cold, hot, chip, boundary, inner) rather than a single scalar.
@@ -252,7 +252,7 @@ What this is and how to add to it: [README.md](README.md)
 - found: Looks up a (lo, hi) window for key k from WINDOWS, defaulting to the full 0-360 range if absent, and returns a plain (non-circular) inclusive range check.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no · test: no
 
-### `spread` — TANGLED
+### `spread` — LEGIBLE SOME
 - spec 3 · read at `75dd5ffe7b47` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Computes a starting hue (degrees) for each free/unpinned lens by dividing the circle into arcs between the fixed pin hues, then spacing the free lenses evenly within those arcs in menu order. Returns a dict mapping lens name to initial hue degree, used as the starting point before the search/optimization refines them.
 - found: Reorders MENU to start at the first pinned lens, then walks it building a monotonically-decreasing (unwrapped, subtracting 360 as needed) sequence of pin hues so arcs between consecutive pins are well-defined even across the wrap. For each gap between two pinned indices, linearly interpolates hue values for the free lenses in between, then merges the pins back in and returns the full hue dict.
@@ -265,7 +265,7 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a spread starting point over pinned hues, then for 6 seeded trials (first unperturbed, rest randomly perturbed within window/one-turn constraints), runs coordinate ascent: for each non-pinned menu hue, sweep all 360 integer degrees within its window, keep the best-scoring (via ordered_score) valid value, repeat until no hue moves (max 16 passes). Keeps the best-scoring trial overall, rounds hues, prints score breakdown and per-family hue/chip values, then diffs against shipped hues and returns 0/1 accordingly.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no · test: no
 
-### `verify` — QUIRKY
+### `verify` — PREDICTED SOME
 - spec 3 · read at `7bcdacd5cb9f` · commit `cd4ce20` · read by claude-sonnet-5 · via claude · when 2026-09-10T08:27:31Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Recomputes the ramp stops from the shipped hues/constants, compares each stop hex value against the shipped/expected values, and prints a pass/fail per lens plus the margin numbers (for reference against what index.css quotes). Likely raises or exits nonzero if any stop doesn't match exactly.
 - found: Recomputes each shipped ramp from its hue and compares per-stop RGB against SHIPPED_STOPS, tracking the worst per-channel rounding error. It also recomputes chips, margins, worst chip pair, family-step separation, and one_turn, printing all of these diagnostics (many of which are informational, not part of the pass/fail). Pass/fail (returned as 0/1) is determined only by worst_step<=1, one_turn being true, and family separation (across > inside).
