@@ -1,5 +1,28 @@
-import type { Node } from './api'
+import { legibleOf, trapOf, type AgentReport, type Node } from './api'
 import { MODE_LABEL, paintsFromReadings, paintsFromWiring, REPLAY, replayNote, type ColorMode } from './colorMode'
+
+/** How many current readings grade each lens a reading paints.
+ *
+ * **A repo-wide count cannot answer a per-lens question.** ComfyUI has four hundred readings and
+ * not one of them grades Legibility: its file readings do not answer that question and its older
+ * function readings answered a version of it that has since been rewritten. Gated on the total,
+ * the report gave Legibility a full spread — figure, key, tables, interpretation, limitations —
+ * whose only true sentence was `No current grade exists for 100% of function lines`.
+ *
+ * Counted through the same accessors the map paints by (`legibleOf`, `trapOf`), never by reading
+ * the fields here: a second copy of "does this grade count" is how a lock comes to disagree with
+ * the wedges it is standing in for. */
+export function gradedCounts(reports: readonly AgentReport[]): Partial<Record<ColorMode, number>> {
+  const out = { surprise: 0, legible: 0, docs: 0, traps: 0 }
+  for (const r of reports) {
+    if (r.stale) continue
+    if (r.predicted !== undefined) out.surprise += 1
+    if (r.documented !== undefined) out.docs += 1
+    if (legibleOf(r) !== undefined) out.legible += 1
+    if (trapOf(r)) out.traps += 1
+  }
+  return out
+}
 
 /** Why a lens cannot paint, said two ways: on the tab, and on paper. */
 export interface Locked {
@@ -17,8 +40,11 @@ export interface Locked {
 export interface LockFacts {
   replaying: boolean
   tree: Node | null
-  /** Current readings — `ProjectSummary.assessed`. */
+  /** Current readings — `ProjectSummary.assessed`. What decides whether this repo has been read
+   *  at all, which is a different question from whether a given lens has anything to paint. */
   assessed: number
+  /** How many current readings grade each reading-fed lens — see `gradedCounts`. */
+  graded: Partial<Record<ColorMode, number>>
   /** `ProjectSummary.trace_depth`. */
   traceDepth: string | null | undefined
   /** `ScanStats.tangleBands`. */
@@ -45,10 +71,24 @@ export function locksFor(f: LockFacts): Partial<Record<ColorMode, Locked>> {
     }
     const tree = f.tree
     if (!tree) continue
-    if (paintsFromReadings(m) && f.assessed === 0) {
+    if (paintsFromReadings(m) && (f.graded[m] ?? 0) === 0) {
+      // Two absences, and they are not the same claim: nothing has been read here, or things have
+      // been read and none of them answers this question. The second is the spec's doing — a
+      // rewritten question keeps old grades as history and stops them colouring anything — and
+      // telling somebody their repo is unread when four hundred readings sit in `.sanity/` is the
+      // kind of confident wrong sentence this whole surface is written against.
+      const none = f.assessed === 0
       out[m] = {
-        why: 'No readings yet. Press Read on the project to fill Predictability, Legibility, Docs and Traps.',
-        paper: 'This repository has no current readings.',
+        why: none
+          ? 'No readings yet. Press Read on the project to fill Predictability, Legibility, Docs and Traps.'
+          : `Nothing here grades ${MODE_LABEL[m]} yet. Read more of this repo, or re-read what answered an earlier version of the question.`,
+        // **Lens-neutral on paper, named on the tab.** The contents sets one sentence under the
+        // last of a run of lenses skipped for the same reason (see `whyOf`), and a sentence
+        // carrying its own lens's name can never match its neighbour's — so four lines printed
+        // where two would do. The tab has room to name the lens, and a tooltip is read alone.
+        paper: none
+          ? 'This repository has no current readings.'
+          : 'No current reading grades this here: the readings this repository holds either do not answer that question or answered an earlier version of it.',
         keyed: true,
       }
     } else if (paintsFromWiring(m) && tree.resolvable === null) {

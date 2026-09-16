@@ -107,7 +107,7 @@ import { mark, marked } from './lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from './lib/theme'
 import { CodeView } from './components/CodeView'
 import { ColorLegend, Lock, ModeSwitcher } from './components/ColorKey'
-import { locksFor } from './lib/locks'
+import { gradedCounts, locksFor } from './lib/locks'
 import { viewsFor } from './lib/reportInputs'
 import { Detail } from './components/Detail'
 import { SideBar } from './components/SideBar'
@@ -1812,12 +1812,15 @@ export default function App() {
         replaying,
         tree,
         assessed: activeProject?.assessed ?? 0,
+        graded: gradedCounts(readings.current.list),
         traceDepth: activeProject?.trace_depth,
         tangleBands: scan?.stats.tangleBands ?? [],
         churned: scan?.stats.churned ?? false,
       }),
-    // The stats it reads, which it used to read without depending on.
-    [replaying, tree, activeProject, scan?.stats.tangleBands, scan?.stats.churned],
+    // The stats it reads, which it used to read without depending on. `readingRev` because the
+    // locks now count what the readings GRADE, and that moves when a reading lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [replaying, tree, activeProject, scan?.stats.tangleBands, scan?.stats.churned, readingRev],
   )
 
   /** What the map is actually painted with.

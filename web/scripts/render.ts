@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { applyAgentReports, pruneExcluded, toScan, type AgentReport, type FindingGroup, type RepoHead, type WireScan } from '../src/lib/api'
 import { ageSpanOf, legendFor } from '../src/lib/colorMode'
-import { locksFor } from '../src/lib/locks'
+import { gradedCounts, locksFor } from '../src/lib/locks'
 import { buildReport, FORM, lensPages, type Form, type MapRender, type ReportStats } from '../src/lib/report'
 import { READINGS_DEFAULT, reportLenses, slotsFor, viewsFor } from '../src/lib/reportInputs'
 import { REPORT_LOOK, reportMap } from '../src/lib/reportMap'
@@ -81,6 +81,7 @@ const locks = locksFor({
   replaying: false,
   tree,
   assessed: data.summary.assessed,
+  graded: gradedCounts(data.reports),
   traceDepth: data.summary.trace_depth,
   tangleBands: scan.stats.tangleBands,
   churned: scan.stats.churned,
