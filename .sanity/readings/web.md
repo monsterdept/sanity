@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-924 of 924 read · 182 unpredicted
+925 of 925 read · 183 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -719,12 +719,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recursively searches node's children for one whose id matches; if a direct child matches, returns node itself; otherwise recurses into each child. Returns null if not found.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `App` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · served in 6 parts · read at `db266dfb4842` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:18Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Top-level root React component holding most app state (selection, progress, trace/history/search UI toggles) and orchestrating rendering of subcomponents (ProgressPane, FindButton, HistoryToggle, Unscanned, Empty), wiring a "Trace" action that walks a dependency/build graph via chaseTrace, with a lot of inline logic given its size.
-- found: The root component of a Tauri desktop app ("Sanity") that visualizes a codebase as an interactive sunburst chart. It owns essentially all application state: the list of open projects and which is active, the live scan tree plus AI-agent "readings" folded into it, streamed partial shapes for an assembling-map effect during a scan, seven color "lenses" (surprise/blame/age/churn/tangle/language/docs) and their sub-readings, a full git-history replay/timeline system with its own scrubber and frame-by-frame tree reconstruction, a three-phase "trace" chain (log → blame → full replay) with per-project busy/stop tracking, a findings/rules engine with an archive of dismissed items, function-ring lazy-fetching keyed by what's visible, and various dialogs (big-folder warning, history-cost warning, CLI install, code viewer, report export). It renders the sidebar, top toolbar, sunburst/progress pane, detail panel or commit log, and various overlays, wiring dozens of memoized derived values and effects (many with detailed inline postmortems of past bugs) to keep all of this consistent.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: Docs given for this task (`file_doc`) actually describe `chaseTrace`'s pill/ladder semantics, not `App` itself — App is a ~3350-line state/orchestration hub with essentially no doc comment of its own beyond scattered inline comments on individual hooks.
+### `App` — LEGIBLE SOME
+- spec 3 · served in 6 parts · read at `f5a547ca0aca` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Root React component: initializes top-level state/hooks (progress, projects, trace state), defines handlers for user actions (find, trace, history toggle), and renders the full UI tree by composing the peer components. Likely contains most business logic inline given the file's size.
+- found: The root React component for a code-visualization app (sunburst maps of repos). It holds dozens of state slices for: the current scan/tree, streamed scan-shape and score batching, live progress highlighting, project list polling (with an "agent follows a project" inversion), reading/finding polling, a history/replay subsystem (timeline tables, deltas, frame-building, scrubbing), a trace-chaining state machine (log walk then replay, one-at-a-time per project via refs), lens/view state (color mode, caps, churn window, age/blame/tangle readings), keyboard shortcuts, and dialogs (big-folder, big-history, CLI install, code view). It renders the whole app shell: sidebar, top toolbar with lens controls, the sunburst/shape map, legend, history transport, detail panel, and various overlay dialogs.
+- predicted: most · documented: none · derivable: no · legible: some · trap: no
 
 ### `useProgress`
 - spec 3 · read at `72304b16c0ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3728,19 +3727,26 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/locks.ts
 
-### the file itself
-- spec 3 · read at `cad239d131a5` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:21:51Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Contains a single function locksFor that, given the current view state (whether replaying, the tree, assessment/trace progress, tangle bands, churn), computes for each color-mode lens whether it's locked (nothing to show) and why, feeding the mode switcher's greyed-out/padlocked entries.
-- found: A single function locksFor(f: LockFacts) that, for each ColorMode lens, checks a cascade of conditions (replaying limits first, then no readings, unresolvable language wiring, untraced git history, no history at all, missing complexity grammar, unwalked churn timeline) and returns a Locked record per affected lens with two parallel messages — `why` for the UI tooltip/button and `paper` for a static PDF report — plus `keyed` saying whether a button exists to fix it.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The doc comments explain WHY each ordering/condition exists (e.g. untraced checked before no-history, churn separate from blame/age) — genuinely non-derivable rationale, not just restating the code.
+### the file itself — PREDICTED SOME
+- spec 3 · read at `5f7373d34d40` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A pure-logic module computing "lock" state on items in a grading workflow — gradedCounts tallies how many items have been graded (per some grouping), and locksFor derives lock booleans/reasons for a given entity based on those counts, to prevent edits after grading passes some threshold.
+- found: gradedCounts tallies, per ColorMode lens, how many current (non-stale) agent reports actually grade that lens, using the same accessors (legibleOf/trapOf) the UI paints with. locksFor computes, per lens, whether it is locked and why (a UI tooltip string plus a paper/PDF-safe string plus whether a button exists to unlock it), based on replay mode, whether the repo tree/readings exist, whether wiring is resolvable, whether git history/blame/churn has been traced, and whether complexity bands exist — essentially deriving disabled/explanatory states for a multi-lens code-quality report UI.
+- predicted: some · documented: most · derivable: no · legible: not judged · trap: no
+- note: This is the Sanity tool's own codebase (a code-report UI with lenses like Legibility/Traps/Churn), not a grading-app domain as I guessed from generic function names alone.
 
-### `locksFor`
-- spec 3 · read at `1e81387d14c7` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:51:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Takes a LockFacts object describing scan/replay state and returns a map of which ColorMode lenses are currently unavailable and why. It first checks replay-related limits (since those hold regardless of repo state), then checks fact fields like whether stats/complexity/age data exist in the scan, locking the corresponding lens with a Locked reason when the needed fact is missing, building a partial record so unlocked modes are simply absent.
-- found: Loops over all ColorModes; if replaying, locks any mode not marked 'live' in a REPLAY table with a replay-specific note. Otherwise, for each mode checks a specific ordered chain of conditions (no readings yet, no wiring resolvable, untraced git history, no git history at all, no tangle/complexity bands taught, not churned) and locks with a `Locked` object containing a UI reason, a plain-language paper reason, and whether the lock is 'keyed' (fixable by pressing a button). Order is deliberate — untraced checked before no-history, since they're different claims.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: I got the general shape right but missed the specific granularity: six distinct lock reasons (readings, wiring, untraced, no-history, tangle-table, churn) each with three-field Locked objects (why/paper/keyed), plus the replay branch being a full pass over REPLAY table rather than a preliminary check.
+### `gradedCounts` — TRAP
+- spec 3 · read at `2c94ab0c494c` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:32Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over reports and, for each ColorMode (a lens like legibility/trap/etc.), counts how many reports have a real (non-null) grade for that lens, using shared accessor functions (legibleOf, trapOf, etc.) instead of reading raw fields directly, to keep counting logic consistent with how the map paints colors. Returns a Partial<Record<ColorMode,number>> with only lenses that have at least one graded report, or all lenses each initialized to 0.
+- found: Builds a zero-initialized count object for surprise/legible/docs/traps, skips stale reports, and increments each counter based on presence of that field (via legibleOf/trapOf accessors for legible/traps, raw field checks for surprise/docs).
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: traps count is not "graded" but "true" (trapOf(r) truthy), asymmetric with surprise/docs/legible which count presence of a grade regardless of value — a maintainer adding a new lens by pattern-matching the trap line would silently change semantics.
+
+### `locksFor` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `ccf2b7f1da83` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes a precomputed LockFacts object (not live app/window state) and returns a map from color-mode lens to a Locked reason for lenses that can't currently be painted. Checks replay-related limits first since those hold regardless of repo state, then checks other facts (e.g. derived from gradedCounts) to lock remaining lenses, only inserting entries for modes that are actually locked.
+- found: Builds a per-lens lock map. For replay, any mode not marked 'live' in REPLAY gets locked with a replay-specific note. Otherwise, for each ColorMode it runs through a carefully ordered chain of specific checks: reading-based lenses with zero graded items (distinguishing 'never read' vs 'read but doesn't answer this question'), wiring-based lenses when the language's call graph isn't resolvable, git-history lenses (blame/churn/age) checked in a specific order (untraced history before 'no history at all' before churn-specific 'not walked by timeline'), and tangle/complexity lenses when no language has branch-kind tables. Each lock carries a `why` (verbose UI copy), `paper` (report copy), and `keyed` (whether a button fixes it).
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Docs explain the high-level design rationale (facts not window; replay ordering) but say nothing about the much larger, carefully ordered chain of git/wiring/tangle-specific locks that make up most of the body.
 
 ## web/src/lib/mapMarkup.ts
 

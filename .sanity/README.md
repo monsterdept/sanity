@@ -17,8 +17,8 @@ one and read it like notes from a code review.
 | [docs](readings/docs.md) | 2 | 2 | 1 | 0 |
 | [scripts](readings/scripts.md) | 39 | 39 | 4 | 0 |
 | [src-tauri](readings/src-tauri.md) | 1275 | 1275 | 230 | 0 |
-| [web](readings/web.md) | 924 | 924 | 182 | 0 |
-| **total** | **2240** | **2240** | **417** | **0** |
+| [web](readings/web.md) | 925 | 925 | 183 | 0 |
+| **total** | **2241** | **2241** | **418** | **0** |
 
 ## Seeing it as a map
 
