@@ -177,7 +177,7 @@ export const MODE_LABEL: Record<ColorMode, string> = {
   // here and the only ones that cost a read — and a first-time user has not run one, and will
   // not until another lens has convinced them it is worth it. A menu that opened on four
   // locked rows sold nothing. Traps is read out of the same report, so it closes the run.
-  surprise: 'Surprise',
+  surprise: 'Predictability',
   legible: 'Legibility',
   docs: 'Docs',
   traps: 'Traps',
@@ -198,7 +198,7 @@ export const FAMILIES: { label: string; modes: ColorMode[] }[] = [
 
 export const MODE_HINT: Record<ColorMode, string> = {
   tangle: 'how complex it is for its size',
-  surprise: 'what a reader didn’t see coming',
+  surprise: 'how much a reader could predict',
   legible: 'what reading it was actually like',
   docs: 'what nobody has explained',
   // Not "what is tested" — what the repo is MADE of. Every band is a statement about what a
@@ -1167,9 +1167,8 @@ export function colorFor(
     return {
       ...ramped(share ? shareRamp(t) : t),
       label: share
-        ? // The threshold this counts is `some` or `none`, and `surprising` is the word for
-          // that on this tab.
-          `${Math.round(t * 100)}% surprising`
+        ? // The threshold this counts is `some` or `none`: the lines a reader did not predict.
+          `${Math.round(t * 100)}% unpredicted`
         : (() => {
             const w = readingWords(node)
             return w ? `predicted: ${w.predicted}` : `${Math.round(t * 100)}°`

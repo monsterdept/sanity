@@ -2295,7 +2295,7 @@ pub fn catalog() -> Vec<Rule> {
         // coverage would be borrowing a word that means the line executed.
         rule(
             "load-bearing-untested",
-            "Load-bearing, surprising and no test found",
+            "Load-bearing, unpredicted and no test found",
             "Depended on, unpredictable, and no test was found to reach it.",
             "{{dependents}} functions outside the tests call this, a reader could not predict \
              it, and no test was found that reaches it. Calls are followed only where a name \
@@ -2322,7 +2322,7 @@ pub fn catalog() -> Vec<Rule> {
         // teaches the wrong thing to whoever reads it first.
         rule(
             "surprising-changing",
-            "Surprising and changing",
+            "Unpredicted and changing",
             "Changing often, and nobody predicted it.",
             "A reader could not predict this body, and it changed in {{commits}} commits in the \
              last {{window}} days.",
@@ -2333,7 +2333,7 @@ pub fn catalog() -> Vec<Rule> {
         ),
         rule(
             "surprising-far-reaching",
-            "Surprising and far-reaching",
+            "Unpredicted and far-reaching",
             "It calls a great deal and nobody predicted it.",
             "This calls {{calls}} other functions and a reader still could not predict what it \
              does.",

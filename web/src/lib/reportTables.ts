@@ -46,6 +46,9 @@ export interface Column {
 }
 
 export interface Table {
+  /** `list` sets the row as a subject with its sentence under it rather than as a grid row —
+   *  see `layoutList`. For a table whose second column is a reader's own prose. */
+  kind?: 'list'
   caption: string
   columns: Column[]
   rows: Cell[][]
@@ -615,6 +618,7 @@ function traps(w: Walked, top: number): Table | null {
   const shown = rows.slice(0, top)
   const notes = rows.length > shown.length ? `${n(rows.length - shown.length)} more traps are not listed.` : ''
   return {
+    kind: 'list',
     caption: 'Every trap a reader reported, in the reader’s own words: what breaks, and when.',
     columns: [
       { label: 'Function', weight: 3.2, wrap: true },

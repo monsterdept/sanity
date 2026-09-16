@@ -15,9 +15,9 @@ where changes go, and it exists only once this repo has made one.
 | **Load-bearing and hard to read**<br>`load-bearing-illegible` | `func: illegible >= 0.6 and dependents >= 10 and loc >= 10` | Hard to follow, and widely depended on. |
 | **Load-bearing and undocumented**<br>`load-bearing-undocumented` | `func: doc_present < 1 and dependents >= 10 and loc >= 10` | Widely depended on, with nothing written about it. |
 | **A declaration with nothing but its signature**<br>`undocumented-declaration` | `func: header >= 1 and doc_present < 1 and dependents >= 10 and loc < 10` | Widely depended on, and it declares without explaining. |
-| **Load-bearing, surprising and no test found**<br>`load-bearing-untested` | `func: under_test < 1 and surprise >= 0.6 and dependents >= 10 and loc >= 10` | Depended on, unpredictable, and no test was found to reach it. |
-| **Surprising and changing** *(tuned here)*<br>`surprising-changing` | `func: surprise >= 0.6 and commits >= 7 and loc >= 10` | Changing often, and nobody predicted it. |
-| **Surprising and far-reaching** *(tuned here)*<br>`surprising-far-reaching` | `func: surprise >= 0.6 and calls >= 31 and loc >= 10` | It calls a great deal and nobody predicted it. |
+| **Load-bearing, unpredicted and no test found**<br>`load-bearing-untested` | `func: under_test < 1 and surprise >= 0.6 and dependents >= 10 and loc >= 10` | Depended on, unpredictable, and no test was found to reach it. |
+| **Unpredicted and changing** *(tuned here)*<br>`surprising-changing` | `func: surprise >= 0.6 and commits >= 7 and loc >= 10` | Changing often, and nobody predicted it. |
+| **Unpredicted and far-reaching** *(tuned here)*<br>`surprising-far-reaching` | `func: surprise >= 0.6 and calls >= 31 and loc >= 10` | It calls a great deal and nobody predicted it. |
 | **Stale doc**<br>`stale-doc` | `func: doc_relevant >= 0.7 and surprise >= 0.9 and loc >= 10` | Documented, and a reader still could not predict it. |
 | **Trap in code people are editing**<br>`trap-being-edited` | `func: trap >= 1 and commits >= 3 and loc >= 10` | Easy to break when edited, and being edited. |
 | **Fossil trap**<br>`fossil-trap` | `func: repo_age >= 730 and trap >= 1 and touched >= 1095 and loc >= 10` | Easy to break when edited, and years since anyone did. |

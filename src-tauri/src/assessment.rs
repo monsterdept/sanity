@@ -1350,7 +1350,7 @@ fn render_shard(
     format!(
         "# {shard} — sanity assessment\n\
          \n\
-         {read} of {total} read · {surprising} surprising{stale_note}{dated_note}\n\
+         {read} of {total} read · {surprising} unpredicted{stale_note}{dated_note}\n\
          \n\
          Each entry below is one **reading**, of a function or of a whole file. An\n\
          agent was given its name, signature, neighboring names and comments — never\n\
@@ -1376,9 +1376,9 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
     // it does.
     let any_dated = shards.iter().any(|(_, _, _, _, _, d)| *d > 0);
     let head = if any_dated {
-        "| area | read | of | surprising | stale | dated |\n|---|---|---|---|---|---|\n"
+        "| area | read | of | unpredicted | stale | dated |\n|---|---|---|---|---|---|\n"
     } else {
-        "| area | read | of | surprising | stale |\n|---|---|---|---|---|\n"
+        "| area | read | of | unpredicted | stale |\n|---|---|---|---|---|\n"
     };
     let mut table = String::from(head);
     let (mut tr, mut tt, mut ts, mut tx, mut td) = (0, 0, 0, 0, 0);
@@ -1433,7 +1433,7 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
          ## Seeing it as a map\n\
          \n\
          Sanity draws this repo as a sunburst with every file and function represented,\n\
-         colored by surprise, legibility, doc coverage, churn, and four other\n\
+         colored by predictability, legibility, doc coverage, churn, and four other\n\
          dimensions. Open the app to visualize these readings.\n\
          \n\
          ```\n\

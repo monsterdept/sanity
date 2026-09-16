@@ -24,7 +24,7 @@ import type { ColorMode } from './colorMode'
  * item, `*italic*`, `**bold**` and `` `code` ``. `{slots}` are filled at export from the
  * repository being described — see `methodVars` and `lensVars` in `report.ts`.
  *
- * `{?surprise text}` prints `text` only when the report has a Surprise page, and `{!surprise text}`
+ * `{?surprise text}` prints `text` only when the report has a Predictability page, and `{!surprise text}`
  * only when it has none; `readings` stands for any of the four lenses a reading paints. **A
  * sentence that leans on another lens is gated on that lens's page.** grype's report, with no
  * readings, spent its abstract on the reader and told the Complexity page to compare against a
@@ -79,7 +79,7 @@ export const METHODOLOGY: { abstract: string; sections: Prose[] } = {
         '*Code shape* needs only the parse. Complexity counts branch points, weighted by nesting, against the median for bodies of similar length in this repository. Composition classifies code as code, header, test, generated or vendored, preferring declared evidence to path conventions. Language names the grammar. Clones groups functions whose token sequences are identical once identifiers and literals are replaced. Bodies under 40 tokens are not compared, and near-copies are not detected.',
         '*Interconnectivity* counts the distinct in-repository functions that call a function (Callers) and that it calls (Reach). There is no type checker. Calls are matched by name within one language family, trying the same file, then the same directory, then the repository; at repository level a name must be defined exactly once. A call through a value the repository cannot identify, such as `xs.collect()`, cannot match a free function. Plausible multiple targets are all credited, and library calls match nothing. The counts are therefore approximate: “no in-repo caller” is not dead code.',
         "*Activity* reads git at three depths: a log walk gives per-file facts, per-line blame gives per-function facts, and a timeline detects which functions each commit changed, by body hash. Blame names whoever last changed a function's lines. Age shows the newest or oldest surviving line on a logarithmic scale spanning the repository's life; the oldest line is only a lower bound on when the code first appeared. Churn counts the commits that changed a function within a {churnWindow}-day window.",
-        '{?readings *Assessment* relies on model readers: coding agents run as separate processes, started outside the repository and without its instruction files. A reader receives one function (occasionally a whole file): its name, owning type, signature, up to 20 neighboring names, documentation and file header, but never its body. Its prediction is recorded before the source is served and cannot be revised. The reader then grades how much of the body the prediction covered (full, most, some or none), how well the documentation covers the code, whether that documentation was derivable from the code alone, and how legible the body was. It also describes any trap waiting for the next editor. Surprise comes from the prediction grade, and Legibility, Docs and Traps from the rest. Derivable documentation counts as absent in every score, so text a model could have written cannot make code look explained.}{!readings *Assessment*, the fourth family, is graded by model readers that predict a function\'s body from its context before reading it. This repository has no current readings, so none of its lenses is in this {formNoun}.}',
+        '{?readings *Assessment* relies on model readers: coding agents run as separate processes, started outside the repository and without its instruction files. A reader receives one function (occasionally a whole file): its name, owning type, signature, up to 20 neighboring names, documentation and file header, but never its body. Its prediction is recorded before the source is served and cannot be revised. The reader then grades how much of the body the prediction covered (full, most, some or none), how well the documentation covers the code, whether that documentation was derivable from the code alone, and how legible the body was. It also describes any trap waiting for the next editor. Predictability is the prediction grade, and Legibility, Docs and Traps from the rest. Derivable documentation counts as absent in every score, so text a model could have written cannot make code look explained.}{!readings *Assessment*, the fourth family, is graded by model readers that predict a function\'s body from its context before reading it. This repository has no current readings, so none of its lenses is in this {formNoun}.}',
         '{?readings Readings are committed as Markdown under `.sanity/`, each stamped with a whitespace-insensitive hash of body, documentation and file header. When the hash stops matching, the reading is stale: it stops coloring and is queued again first. The application runs no model. A heuristic only orders the reading queue.}',
       ],
     },
@@ -363,7 +363,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Interpretation',
         body: [
-          'The *newest line* reading is a timestamp with a name attached: it identifies who most recently committed within a body. The *most lines* reading identifies whose text the body mostly consists of. The two often disagree, and the disagreement is informative: a one-line correction to a long function makes its author the newest contributor while holding a negligible share. Lines concentrated in one author indicate where knowledge of the code may be concentrated{?surprise ; read against Surprise, this locates unpredictable code whose explanation plausibly depends on few people}.',
+          'The *newest line* reading is a timestamp with a name attached: it identifies who most recently committed within a body. The *most lines* reading identifies whose text the body mostly consists of. The two often disagree, and the disagreement is informative: a one-line correction to a long function makes its author the newest contributor while holding a negligible share. Lines concentrated in one author indicate where knowledge of the code may be concentrated{?surprise ; read against Predictability, this locates unpredictable code whose explanation plausibly depends on few people}.',
         ],
       },
       {
@@ -402,7 +402,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
         heading: 'Interpretation',
         body: [
           'The *newest line* reading locates code nobody has been near for a long time: its dim end is where no commit has changed any line of a body within the period. The *oldest line* reading measures persistence instead, and a heavily edited body can be dim under it because it still contains old lines.',
-          'Age alone is weak evidence: how long code has gone unchanged says nothing by itself about whether it is sound. {?surprise Its value is as a second axis to Surprise, which cannot by itself distinguish a subtle algorithm from a disordered one. Long-standing surprising code is a candidate for careful documentation rather than change, while surprising code that is also changing is a candidate for trouble. These crossings are not computed; they are formed by comparing lens pages.}',
+          'Age alone is weak evidence: how long code has gone unchanged says nothing by itself about whether it is sound. {?surprise Its value is as a second axis to Predictability, which cannot by itself distinguish a subtle algorithm from a disordered one. Long-standing unpredicted code is a candidate for careful documentation rather than change, while unpredicted code that is also changing is a candidate for trouble. These crossings are not computed; they are formed by comparing lens pages.}',
         ],
       },
       {
@@ -439,7 +439,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Interpretation',
         body: [
-          'Churn locates hotspots: code that changes frequently, and places where concurrent edits are likely. {?surprise Read against Surprise, unpredictable code that is also changing frequently is a candidate for confusion or instability, while unpredictable code that has settled is more plausibly subtle but stable.} Churn measures frequency and Age measures recency, so a body can be recent without churning after a single edit.',
+          'Churn locates hotspots: code that changes frequently, and places where concurrent edits are likely. {?surprise Read against Predictability, unpredictable code that is also changing frequently is a candidate for confusion or instability, while unpredictable code that has settled is more plausibly subtle but stable.} Churn measures frequency and Age measures recency, so a body can be recent without churning after a single edit.',
         ],
       },
       {
@@ -459,7 +459,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
   surprise: {
     deck: {
       definition:
-        'Surprise is how far a model reader failed to predict a function’s body from its name, signature, neighbors and documentation, before reading it.',
+        'Predictability is how much of a function’s body a model reader predicted from its name, signature, neighbors and documentation, before reading it.',
       reading:
         'Bright is a body the reader could not predict and dim one it described in full; uncolored wedges are unread and hatched ones are stale.',
     },
@@ -467,7 +467,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Definition',
         body: [
-          "Surprise records how far a model reader failed to predict a function's body from the context it was given before reading it. The grade is one of four: *full* (the prediction described the body, nothing missed), *most* (broadly right, with one detail that was not obvious), *some* (recognizable, but the body does real work the prediction did not cover) and *none* (the prediction did not describe the code). A file or directory is described by the share of its read lines graded *some* or *none*.",
+          "Predictability records how much of a function's body a model reader predicted from the context it was given before reading it. The grade is one of four: *full* (the prediction described the body, nothing missed), *most* (broadly right, with one detail that was not obvious), *some* (recognizable, but the body does real work the prediction did not cover) and *none* (the prediction did not describe the code). A file or directory is described by the share of its read lines graded *some* or *none*.",
         ],
       },
       {
@@ -479,13 +479,13 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Interpretation',
         body: [
-          "Low surprise is evidence of scaffolding: code whose content follows from its context. High surprise marks where decisions were made that the surroundings do not imply. Documentation enters through the reader's context rather than as a correction, so a comment that explains the body lowers surprise, while a comment describing code that is no longer there misleads the prediction and raises it. Surprise alone does not distinguish a subtle algorithm from a disordered one; Churn and Age provide a second axis, and Legibility an independent third.",
+          "High predictability is evidence of scaffolding: code whose content follows from its context. Low predictability marks where decisions were made that the surroundings do not imply. Documentation enters through the reader's context rather than as a correction, so a comment that explains the body raises predictability, while a comment describing code that is no longer there misleads the prediction and lowers it. Predictability alone does not distinguish a subtle algorithm from a disordered one; Churn and Age provide a second axis, and Legibility an independent third.",
         ],
       },
       {
         heading: 'Limitations',
         body: [
-          'Surprise measures explanatory fit, not correctness: predictable code can be wrong. The reader is the scale. A smaller model is surprised by more, and a different harness is a different instrument, so a repository read with more than one model yields one figure on two scales. Four grades are coarse, several provenance fields rest on the reader\'s own report, and containers describe only what has been read.',
+          'Predictability measures explanatory fit, not correctness: predictable code can be wrong. The reader is the scale. A smaller model predicts less, and a different harness is a different instrument, so a repository read with more than one model yields one figure on two scales. Four grades are coarse, several provenance fields rest on the reader\'s own report, and containers describe only what has been read.',
         ],
       },
     ],
@@ -513,13 +513,13 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Reading the map',
         body: [
-          "Bright wedges are bodies graded *none* and dim wedges *full*. Uncolored wedges are unread or have no current grade, and stale readings are hatched. A file or directory is colored by the share of its read lines graded *some* or *none*, on the same scale as Surprise. That share is of lines read, not of all lines: a directory in which one function of forty has been read, and was graded *none*, is drawn at the bright end as far as it has been read. Its outer rim divides its lines among the four grades and the lines not yet graded.",
+          "Bright wedges are bodies graded *none* and dim wedges *full*. Uncolored wedges are unread or have no current grade, and stale readings are hatched. A file or directory is colored by the share of its read lines graded *some* or *none*, on the same scale as Predictability. That share is of lines read, not of all lines: a directory in which one function of forty has been read, and was graded *none*, is drawn at the bright end as far as it has been read. Its outer rim divides its lines among the four grades and the lines not yet graded.",
         ],
       },
       {
         heading: 'Interpretation',
         body: [
-          'Legibility is independent of Surprise by construction. Surprise asks whether the intent was reachable without the body; Legibility asks how the body read once open. Inline comments therefore count toward Legibility but not toward Surprise, since they sit inside the text being predicted. The pairing separates situations Surprise alone merges: surprising but legible code is unguessable from outside and plain once opened, which points toward better names or documentation; surprising and illegible code is difficult at every level; and predictable but hard-to-follow code does an expected job in a confusing way. {?traps Read against Traps, a legible body that carries a reported trap is the most hazardous combination, because it reads as safe.}',
+          'Legibility is independent of Predictability by construction. Predictability asks whether the intent was reachable without the body; Legibility asks how the body read once open. Inline comments therefore count toward Legibility but not toward Predictability, since they sit inside the text being predicted. The pairing separates situations Predictability alone merges: unpredicted but legible code is unguessable from outside and plain once opened, which points toward better names or documentation; unpredicted and illegible code is difficult at every level; and predictable but hard-to-follow code does an expected job in a confusing way. {?traps Read against Traps, a legible body that carries a reported trap is the most hazardous combination, because it reads as safe.}',
         ],
       },
       {
@@ -530,8 +530,8 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       },
     ],
     method: [
-      'Legibility is graded in the same reading as Surprise, after the prediction has been recorded and the body read, so its procedure, storage, expiry and provenance are those described for Surprise. Readings of whole files do not grade legibility, because it is a judgment about one body.',
-      'The reader receives only the extent being graded and cannot open callers, types or the rest of the file, and the grades are worded in terms of what a reader can observe about its own pass within that extent. Because the wording of this question has changed, a grade is valid only if the reading was taken under the current question. Grades made under an earlier question are kept as history but do not color a wedge or count toward a share, and they are replaced only by a complete new reading, since a grade given immediately after a prediction is part of a different measurement from one asked alone. The grades share Surprise\'s positions on the color ramp.',
+      'Legibility is graded in the same reading as Predictability, after the prediction has been recorded and the body read, so its procedure, storage, expiry and provenance are those described for Predictability. Readings of whole files do not grade legibility, because it is a judgment about one body.',
+      'The reader receives only the extent being graded and cannot open callers, types or the rest of the file, and the grades are worded in terms of what a reader can observe about its own pass within that extent. Because the wording of this question has changed, a grade is valid only if the reading was taken under the current question. Grades made under an earlier question are kept as history but do not color a wedge or count toward a share, and they are replaced only by a complete new reading, since a grade given immediately after a prediction is part of a different measurement from one asked alone. The grades share Predictability\'s positions on the color ramp.',
     ],
   },
 
@@ -558,7 +558,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
       {
         heading: 'Interpretation',
         body: [
-          'Docs describes how much written explanation is available to someone arriving at the code. It is distinct from Surprise: a surprising and undocumented body and a surprising but well-covered body are different situations, and only the first lacks a written explanation. The two lenses also check each other, since documentation that no longer describes its body should draw a low coverage grade and mislead the prediction, raising Surprise. The derivable reading separates restatement from explanation, which a count of comment lines cannot do.',
+          'Docs describes how much written explanation is available to someone arriving at the code. It is distinct from Predictability: an unpredicted and undocumented body and an unpredicted but well-covered body are different situations, and only the first lacks a written explanation. The two lenses also check each other, since documentation that no longer describes its body should draw a low coverage grade and mislead the prediction, lowering Predictability. The derivable reading separates restatement from explanation, which a count of comment lines cannot do.',
         ],
       },
       {
@@ -570,7 +570,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     ],
     method: [
       "The reader receives the documentation before predicting and, after reading the body, answers two questions about it. The first, *documented*, grades how well it covers what the code actually does, and is *none* when there is none. The second, *derivable*, asks whether the documentation says nothing that could not have been worked out from the code alone. A derivable document counts as *none* in every derived number, so that text a model could regenerate from the body adds no explanation, and a pass of generated comments cannot make a repository's figure uniformly well documented.",
-      'Files are read as separate tasks: the reader predicts what the file is for from its name, header and declarations, then grades whether the header describes the contents and whether it is derivable. Because documentation is part of the reading hash, editing a comment expires the readings made against it. Documentation grades are reported beside Surprise and never subtracted from it. The grades are placed on the color ramp at 0.05, 0.30, 0.65 and 1.0.',
+      'Files are read as separate tasks: the reader predicts what the file is for from its name, header and declarations, then grades whether the header describes the contents and whether it is derivable. Because documentation is part of the reading hash, editing a comment expires the readings made against it. Documentation grades are reported beside Predictability and never subtracted from it. The grades are placed on the color ramp at 0.05, 0.30, 0.65 and 1.0.',
     ],
   },
 
@@ -609,7 +609,7 @@ export const ESSAYS: Record<ColorMode, Essay> = {
     ],
     method: [
       "The answer is given in the same reading as the other assessment grades, after the prediction and after the body has been read. The reader is asked to report a trap only when the code itself will bite whoever edits it next and nothing in it warns them. The illustrative categories are an ordering assumption nothing enforces, a silent failure, an unguarded index, a resource leaked on one path, and a cache key that omits something the cached value depends on. A hazard a comment already calls out, a documentation problem (which Docs grades) and the reader's own surprise are excluded. A trap cannot be reported without a note stating what breaks and when, and a report omitting the note is refused. The default answer is no, and readings of whole files do not answer the question.",
-      'The question was narrowed in the current reading specification. An earlier *yes* may answer a broader question and is treated as dated. An earlier *no* is kept, because narrowing a question cannot turn a *no* into a *yes*. Readings are stored, keyed and expired as described for Surprise.',
+      'The question was narrowed in the current reading specification. An earlier *yes* may answer a broader question and is treated as dated. An earlier *no* is kept, because narrowing a question cannot turn a *no* into a *yes*. Readings are stored, keyed and expired as described for Predictability.',
     ],
   },
 }

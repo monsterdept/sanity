@@ -47,7 +47,7 @@ export function locksFor(f: LockFacts): Partial<Record<ColorMode, Locked>> {
     if (!tree) continue
     if (paintsFromReadings(m) && f.assessed === 0) {
       out[m] = {
-        why: 'No readings yet. Press Read on the project to fill Surprise, Legibility, Docs and Traps.',
+        why: 'No readings yet. Press Read on the project to fill Predictability, Legibility, Docs and Traps.',
         paper: 'This repository has no current readings.',
         keyed: true,
       }

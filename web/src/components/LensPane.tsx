@@ -586,7 +586,7 @@ function SurpriseSection({ node }: { node: Node }) {
   const r = node.agent
   if (!r) {
     return (
-      <Block label="Surprise">
+      <Block label="Predictability">
         <Absent>
           Nobody has read this yet. Readings come from an agent working through the repo over MCP —
           point one at this project and it will fill in.
@@ -597,7 +597,7 @@ function SurpriseSection({ node }: { node: Node }) {
   const trapped = trapOf(r) && !node.agentStale
   const predicted: Grade = r.predicted ?? (r.surprised ? 'none' : 'full')
   return (
-    <Block label="Surprise" aside={node.agentStale ? undefined : `predicted: ${predicted}`}>
+    <Block label="Predictability" aside={node.agentStale ? undefined : `predicted: ${predicted}`}>
       {node.agentStale && <StaleNote />}
       <div className="space-y-3">
         {!r.cold && (

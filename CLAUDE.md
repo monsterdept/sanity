@@ -32,6 +32,8 @@ alternative was built and thrown away, and the note is the only record of that.
 Anyone can draw a treemap of LOC. The second encoding is what makes this worth building:
 **boilerplate is code a model can predict from its context.**
 
+- **The lens is Predictability; `surprise` is the number behind it.** A reading records a
+  prediction grade, and a person sees that grade under that name. See [metric.md](docs/notes/metric.md).
 - **Temperature IS surprise** — not `surprise × (1 − explained)`. Documentation reaches the
   instrument, so a doc that explains the body already lowers surprise; discounting it again
   charged twice.

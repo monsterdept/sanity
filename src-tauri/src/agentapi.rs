@@ -1978,10 +1978,10 @@ HOW TO RUN THIS — read all of it before starting.\n\n\
 YOU DO NOT ASSESS ANYTHING, AND YOU DO NOT SPAWN READERS. Sanity spawns them itself, as \
 separate processes that have no access to this repo and see only what they are handed. \
 Your context is full of this codebase: anything you 'predicted' you would be recalling, \
-which scores as unsurprising and quietly turns the measurement into a rubber stamp.\n\n\
+which grades as predicted and quietly turns the measurement into a rubber stamp.\n\n\
   1. WHICH MODEL READS IS PART OF THE MEASUREMENT — ASK BEFORE STARTING, unless the user \
-     already said. Surprise is what a competent reader could predict, so the reader IS the \
-     scale: a smaller model is surprised by more, and its readings are not comparable with \
+     already said. Predictability is what a competent reader could predict, so the reader IS the \
+     scale: a smaller model predicts less, and its readings are not comparable with \
      the ones already banked. Propose Sonnet and say why in one line. Never mix models \
      within a repo to save money — that is one map on two scales, with nothing on screen \
      saying which wedge is which.\n\
@@ -4765,8 +4765,8 @@ async fn report(
     let mut hint = String::new();
     if total >= 8 && surprised * 10 < total {
         hint = format!(
-            "Across THIS WHOLE REPO — not your readings — only {surprised} of {total} are \
-             flagged surprising. Nothing to answer for if your own reads were cold and \
+            "Across THIS WHOLE REPO — not your readings — only {surprised} of {total} were \
+             not predicted. Nothing to answer for if your own reads were cold and \
              honest; it is aimed at whoever is driving. If readers are being handed files \
              they already know, or are being agreeable, the results mean nothing."
         );
@@ -4977,7 +4977,7 @@ async fn status(
                 "assessment_file": crate::assessment::dir(&p.repo).to_string_lossy(),
                 "done": remaining == 0,
                 "next_step": if remaining == 0 {
-                    "Every function has an up-to-date reading. Summarize the surprises.".to_string()
+                    "Every function has an up-to-date reading. Summarize what the readers could not predict.".to_string()
                 } else if remaining == in_flight {
                     format!(
                         "{remaining} still unread, all of them out with readers right now. \

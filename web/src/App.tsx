@@ -4339,7 +4339,7 @@ function HistoryToggle({
             ? 'Tracing this repo — the project row has the progress and a way to stop'
             : !traced
               ? 'No trace yet. Press Trace on the project to walk its commits.'
-              : 'The repo commit by commit — colored by arrivals, not by surprise  (⌘+)'
+              : 'The repo commit by commit — colored by arrivals, not by predictability  (⌘+)'
       }
       className={`flex items-center gap-1 rounded-full px-2.5 text-[11px] transition-colors ${CONTROL_H}`}
       style={{

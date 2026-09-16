@@ -60,7 +60,7 @@ const BREAKDOWN_TITLE: Record<Exclude<ColorMode, 'surprise'>, string> = {
 
 /** The heading, with the one lens whose rows depend on a reading resolved. */
 function breakdownTitle(mode: ColorMode, views: Views): string {
-  if (mode === 'surprise') return 'Surprise'
+  if (mode === 'surprise') return 'Predictability'
   if (mode === 'age') return views.age.read === 'oldest' ? 'Oldest line' : 'Newest line'
   // **The only thing on screen that names the bar, and it has to stay.** The rows are degrees
   // now — `very high` down to `low` — which is what lets one set of words serve both readings,

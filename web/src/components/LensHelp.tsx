@@ -144,15 +144,15 @@ function Lens({
 const ENTRIES: Record<ColorMode, ReactNode> = {
   surprise: (
     <Lens
-      name="Surprise"
+      name="Predictability"
       needs="Read"
       swatch={<Ramp from="var(--heat-0)" to="var(--heat-4)" />}
-      measures="how much of a function's body the reader failed to predict from its surroundings, before being allowed to read the body itself."
+      measures="how much of a function's body the reader predicted from its surroundings, before being allowed to read the body itself."
       values="predicted: full · most · some · none"
       ramp="full (dim) → none (bright)"
     >
       The reader sees the documentation before it predicts. A comment that genuinely explains the
-      code lowers the score. A comment a model could reproduce from the body alone does not.
+      code makes it more predictable. A comment a model could reproduce from the body alone does not.
     </Lens>
   ),
   legible: (
@@ -164,7 +164,7 @@ const ENTRIES: Record<ColorMode, ReactNode> = {
       values="legible: full · most · some · none"
       ramp="full (dim) → none (bright)"
     >
-      Independent of Surprise. Code can be unpredictable and clearly written.
+      Independent of Predictability. Code can be unpredictable and clearly written.
     </Lens>
   ),
   docs: (

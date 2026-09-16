@@ -93,8 +93,9 @@ const PAGE = { w: 612, h: 792 }
  *   group of findings on its own map.
  * - **Brief**: a cover, one page per lens holding its map and two sections of its essay
  *   (`SHORT_SECTIONS`), and the findings on one map with the grid of what raised them.
- * - **Deck**: the brief's content as 16:9 slides, the map beside the words, plus a slide for each
- *   group of findings.
+ * - **Deck**: the lenses, as 16:9 slides — a title slide, one slide per lens with the map beside
+ *   its words, and one slide for the findings. It presents what the lenses are and what they say
+ *   here; the findings themselves are a document to read, not a wall to stand in front of.
  */
 export type Form = 'report' | 'brief' | 'deck'
 
@@ -345,6 +346,9 @@ function fontOf(run: Run, size: number): string {
  *  drew as two chips, and padding every word of it spaced `DO NOT EDIT` as `DO  NOT  EDIT`. Only a
  *  word wider than a whole line (a long path) is broken inside — after a `/` or `#` where one
  *  falls late enough, by character where none does. */
+/** Punctuation that belongs to the sentence rather than to the span before it — see `setLines`. */
+const CLINGS = /[.,;:!?)\]}'’”]/
+
 function setLines(c: Surface, runs: Run[], width: number, size: number): Line[] {
   const pad = size * 0.3 * U
   type Piece = { text: string; run: Run; padL: number; padR: number }
@@ -370,6 +374,19 @@ function setLines(c: Surface, runs: Run[], width: number, size: number): Line[] 
     }
   }
   close()
+
+  // **A chip pads its sides, and punctuation is not a side.** The padding that keeps a code span
+  // off the words around it printed `report.ts#pour` followed by a comma as `report.ts#pour ,`,
+  // which reads as a space somebody left in. The pad goes where a word follows, never where a
+  // mark that belongs to the sentence does.
+  for (const w of words) {
+    for (let i = 0; i < w.pieces.length - 1; i++) {
+      const here = w.pieces[i]
+      const next = w.pieces[i + 1]
+      if (here.run.code && !next.run.code && CLINGS.test(next.text[0])) here.padR = 0
+      if (!here.run.code && next.run.code && /[([{“‘]$/.test(here.text)) next.padL = 0
+    }
+  }
 
   const widthOf = (p: Piece) => {
     c.font = fontOf(p.run, size)
@@ -547,13 +564,17 @@ function proseBlocks(sections: Prose[], vars: Record<string, string> = {}): Bloc
     for (const raw of sec.body) {
       // A fact the repo cannot supply fills as nothing, and takes its sentence with it; a
       // paragraph that was only a fact is dropped rather than left as an empty gap.
-      const s = fillSlots(raw, vars).replace(/[ \t]{2,}/g, ' ').trim()
-      if (!s) continue
-      const bullet = /^- ([\s\S]*)$/.exec(s)
-      const numbered = /^(\d+)\. ([\s\S]*)$/.exec(s)
-      if (bullet) out.push({ kind: 'li', runs: inlineRuns(bullet[1]), label: '•' })
-      else if (numbered) out.push({ kind: 'li', runs: inlineRuns(numbered[2]), label: `${numbered[1]}.` })
-      else out.push({ kind: 'p', runs: inlineRuns(s) })
+      const filled = fillSlots(raw, vars).replace(/[ \t]{2,}/g, ' ').trim()
+      if (!filled) continue
+      // A slot may fill as several lines — a list of bands, one per line. Each is its own block,
+      // so a list in a fact reads as a list rather than as a sentence with commas in it.
+      for (const s of filled.split('\n').map((l) => l.trim()).filter(Boolean)) {
+        const bullet = /^- ([\s\S]*)$/.exec(s)
+        const numbered = /^(\d+)\. ([\s\S]*)$/.exec(s)
+        if (bullet) out.push({ kind: 'li', runs: inlineRuns(bullet[1]), label: '•' })
+        else if (numbered) out.push({ kind: 'li', runs: inlineRuns(numbered[2]), label: `${numbered[1]}.` })
+        else out.push({ kind: 'p', runs: inlineRuns(s) })
+      }
     }
   }
   return out
@@ -570,6 +591,10 @@ interface Row {
   label?: string
   /** A heading: never the last line of a column. */
   keep: boolean
+  /** Which block it was set from, and whether it opens that block — see `pour`, which will not
+   *  split a paragraph so that one line of it stands alone. */
+  block: number
+  first: boolean
 }
 
 function flow(c: Surface, blocks: Block[], width: number, size: number): Row[] {
@@ -596,6 +621,8 @@ function flow(c: Surface, blocks: Block[], width: number, size: number): Row[] {
         gap: k === 0 ? gap : 0,
         label: k === 0 ? b.label : undefined,
         keep: b.kind === 'h',
+        block: i,
+        first: k === 0,
       })
     })
   })
@@ -647,6 +674,19 @@ function pour(rows: Row[], regionsFor: (page: number) => Region[]): Slice[][] {
         y += h
         i++
       }
+      // **Neither end of a paragraph stands alone.** A break that left the last line of a
+      // paragraph at the top of the next column printed a page opening with the word `window.`,
+      // and one that left the first line at the foot of a column is the same fault mirrored. The
+      // line before the break goes forward too, so two lines travel together.
+      if (i < rows.length && slice.rows.length > 1) {
+        const last = slice.rows[slice.rows.length - 1]
+        const next = rows[i]
+        const tail = !rows[i + 1] || rows[i + 1].block !== next.block
+        if (next.block === last.block && (tail || last.first)) {
+          slice.rows.pop()
+          i--
+        }
+      }
       if (slice.rows.length) page.push(slice)
     }
     // Nothing fitted anywhere on a fresh page: a row taller than any region. Placed anyway, once,
@@ -658,6 +698,31 @@ function pour(rows: Row[], regionsFor: (page: number) => Region[]): Slice[][] {
     pages.push(page)
   }
   return pages.length ? pages : [[]]
+}
+
+/**
+ * `pour`, with the last page evened up against the one before it.
+ *
+ * **A section's tail was a page holding four lines.** Filled page by page, the appendix ran its
+ * columns full until the text ran out, so what was left over — sometimes a single paragraph —
+ * got a sheet of its own. Where the last page comes out less than half full, the last two are
+ * poured again into shorter columns, so the text ends on two settled pages rather than one full
+ * one and a remnant. The page count never changes: a spread that would need another page keeps
+ * the greedy one.
+ */
+function pourEven(rows: Row[], regionsFor: (page: number) => Region[]): Slice[][] {
+  const pages = pour(rows, regionsFor)
+  const n = pages.length
+  if (n < 2) return pages
+  const fill = (pg: Slice[]) => pg.reduce((t, sl) => t + colHeight(sl.rows), 0)
+  const room = regionsFor(n - 1).reduce((t, r) => t + (r.bottom - r.top), 0)
+  if (room <= 0 || fill(pages[n - 1]) > room * 0.5) return pages
+  const cols = Math.max(1, regionsFor(n - 2).length)
+  const target = (fill(pages[n - 2]) + fill(pages[n - 1])) / (2 * cols) + lead(BODY)
+  const shorter = (page: number) =>
+    regionsFor(page).map((r) => (page >= n - 2 ? { ...r, bottom: Math.min(r.bottom, r.top + target) } : r))
+  const out = pour(rows, shorter)
+  return out.length === n ? out : pages
 }
 
 function drawSlices(sheet: Sheet, slices: Slice[]) {
@@ -761,13 +826,12 @@ class Sheet {
   }
 
   /** Eyebrow and title. The body starts at `HEADER_BOTTOM`. `width` narrows the head to a column
-   *  and `stamp: false` leaves the commit off it — a deck's lens slide, whose map rises beside a
-   *  head that spans only its text; its footer carries the stamp instead. */
-  header(eyebrow: string, title: string, mono = false, o: { width?: number; stamp?: boolean } = {}) {
+   *  narrows the head to a column — a deck's lens slide, whose map rises beside a head that spans
+   *  only its text. The commit is not here: the footer carries it, once a page. */
+  header(eyebrow: string, title: string, mono = false, o: { width?: number } = {}) {
     const width = o.width ?? this.width
     let y = (MARGIN + 8) * U
     this.text(eyebrow.toUpperCase(), this.left, y, { size: 7.5, bold: true, color: this.inks.muted, optical: true })
-    if (o.stamp !== false) this.text(this.stamp, this.right, y, { size: 7.5, color: this.inks.muted, align: 'right' })
     y += 25 * U
     const t = fitText(this, title, 22, width, { bold: true, mono, floor: 12 })
     this.text(t.text, this.left, y, { size: t.size, bold: true, mono, optical: true })
@@ -778,17 +842,20 @@ class Sheet {
   continued(eyebrow: string, title: string, mono = false) {
     let y = (MARGIN + 8) * U
     this.text(eyebrow.toUpperCase(), this.left, y, { size: 7.5, bold: true, color: this.inks.muted, optical: true })
-    this.text(this.stamp, this.right, y, { size: 7.5, color: this.inks.muted, align: 'right' })
     y += 25 * U
     const t = fitText(this, title, 16, this.width, { bold: true, mono, floor: 9 })
     this.text(t.text, this.left, y, { size: t.size, bold: true, mono, optical: true })
     this.rule(y + 9 * U)
   }
 
-  /** `stamp` sets the commit beside the credit, for a page whose head left it off. */
-  footer(n: number, of: number, stamp = false) {
+  /** The credit and the commit, at the foot of every page.
+   *
+   *  **The commit is stated once a page, and this is the page's quiet end.** It ran in the head of
+   *  all forty-four pages beside the section, where a string nobody reads was the second thing on
+   *  every one of them; a report is stamped for checking, not for reminding. */
+  footer(n: number, of: number) {
     const y = this.H - 22 * U
-    this.text(stamp ? `charted by sanity.monster · ${this.stamp}` : 'charted by sanity.monster', this.left, y, {
+    this.text(`charted by sanity.monster · ${this.stamp}`, this.left, y, {
       size: 7.5,
       color: this.inks.muted,
     })
@@ -1258,6 +1325,21 @@ type Part = { e: Entry; k: number; h: number }
 /** Units poured onto pages: `first` of room on the first page, `next` on each after. A unit is the
  *  parts that move together — a whole entry on a slide, a single part on paper. One that opens a
  *  page partway through its entry carries the `continued` line, and pays for it. */
+/** `paginate`, over the shortest columns that still need no more pages — the balance a deck's
+ *  slides already struck, on paper for the same reason: a group whose last page carried one
+ *  finding under a running head printed two lines and a footer. */
+function paginateEven(units: Part[][], first: number, next: number): PartSlot[][] {
+  const count = paginate(units, first, next).length
+  let lo = Math.max(0, ...units.map((u) => u.reduce((t, p) => t + p.h, 0) + (u[0].k > 0 ? CONT_H : 0)))
+  let hi = first
+  while (hi - lo > 2 * U) {
+    const mid = (lo + hi) / 2
+    if (paginate(units, mid, Math.min(mid, next)).length <= count) hi = mid
+    else lo = mid
+  }
+  return paginate(units, hi, Math.min(hi, next))
+}
+
 function paginate(units: Part[][], first: number, next: number): PartSlot[][] {
   const out: PartSlot[][] = [[]]
   let room = first
@@ -1526,7 +1608,7 @@ function findingSummary(count: number, groups: FindingGroup[]): Run[] {
       { text: ` finding${count === 1 ? '' : 's'}, grouped by where they are.` },
     )
     if (rowsCapped(groups)) {
-      runs.push({ text: ' Some rules found more than the report was sent, so the list is short.', muted: true })
+      runs.push({ text: ' Some rules matched more than was sent to this report, so the count is short of what they found.', muted: true })
     }
     if (setAside > 0) runs.push({ text: ` ${setAside.toLocaleString()} matches ignored.`, muted: true })
   }
@@ -1663,20 +1745,25 @@ interface LensPlan {
 }
 
 /**
- * A deck's words for a lens: its two written lines (`Essay.deck`), and one fact about this
- * repository under them.
+ * A deck's words for a lens: its two written lines (`Essay.deck`), and what this repository has
+ * to say under them — the report's own Results, as many of its sentences as the slide holds.
+ *
+ * **One fact was a slide's worth of white space.** The report says three things about each lens
+ * here and a slide said the first; the room the map does not take is the room these sentences
+ * were written for, and `trimToFit` drops the ones that do not fit rather than any being chosen
+ * in advance.
  *
  * **A slide is spoken to, not read.** Two whole sections at a slide's size left the words the
  * larger half of every slide and the map beside them the smaller. The first sentence of each was
  * tried next and made teasers — "Three states are drawn." — because an essay's first sentence
  * leans on its second.
  */
-function deckProse(m: ColorMode, fact: string): Prose[] {
+function deckProse(m: ColorMode, facts: string[]): Prose[] {
   const d = ESSAYS[m].deck
   return [
     { heading: 'Definition', body: [d.definition] },
     { heading: 'Reading the map', body: [d.reading] },
-    ...(fact ? [{ heading: STORY_HEADING, body: [fact] }] : []),
+    ...(facts.length ? [{ heading: STORY_HEADING, body: facts }] : []),
   ]
 }
 
@@ -1769,7 +1856,43 @@ function columnWidths(sheet: Sheet, table: Table, width: number): number[] | nul
   return first >= need[0] ? [first, ...need.slice(1)] : null
 }
 
+/**
+ * A table whose second column is prose, set as a list instead: the subject on its own line and
+ * the sentence under it, full width.
+ *
+ * **A grid is for values a reader compares down a column.** Traps are a reader's own sentences,
+ * four and five lines of them, and in a column they printed as paragraphs wearing a table: every
+ * row a stack of wrapped text beside a path, with a rule under it. Down the page instead, the
+ * name reads as a heading and the sentence gets the width it was written for.
+ */
+function layoutList(sheet: Sheet, table: Table, n: number, x: number, width: number): TableLayout {
+  const indent = 12 * U
+  const rows = table.rows.map((cells) => {
+    const head = oneLine(sheet, { text: cells[0].text, mono: cells[0].mono, bold: true }, width, T_SIZE)
+    const body = cells
+      .slice(1)
+      .filter((c) => c && c.text)
+      .flatMap((c) => setLines(sheet.c, c.markup ? codeRuns(c.text, { text: c.text }) : [{ text: c.text }], width - indent, T_SIZE))
+    return { cells: [[head], body], h: (1 + body.length) * lead(T_SIZE) + 6 * U }
+  })
+  return {
+    table,
+    x,
+    width,
+    caption: setLines(sheet.c, [{ text: `Table ${n}. `, bold: true }, { text: table.caption, muted: true }], width, 7.5),
+    cont: setLines(sheet.c, [{ text: `Table ${n}, continued.`, bold: true }], width, 7.5),
+    xs: [x, x + indent],
+    widths: [width, width - indent],
+    barText: 0,
+    heads: [],
+    rows,
+    headH: 0,
+    note: table.note ? setLines(sheet.c, [{ text: table.note, muted: true, italic: true }], width, 7.5) : [],
+  }
+}
+
 function layoutTable(sheet: Sheet, table: Table, n: number, x = sheet.left, width = sheet.width): TableLayout {
+  if (table.kind === 'list') return layoutList(sheet, table, n, x, width)
   const weight = table.columns.reduce((t, col) => t + col.weight, 0)
   const widths =
     (width < sheet.width ? columnWidths(sheet, table, width) : null) ??
@@ -1868,31 +1991,69 @@ function placeTables(sheet: Sheet, pages: LensPage[], tables: TableLayout[], sta
     pages.push(page)
     y = CONTINUED_TOP
   }
-  for (const L of tables) {
-    y += 16 * U
-    let i = 0
+  // The note goes under the last row, so the last row is placed only where both fit: a note left
+  // out of the sum ran into the page's footer.
+  const noteOf = (L: TableLayout) => (L.note.length ? 4 * U + L.note.length * lead(7.5) : 0)
+  /** Where a table's rows fall with `bottom` for a page: one chunk per page it runs onto, each
+   *  saying whether it opens a fresh one. */
+  const chunksOf = (L: TableLayout, from: number, bottom: number) => {
+    const out: { from: number; to: number; fresh: boolean }[] = []
+    const noteH = noteOf(L)
+    const tail = (j: number) => (j === L.rows.length - 1 ? noteH : 0)
+    let at = from
+    let top = y
     let first = true
-    while (i < L.rows.length) {
+    let opens = false
+    while (at < L.rows.length) {
       const capH = tableCapH(L, first)
-      if (y + capH + L.headH + L.rows[i].h > sheet.bottom && y > CONTINUED_TOP + 1) {
-        fresh()
+      if (top + capH + L.headH + L.rows[at].h > bottom && top > CONTINUED_TOP + 1) {
+        top = CONTINUED_TOP
+        opens = true
         continue
       }
-      const from = i
-      let yy = y + capH + L.headH
-      // The note goes under the last row, so the last row is placed only where both fit: a note
-      // left out of the sum ran into the page's footer.
-      const noteH = L.note.length ? 4 * U + L.note.length * lead(7.5) : 0
-      const tail = (j: number) => (j === L.rows.length - 1 ? noteH : 0)
-      while (i < L.rows.length && (i === from || yy + L.rows[i].h + tail(i) <= sheet.bottom)) {
-        yy += L.rows[i].h
-        i++
+      const start = at
+      let yy = top + capH + L.headH
+      while (at < L.rows.length && (at === start || yy + L.rows[at].h + tail(at) <= bottom)) {
+        yy += L.rows[at].h
+        at++
       }
-      const last = i >= L.rows.length
-      page.tables.push({ layout: L, from, to: i, top: y, first, last })
-      y = yy + (last && L.note.length ? 4 * U + L.note.length * lead(7.5) : 0)
+      out.push({ from: start, to: at, fresh: opens })
+      opens = false
       first = false
-      if (!last) fresh()
+      if (at < L.rows.length) {
+        top = CONTINUED_TOP
+        opens = true
+      }
+    }
+    return out
+  }
+  for (const L of tables) {
+    y += 16 * U
+    // **A table's last page is not a stub either.** Filled greedily, styx's 40 trap rows ran
+    // three full pages and a fourth holding four — the same fault the essays and the findings
+    // groups had. The shortest page that still needs no more pages spreads the rows evenly, and
+    // where the table fits on one page nothing moves.
+    const greedy = chunksOf(L, 0, sheet.bottom)
+    let chunks = greedy
+    if (greedy.length > 1) {
+      let lo = CONTINUED_TOP
+      let hi = sheet.bottom
+      while (hi - lo > 2 * U) {
+        const mid = (lo + hi) / 2
+        if (chunksOf(L, 0, mid).length <= greedy.length) hi = mid
+        else lo = mid
+      }
+      chunks = chunksOf(L, 0, hi)
+    }
+    let first = true
+    for (const ch of chunks) {
+      if (ch.fresh) fresh()
+      const last = ch.to >= L.rows.length
+      page.tables.push({ layout: L, from: ch.from, to: ch.to, top: y, first, last })
+      let yy = y + tableCapH(L, first) + L.headH
+      for (let j = ch.from; j < ch.to; j++) yy += L.rows[j].h
+      y = yy + (last ? noteOf(L) : 0)
+      first = false
     }
   }
 }
@@ -1907,6 +2068,27 @@ function drawTable(sheet: Sheet, s: TableSlot) {
     y += lead(7.5)
   }
   y += 4 * U
+  if (L.table.kind === 'list') {
+    for (let r = s.from; r < s.to; r++) {
+      const row = L.rows[r]
+      let ry = y + lead(T_SIZE) * 0.74
+      drawLine(c, row.cells[0][0], L.xs[0], ry, T_SIZE, inks)
+      row.cells[1].forEach((line, k) => drawLine(c, line, L.xs[1], ry + (k + 1) * lead(T_SIZE), T_SIZE, inks))
+      y += row.h
+      if (r < L.rows.length - 1) {
+        c.fillStyle = inks.border
+        c.fillRect(L.x, y - 3 * U, L.width, Math.max(1, 0.35 * U))
+      }
+    }
+    if (s.last && L.note.length) {
+      y += 4 * U
+      for (const line of L.note) {
+        drawLine(c, line, L.x, y + lead(7.5) * 0.74, 7.5, inks)
+        y += lead(7.5)
+      }
+    }
+    return
+  }
   L.heads.forEach((line, i) => {
     const x = L.table.columns[i].align === 'right' ? L.xs[i] + L.widths[i] - CELL_PAD - line.w : L.xs[i]
     drawLine(c, line, x, y + lead(T_HEAD) * 0.74, T_HEAD, inks)
@@ -1966,7 +2148,8 @@ function lensVars(o: Report, readerClause: string): Record<string, string> {
     i >= TANGLE_EDGES.length
       ? `${n(TANGLE_EDGES[TANGLE_EDGES.length - 1] + 1)} lines and over`
       : `${n(i === 0 ? 1 : TANGLE_EDGES[i - 1] + 1)}–${n(TANGLE_EDGES[i])} lines`
-  const medians = s.tangleBands.flatMap((med, i) => (med == null ? [] : [`${n(med)} for bodies of ${band(i)}`]))
+  // A line each, set as a list: nine bands in one sentence was a table read aloud.
+  const medians = s.tangleBands.flatMap((med, i) => (med == null ? [] : [`- ${band(i)}: ${n(med)}`]))
   const calls = (s.callsResolved ?? 0) + (s.callsUnresolved ?? 0)
   const window = o.views.churn.windows[o.views.churn.at]
   const readable = s.functions + s.files
@@ -1975,7 +2158,7 @@ function lensVars(o: Report, readerClause: string): Record<string, string> {
     // Which reading a deck line describes.
     rawTangle: o.views.tangle === 'raw' ? 'yes' : '',
     oldestAge: o.views.age.read === 'oldest' ? 'yes' : '',
-    tangleMedians: medians.length ? `In ${o.slug} the band medians are ${joinList(medians)}.` : '',
+    tangleMedians: medians.length ? `In ${o.slug} the median count per size band is:\n${medians.join('\n')}` : '',
     languageCount: s.languages.length
       ? `The function bodies of ${o.slug} are written in ${n(s.languages.length)} language${s.languages.length === 1 ? '' : 's'}.`
       : '',
@@ -2211,19 +2394,25 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         const key = full ? keyFor(m, full, o.views, o.slotsFor(m, full)) : null
         const extra = pendingItems(pending, m)
         const setting = settingOf(m, o.views)
-        const named = `${MODE_LABEL[m]}${setting ? `, ${setting}` : ''}.`
-        // A deck says what width and colour are once, on its title slide, and numbers no figures:
-        // nobody cites a slide by figure number.
+        // **A caption carries the setting, or it carries nothing.** Under a page titled
+        // Predictability it read `Figure 9. Predictability.`, which is the title again in
+        // smaller type; where a lens has a setting — Age by newest line, Complexity for its
+        // size — that is a fact about the figure the title does not hold. What width and color
+        // are is said once, in the methodology: printed under all thirteen figures it was the
+        // most repeated sentence in the report.
+        //
+        // A deck numbers no figures — nobody cites a slide by figure number — so a slide with
+        // no setting to state gets no caption at all.
+        const named = setting ? `${MODE_LABEL[m]}, ${setting}.` : ''
         const caption = setLines(
           sheet.c,
           deck
-            ? [{ text: named, muted: true }]
-            : [
-                { text: `Figure ${i + 1}. `, bold: true },
-                // What width and color are is said once, in the methodology: printed under all
-                // thirteen figures, it was the most repeated sentence in the report.
-                { text: named, muted: true },
-              ],
+            ? named
+              ? [{ text: named }]
+              : []
+            : named
+              ? [{ text: `Figure ${i + 1}. `, bold: true }, { text: named }]
+              : [{ text: `Figure ${i + 1}.`, bold: true }],
           width,
           7.5,
         )
@@ -2402,8 +2591,14 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const keyTopOf = (h: Head) => sheet.bottom - h.caption.length * lead(7.5) - 6 * U - h.keyH
       const regionOf = (h: Head): Region[] => [{ x: textX, top: HEADER_BOTTOM, bottom: keyTopOf(h) - 14 * U }]
       const deckVars = lensVars(o, vars.readerClause)
-      const facts = new Map(heads.map((h) => [h.m, lensFact(h.m, ctxOf(h.m))]))
-      const wordsOf = (m: ColorMode) => proseBlocks(deckProse(m, facts.get(m) ?? ''), deckVars)
+      const facts = new Map(
+        heads.map((h) => {
+          const story = lensStory(h.m, ctxOf(h.m))
+          const one = lensFact(h.m, ctxOf(h.m))
+          return [h.m, story.length ? story : one ? [one] : []]
+        }),
+      )
+      const wordsOf = (m: ColorMode) => proseBlocks(deckProse(m, facts.get(m) ?? []), deckVars)
       const fits = (b: Block[], h: Head, size: number) =>
         pour(flow(sheet.c, b, textW, size), () => regionOf(h)).length === 1
       let size = DECK_TEXT.max
@@ -2451,8 +2646,8 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     const placeName = (s: Section) => (s.root === '' ? o.slug : s.root)
 
     // One group at the repo root would draw the same map twice where the groups get maps of their
-    // own; a brief draws none, so there the overview is the only map and it stays.
-    const showOverview = list.length > 0 && (o.form === 'brief' || !(sections.length === 1 && sections[0].root === ''))
+    // own; a brief and a deck draw none, so there the overview is the only map and it stays.
+    const showOverview = list.length > 0 && (o.form !== 'report' || !(sections.length === 1 && sections[0].root === ''))
     const beside = deck && showOverview
     const sumLeft = beside ? textLeft : sheet.left
     const summary = setLines(sheet.c, findingSummary(items.length, o.groups), sheet.right - sumLeft, 9)
@@ -2514,8 +2709,12 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     }
     // **Balanced across the pages it needs**, for the reason a deck's entries are: filled greedily,
     // sanity's deck gave its last overview slide a single row.
+    // **A deck's findings are one slide.** The grid is a list to read down, which is what a paper
+    // is for; a deck that paginated it gave ceph twenty-one group slides and four of grid, and
+    // came out longer than the report it summarizes. The slide keeps the map, the count and the
+    // letters — what a room can take in — and the brief or the report carries the rest.
     let gridPages: GridRow[][] = []
-    if (list.length) {
+    if (list.length && !deck) {
       const count = pageGrid(Infinity).length
       let lo = grid.bandH + grid.rowH
       let hi = Math.max(firstRoom, nextRoom)
@@ -2528,8 +2727,9 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
     }
     const ovPages = Math.max(1, gridPages.length)
 
-    // A brief's findings end at the overview; the report and the deck give each group its own map.
-    const drawn = o.form === 'brief' ? [] : sections
+    // A brief's and a deck's findings end at the overview; only the report gives each group its
+    // own map and its entries.
+    const drawn = o.form === 'report' ? sections : []
     const GS = deck ? dSide : sheet.width
     const gCaptionH = deck ? DECK_CAP_H : 4 * lead(7.5) + 8 * U
     const groupFig = drawn.map(() => ++figure)
@@ -2576,7 +2776,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         gSides[i] = side
         return [parts.map((p): PartSlot => ({ e: p.e, k: p.k, cont: false }))]
       }
-      return [[], ...paginate(wholeEntries(next), next, next)]
+      return [[], ...paginateEven(wholeEntries(next), next, next)]
     })
 
     // ── Lay out: the appendix, each lens's instrument in full where its essay moved it there
@@ -2591,7 +2791,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         ]
       : []
     const appendixPages: Slice[][] = appendixBlocks.length
-      ? pour(flow(sheet.c, appendixBlocks, colW, BODY), (p) => twoCols(p === 0 ? HEADER_BOTTOM : CONTINUED_TOP))
+      ? pourEven(flow(sheet.c, appendixBlocks, colW, BODY), (p) => twoCols(p === 0 ? HEADER_BOTTOM : CONTINUED_TOP))
       : []
 
     // ── Number every page.
@@ -2663,7 +2863,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       for (let p = 0; p < plan.pages.length; p++) {
         page(start + p)
         if (p === 0) {
-          if (deck) sheet.header(family, MODE_LABEL[plan.m], false, { width: plan.keyW, stamp: false })
+          if (deck) sheet.header(family, MODE_LABEL[plan.m], false, { width: plan.keyW })
           else sheet.header(family, MODE_LABEL[plan.m])
           drawMap(sheet, fig, plan.figX, plan.figY, plan.figSide)
           let y = plan.capTop
@@ -2677,7 +2877,7 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
         }
         drawSlices(sheet, plan.pages[p].slices)
         for (const t of plan.pages[p].tables) drawTable(sheet, t)
-        sheet.footer(start + p + 1, total, deck)
+        sheet.footer(start + p + 1, total)
         await put(start + p, p === 0 ? MODE_LABEL[plan.m] : undefined)
       }
     }
@@ -2713,9 +2913,11 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       const unplaced = ovSpots.filter((sp) => sp === null).length
       const n = sections.length
       const where =
-        o.form === 'brief'
-          ? `Letters mark the ${n} place${n === 1 ? '' : 's'} the findings are grouped by, which the grid lists.`
-          : `Letters mark the ${n} group${n === 1 ? '' : 's'} the findings are presented in, each on its own map zoomed to that region.`
+        o.form === 'report'
+          ? `Letters mark the ${n} group${n === 1 ? '' : 's'} the findings are presented in, each on its own map zoomed to that region.`
+          : o.form === 'brief'
+            ? `Letters mark the ${n} place${n === 1 ? '' : 's'} the findings are grouped by, which the grid lists.`
+            : `Letters mark the ${n} place${n === 1 ? '' : 's'} the findings are grouped by; the brief and the report list them.`
       const text = `Every wedge holding a finding is shaded; the rest of the repository is gray. ${where}${unplaced ? ` ${unplaced} could not be placed at this size.` : ''}`
       const lines = setLines(
         sheet.c,
@@ -2760,6 +2962,32 @@ export async function buildReport(o: Report): Promise<Uint8Array> {
       if (rows.length) {
         y = drawGridHead(sheet, grid, y, sumLeft)
         for (const r of rows) y = drawGridRow(sheet, grid, r, y, placeName, sumLeft)
+      } else if (deck && showOverview) {
+        // **A deck names the letters its map is marked with.** The grid belongs to the brief and
+        // the report; what a room needs beside the badges is which place each letter is, and how
+        // much is there. Cut where the column runs out, and the remainder is counted rather than
+        // dropped in silence.
+        const room = colBottom - 8 * U
+        for (let i = 0; i < sections.length; i++) {
+          const sec = sections[i]
+          const line = setLines(
+            sheet.c,
+            [
+              { text: `${sec.letter}  `, bold: true },
+              { text: placeName(sec), mono: true },
+              { text: `  (${sec.entries.length})`, muted: true },
+            ],
+            sheet.right - sumLeft,
+            9,
+          )[0]
+          const left = sections.length - i
+          if (y + lead(9) > room && left > 0) {
+            sheet.text(`and ${left} more`, sumLeft, y + lead(9) * 0.74, { size: 9, color: inks.muted })
+            break
+          }
+          if (line) drawLine(sheet.c, line, sumLeft, y + lead(9) * 0.74, 9, inks)
+          y += lead(9)
+        }
       }
       sheet.footer(findingsStart + p + 1, total)
       await put(findingsStart + p, p === 0 ? 'Findings' : undefined)
@@ -2905,19 +3133,27 @@ function contents(
   let y = HEADER_BOTTOM + 10 * U
   const size = 11
 
-  const row = (label: string, page: string, o2: { indent?: number; mono?: boolean; muted?: boolean } = {}) => {
-    const x = sheet.left + (o2.indent ?? 0)
+  /** `left`, `right` and `at` set the row in a column of its own — see the group list, which
+   *  runs in two. Left out, it spans the page at the running `y`, as every other row does. */
+  const row = (
+    label: string,
+    page: string,
+    o2: { indent?: number; mono?: boolean; muted?: boolean; left?: number; right?: number; at?: number } = {},
+  ) => {
+    const x = (o2.left ?? sheet.left) + (o2.indent ?? 0)
+    const right = o2.right ?? sheet.right
+    const top = o2.at ?? y
     const pw = sheet.measure(page, size)
-    const t = fitText(sheet, label, size, sheet.right - x - pw - 24 * U, { mono: o2.mono, floor: 8 })
-    sheet.text(t.text, x, y, { size: t.size, mono: o2.mono, color: o2.muted ? inks.muted : inks.fg })
+    const t = fitText(sheet, label, size, right - x - pw - 24 * U, { mono: o2.mono, floor: 8 })
+    sheet.text(t.text, x, top, { size: t.size, mono: o2.mono, color: o2.muted ? inks.muted : inks.fg })
     if (page) {
       c.fillStyle = inks.border
-      for (let dx = x + sheet.measure(t.text, t.size, false, o2.mono) + 8 * U; dx < sheet.right - pw - 8 * U; dx += 4 * U) {
-        c.fillRect(dx, y - 1.5 * U, 1 * U, 1 * U)
+      for (let dx = x + sheet.measure(t.text, t.size, false, o2.mono) + 8 * U; dx < right - pw - 8 * U; dx += 4 * U) {
+        c.fillRect(dx, top - 1.5 * U, 1 * U, 1 * U)
       }
-      sheet.text(page, sheet.right, y, { size })
+      sheet.text(page, right, top, { size })
       // The row is a link to what it names.
-      sheet.link(x, y - size * U, sheet.right, y + 4 * U, Number(page) - 1)
+      sheet.link(x, top - size * U, right, top + 4 * U, Number(page) - 1)
     }
   }
   const eyebrow = (text: string) => {
@@ -2966,17 +3202,38 @@ function contents(
     String(findingsStart + 1),
   )
   y += 17 * U
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i]
-    if (y + 32 * U > sheet.bottom && sections.length - i > 1) {
-      sheet.text(`and ${sections.length - i} more groups`, sheet.left + 20 * U, y, { size: 9, color: inks.muted })
-      break
+  {
+    // **The groups run in two columns where one will not hold them.** ceph has twenty-one, the
+    // page held fourteen, and the other seven — each with pages of its own — were named nowhere
+    // on the one page a reader uses to find anything. Two columns hold twice as many; past that
+    // the tail is counted rather than dropped in silence.
+    const rowH = 16 * U
+    const fits = Math.max(1, Math.floor((sheet.bottom - y - (appendix !== null ? 46 * U : 6 * U)) / rowH))
+    const two = sections.length > fits
+    const perCol = two ? Math.min(fits, Math.ceil(sections.length / 2)) : sections.length
+    const shown = Math.min(sections.length, two ? perCol * 2 : perCol)
+    // A gutter wide enough that a left column's page number and the next column's letter are two
+    // things: at 14pt they touched, and `31` beside `M` read as `31M`.
+    const gutter = 28 * U
+    const colW = (sheet.width - gutter) / 2
+    const top = y
+    for (let i = 0; i < shown; i++) {
+      const sec = sections[i]
+      const second = two && i >= perCol
+      row(`${sec.letter}  ${placeName(sec)}  (${sec.entries.length})`, String((groupStart.get(sec.letter) ?? 0) + 1), {
+        indent: second ? 0 : 20 * U,
+        mono: true,
+        left: second ? sheet.left + colW + gutter : sheet.left,
+        right: two ? (second ? sheet.right : sheet.left + colW) : sheet.right,
+        at: top + (second ? i - perCol : i) * rowH,
+      })
     }
-    row(`${sec.letter}  ${placeName(sec)}  (${sec.entries.length})`, String((groupStart.get(sec.letter) ?? 0) + 1), {
-      indent: 20 * U,
-      mono: true,
-    })
-    y += 16 * U
+    y = top + Math.min(shown, perCol) * rowH
+    const rest = sections.length - shown
+    if (rest > 0) {
+      sheet.text(`and ${rest} more group${rest === 1 ? '' : 's'}`, sheet.left + 20 * U, y, { size: 9, color: inks.muted })
+      y += rowH
+    }
   }
   if (appendix !== null) {
     y += 10 * U

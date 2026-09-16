@@ -714,8 +714,8 @@ pub fn init(path: &str, harness: Option<&str>, model: Option<&str>, show: bool) 
         let default = h.models().into_iter().find(|m| m.default).map(|m| m.id);
         if !choices.is_empty() {
             println!();
-            println!("Which model reads is the measurement — a smaller one is surprised by");
-            println!("more, and readings taken by two models are one map on two scales.");
+            println!("Which model reads is the measurement — a smaller one predicts less,");
+            println!("and readings taken by two models are one map on two scales.");
             if let Some(m) =
                 choose("Which model? (return for the default)", &choices, default.as_deref())
             {
@@ -930,7 +930,7 @@ pub fn check(
             "No model named, so {harness}'s own default reads. Which model reads IS the"
         ));
         banner.push(
-            "measurement — a smaller one is surprised by more — and mixing them within one"
+            "measurement — a smaller one predicts less — and mixing them within one"
                 .to_string(),
         );
         banner.push("repo gives you a map on two scales. Pass --model to decide.".to_string());

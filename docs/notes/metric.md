@@ -6,6 +6,13 @@ The sunburst is not the product; anyone can draw a treemap of LOC and several pe
 have. What makes this worth building is the second encoding: **boilerplate is code a
 model can predict from its context.** Everything below defends that.
 
+- **The lens is Predictability, and it shows what a reading records.** A reading is a
+  prediction grade — `predicted: full · most · some · none` — and that is the word on screen,
+  in the key, the panel, the report and the findings. `surprise` is the internal number the grade
+  becomes (`Grade::surprise`, `GRADE_SURPRISE`), and it stays internal: a tab called Surprise over
+  grades that say how much was predicted read `none` as "no surprise" when it meant the opposite.
+  The rule grammar's `surprise` field is the one place the number is still spelled out, because
+  stored catalogs name it.
 - **Temperature IS surprise.** It used to be `surprise × (1 − explained)`, and that
   double-counted: documentation now reaches the *instrument* — the comment stack is in
   the model's prompt, and an agent is handed the docs before it predicts — so a doc that

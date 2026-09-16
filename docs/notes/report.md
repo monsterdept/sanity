@@ -22,23 +22,25 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
     and no tables.
   - **Deck:** 16:9 slides (960 × 540 pt). A lens slide sets its words on the left and its map on
     the right, rising past a head that spans only the text column, so the map takes the slide's
-    height from margin to margin and the commit stamp moves to the footer. A title slide, a slide per lens, the
-    findings overview, and a slide per group of findings. **The map is the full height of every
+    height from margin to margin and the commit stamp moves to the footer. A title slide, a slide per lens, and one
+    findings slide. **A deck is the lenses**: what each one measures and what it says here. Giving
+    every group of findings its own slide made ceph's deck 72 slides against a 67-page report —
+    longer than the paper it summarizes — and a findings grid is a list to read down, which is what
+    the brief and the report are for. The one findings slide keeps the map, the count and the
+    letters; it carries no grid. **The map is the full height of every
     slide's body**, on the left; the words go beside it, and the key and caption go to the foot of
     that column rather than under the map, where they shortened it. The first deck set two whole
     essay sections at slide size, which made the words the larger half of every slide. The first
     sentence of each came next and made teasers ("Three states are drawn."), so each essay carries
-    two lines written for a slide (`Essay.deck`), and a slide adds one fact about this repository
-    off Table 1's buckets (`lensFact`). A deck numbers no figures and says what width and colour
+    two lines written for a slide (`Essay.deck`), and a slide carries the lens's Results — the same
+    sentences the report prints (`lensStory`), as many as the slide holds, since one fact left the
+    column half empty. A deck numbers no figures and says what width and colour
     are once, on its title slide, which also names the lens its own map is in (`heroLens`). The title slide has the whole repository's map
-    beside its name, since a name and an abstract alone left most of it blank. A findings slide
-    that carries on draws its map again, so the list is never beside nothing; its badges for
-    entries on other slides are drawn quiet, so the repeated map points at what is beside it. A
-    group's entries are balanced across the slides it needs, not filled greedily, which ran six
-    findings 3 / 2 / 1 — and whole findings, unless one is taller than a slide, since balancing by
-    rule ran one finding over two slides beside a half-empty one. The overview's grid is balanced
-    the same way on every form, whole groups where a page can hold them, and a deck's overview
-    quiets the letters of groups on other slides.
+    beside its name, since a name and an abstract alone left most of it blank. A report's group entries are balanced
+    across the pages they need rather than filled greedily, which ran six findings 3 / 2 / 1 and
+    left a page holding one; whole findings, unless one is taller than a page, since balancing by
+    rule ran one finding over two pages beside a half-empty one. The overview's grid is balanced
+    the same way wherever it is drawn, whole groups where a page can hold them.
   - **A report and a brief are US Letter, and there is no A4.** There was a switch. Every
     choice about what gives way below was tuned on one sheet, and A4 is 17pt narrower and 50pt
     taller, so two sizes meant every layout checked twice or one shipped unchecked. Letter

@@ -252,7 +252,7 @@ export function WedgeTip({
           They shared a line, on the argument that "46 lines" is a two-word fact that does
           not deserve one — true, and it cost the half that does. The reading is the only
           thing on this card that changes with the lens, and it is the half that has to
-          EXPLAIN itself: `50% undescribed` and `12% surprising` are sentences, and sharing
+          EXPLAIN itself: `50% undescribed` and `12% unpredicted` are sentences, and sharing
           a row with a size that never shrinks left them elided to `50% und…`. A number
           nobody can read the units of is worse than one more line on the card. */}
       {!saysNothing(n, mode) && (
