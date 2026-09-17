@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-925 of 925 read · 183 unpredicted
+1120 of 1125 read · 261 unpredicted · 6 stale
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -335,11 +335,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file_doc explains why determinism matters for the replay-check harness but the per-function doc is just a one-liner restating that; the actual algorithm (mulberry32) isn't named anywhere.
 
 ### `synth` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `6efa815db5f8` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Using a seeded PRNG, builds a synthetic commit history with the given number of files, functions, and commits, deliberately including rare edge cases (a deletion that empties a directory, a reading later withdrawn) rather than leaving them to chance. Each commit mutates the fake repo state (adding/removing/rewriting functions, adding/removing readings) and the function returns a Fake object bundling the full sequence of commits/states for later replay comparison.
-- found: Builds a synthetic repo history (paths/langs/excluded files, a function table with varied kinds, and a sequence of commit Deltas) using a seeded PRNG, with a live-function tracker (swap-remove array) so deletions/edits/cognitive-complexity scores/readings are only ever applied to functions that currently exist. Deliberately engineers edge cases (zero-line functions, zero scores, zero readings, commits spaced closer than the checkpoint interval, occasional long gaps, a tenth of files excluded) to stress the checkpoint/replay fold logic, then packages everything into a Fake with hist tables and a minimal Deltas-like store.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
-- note: Pre-reveal docs described the module's overall testing purpose well but gave no hint of the specific generator mechanics (live-set swap-remove, deliberate zero-value edge cases, checkpoint-interval-relative spacing).
+- spec 3 · read at `5e325a145848` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:35:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Generates a deterministic synthetic repo history (using a seeded RNG) with the given number of files, functions, and commits, producing a `Fake` timeline object. It deliberately injects the rare edge cases called out in the docs — functions being added/rewritten/deleted, files emptying and refilling, readings landing and later being withdrawn — rather than relying on randomness to produce them, so the replay/checkpoint fold logic can be exercised against known tricky transitions.
+- found: Builds a deterministic synthetic repo (seeded RNG) with files/functions/commits, tracking a live-function set via swap-remove for O(1) random pick, and per-commit deltas (set/del/read/unread/cog) that deliberately hit edge cases: zero-line functions, zero complexity scores vs unscored languages, zero readings vs unread, excluded files, checkpoint-spanning time gaps, and pre-window base state (baseCog, baseRead) plus tangleBands medians — returning a Tables+Deltas pair (`Fake`) for exercising the fold/checkpoint replay logic.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: The generator is dense with intentional adversarial edge cases (zero vs absent, excluded files, commit spacing vs CHECKPOINT_EVERY) that are only explained by inline comments, not the signature or file doc.
 
 ### `chill`
 - spec 3 · read at `04803dc11868` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:36:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -638,154 +638,19 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/App.tsx
 
-### the file itself — PREDICTED SOME
-- spec 3 · served in 7 parts · read at `3ac2d06b94df` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Root React component file for the sanity desktop app's frontend: wires together project/scan state and progress tracking into the main UI, bundles supporting subcomponents (progress bar/strip/pane, find button, history toggle, empty/unscanned placeholders), a cluster of pure equality-check helpers (sameRanks, sameNodes, sameRun, sameIds, sameProgress, sameCost, sameProjects) for memoizing expensive re-renders, small tree utilities (findById, parentOf), and a "trace" feature (traceSig, chaseTrace) for following code relationships. Organically-grown monolith with no real file-level doc.
-- found: The root React component for the sanity desktop app. It owns nearly all application state: which project is shown (following an agent's focus or a sidebar click), the live scan tree with streamed function rings and agent readings grafted in on timers, an assembling-map view drawn from streaming scan-shape events during a first parse, a full git-history replay subsystem (timeline tables, deltas, scrubbing, movie export, per-frame tree building), a trace/replay chain runner (chaseTrace) that walks commit log then blame then full replay as one button press, color-lens state and per-lens sub-readings (age/blame/tangle/derivable/churn), keyboard shortcuts, findings/rules panel data and CRUD, a report-PDF export path, CLI-install flow, and several dialogs (big-folder, big-history, cli-link, read). It also defines a cluster of supporting subcomponents (progress bar/strip/pane, find/history buttons, empty/unscanned placeholder states) and pure equality-check helpers used throughout to avoid needless re-renders of an expensive sunburst visualization.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
-- note: This file's docs/comments are the real design record — nearly every piece of state has a multi-paragraph comment explaining a bug it was written to fix, so treating it as undocumented understates how well future editors are served, even though there's no top-level file header.
+### the file itself
+- spec 3 · read at `77ed574ef5db` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:25:01Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Top-level React component for the desktop app's UI — a single large App component (638 lines, no other exports) that owns most of the application state (selected node, drill-in stack, current view/tab, scan progress) and orchestrates fetching data from the Tauri backend, rendering the sunburst visualization, side panels, and report views. No file-level docs, suggesting it's glue code rather than a documented module with one clear responsibility.
+- found: Single default-exported App component composing ~15 custom hooks (useProjects, useHistory, useLens*, useNavigation, useReport, etc.) to own nearly all app state, then renders the shell: sidebar, top lens bar, sunburst MapPane, detail/commit-log panel, find/findings overlays, code overlay, and various dialogs.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: Despite being 'glue', it's heavily annotated with dense inline comments explaining non-obvious state-management rationale (identity vs value changes, why splash waits on `booted`, why locked lenses still paint) — closer to a designed component than throwaway wiring.
 
-### `noop`
-- spec 3 · read at `f8812f446328` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A trivial one-line no-op arrow function, `() => {}`, used as a placeholder callback for handlers the assembling map doesn't need.
-- found: const noop = () => {} — a trivial no-op function.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `useSteady`
-- spec 3 · read at `3e7f0952511a` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:48:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A React hook that keeps a useRef of the previous value; on each render it compares `next` to the stored previous value via `same`, and if they're considered equal it returns the old object reference (for referential stability) instead of the new one, updating the ref only when `same` returns false. Done synchronously during render, not in an effect.
-- found: Keeps a useRef holding the last accepted value; if next is a different reference and same() says they differ, updates the ref, otherwise keeps the old reference. Returns held.current always, done during render.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `sameRanks`
-- spec 3 · read at `ea2c5b7ce527` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:48:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Compares two optional Map<string, number> objects for equality — returns true if both are undefined, false if only one is, then compares sizes and iterates entries of one map checking that each key exists in the other with the same value.
-- found: Deep-equality check for two optional Map<string,number>: undefined handling via reference equality, size check, then per-key value comparison.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: The doc shown belongs to a different function (chaseTrace/trace pill), not sameRanks itself.
-
-### `sameNodes`
-- spec 3 · read at `298e158f98fb` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:49:15Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Compares two arrays of Node for equality: same length and same node at each index, likely by reference equality (===) rather than by id, since a separate `sameIds` helper exists for id-based comparison. Returns false as soon as a mismatch is found, true if all match.
-- found: Returns true iff both arrays have equal length and every element at the same index is reference-equal (===).
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
-
-### `sameRun`
-- spec 3 · read at `e1ca8c8b054c` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Compares two run objects field-by-field (handling null/undefined for "no run"), checking things like id/phase and, importantly, the `assessed` count and `live` reader count that a naive comparison previously missed — since a reference-equality or partial check let a finished run's ended state go undetected. Returns true only if every displayed field matches.
-- found: Null-safe field-by-field equality check over a run's running/stopping/live/spawned/finished/failed/readers/ended fields, used because the poll always allocates fresh objects so reference equality would never see a match.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I guessed an `assessed` field that doesn't exist here — the real fields are spawned/finished/failed/readers/ended, though the general shape (field-by-field, null handling, include live) was right.
-
-### `sameIds`
-- spec 3 · read at `49a9ecc223ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:49Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: `sameIds` treats undefined as an empty array, then compares two id arrays for equality — same length and same id at each index, in order (not set equality).
-- found: Defaults both args to empty array, then checks equal length and every element equal at the same index, in order.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `sameProgress`
-- spec 3 · read at `512fdb72dd5c` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:54Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Compares two optional/nullable Progress values for equality. Returns true if both are null/undefined, false if exactly one is null/undefined (since that transition matters per the docs), and otherwise compares the relevant fields of the two Progress objects (e.g. phase, done, total) for equality, likely via a small set of field checks rather than a deep generic walk.
-- found: Returns !a && !b if either is nullish (so exactly one being null is false, both null is true), otherwise compares done, total, phase, and unit fields for equality.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `traceSig`
-- spec 3 · read at `893b4da71b18` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:01:45Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a compact string fingerprint of the project's trace progress, concatenating a few relevant fields (phase/step and some count or depth) so callers can compare "did this step make progress" via simple string equality instead of deep-comparing the whole ProjectSummary.
-- found: Concatenates trace_depth, resolved/resolvable, and replayed/commits into a template string fingerprint.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `sameCost`
-- spec 3 · read at `69ae18f100f1` · commit `4bf0da1` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-26T21:00:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Shallow equality check between two optional cost objects — returns true if both are null/undefined, false if only one is, and otherwise compares seconds, cold, and fits field by field. Used to avoid unnecessary re-renders since the objects are freshly allocated on every poll.
-- found: Shallow-compares two optional cost objects for the common fields (seconds, cold, fits), then also structurally compares extra fields (commits, files) that only exist on one of the two cost-shape variants (trace cost vs scan cost), without naming which type is which.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `sameProjects`
-- spec 3 · read at `a6e30c66724a` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Compares two ProjectSummary arrays for equality to decide whether to trigger a re-render. First checks length (and maybe order/ids), then for each pair of items walks all keys present on EITHER object (to handle fields added by a newer backend or absent from an older one), comparing each key's value — using a deep/structural comparison for keys listed in a DEEPLY set (things like nested arrays/objects) and a shallow Object.is-style comparison for everything else. Returns false as soon as any mismatch is found, true if everything matches.
-- found: Compares two ProjectSummary arrays element-by-element by index (after a length check), and for each pair unions the keys present on either object, comparing each key with a DEEPLY-registered comparator if one exists for that key, otherwise Object.is — short-circuiting to false on first mismatch.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `findById`
-- spec 3 · read at `61c678125e8e` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:43Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Recursive tree search: checks if node.id === id, otherwise recurses into node.children looking for a match, returning the found Node or null.
-- found: Recursive DFS over node.children matching on node.id, returns first match or null.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `parentOf`
-- spec 3 · read at `ed310d194236` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:46:27Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the tree from node, and for each node checks whether any of its direct children has id matching the target — if so, returns that node (the parent); otherwise recurses into each child looking for the same match, returning null if id is the root's own id or isn't found anywhere in the tree.
-- found: Recursively searches node's children for one whose id matches; if a direct child matches, returns node itself; otherwise recurses into each child. Returns null if not found.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `App` — LEGIBLE SOME
-- spec 3 · served in 6 parts · read at `f5a547ca0aca` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Root React component: initializes top-level state/hooks (progress, projects, trace state), defines handlers for user actions (find, trace, history toggle), and renders the full UI tree by composing the peer components. Likely contains most business logic inline given the file's size.
-- found: The root React component for a code-visualization app (sunburst maps of repos). It holds dozens of state slices for: the current scan/tree, streamed scan-shape and score batching, live progress highlighting, project list polling (with an "agent follows a project" inversion), reading/finding polling, a history/replay subsystem (timeline tables, deltas, frame-building, scrubbing), a trace-chaining state machine (log walk then replay, one-at-a-time per project via refs), lens/view state (color mode, caps, churn window, age/blame/tangle readings), keyboard shortcuts, and dialogs (big-folder, big-history, CLI install, code view). It renders the whole app shell: sidebar, top toolbar with lens controls, the sunburst/shape map, legend, history transport, detail panel, and various overlay dialogs.
-- predicted: most · documented: none · derivable: no · legible: some · trap: no
-
-### `useProgress`
-- spec 3 · read at `72304b16c0ca` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: `useProgress` is a hook that tracks a `Progress` object over time (via ref/state samples on each change), computing `pct` as a fraction (defaulting to `0`, never null) and computing `eta` in minutes only once it has accumulated enough samples to estimate a rate — returning `undefined`/omitting `eta` before then, since a tiny sample size makes the estimate swing wildly.
-- found: Keeps a ref marking {phase, done, at}, reset whenever phase changes; pct is done/total (0 if no total); eta is computed from progress moved since the mark divided by time watched, but only once moved>20 and watched>5s, else null.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `ProgressTrack`
-- spec 3 · read at `b842fdf090ff` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:58:09Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Renders the shared progress-bar track: a div with a fill bar whose width is set from pct when there's a real total, but falls back to an indeterminate "sweep" CSS animation (track-sweep class) when progress is null or has no total yet.
-- found: Track div with fill bar width set from pct (rounded percent) when progress is non-null; when progress is null, renders a track-sweep indeterminate animation instead — condition is on progress being present, not specifically on total.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `phaseLine`
-- spec 3 · read at `60b615989acb` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:11Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds a human-readable status string from a Progress object, e.g. "Scanning 67,511 / 111,029 files", selecting the current phase name and formatting the counts with thousands separators for six-digit readability.
-- found: Capitalizes the phase name (or 'Working' if none), returns just "Phase…" if total is 0, otherwise formats done/total with toLocaleString for thousands separators and appends the unit string if present.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `ProgressStrip`
-- spec 3 · read at `affc1b60debc` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Renders a small boxed overlay (styled like the caveat chip) containing the phaseLine(progress) text, positioned in a corner of the map so a still-running scan/blame pass stays visible even once the map itself looks visually complete.
-- found: Boxed strip showing phaseLine text, an embedded ProgressTrack bar, and an ETA in minutes (from useProgress) when available.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `ProgressPane`
-- spec 3 · read at `085bec7d8a15` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T20:57:45Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Centered, wider variant of the progress display for an empty pane: shows an optional label heading, phaseLine(progress) text, a ProgressTrack bar, and ETA, mirroring ProgressStrip's content but laid out for standalone full-pane display. Likely renders a simpler placeholder when progress is null.
-- found: Centered full-height/width flex column: phaseLine text or label/default fallback when progress is null, a ProgressTrack bar, and an ETA line when available — same shape as ProgressStrip but standalone-pane layout.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `Spacer`
-- spec 3 · read at `2686cfa44c32` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:52:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Renders a single flex-growing div (e.g. className="flex-1" or style={{flex:1}}) that also carries the Tauri drag-region attribute (data-tauri-drag-region) so this stretch of empty space in the toolbar remains draggable, matching the doc's explanation that it holds the drag attribute explicitly rather than inheriting it.
-- found: A span with data-tauri-drag-region, aria-hidden, and classes min-w-4 flex-1 self-stretch — stretched full-height so the drag handle isn't just a thin sliver.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `FindButton`
-- spec 3 · read at `ceaf4acd8029` · commit `74e9537` · read by claude-sonnet-5 · via claude · when 2026-09-03T06:57:18Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A small UI button/pill component that toggles a "Find" panel. It renders a clickable element showing active/inactive styling based on `on`, applies disabled styling/attributes when `disabled` is true (though per the doc comment, the disabled state blocks the keyboard shortcut but not necessarily this click), and calls `onOpen()` on click to open the find panel. Probably includes an icon and maybe a keyboard shortcut hint label.
-- found: Renders a circular magnifying-glass icon button styled via inline style based on `on` (active/accent vs neutral) and `disabled` (dimmed, default cursor), with title text explaining why it's disabled, calling onOpen on click. No actual toggle logic inside, just presentation.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `HistoryToggle`
-- spec 3 · read at `6393077a572e` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:51:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Renders a button/pill labeled "History" that calls onToggle() on click, styled active when `on` is true. When `traced` is false, it renders disabled/inert (no click handler or a muted style) since there's nothing to show and this control must never trigger the trace walk itself. `busy` likely also disables interaction while something else is in flight.
-- found: Renders a button toggling the History view; disabled only when entering (!on) and either busy or untraced — leaving (on) is always allowed regardless of busy/traced state. Shows a lock icon when locked-and-untraced-and-idle, dynamic title text explaining why it's disabled, and label switches to 'Tracing…' when busy.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `Unscanned`
-- spec 3 · read at `f765b9597ed4` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:31Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Renders the project pane's third state (no tree, nothing running): shows the project's name and path, a short explanation of why there's nothing to show, and a Scan button wired to onScan, including the scan-cost estimate when the project has one (the declined-for-cost case).
-- found: Renders the card exactly as predicted: project name/path, a message that branches on whether project.scan_cost exists (declined-with-estimate vs never-scanned), a Scan button calling onScan, and when a cost exists, a files→seconds estimate line matching the row's pill phrasing.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The file_doc field returned alongside this function's docs is actually about a different function (the trace pill / chaseTrace), not about Unscanned — the real matching prose was in the docs array.
-
-### `Empty` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `d7365b51445d` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:46Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Renders the app's empty state shown when no project has been added yet — some heading/explanatory copy plus a button that calls `onAdd` to open the add-project flow. Given its length (161 lines), it likely also supports drag-and-drop of a folder/repo onto the empty state, or shows a short list of recent/example projects.
-- found: Renders the empty-project card: a heading, explanatory copy, an "Add a repo" button calling onAdd, a detected-coding-agent status line (claude/codex via `harnesses()`), and a CLI-on-PATH status/install section (`cliStatus()`/`installCli()`) with states for already-linked, linked-but-shadowed, and a link-in-progress button.
+### `App` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `1214aa01f636` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:40Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Root React component for the whole app — a large hook-heavy component holding top-level state (current project, scan progress, selected node/wedge, findings/rules, theme, panels open), wiring up Tauri event listeners (scan-shape, scan-progress, open-project, export-report, set-theme, install-cli) via useEffect, and rendering the overall layout (sidebar/project list, map view, detail panels, dialogs) tying everything together.
+- found: A composition root: ~15 pieces of raw useState plus roughly 20 custom hooks (useProjects, useHistory, useReadingsPoll, useScanStream, useFindings, useNavigation, useRanks, useReport, etc.) supply all real behavior; App itself mostly threads their outputs into each other (e.g. computing `focus`/`tree`/`viewMode`) and renders the layout (SideBar, TopRow/LensBar, MapPane, Detail/CommitLog, various dialogs/overlays).
 - predicted: some · documented: none · derivable: no · legible: some · trap: no
-- note: The file_doc handed to me describes an unrelated `chaseTrace`/Trace-pill function, not `Empty`, so it graded as documented:none rather than being this function's fault.
+- note: Nearly every line is preceded by a substantial explanatory comment recording a past bug/regression (id-vs-node selection, locked-lens substitution, splash timing) — reading it means reading dozens of these micro design-history notes, not just the code shape.
 
 ## web/src/CodeWindow.tsx
 
@@ -807,6 +672,14 @@ What this is and how to add to it: [README.md](README.md)
 - spec 3 · read at `4071f864cc11` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:52:15Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: A React component that takes `repo` and `relPath` (parsed from the `?code=`/`?repo=` query params by its caller), looks up the corresponding file node from the already-loaded scan state via `fileByPath`, and renders that file's code view (source + annotations). It likely handles a loading/not-found state while the scan data isn't available yet in this separate window context.
 - found: Fetches the project list and its scan via IPC calls (not shared JS state), finds the file by path, and shows loading/error states while doing so. Also wires up theme watching (since it's a separate window), a draggable titlebar strip showing the path, and renders CodeView in a fixed 'surprise' lens mode since there's no map in this window to otherwise choose a lens.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+## web/src/components/BalanceSheet.tsx
+
+### `BalanceSheet`
+- spec 3 · read at `f6215856cd93` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:39Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A React component that fetches a proposed rule-threshold rebalancing for `projectKey` (via something like balanceRules), renders each proposed change pre-ticked with checkboxes and a preview of the resulting finding count, and on save calls `onApply` with the ticked [id, threshold] pairs; also offers a "back to stock" action calling `onStock` to discard this repo's rule overrides, and `onClose` to dismiss the panel.
+- found: Fetches a rebalancing proposal via balanceRules(projectKey, target) re-run whenever an editable "aim for N findings" target changes, shows a table of candidate threshold changes each pre-ticked with a checkbox and before/after hit counts, and on save calls onApply with the ticked [id, threshold] pairs; "back to stock" requires a two-step confirm before calling onStock.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ## web/src/components/Bloom.tsx
@@ -891,6 +764,21 @@ What this is and how to add to it: [README.md](README.md)
 - found: Renders a table of lines; tokenizes the whole code block at once via tokenizeAll (not per-line) to avoid misclassifying prose inside block comments; gutter shows startLine+i and marks are keyed by file line; when highlight is false, text wraps as prose instead of staying whitespace-pre; marked lines get bold, unmarked lines dim when any marks exist.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 - note: The extensive inline comments explain non-obvious design decisions (why tokenize the whole file, why marks dim unmarked lines) that aren't captured in the function-level doc.
+
+## web/src/components/CodeOverlay.tsx
+
+### the file itself
+- spec 3 · read at `f5a279fdf5b6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:46Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Small single-component file (59 lines) defining CodeOverlay, a React component rendering a floating panel that displays source code, likely shown when inspecting a wedge/finding, positioned absolutely over the map. No file-header doc despite the codebase's heavy documentation habit elsewhere.
+- found: A modal overlay (backdrop + centered, width-capped panel) wrapping CodeView to show a file's source over the map; click-outside or Escape closes it, and a pop-out button promotes it to a real window via openCodeWindow. The file itself has no header doc, but the single export does carry a short doc comment (not surfaced in the file-task's docs field, which only pulls file-level headers) explaining the modal-vs-window distinction.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+
+### `CodeOverlay`
+- spec 3 · read at `6a5c03da1971` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Modal component that displays the source of `codeNode` (reading from `repoPath`), closes on Escape or backdrop click by calling `setCodeFile(null)`, and has a "pop out" action promoting it into a real window. Uses `viewMode`/`authorRank`/`langRank` to color lines (e.g. by author or language) and `reveal`/`selected` to scroll to or highlight a specific line region. `setPicked` used to select something from within the code view.
+- found: It's a thin modal wrapper: renders a backdrop (click/Escape closes via setCodeFile(null)) and a capped-width panel containing a CodeView component, which does the actual rendering of code, selection, ranks-based coloring, and pop-out. The pop-out handler calls openCodeWindow(repoPath, codeNode.path) then closes the overlay.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The real logic (line coloring, selection, reveal) lives in CodeView, not here — this component only wires props through and handles the modal chrome/pop-out.
 
 ## web/src/components/CodeView.tsx
 
@@ -1030,19 +918,18 @@ What this is and how to add to it: [README.md](README.md)
 - note: Doc comment explains non-obvious history (trail is ancestry not drill-stack, past bug with single-link rendering) that couldn't be derived from the code alone.
 
 ### `Crumbs`
-- spec 2 · read at `9197413e9b46` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:43:00Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Renders the breadcrumb trail as a row of clickable spans, each calling onGo(index) on click, with the current (last) node rendered non-clickable or differently styled. A crumb name that contains slashes (a collapsed single-child chain) has its internal slashes dimmed, while the actual separators between distinct crumbs are the brighter mark. If onUp is provided, it renders an additional "up" affordance that calls it.
-- found: Renders each trail node as a button calling onGo(i), with the last node still clickable (recenters) but bold/foreground-colored instead of accent; internal slashes within a collapsed-chain name are dimmed (opacity-40) while true crumb separators are opacity-50; ends with an Up button disabled when onUp is absent.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I predicted the last crumb as non-clickable, but it's still a button — clicking it re-centers on the current node.
+- spec 3 · read at `ca2eaebe663d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:38:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Renders the breadcrumb trail as a row of clickable spans, one per node in trail, each calling onGo(index) on click, separated by a slash/separator; since a node's own name may already contain embedded slashes (a collapsed single-child chain), those internal slashes are rendered dimmed while the separators between actual crumbs stay a stronger visual weight, and if onUp is provided there's also an "up" affordance for going to the parent of the current node.
+- found: Renders each trail node as a button calling onGo(i), splitting the node's name on '/' to dim inner slashes from collapsed chains while keeping the separators between crumbs at full opacity; the last crumb is bold/non-link-styled but still clickable (re-centers), and an optional trailing "Up" button calls onUp when provided.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ## web/src/components/Detail.tsx
 
 ### the file itself — PREDICTED SOME
-- spec 3 · read at `b732dacc9e48` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This file defines the "Detail" panel component shown for a selected node — a summary view distinct from the deeper LensPane. `rank` and `measure` are small helpers for scoring/sizing items (e.g., ordering or measuring text for layout). `provenance`, `provenancePieces`, and `Provenance` build and render a human-readable description of where a node's grading/report came from (which reader, when, how many passes). `Contents` renders the main body of the detail panel (name, path, stats), and `DetailView` is the top-level exported component assembling Contents and Provenance into the full panel. No file doc header suggests this is treated as self-evident glue/presentation code rather than something needing an explained contract.
-- found: Defines the detail/sidebar panel for a selected node. `rank` and `measure` are per-color-mode helpers (churn/age/callers/reach/clones/surprise) driving how the `Contents` child list is sorted and what single number is shown beside each row, matching what the ring is currently colored by. `provenance`/`provenancePieces`/`Provenance` build the one-line "who/what produced this reading" footer, split into fixed vs. shrinkable pieces so it never wraps. `Contents` lists a container's children ordered by the active mode. `DetailView` (exported memoized as `Detail`) is the full panel: header with name/path breadcrumb/trap badge/counts, the `LensPane` reading section, `Contents`, and the `Provenance` footer — falling back to `Summary`/`Bloom` when nothing or nothing yet is selected.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- spec 3 · read at `8112fbe8156c` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:06Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the "Detail" side-panel React component shown when a function/file is selected in the map. It displays the selected item's contents and its provenance (a blame/history breakdown of authorship/origin across pieces of the code), using helper functions rank/measure/provenancePieces to compute ordering and layout for that breakdown, with Provenance and Contents as sub-components composed into the exported DetailView component.
+- found: The Detail side-panel component for the selected node in the map: when nothing is selected it shows a repo-wide Summary or idle Bloom pattern; for containers (dirs/files) it reuses Summary scoped to the node with a breadcrumb path and lens breakdown; for a selected function (leaf) it renders a header (name, trap badge, breadcrumb path, counts), a LensPane of per-mode reading sections, a Contents list of children ranked/measured according to the active color mode (rank/measure functions), and a pinned Provenance footer describing who/what produced the current reading (human-readable sentence built by provenance/provenancePieces, split into non-wrapping pieces).
+- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `rank` — PREDICTED SOME
 - spec 3 · read at `ab7551db78dd` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:39:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1102,6 +989,26 @@ What this is and how to add to it: [README.md](README.md)
 - found: SVG half-circle gauge: fixed 180° arc path, value clamped and drawn as a dasharray fraction of arc length, colored via heatColor(ramp, rampValue??value) or var(--accent)/var(--secondary) fallbacks. Unread suppresses the value arc and shows an em dash. Center text is word or rounded percentage, dynamically sized to shrink-fit longer words; label wraps below with tight tracking.
 - predicted: most · documented: full · derivable: no · legible: most · trap: no
 - note: Missed the shrink-to-fit font-size calc, the butt-vs-round strokeLinecap zero-value fix, and the label wrapping/tracking details — all called out via inline comments only visible after reveal.
+
+## web/src/components/EmptyPane.tsx
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `b05f7b979adf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:43Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: EmptyPane.tsx holds the placeholder views shown in the main pane when there's no map to draw — an Unscanned component (a project has been added but not scanned yet, with a prompt/button to start scanning) and an Empty component (no project selected at all), each rendering simple centered messaging/icon/CTA with no shared logic beyond layout.
+- found: Unscanned matches my prediction closely (project known but not scanned, with cost estimate and a scan button). Empty is much more than a placeholder though — it's the full first-run onboarding card: detects installed coding-agent harnesses (claude/codex), checks and offers to fix the sanity CLI's PATH linking, and offers add-repo/terminal alternatives, with real async state and stateful UI branches.
+- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `Unscanned`
+- spec 3 · read at `3eb112f14c88` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:22Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A React component rendering the project's name and path, a message explaining it has no scan (reset, declined for cost, or unmounted volume), a cost estimate shown when present (the declined case), and a button that calls onScan to trigger scanning it.
+- found: Renders the project's name and repo path, a message that differs depending on whether a scan_cost estimate exists (declined-for-cost vs never-scanned), a "Scan {name}" button calling onScan, and when a cost estimate exists, a line showing file count (or "size unknown") and estimated seconds.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `Empty` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `d5164ad09021` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:17Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Renders the first-run empty state: a single call-to-action ("add a repo, press Read") calling onAdd, with no headline/pitch. It checks a prerequisite — whether claude or codex is installed — likely via an async effect/state, and displays that check's result/status inline. MCP is mentioned only as a small secondary sentence near the bottom rather than as a setup step. No dismissal state is persisted since the screen only shows while there are zero projects.
+- found: Renders the first-run card: title, one paragraph, an 'Add a repo' button, and a checked-agent status line (which of claude/codex are installed, via a `harnesses()` effect). Also a demoted 'sanity check' terminal mention, and a substantial CLI-on-PATH section (via `cliStatus()`/`installCli()`) that shows whether the running `sanity` binary is this app, offers a button to link it onto PATH, and reports the outcome including cases where another build wins on PATH.
+- predicted: some · documented: full · derivable: no · legible: some · trap: no
 
 ## web/src/components/ExportDialog.tsx
 
@@ -1212,14 +1119,37 @@ What this is and how to add to it: [README.md](README.md)
 - found: A single-input search overlay that debounces (120ms) queries to a backend searchProject() call scoped to projectKey, guards against stale/out-of-order responses, and shows a scrollable hit list with keyboard navigation (arrows/Tab/Shift-Tab to move, Enter to pick, Escape to close). Selecting a hit calls onPick then onClose. Renders distinct informational states for replaying, no project open, short query, and no results, and truncates paths from the left (RTL) to preserve the distinguishing tail.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
+## web/src/components/FindingBadge.tsx
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `15333bebcc92` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React component file defining FindingBadge, a small colored badge that visually represents a security/code finding, likely styled by severity or category. It also exports a helper `sectorPath` which computes an SVG arc/sector path string, suggesting the badge renders as a radial/pie-chart-like icon segment rather than a plain rectangle, colored per severity level.
+- found: The file renders FindingBadge, an SVG "watch dial" placed in the hub of a map visualization: a rounded annulus-sector bar (via the sectorPath helper) at twelve o'clock showing a findings count in notify-red, and one at six o'clock showing a rules count in a muted plate color, each with a curved label ("found"/"rules") set on textPath arcs, plus invisible hit-areas for click-to-open-tab behavior. sectorPath itself is a general-purpose rounded annulus-sector path generator used both for the visible bars and the transparent hit regions.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: I predicted a severity-colored badge; it's actually a two-number radial dial (findings/rules) with curved text and click targets, not a severity indicator.
+
+### `sectorPath`
+- spec 3 · read at `0ef7cfb94dfd` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:21Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Computes an SVG path 'd' string for a rounded annular sector: using trig on cx/cy/a0/a1/r0/r1, offsets the four corners inward by radius k for rounding, then emits line segments and arc (A) commands tracing leading face out, outer arc, trailing face in, inner arc back, closing with Z.
+- found: Builds an SVG path for a rounded annular sector using polar-to-cartesian helpers; clamps the requested corner radius k to the room available (half thickness, half inner-arc span) and falls back to a sharp-cornered path when the clamped radius is ~0, otherwise emits a path with straight+arc segments rounding all four corners.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `FindingBadge` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `d60dee4adea2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:29Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: React component rendering an SVG watch-dial split into two halves around the hub's rim: top half shows `count` (findings), bottom half shows `rules`, drawn via sectorPath and sized proportionally to `box`/`layer`. Despite onFound/onRules props suggesting click handlers on the halves, the doc says pointer-events:none since the whole creature one level up owns the click — so likely onFound/onRules are invoked from elsewhere or the props are vestigial/passed through. Numbers rendered as text at 12 and 6 o'clock.
+- found: Renders an SVG dial: two curved bars (top=count via sectorPath, bottom=rules) each with a number set on a textPath arc and a small-caps label ("found"/"rules") beside it, with extensive trigonometric layout computing bar widths, word gaps, baselines and angular shifts so number+label read as one phrase per half. The whole SVG is pointer-events:none except two transparent hit-region <path> overlays (drawn with sectorPath, wider than the visible bars) that directly wire onClick to onFound/onRules with stopPropagation — so my hedge that these props might be vestigial/handled elsewhere was wrong, they are used directly here.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+
 ## web/src/components/Findings.tsx
 
-### the file itself
+### the file itself — STALE
 - spec 3 · served in 3 parts · read at `51ff197dc387` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:25:26Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: This file implements the Findings panel: the `Findings` component that lists/groups findings produced by the rule catalog (grouped into `sections`, with per-lens/per-field coloring via `lensColor`/`fieldColor`), plus `RuleForm` for authoring or editing a custom rule with draft state (`draftOf`/`blankDraft`, `fieldsFor` for which fields a rule can use). Supporting pure helpers format node addresses/paths (`address`, `dirOf`, `dirFor`, `fileOf`, `nameOf`, `trim`) and compute proportions (`share`, `spreadFor`) for the panel's display.
 - found: The Findings panel: a modal with three tabs (Findings/Ignored/Rules). Findings view merges per-subject findings into tiles with address, lens-colored rule attributions, rendered "says" sentences, and per-tile verdict buttons (flag/fine-for-now/fine-always/false-positive) that file Decisions with an optional typed reason, plus a footer reporting set-aside matches and blocked rules. Rules view lists/edits the rule catalog via RuleForm (with draft state, save/delete/reset against the backend, live hit counts and share-of-repo, and per-clause distribution stats), and Ignored view lists archived decisions with undo. Helpers format addresses/paths, lens colors, and computed shares/spreads used throughout.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
 - note: File has no header doc at all, which is itself notable given how heavily every individual function/component inside it is commented.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `trim`
 - spec 3 · read at `4921dbf891a5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1325,11 +1255,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Renders the full rule-editing form: title, a population selector (function/file) that drops clauses the new population can't answer, up to three field/op/value clauses built from the grammar with per-clause distribution stats (median/95th/max) shown beneath each, an impact/so-what field, an optional report-text template, a warning shown only when clause fields actually changed and pinned decisions exist, an error message, and save/cancel/reset(for built-ins)/delete(or turn-off) buttons.
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
 
-### `Findings` — LEGIBLE SOME
-- spec 3 · served in 2 parts · read at `0d97f011efc4` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:43:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Findings is the large panel component that renders two tabs - a findings list (one tile per flagged function, deduped across multiple triggering rules, with click-through via onPick) and a rules editor tab (using RuleForm, grammar, rules to create/edit/delete/reset custom rules via onSaveRule/onDeleteRule/onResetRule) - switching tabs based on the ask prop, showing a "can't show findings" message when replaying is true, using archive/onDecide/onUndecide to let the user accept/dismiss findings, and a footer noting rules that couldn't run or were ignored.
-- found: A three-view panel (findings / rules / ignored — ignored is reached from findings, not its own tab), findings tiles merge multiple triggering rules per subject with per-rule prose and four verdict buttons (flagged/fine-for-now/fine-always/false-positive) each opening an optional reason input, rules view lets you inline-edit via RuleForm with per-clause colored field pills and hit-share stats, plus a footer reporting set-aside matches and rules blocked from running.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `Findings` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · served in 2 parts · read at `6134e19d3fcf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:46Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Findings is the main panel component rendering the findings/rules drawer — it groups findings by rule (not by function) into one tile per issue, shows a footer stating which rules couldn't run or were ignored, and disables/replaces its content with a note when replaying is true since findings are a claim about HEAD. It also hosts a rules-editing tab (via RuleForm, sections, fieldsFor) letting the user save/delete/reset rules and apply balance thresholds, switching between the "findings" and "rules" views based on the ask prop, and wiring onPick/onDecide/onUndecide for per-finding actions against the archive.
+- found: A large panel component with three internal views (findings, ignored, rules) switched by a single view state and driven by the `ask` prop. The findings view merges findings per-subject into tiles with lens-colored rails/chips, per-rule sentences, a stale badge, a measured column for middle-truncated paths, and four verdict buttons (flag/fine-for-now/fine-always/false-positive) that open an optional reason input and fire onDecide/onUndecide for every rule that raised the tile; a footer reports ignored-match counts and rules that couldn't run. The rules view lists editable rule cards (opening RuleForm on click) plus an add-rule button and a BalanceSheet toggle, wired to onSaveRule/onDeleteRule/onResetRule/onApplyBalance/onStock with busy/error state, while the ignored view lists archived non-flag decisions with an undo action.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
 ## web/src/components/HistoryBar.tsx
 
@@ -1647,70 +1577,23 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/MapArt.tsx
 
-### the file itself — PREDICTED NONE — LEGIBLE NONE
-- spec 3 · served in 4 parts · read at `c73c9261ac3c` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:01:49Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Defines a React component (MapArt) that renders a stylized/artistic SVG map visualization plotting geographic "spots" (points of interest or activity data) with heat-based styling. Supporting helpers build a data model from raw input (buildModel, useMapModel, mapModel, inputOf), compute viewport/projection/scale (viewOf, restView, restFrame, unitsPerPxFor), derive per-spot styling and lookups (heatShare, spotsOf, lookupOf), and assemble the final SVG element/props (svgPropsOf, mapScene, MapSvg) that MapArt renders. `once` is a memoization utility. No file header doc despite being a large (1790-line) file.
-- found: MapArt.tsx is not a geographic map at all — "Map" refers to a sunburst-style visualization of a code repository's structure. It renders concentric rings for directories, files, and functions (colored by a metric like surprise/age/churn/language/traps/clones), with functions tiled inside their file's wedge rather than as a further ring, animated transitions between drill levels, a hub with nested circles summarizing dominant colors, rim bands showing per-directory distributions, dot markers for traps/clones, and selection/hover highlighting via a dimming veil. buildModel/useMapModel/mapModel compute all layout/color derivations once (shared between a live React component and a static server-rendered report via `once` vs `useMemo`); MapArt and mapScene are the two entry points (component vs data+props for SSR), and MapSvg is the actual SVG renderer used by both live and static paths, plus by the parent Sunburst component during animated transitions.
-- predicted: none · documented: most · derivable: no · legible: none · trap: no
-- note: The name "Map" in this codebase means a repo-structure sunburst chart, not geography — a name-based guess without reading is actively misleading here; the file's own header comment does explain this well once you read it, but nothing in the peer list or signature (all file-task fields) hints at it.
+### the file itself — PREDICTED NONE
+- spec 3 · read at `9175ff293aaa` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file renders a decorative/artistic SVG "map" visualization — likely a hub-and-spoke or constellation-style rendering used somewhere as background or landing art in the app, translating some data (maybe repo/project structure) into visual "spots" arranged around one or more "hubs". `mapScene` probably assembles the overall layout/data, `spotsOf` computes the individual point positions, `Hub` is a sub-component or type for the central node, `svgPropsOf` derives SVG element props (position, size, styling) for a spot, `lookupOf`/`inputOf` build lookup maps or derive input data from source state, `restView` handles the remaining/background view, and `MapSvg` and `MapArt` are the exported React components that actually render the SVG, with `MapArt` being the top-level wrapper.
+- found: This is the core sunburst visualization of the repo map (rings for directories/files, tiled patches for functions, a hub disc to zoom out), not decorative art as I guessed. `MapSvg` is the shared markup drawn both by the live interactive window (Sunburst) and by static server-side report rendering; `MapArt` is `MapSvg` at rest (no animation, no pointer state), and `mapScene` computes the same layout/props for use outside a React tree (e.g. `mapMarkup` via react-dom/server). `spotsOf` walks the same wedge/tile layout to produce a map of node id to drawn arc ("Spot"), used to tag static markup with per-node paths.
+- predicted: none · documented: none · derivable: no · legible: not judged · trap: no
 
-### `heatShare`
-- spec 3 · read at `735127f33e96` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:29Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Returns the damping factor applied to a directory's color intensity for its ring — full weight (1) in most color modes (churn, age, language, author) since those are legitimate aggregates, but a reduced/damped value specifically when mode is Surprise and kind is a directory, because the doc explains that damping only makes sense for the "hot share" aggregate, not the other modes.
-- found: In surprise mode, looks up a per-kind damping factor from HEAT_BY_KIND (defaulting to 1 for unlisted kinds); in every other color mode it always returns 1 (no damping) — matching the doc's point that damping is specific to the surprise/hot-share aggregate.
+### `MapSvg` — PREDICTED SOME
+- spec 3 · read at `a90d931057c6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:42:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders the SVG element for a map visualization — composing the viewBox/paneAspect for sizing, an image/background layer via artRef, and overlaid interactive elements (spots/circles/tag nodes) with hover and gaze-based highlighting. Wires pointer event handlers from the `on` prop (defaulting to INERT) and calls onUp on pointer-up, using svgRef for the root SVG element.
+- found: This is actually the root SVG for a repo-structure sunburst visualization (not a geographic map, despite the file/prop naming) — it composes escalation/banding/tiling computations, layers a "leaving" transition group, a fitted rings group (coring, FileZoom for opening/closing files, Wedges for directories, tiled Patches for functions, Labels, Selection marks), and a Hub overlay, with extensive inline comments explaining animation/perf tradeoffs (why patches don't re-tile every frame, why groups aren't keyed, why viewBox is measured not nominal, etc).
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+
+### `Hub`
+- spec 3 · read at `45c7d9f5aaf2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders an SVG group at the center of the map — a disc plus its label(s) — sized/positioned from m.hubDiscs/rIn/root. Wires a double-click handler calling onUp to navigate up a level, only showing pointer/click affordance when onUp is provided. Uses gaze/selectedGaze to drive hover or highlight styling on the disc.
+- found: Renders a <g> with a base circle background and a HubCircles subcomponent doing the actual disc/label rendering; double-click (only wired when onUp exists) calls onUp with stopPropagation and sets zoom-out cursor; adds a title tooltip when onUp exists; depth is computed from root.path.split('/').length.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `unitsPerPxFor`
-- spec 3 · read at `0ebf37ea3ecb` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Given a measured pixel side length of the rendered picture, returns how many SVG user units correspond to one screen pixel, computed as the nominal viewBox extent (based on R_OUTER) divided by side, quantized to some granularity. Returns null when side is 0/undefined (not yet measured), since division would be meaningless.
-- found: Returns null for side<=0; otherwise snaps side to the nearest SIZE_STEP (min one step), computes the nominal drawn extent as 2*R_OUTER*(1+2*MARGIN), and returns extent divided by the stepped side.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs explain the rationale (why nominal extent vs measured viewBox) well but don't spell out the SIZE_STEP quantization of `side` itself.
-
-### `once` — PREDICTED NONE — TRAP
-- spec 3 · read at `d766f9d40444` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:44Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: `once` is a tiny memoization helper (type `Memo`) that lazily invokes `make()` exactly once and caches the result in a closed-over slot, returning the cached value on any subsequent call — likely implemented as a single-line nullish-coalescing-assignment (`cache ??= make()`) so expensive map-model computation isn't repeated across renders.
-- found: Despite the name and `Memo` type, it does no caching whatsoever — it just calls `make()` and returns the result immediately every time. It's presumably a trivial/pass-through implementation of the `Memo` interface used where real memoization isn't needed (or a default/fallback for a slot elsewhere filled by an actual memoizing implementation).
-- predicted: none · documented: none · derivable: no · legible: full · trap: yes
-- note: The name `once` strongly implies caching-on-first-call, but the body calls `make()` unconditionally every time — a reader who trusts the name over the code will assume memoization that isn't there.
-
-### `buildModel` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `7814a69b0256` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:52:21Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Computes the full derived layout for the sunburst/treemap map (wedge angles/radii per node, colors from rank/heat shares, labels, view transforms) from the raw MapInput, wrapping expensive per-node work through the passed-in memo function so it behaves as useMemo in the component but as a plain cached call for non-React callers like report generation, ensuring identical layout whether invoked from the interactive window or a static report.
-- found: A large derived-model builder: computes ring radii/bands, minimum drawable angle thresholds in pixel terms, the wedge layout itself (via `layout()`), selection ancestor trails, per-wedge fills/colors, hub disc colors (dominant colors by area for the center display), directory rim histograms and their drawn segments, function tiling within file wedges, and trap/clone marker dot angles — all memoized individually via the passed-in `memo` so each piece only recomputes when its own specific dependencies change, then returns everything merged with the original input.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-
-### `useMapModel`
-- spec 3 · read at `773e0c5e07dd` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:49Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A one-line React hook that memoizes the pure buildModel/mapModel computation via useMemo, keyed on the relevant fields of `i` (MapInput), so the derived MapModel (rings, wedges, layout) only recomputes when input actually changes rather than every render.
-- found: Calls buildModel(i, useMemo), threading React's useMemo hook itself into the pure buildModel function rather than wrapping the whole call in a single useMemo — so buildModel presumably memoizes sub-pieces of the model individually.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The doc "The model, inside a component" is accurate but doesn't hint that useMemo is passed in as a dependency rather than wrapped around the call, which is the one non-obvious design choice here.
-
-### `mapModel`
-- spec 3 · read at `49fc18529b2d` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:47Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A plain (non-hook) function version of useMapModel — likely just calls buildModel(i) directly, giving a caller like mapScene (not a React component, can't use hooks) the same model-construction logic without React's hook machinery.
-- found: A one-line non-hook wrapper delegating to buildModel(i, once), for a caller (mapScene) that needs the same model construction as useMapModel but isn't a component and can't use hooks.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `viewOf` — PREDICTED SOME
-- spec 3 · read at `11e30c494731` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:20:56Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Computes the SVG viewBox/View rectangle that the map should be framed in — either the resting full-map view or, when zoomed into a file (fileIds/fileFrom set), a tighter view around that file's geometry — adjusting for paneAspect so the box fits the pane's proportions, and using morph/rIn to determine the destination view during a zoom transition rather than the current one.
-- found: Computes the fitted View box: for an open file it fits to the fan it's opening into (its destination shape, not current); during a replay morph without a fan, it pins to a fixed nominal circle (hub+rings+label band) rather than fitting to whatever is currently drawn, so the camera doesn't pump in/out as rings appear/disappear over commits; otherwise it fits to the full set of wedge geometries, growing only wedges wide enough to plausibly carry a rim label by the label band's width so the fit doesn't reserve space no name will use.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-
-### `restFrame`
-- spec 3 · read at `750237e52377` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:35Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Builds a static Frame from the MapModel by taking each wedge's final layout position/geometry directly from the model with no interpolation or animation state applied — the frame used when nothing is transitioning, as opposed to an animated/interpolated frame used mid-transition elsewhere in the component.
-- found: Returns a Frame whose `geo` lookup reads straight from the model's target layout (falling back to a NOWHERE placeholder), with moving:false, full progress (e:1), and no in-flight transition state (empty leaving list, null coring/fileLeaving) — the steady-state frame with nothing animating.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `MapSvg` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · served in 2 parts · read at `1168422a26ba` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:54:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders the core <svg> for the map visualization — drawing the map geometry from model `m` at the given frame/viewBox, plus interactive overlay layers (hover highlighting, tag node labels, measurement annotations via ink/measure, heat/circles coloring, and gaze/selectedGaze indicators), wiring pointer handlers (onUp, on) and forwarding svgRef/artRef to the parent. Likely composes many sub-renders (paths, labels, decorations) inline given its ~1094 line length.
-- found: Renders a radial sunburst visualization of a code repository (not a geographic map despite the file/prop names): directories and files as annular wedges, functions tiled inside their file's wedge, with transition animation between levels (leaving/arriving/coring groups), heat-based coloring per lens mode, directory rims showing distributions/marks, hover/selection outlines (drawn via a dimming veil + cutout rather than a redraw), labels fit to available space, fold/unfold interaction, replay-mode staleness hatching, and a central hub disc for navigating back up a level.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: The function name/props (MapArt, MapSvg, viewBox, gaze, circles) strongly suggest a literal geographic map, but this is actually a sunburst/treemap-hybrid code visualization; the extensive inline comments (not JSDoc) are what make the intent legible, not the signature.
 
 ### `lookupOf`
 - spec 3 · read at `cc1ec45678c0` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:35:29Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1754,6 +1637,165 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Walks the static (non-animating) MapModel the same way MapSvg renders it — rings' directory/file wedges, a file root's fan cells, and tiled function patches inside files — and builds a Map<string, Spot> from each node's id to its resting screen/geometry position, used so an export or overlay can locate where a given node landed without re-deriving layout from the SVG markup.
 - found: Builds a Map from node id to Spot (SVG path + arc bounds) at rest: for a file-root model it places cells on the fan (using fanOf/lerpSector at t=1 to match FileZoom's landed arithmetic); otherwise it places every non-func wedge at its target geometry; then for every file wedge with a tiling, it places each function's tile slot too. Used to tag/locate nodes in a static (non-animating) render.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+## web/src/components/MapCaveat.tsx
+
+### the file itself
+- spec 3 · read at `278a4fdc1839` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:46Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A React component file for a map data-coverage disclaimer: MapCaveat renders a small caveat/disclaimer UI, useMapCaveat is a hook computing whether to show it and what text (based on coverage), outOf formats a "X of Y" fraction string, and share is a helper to share or copy the caveat/map link.
+- found: A corner-chip caveat for the sunburst map: useMapCaveat computes denominators (all nodes under focus, and folded directories actually drawn plus their share of view lines); outOf/share format "n things (p%)" with careful precision rules; MapCaveat renders a bottom-left chip listing folded/unparsed/too-thin counts with an unfold-all button, shown only when something is hidden from the picture.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: I guessed `share` was a share/copy-link action; it's actually the percentage-formatting helper used by outOf.
+
+### `outOf`
+- spec 3 · read at `176a15ee8b95` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:31Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: outOf(n, of, noun) formats a count into a string like "42 files (87%)" — pairing the raw count with its percentage share of `of`, pluralizing/labeling with noun.
+- found: Formats n with toLocaleString, pluralizes noun (adds 's' unless n===1), and appends whatever share(n, of) produces (presumably the percentage-in-parens caveat text).
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `share`
+- spec 3 · read at `aaad87c41398` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Returns '' when `of` is 0/falsy. Otherwise computes percentage (n/of)*100 and formats with variable decimal precision depending on magnitude (fewer decimals for large percentages, more for small ones), and special-cases a nonzero result that would round to 0.00% by printing '<0.01%' instead.
+- found: Matches prediction closely: returns '' for of<=0, '<0.01%' wrapped in parens for a nonzero share that rounds to 0, else 0/1/2 decimal places for >=10%/>=1%/<1% respectively, all wrapped as ' (X%)' with leading space and parens for inline display.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `useMapCaveat` — PREDICTED SOME
+- spec 3 · read at `0a93fbab9e20` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:38Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Memoized hook that walks root counting all functions under the current focus, subtracts what's represented by wedges (drawn) and what's folded away inside collapsed directories, returning an object like {total, hidden, share} consumed by the corner chip to show a caveat like "N% folded away".
+- found: Two independent memos: `under` walks root's children counting files and dirs (denominator for the chip, not functions, and excluding root itself). `foldedInfo` looks at drawn wedges that are collapsed directories, sums their loc, and returns count/name(if single)/share-of-root-loc, or null if nothing is folded/drawn. Returns {under, foldedInfo}.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Share is computed against the view's own total loc (root.loc), deliberately not the whole repo's loc, per the comment — a future caller must not repurpose foldedInfo.share as a repo-wide percentage.
+
+### `MapCaveat`
+- spec 3 · read at `a515d1b97111` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a small corner UI element listing what's hidden from the map view — counts of hidden files/dirs, plus info about folded/collapsed nodes (via foldedInfo/under) — with a clickable "unfold" affordance calling onUnfold. Returns null when nothing is hidden or collapsed.
+- found: Renders a corner chip (only if there's something to caveat: thin-wedge culling, unparsed files, or folded dirs) listing what the picture is not showing, each stated as a share out of the correct denominator (drawn population vs. total including unparsed), formatted as first-clause-alone then rest joined, plus an 'unfold all' button shown only when collapsed.size > 0.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+
+## web/src/components/MapPane.tsx
+
+### the file itself
+- spec 3 · read at `3aa87ae03b74` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:38Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Top-level React component hosting the interactive sunburst map pane: sizing/resize handling, MapModel state, hover/select/drill wiring, and composing the SVG figure from lower-level pieces (wedges, patches, key). `noop` is a default no-op handler for optional handler props so call sites don't need to guard.
+- found: A purely prop-driven (no internal state) component that picks among many mutually-exclusive panes in priority order — error, no git history, a drilled/focused Sunburst, a scan-in-progress shape map, an unscanned project prompt, a loading/awaiting project, not-yet-loaded blank, or the empty-state card — then floats the scan progress strip and color legend/key over whichever won, keyed carefully so each only appears with its matching underlying state (e.g. legend only with `focus`, progress strip only with the assembling shape map).
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: I expected MapPane to own sizing/model state internally; it's actually a stateless branch-selector fed entirely by props from a parent, with the real complexity being the precedence order among ~8 possible pane states rather than any internal logic.
+
+### `noop`
+- spec 3 · read at `f3e401aaede9` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:20Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: noop is a trivial no-op function, () => {} or () => undefined, used as a placeholder handler passed to a map component while a scan is still in progress and there's nothing to select/drill/clear yet.
+- found: A trivial no-op function, () => {}, used as placeholder handlers.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `MapPane`
+- spec 3 · read at `f97bb8e2c9ac` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:43Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A priority-ordered set of conditional branches — error state, then empty history, then the rendered sunburst map, then 'map assembling', then an idle project, then a waiting/loading state, then 'launch not yet asked', and finally a first-run card as the last fallback — each branch returning its own JSX, with a floating key/scan-strip overlay rendered on top of whichever branch fires, using the many props to feed the Sunburst map and its interactions (pick, drill, goUp, etc.).
+- found: Matches my predicted branch order closely: error, empty history, focused Sunburst map, assembling-scan Sunburst (shapeRoot), Unscanned (idle/declined project), ProgressPane wait, blank div (not-yet-asked), Empty fallback. On top: a ProgressStrip shown only alongside the assembling map (never a finished one), and a ColorLegend shown only when focus is a non-file node, with extensive extremely specific rationale in comments for exact prop wiring (reading vs replaying, morph timing, ranks/categories scoped to focus not the whole tree).
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: Nearly every prop and conditional here carries a dense inline comment explaining a past bug it fixes — reading the comments is essential before touching any single branch, since the reasoning isn't inferable from the JSX alone.
+
+## web/src/components/MapPatches.tsx
+
+### the file itself
+- spec 3 · read at `8b9df0f93c2f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This file is the counterpart to MapRings.tsx for the level below directories/files — it renders individual functions as small tiled "patches" packed inside a file's wedge/area (since MapRings' doc explicitly says it draws "directories and files, never functions... MapPatches.tsx"). tilingsOf likely computes a treemap-like packing/tiling layout for the functions within a given space, and Patches is the React/SVG component that renders those tiles (colored via the same paint/colorMode system) at that computed layout.
+- found: Confirmed: renders functions as tiled patches inside their file's wedge (tilingsOf computes per-file tiling via tileFunctions from live geo, Patches renders the tiles). But the file does much more than I predicted: roll-up aggregation with a dot texture for large collapsed groups (RollupDots), stale/unreadable/not-yet-read hatch overlays per lens mode, a pulsing "reader active" overlay, hover/click/double-click(drill) handlers, and careful label fitting to the tile's real geometry rather than the wedge's layout angle. No file header at all despite this being a fairly rich, subtly-commented module.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `tilingsOf`
+- spec 3 · read at `241418ea2145` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:50Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Walks the map model's files, and for each file computes a layout — a treemap-like subdivision of the file's geo (obtained via the geo callback) into tiles for its individual functions — building a single Tiled structure (likely keyed by file/function id) that both the patch-drawing code and marksOf read, so the visual patches and any overlaid marks stay pixel-aligned.
+- found: Maps over m.fileWedges; for each, calls m.tilingOf(geo(w.node.id)) to get the file's band bounds (r0, r1, fa0, fa1) from the live-eased geo rather than the wedge's final layout angles (so patches stay aligned with wedges mid-transition), returning null slots if there's no room, else calling tileFunctions on the file's children to lay out per-function tiles within those bounds.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Most of the logic/rationale lives in extensive comments explaining why geo (not wedge angles) is the source, and why area (not angle) gates solid-fill fallback.
+
+### `Patches` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `6e5d03421432` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:38Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: React component iterating the `tiled` layout (functions tiled inside their file wedge) and rendering one shape+label per function, using `measure` to fit/truncate the name, `ink` to resolve mark/fill colors, highlighting the tile matching `hover`, wiring pointer/click handlers from `on`, and `tagNodes` controlling whether rendered nodes carry id attributes for hit-testing.
+- found: Renders each tiled function as a path (colored by mode/reading, with hover/select/drill handlers), then layers several conditional overlays on top: a stale-reading hatch, an unreadable hatch, a not-yet-read hatch during replay, a pulsing reading indicator, roll-up texture dots for large aggregate patches, and finally a fitted name label whose ink is derived from the patch's own fill color.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+- note: The many overlay layers (stale/unreadable/replay hatches, rollup dots, pulse) are the bulk of the function's real complexity and aren't hinted at by the signature or short doc.
+
+## web/src/components/MapRings.tsx
+
+### the file itself
+- spec 3 · read at `d90e59ff8b5e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Defines the MapRings component that renders the sunburst-style ring visualization of a directory tree: concentric rings per directory depth split into wedges sized/colored by a heat/escalation metric via helpers (heatShare, escalationOf, bandedOf), with sub-components for enter/exit transitions (Leaving), the innermost hub (Coring), wedge geometry (Wedges/DirRim), and text labels (Labels) — all derived purely from the model and the frame's geo.
+- found: A React component file rendering the sunburst ring visualization: Leaving/Coring handle transition animation, Wedges draws directory/file plates with hit targets, fold handles, and DirRim (which draws either a histogram, pointing dots, or a solid rim depending on the active lens), Labels positions directory names centered in their plate (minus room for a rim band) and file names curled around the outer rim past the wedge edge. escalationOf bubbles replay birth/touch events up to the nearest drawn ancestor wedge, and bandedOf decides whether any drawn directory can carry a rim band (affecting label vertical placement) so labels don't shift per-frame during replay.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `heatShare`
+- spec 3 · read at `e93933db9b60` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:45Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: heatShare(kind, mode) returns a damping multiplier (likely between 0 and 1) applied to a directory ring's visual weight — reduced only when mode === 'surprise' (since surprise is a roll-up aggregate rather than a direct reading), and 1 (no damping) for other modes like churn/age/language/author where damping would misrepresent the aggregate.
+- found: Under 'surprise' mode, looks up a per-kind damping factor from HEAT_BY_KIND (defaulting to 1 if not listed); for every other mode, returns 1 (no damping), matching the doc's point that damping is only valid for the roll-up quantity (surprise), not for other aggregates.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `DirRim` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `bdce2619a3b6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:53Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Computes the directory's rim coloring — normally a banded/heat distribution derived via bandedOf/heatShare/escalationOf against the node's stats — and renders it as an SVG arc/path at the directory's edge per `g` (geo), with `fade` applied as opacity. When `flash` is true, it renders a distinct flash-colored arc instead/on top, structurally overriding the normal banded rendering so a replay event always wins visually over the ordinary distribution or escalation mark.
+- found: Renders a directory's rim in priority order: a per-segment histogram (rimRuns) with hairline separators when not flashing, else falls through; then angle-merged point marks (dots) for lenses like traps/clones; else falls through to a single flat arc using the plain color `c`. `flash` doesn't draw its own color — it just suppresses the histogram and marks steps so the plain-fill fallback (presumably pre-colored for the flash event by the caller) wins.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+
+### `escalationOf` — PREDICTED NONE — LEGIBLE SOME
+- spec 3 · read at `dac59364b034` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds a lookup (map or function) from a node id to the nearest drawn ancestor id, walking up function -> file -> directory using geo(id) to test whether a wedge is drawn, stopping at the first ancestor geo returns geometry for, so replay events land on a wedge that actually exists.
+- found: Iterates drawn wedges (skipping func-kind, which have no wedge anyway); for a file wedge with no tiling room it checks the file node itself for birth/touch, for a directory it checks its own children that are NOT drawn for birth/touch. Where found, records a flashPaint('birth' or 'touch') keyed by the drawn wedge's id in a Map, which is returned. This is a one-level look at each drawn wedge's undrawn children rather than a per-event ancestor-walking lookup.
+- predicted: none · documented: most · derivable: no · legible: some · trap: no
+- note: The doc's \"ladder\" framing (function -> file -> directory) is achieved implicitly by this running once per drawn wedge at every level, not by an explicit per-id walk-up function as the description might suggest.
+
+### `bandedOf`
+- spec 3 · read at `701f25e83778` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:27Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Returns a boolean answering whether any drawn wedge on this ring can show a directory band (distribution, pointing marks, or solid color) — if replaying is true it returns true unconditionally (so the label strip's presence doesn't flicker across the timeline), otherwise it walks wedges, checking fills/hist/dots values (not just key existence) per wedge and short-circuiting to true at the first wedge that has any of the three, defaulting to false if none qualify.
+- found: Returns `replaying || wedges.some(...)` where the predicate restricts to dir-kind wedges and checks non-empty hist, non-empty dots, non-null fills, or non-null escalated for that wedge's id — matching my prediction except I missed the dir-kind filter and the fourth `escalated` check.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `Leaving`
+- spec 3 · read at `9c2c52712e11` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: React component that renders the SVG for the level transitioning out of view. For each item in `leaving`, it draws that item's wedge/rim geometry (reusing rendering logic similar to DirRim/Wedges), but transformed and faded based on progress value `e`, producing an outward-flying, fading-out animation as the user drills into a new level.
+- found: Interpolates each exiting node's arc geometry from its old position/size to its new one via lerpGeo(x.from, x.to, e), fades out fill opacity and a DirRim outline as e goes to 1, using colorFor for fill and arcPath to build the SVG path.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `Coring`
+- spec 3 · read at `13a51ef3a2db` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: An SVG-rendering React component that animates the "opened" directory shrinking into the center hub — interpolating between coring.from and coring.to geometries using progress value e (0 to 1), drawing an arc/wedge shape (and maybe fill color derived from coring.node) that morphs and fades as the transition proceeds.
+- found: Interpolates the directory's geometry from `coring.from` to `coring.to` via `lerpGeo(from,to,e)`, draws a structure-colored arc/wedge path at that interpolated geometry, and renders a `DirRim` on top using the node's mode-derived color — animating the opened directory collapsing into the hub center.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `Wedges`
+- spec 3 · read at `b9544b9d80b9` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Maps over nodes in m using geo(id) for each node's wedge geometry, rendering a colored plate (colored via heatShare/bandedOf), an invisible larger hit-target path wired to the `on` handlers for hover/click, a rim (DirRim for directories), and a pulsing indicator for hover/escalated state (escalationOf). Distinguishes files vs directories, and may delegate enter/exit transitions to Coring/Leaving and text placement to Labels.
+- found: Filters out func-kind nodes and for each remaining node (dir/file) computes geometry via geo(), a fill/color from fills/escalated maps, and renders: an invisible wide hit-target path for files (mouse/click/double-click), the visible wedge path itself (fill/opacity depend on selection/hover/heat/folded state, stroke is background color to render gaps as cuts), a hatched overlay when folded, a DirRim for the directory's own reading, and a white 'reading' pulse overlay when isReading. Alt-click on a foldable directory folds it instead of selecting.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The extensive inline comments explain design rationale (why plate excludes dir color, why stroke is background not a line, why hit-target is wider than the visible rim) that isn't derivable from the code shape alone — genuinely useful prose docs live as comments, not in the docs field.
+
+### `Labels` — LEGIBLE SOME
+- spec 3 · read at `4ad264155d0e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:22Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Renders SVG <text> elements naming each directory/file wedge, positioned using geo(id) to compute placement along/within each wedge's arc; it likely skips or fades labels while moving (mid-transition) to avoid janky repositioning, adjusts styling when banded is active (heat/severity coloring), and uses measure to check whether a label's text fits its wedge, truncating or omitting it if not.
+- found: Renders wedge name labels: hides all labels outright during a transition (moving) rather than fading; skips collapsed directories and handle-only wedges; for directories, centers the name in the plate area left over after reserving room for the band (when banded); for files (which get no plate labeling since their band is their own data), curls the name outside the rim in the unclaimed ground past the outermost ring, confined to that wedge's angular slice with inset padding; uses fitLabel with measure to find placement and size, skipping the label if none fits, and colors/opacities the text based on dir vs file and whether it was clipped.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The extensive inline comments explain a lot of subtle prior-bug history (band reservation per-ring not per-wedge, ink alpha choice) that shaped the current code but isn't derivable from the code alone.
+
+## web/src/components/MapSelection.tsx
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `7b281ec5427f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:48Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React component for selecting a region/area on a map, with a Selection type describing the selected bounds and a marksOf helper deriving visual marks (e.g., tick marks, highlighted cells) to render based on the current selection.
+- found: This is not a geographic map — "map" refers to a codebase visualization (a sunburst/radial diagram of directories, files, and functions as wedges). The file computes and renders selection/hover highlighting on that sunburst: marksOf walks the same wedges and tiled function slots the picture draws to find the outline paths for the selected and hovered nodes, plus a coarse dashed fallback (deepest drawn ancestor) for when the actual selection has no visible patch. Selection then renders these by dimming the entire rest of the picture via an evenodd-cut veil path (punching a geometric hole rather than using an SVG mask, for WKWebView rendering-precision reasons) and re-stroking the selected/hovered outline on top since dimming alone is illegible for tiny function slivers.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: The extensive prose comments encode real historical bug fixes (thin-edge-stroke overwrite, wrong-quadrant dimming for directories, mask-vs-geometry precision in WKWebView) that are not derivable from the code alone and are load-bearing for future edits.
+
+### `marksOf`
+- spec 3 · read at `fc75ad3bc6d3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Walks the wedges and tiled patches in the same draw order as the picture, looking up each one's geo, to build outline paths for the hovered node and the selected node. Since the selected node might not currently be drawn (e.g., it's inside an unopened file or deeper level), it also computes a "stand-in" outline using the nearest ancestor along selTrail that actually is drawn — returning these as a Marks object.
+- found: Walks wedges (skipping func nodes) and then tiled patch slots in draw order, computing arc paths via geo/slot coords to set selMark and hoverMark by id match, plus selCoarse — a dashed stand-in for the deepest ancestor along selTrail — used when the actual selected shape isn't drawn (e.g., unopened/too-thin file).
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `Selection`
+- spec 3 · read at `f4468df9e74f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: SVG-rendering component that draws three layered pieces — a hover-pointer outline from hoverMark, a full-canvas veil/overlay with the selected region cut out (using an SVG mask/clip-path built from selMark), and the selection's own outline — falling back to a dashed approximation when only selCoarse (a coarser bounding shape) is available instead of exact selMark geometry.
+- found: Renders hoverMark's outline first, then a full-canvas evenodd path (giant outer rect plus the selected shape as an inner unfilled subpath) at DIM opacity to dim everything except the selection — geometry-based rather than an SVG mask, to avoid rasterization softening small patches in WKWebView — then redraws selMark's outline on top (since dimming alone is too subtle for tiny slivers), or a dashed outline of selCoarse when the exact selMark isn't available.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Extensive inline comments explain the design history (outline-only and mask-based approaches were tried and rejected) — worth preserving since it justifies non-obvious choices like using evenodd instead of a <mask>.
 
 ## web/src/components/Overlay.tsx
 
@@ -1823,6 +1865,44 @@ What this is and how to add to it: [README.md](README.md)
 - expected: `Phases` computes state for each of the three phases (scan/trace/read) via `phasesOf`/`traceOf` helpers, then renders three `Pill` components side by side — each showing progress-filled background, a label describing what pressing it would do and its cost, and becoming a flat non-interactive marker when that phase is complete. It uses `replayBlocked` to disable/gray the trace pill when another repo is replaying, and `stopping` to show an acknowledging "stopping…" state rather than looking unresponsive, calling `onAct(action)` when a pill is clicked.
 - found: Renders three Pill components from phasesOf(project, replayBlocked); tracks an optimistic "pressed" action cleared when a signature of real backend state changes; shows a note line for the hovered pill or the running phase, else fills the space with a per-project seeded decorative Sprig plant when idle.
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
+
+## web/src/components/Progress.tsx
+
+### the file itself
+- spec 3 · read at `8b21b66c9214` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:13Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the progress UI shown while a report/deck is being generated — a useProgress hook (likely polling or subscribing to backend job status), a phaseLine helper that formats the current phase's label/text, and presentational components ProgressTrack/ProgressStrip (different visual bar styles, maybe compact vs. full) composed into a ProgressPane container that's the actual exported UI piece used elsewhere in the app. No header doc, so the file's purpose has to be inferred purely from these names — likely a self-contained "progress indicator" feature module.
+- found: Progress UI module: useProgress computes pct and a carefully-hedged ETA (tracked from a phase-reset mark rather than mount time or naive elapsed/pct, requiring both a minimum moved-amount and watched-time before showing an estimate, to avoid wildly wrong numbers from non-uniform-rate phases). phaseLine formats "Phase done / total unit" from server-supplied phase/unit strings. ProgressTrack is a shared bar (indeterminate sweep vs percentage fill), composed into ProgressStrip (compact, overlaid on the map) and ProgressPane (centered, for when there's nothing else on screen). No file-level header doc, but nearly every function carries a substantial doc comment explaining a specific past mistake it corrects (wrong ETA math, hardcoded "functions" unit, bar vs map redundancy).
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `useProgress`
+- spec 3 · read at `567112bc1bd9` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React hook that derives {pct, eta} from a Progress|null. pct is always a number (0 if progress is null/empty rather than being a fraction). eta is computed from the hook's own tracked history of progress-over-time (via a ref of samples/timestamps), staying undefined until enough samples exist to give a stable estimate, then derived from the remaining amount divided by observed rate.
+- found: Tracks a {phase, done, at} mark in a ref, resetting it whenever progress.phase changes. pct = done/total (0 if no total). eta is null unless at least 20 units have moved and 5 seconds have been watched since the mark, avoiding both burst-caused and stall-caused false estimates; when both hold, eta is remaining/(rate observed since the mark), in minutes.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `ProgressTrack`
+- spec 3 · read at `02dad8fe74e4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Renders the bar element (track + fill). When progress is null (no total known yet) it applies an indeterminate sweep animation class instead of a fixed width; otherwise sets the fill's width to pct%.
+- found: Track div with a fill bar sized by pct*100% when progress exists, else a track-sweep indeterminate animation class.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `phaseLine`
+- spec 3 · read at `ffefd66fc1c4` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:15Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: It builds a human-readable status string for the current scan phase, using the phase's own unit noun (e.g. "files") rather than a hardcoded "functions", and formats the current/total counts with locale thousands separators (toLocaleString) so large numbers like 67511/111029 are readable at a glance.
+- found: Capitalizes the phase name (or falls back to "Working"), returns "{Phase}…" when total is 0, otherwise formats "{Phase} {done} / {total} {unit}" using toLocaleString for readable large numbers, with unit coming from the phase data itself.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `ProgressStrip` — PREDICTED SOME
+- spec 3 · read at `ca51c8550529` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:16Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders a compact, single-line progress indicator (using phaseLine to produce the text) styled as a small boxed chip meant to overlay the map, distinct from the full ProgressPane/ProgressTrack bar. It shows the current phase (scanning vs blame) so the viewer knows the map isn't fully done even though it looks static.
+- found: A small boxed chip combining a phaseLine text label, a mini ProgressTrack bar (using pct from useProgress), and an ETA readout (\"~N min left\", or \"<1\" when under a minute).
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+
+### `ProgressPane`
+- spec 3 · read at `1ae798993fe4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:00Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A React component rendering the same progress indicator as ProgressStrip, but centered and wider, meant to fill an otherwise-empty pane (e.g. before any map/data exists to show progress alongside). Likely composes ProgressTrack and phaseLine, showing the phase text and percentage, with `label` as an optional heading/caption above or below it.
+- found: Renders a centered, full-height pane showing the current phase text (or a fallback label / 'Walking the repo…'), a width-capped ProgressTrack bar, and an ETA line in minutes when known.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/components/Prose.tsx
 
@@ -2022,12 +2102,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/SideBar.tsx
 
-### the file itself
-- spec 3 · served in 2 parts · read at `e47ab731ab7b` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:33Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Implements the app's left-hand navigation sidebar: a SideBar component listing projects/repos as ProjectItem rows, with drag-and-drop reordering indicated by a DropLine insertion marker. Likely handles selecting the active project and possibly add/remove, with no file-level header comment despite the codebase's otherwise heavy commenting style.
-- found: SideBar.tsx is the full-height left navigation column: a SideBar component listing ProjectSummary rows via ProjectItem, with custom pointer-based (not HTML5) drag-and-drop reordering shown via a DropLine gap indicator and a floating ghost row. Beyond reordering, ProjectItem itself is a much richer per-project control: it renders a three-phase (scan/trace/read) status via a Phases component, a progress sweep, failure state with a transcript overlay, a right-click context menu (Reset/Remove), and stop/cancel handling for in-flight runs and replays — none of which was guessable from the name/peers alone.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The file has no header comment, but every prop and state field carries dense inline JSDoc explaining design history (why pointer events instead of HTML5 DnD, why controls moved from a separate panel onto each row) — the file's purpose is legible only by reading those, not from a summary.
+### the file itself — PREDICTED SOME
+- spec 3 · served in 2 parts · read at `f9917dd7ef47` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:07Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A React component file implementing the app's left sidebar: a list of scanned/pending projects (repos). `SideBar` is the top-level component managing the list, likely handling selection/open, search/filter, and rendering per-project rows. `ProjectItem` renders one row (name, progress bar while scanning, maybe a context menu for remove/rename). `DropLine` is a small helper component showing a drag-and-drop reorder indicator line between items, implying the sidebar supports drag-to-reorder projects. No file-level doc, so the shape has to be inferred purely from these three exports and the large (834-line) size.
+- found: SideBar is the app's project list: it renders ProjectItem rows for each scanned/pending repo, supports custom pointer-based (not HTML5) drag-to-reorder with a DropLine gap indicator and a floating ghost row, a right-click context menu (Reset caches / Remove from list), and a failure-transcript overlay. ProjectItem renders one project's name, a bottom-edge progress rule, a 'sweep' animation while busy, a Phases sub-component (scan/trace/read pills that double as action buttons and status), and state for cancelling/stopping runs. It's driven entirely by props from the parent App/hooks rather than owning data-fetching itself.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: There is no file-level doc, but SideBar's own JSDoc and dozens of inline comments narrate design history and rejected alternatives extensively — the file is unusually well self-documented at the comment level despite having no header.
 
 ### `SideBar` — PREDICTED SOME
 - spec 3 · read at `5d33d7ff7cf9` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:52:29Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2136,43 +2216,22 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Sunburst.tsx
 
 ### the file itself — PREDICTED SOME
-- spec 3 · served in 3 parts · read at `203bf17a4edc` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Implements the app's sunburst-chart visualization — a radial hierarchy diagram of the repo's files/functions colored by reading dimensions (predictability, legibility, docs, churn). Contains geometry helpers (sectorPath, share, outOf) to compute arc paths and proportional angles for each node, a FindingBadge component to annotate flagged/surprising nodes, and a top-level SunburstView component rendering the interactive chart (click-to-select, hover, zoom into a file).
-- found: This is explicitly the WINDOW layer around the sunburst, not the drawing itself — the actual wedge rendering lives in MapSvg/MapArt.tsx. Sunburst.tsx owns: the pane measurement, level-change zoom animation (keyframed lerp) and a separate 'chase' morph/fold easing loop, hover/tooltip state, a mascot-gaze-direction computation, directory folding/collapsing, file-open/close transitions, a hub FindingBadge (a hand-tuned watch-dial SVG showing findings/rules counts), and a corner caveat chip reporting hidden/unparsed/folded counts. sectorPath/share/outOf are small geometry/formatting helpers used by the badge and chip, not by the main wedges.
-- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- spec 3 · read at `0014f27b3699` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:06Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A React component rendering a radial "sunburst" chart of the repo's file/directory tree as nested rings, colored by some per-file metric, with a useWantRings hook controlling ring/level display and a SunburstView component doing the layout and rendering, likely with interactivity for drilling into folders.
+- found: Not the drawing itself (that's MapSvg in MapArt.tsx) but the interactive "window" around it: pane sizing, level-change motion/chase, hover/pointer tracking and tooltip, directory fold/collapse state, the findings badge over the hub, and wiring together many extracted hooks (useMapModel, useLevelMotion, useMapView, useMapCaveat, useWantRings, gazeTargets, rimHit). Exports a memoized Sunburst component to avoid re-rendering thousands of arcs on unrelated state changes.
+- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
 
-### `outOf` — PREDICTED SOME
-- spec 3 · read at `c45da41818f1` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:55:04Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Formats a string like "n noun (X%)" showing n out of of as a percentage, with variable decimal precision depending on the share's magnitude, printing "<0.01%" for shares that would round to zero, and omitting the percentage part entirely (just "n noun") when `of` is 0/falsy since the denominator is unknown.
-- found: Formats n with locale thousands separators, pluralizes the noun (adds 's' unless n===1), and appends whatever `share(n, of)` returns (the percentage formatting with its variable precision lives in that separate peer function, not here).
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: The doc block describes the precision/rounding behavior that actually lives in the peer `share` function, not in `outOf` itself — docs cover the enclosing concern, not this function's own body.
+### `useWantRings`
+- spec 3 · read at `bd32ae4abb17` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A useEffect hook that filters fileWedges by tilingOf(target geometry) to find files that would be drawn as tilings, skips ones whose children already arrived (tracked internally to avoid duplicate asks), and calls onWantRings with the paths still needed; tilingOf and onWantRings are captured via refs/closure rather than being in the dependency array so identity changes to those functions don't cause refiring, only real geometry/band/minPatchArea changes do.
+- found: useEffect that, for each file wedge with funcs>0 and no children yet, checks tilingOf against the node's settled target geometry, collects paths that would tile, and calls onWantRings with them if any; only tilingOf is excluded from deps (via eslint-disable) since it closes over band/minPatchArea which are already listed.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `share` — PREDICTED SOME
-- spec 3 · read at `e0d2f75c25bc` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:51:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Computes the percentage that n represents of "of" and returns it as a formatted string like "42%" or "42.0%", likely guarding against division by zero (returning "0%" or similar when of is 0).
-- found: Formats n/of as a percentage wrapped in " (...%)" with tiered precision (0 decimals >=10%, 1 decimal >=1%, 2 decimals below), a special "<0.01%" case for tiny nonzero shares, and returns empty string when of<=0.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-
-### `sectorPath`
-- spec 3 · read at `0ef7cfb94dfd` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Computes the four corner points of an annulus sector (leading/trailing edges at inner/outer radii) inset by rounding radius k, then builds an SVG path string using M/L for the straight edges and A (arc) commands for the four rounded corners plus the outer and inner arcs, tracing leading face out, outer arc, trailing face in, inner arc back — using trig (cos/sin of a0/a1) to place points and small offset angles for the corner radius k.
-- found: Builds the rounded-corner annulus-sector path using degree-based trig helpers, with an added clamp of corner radius `k` to the available "room" (half thickness, half angular span at inner radius) and a fallback to a plain unrounded sector path when the clamped radius is near zero.
+### `SunburstView`
+- spec 3 · read at `a6ad27fa06a8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the main Sunburst chart component. It renders an SVG radial layout of concentric rings (one per directory depth) with wedges sized by area (lines of code) and colored per mode/ranks, draws a center hub showing repo state/findings badge, handles click/drag interactions (select, drill, clear, up), animates ring geometry when morph is set, pulses nodes in reading, draws directory-rim distribution bars sized by rimShare, and optionally overlays marker dots and data-node/data-arc attributes for report tagging.
+- found: It's a thin composition/orchestration component: hover/pos/collapsed state, delegates layout to useMapModel, motion to useLevelMotion, viewBox to useMapView, then renders MapSvg (which actually draws wedges/rings), a findings badge positioned over the hub, a WedgeTip tooltip, and MapCaveat for folded/hidden nodes. It doesn't draw SVG geometry itself — that's pushed into hooks and child components.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The room-clamping logic and the c<=0.01 fallback branch are not obvious from the signature/docs alone.
-
-### `FindingBadge` — LEGIBLE SOME
-- spec 3 · read at `d60dee4adea2` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:08Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Renders an SVG "watch dial" badge at the hub, split into two halves via sectorPath: top half shows `count` (findings) and bottom half shows `rules`, sized as a fraction of `box`, offset by `layer`. Clicking top half triggers onFound, clicking bottom triggers onRules; despite the docs saying pointer-events:none (clicks belong to the whole creature one level up), so the click handlers might actually live elsewhere and this component is purely decorative/numeric display.
-- found: Draws a two-sided watch-dial badge as an SVG overlay: a curved bar+label at 12 o'clock for the findings count ("FOUND 54"), a curved bar+label at 6 o'clock for the rules count ("16 RULES"), all text set on textPath arcs with hand-computed angular geometry (bar padding, word spacing, baseline offsets). The whole svg is pointer-events:none except two transparent sector hit-areas overlaid on each half that call onFound/onRules on click and swallow double-clicks.
-- predicted: most · documented: full · derivable: no · legible: some · trap: no
-- note: The extensive prose comments capture design rationale (why FOUND not FINDINGS/ALERTS, why bar padding is measured off type not box, why axis shifts) that would be lost by regenerating docs from the code.
-
-### `SunburstView` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · served in 2 parts · read at `ca7789ad765f` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:52:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Top-level React component rendering the whole sunburst: computes each node's wedge geometry via sectorPath/share/outOf, colors wedges per the current mode/ranks/views, animates layout transitions when morph is set, draws the central hub (findings badge, go-up control), wires up pointer interaction (select/drill/clear/hover/tooltip), draws trap/clone marker dots on rims when enabled, and tags wedge paths with data attributes for report exports when tagNodes is set.
-- found: The full interactive sunburst: builds the wedge model via useMapModel, then runs a hand-rolled rAF-driven animation system with three coordinated motion sources (a level-change keyframe/lerp, a continuous 'chase' that eases wedges toward a moving target for replay morphing and folds, and file-open/close tiling transitions), computes a gaze target for an eye-following hub creature, hit-tests the hovered directory's rim segment by inverse-projecting pointer coordinates, positions/scales the hub badge and viewBox imperatively via refs for per-frame performance, and renders MapSvg plus the findings badge, WedgeTip tooltip, and a corner caveat chip enumerating folded/unparsed/culled counts.
-- predicted: some · documented: none · derivable: no · legible: some · trap: no
 
 ## web/src/components/Tabs.tsx
 
@@ -2240,6 +2299,156 @@ What this is and how to add to it: [README.md](README.md)
 - found: An SVG with fixed viewBox, fill=currentColor, height prop (default 18), aria-label "Sanity", containing six inline <path> elements for the wordmark letterforms. No width prop — width scales automatically via the viewBox aspect ratio since only height is set explicitly, matching my prediction.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
+## web/src/components/mapModel.ts
+
+### the file itself
+- spec 3 · served in 2 parts · read at `d910b7d5afe3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file builds the client-side data model behind an interactive repo "map" component (distinct from the server-side report drawing in findings.ts): it constructs a hierarchical tree from file paths (treeOf), computes scale/zoom units (unitsPerPxFor, scaleOf), derives visual layers like color bands and dots (paintOf, bandsOf, dotsOf), assembles them into a model (buildModel), and exposes a React hook (useMapModel)/view accessor (viewOf) plus some idle/rest-state handling (restFrame, once) for the live UI.
+- found: This is the layout engine for the sunburst-style repo map: it computes scale/pixel-to-unit conversion (scaleOf), derives ring wedge geometry from an already-hierarchical Node tree with folding/selection/pulsing state (treeOf), computes colors and directory histograms (paintOf), computes rim bands and function-tiling regions within wedges (bandsOf), computes trap/clone marker dot positions (dotsOf), assembles it all into a memoized model (buildModel/useMapModel/mapModel), computes the fitted viewBox for a given frame (viewOf), and provides a static "nothing moving" frame (restFrame) plus handler/frame type definitions for the interactive component.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: Extremely dense, deliberately-argued inline comments (design rationale, historical bug fixes, exact pixel/unit tradeoffs) carry almost all the real information; there is no file-level header at all.
+
+### `unitsPerPxFor`
+- spec 3 · read at `0ebf37ea3ecb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes user units per screen pixel for a picture `side` pixels across: divides a nominal extent (based on R_OUTER, the fixed drawing radius) by `side` (adjusted by a scale factor), quantizes the result, and returns null if `side` is falsy/zero/unmeasured (e.g. layout not yet done).
+- found: Guards side<=0 returning null; rounds side to nearest SIZE_STEP grid (quantizing the pixel measurement, not the final answer); computes extent = 2*R_OUTER*(1+2*MARGIN) to account for margins around the outer ring; divides extent by the stepped side.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The docs describe the rationale (why nominal vs measured, why quantized) well, but the actual quantization target is `side` being snapped to a step grid, not the returned units-per-px value, which the docs don't make explicit.
+
+### `once` — PREDICTED NONE — TRAP
+- spec 3 · read at `d766f9d40444` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:46Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A generic memoization combinator (type Memo) that wraps a `make` function so repeated calls with the same input return a cached result instead of recomputing, likely backed by a WeakMap keyed on input identity, used to avoid rebuilding expensive derived model pieces on every render.
+- found: It does not memoize at all — it's a trivial `Memo`-typed implementation that just calls `make()` immediately and returns the result, with no caching, no key, no WeakMap. Presumably one of two interchangeable implementations of the `Memo` interface (the other being a real caching one), used to toggle memoization on/off, e.g. for testing or a mode where recomputation is fine/desired.
+- predicted: none · documented: none · derivable: no · legible: full · trap: yes
+- note: The name strongly implies caching-until-invalidated semantics, but this implementation recomputes every call — anyone swapping it in expecting referential stability or skipped recomputation across calls will be surprised; worth checking mapModel.ts for a sibling real-caching implementation of `Memo` to confirm this is a deliberate toggle rather than a stub left behind.
+
+### `scaleOf` — LEGIBLE SOME — TRAP
+- spec 3 · read at `a2ec38ac1fe6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Computes where the concentric rings begin (a base radius/scale) and converts every pixel-based threshold in spacing/config into the ring's own coordinate units via unitsPerPx, memoizing the result in memo for reuse.
+- found: Computes rIn (inner radius shrunk from R_OUTER by spacing.width) and hubK (scale factor for hub-sized content), then returns memoized per-ring-depth functions: radiusAt (mid-radius of a ring band), minAngleAt and handleAngleAt (pixel thresholds converted to angle at each ring's actual radius, not a single global angle), and minPatchArea (pixel area threshold squared-converted to user units).
+- predicted: most · documented: full · derivable: no · legible: some · trap: yes
+- note: The comments explicitly warn this is a longstanding bug source (MIN_SLICE previously not squared, and a global angle threshold that broke at inner rings) — worth flagging as a trap since getting units/exponents wrong here is invisible until tested at other window sizes or ring counts.
+
+### `treeOf` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `b5c23ad01cbb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:18Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the tree from root, ordering children by sortBy, respecting collapsed and selected state, and computes each node's wedge geometry (start/end angle, inner/outer radius) using the Scale functions rIn/minAngleAt/handleAngleAt at the given rings/spacing; returns the full layout (list of wedges) plus derived sets/geometry read straight off it (e.g. file wedges), using memo to cache repeated subtree computations.
+- found: Computes the layout (wedges/hidden) via layout(), then a battery of memoized derived values: selTrail (ancestor ids of the selected node, excluding itself), pulsing (narrowest drawn wedge per reading-lit path, filtering out ancestors whose descendant already lights up), fileWedges, structural depth (excluding func nodes) to size band thickness, drawnDirs (dir ids actually on screen), ringGap, target geometry (geoOf), and fileIds — returned as one bundled object.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Nearly every derived value here encodes a specific historical bug fix (documented inline) — e.g. why pulsing lights the narrowest wedge, why structDepth excludes funcs — none of which is inferable from the signature or peers.
+
+### `paintOf` — LEGIBLE SOME
+- spec 3 · read at `096dfb969314` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:20Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Computes the color data for the whole map under the current color mode: for every drawn directory it aggregates a distribution of its descendants' colors (for directory-level rendering, e.g. pie-style fills), and for every structural wedge it computes a single fill color by calling the mode-specific paint function (like paintTraps) on the underlying node. It also derives an overall palette summary for the hub. Likely memoized against inputs that haven't changed.
+- found: Returns three memoized pieces: `hist`, a per-directory color distribution (skipped during a replay unless the lens is one of the ones carried in a history frame); `fills`, each non-function wedge's computed color, memoized once per level rather than per animation frame; and `hubDiscs`, an area-weighted ranking of on-screen colors (excluding neutral ground tokens, with functions counted at their file's ring depth) used to pick the hub's nested circle colors, including a light/dark ordered pair for the top two.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+
+### `bandsOf` — PREDICTED SOME — LEGIBLE SOME — TRAP
+- spec 3 · read at `254fe2232543` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:32Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Walks the directory band tree and computes drawable shapes: separator lines between bands, each directory's rim arc subdivided into colored runs (driven by hist), and the remaining inner room a file has to tile its functions. Uses unitsPerPx/spacing/rimShare for coordinate conversion, minPatchArea to prune tiny bands, and memo to cache the recursive computation.
+- found: Rather than walking the tree itself, this is a factory returning a bundle of closures (cuts, cutAt, rim, rimBand, rimRuns, tilingOf) that callers elsewhere apply per-node: cutAt computes the max separator width a wedge can bear without visually erasing itself; rim/rimBand compute a directory's rim geometry inset from its plate; rimRuns cuts a rim into colored segments from histogram data (delegating segment semantics to lib/rim.ts, kept as one definition so drawing and tooltip hit-testing agree); tilingOf computes the inner sector where a file's functions get tiled, returning null when there's no room.
+- predicted: some · documented: some · derivable: no · legible: some · trap: yes
+- note: A wedge narrower than its own separator cut is silently painted out of existence while remaining hoverable/interactive — an invisible-but-clickable wedge — a hazard the code's own comments call out explicitly, so it's a documented trap rather than a silent one, but worth flagging since it's easy to miss on a skim.
+
+### `dotsOf` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `6821c0f4c3b1` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:48:29Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: For each node flagged as a trap or clone (per `mode`/`markers`), it finds the angular position of the containing FILE's wedge (never the function's own tiled position), and pushes that angle onto every ancestor directory's dot list. Then per directory it sorts the angles and merges any that fall within DOT_PX of each other into a single dot, returning a Map from directory id to its list of (merged) angles — memoized via `memo`/`once` and skipped or recomputed depending on `replaying`.
+- found: Memoized: bails out for the wrong mode, no markers, or a replay frame that this mode doesn't support live. Recursively walks the tree; at a file it tiles its children the same way the renderer does to get each hit function's real angle (falling back to the file's own midpoint when a function was rolled up or has no slot), and at a directory it collects angles from drawn descendants that hold a hit, falling back to its own midpoint when something underneath qualifies (`held`) but nothing drawn has an angle — building a Map from node id to its list of angles (no DOT_PX merging happens in this function).
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+
+### `buildModel`
+- spec 3 · read at `aa3f46aa4247` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Composes the full layout by calling memo() around each derived piece — scaleOf, treeOf, paintOf, bandsOf, dotsOf, viewOf, restFrame, unitsPerPxFor — for the given MapInput, and returns a single merged model object containing all these derived layout properties for the renderer to consume.
+- found: Sequentially derives scale, tree, paint, bands, and dots — each computed function feeding its output as input to the next stage — then merges the original input plus all derived pieces (except dots, which is nested) into a single flat model object via object spread.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `useMapModel`
+- spec 3 · read at `773e0c5e07dd` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:36Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A one-line hook that delegates to the mapModel peer function, calling mapModel(i) and returning its result — the actual hook logic (memoization, refs, effects) lives inside mapModel itself, and useMapModel exists just to expose a conventionally-named use* hook to components.
+- found: One-line hook that calls buildModel(i, useMemo), passing React's useMemo in as a dependency so buildModel can be shared between hook and non-hook contexts.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: buildModel takes useMemo as a parameter rather than useMapModel wrapping a call with its own memoization logic — likely so buildModel can be reused/tested outside a component.
+
+### `mapModel`
+- spec 3 · read at `49fc18529b2d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A plain (non-hook) function that takes a MapInput and returns a MapModel by directly invoking buildModel, without any of the memoization/caching machinery useMapModel wires up via React hooks — meant for callers outside a component's render cycle (e.g. report generation via mapScene) that just need the computed model once.
+- found: A one-line non-hook wrapper: calls buildModel(i, once) directly, for callers without a React component (like mapScene) that need the MapModel without going through the useMapModel hook's state/effect wiring.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Didn't know the `once` helper passed as the memoizer argument, but the shape (thin buildModel wrapper) matched.
+
+### `viewOf` — PREDICTED SOME
+- spec 3 · read at `11e30c494731` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: viewOf computes the destination viewBox for the current target layout — finding the bounding box of the geometry (likely the root's disc, expanded for file zoom via fileFrom), then fits/pads it to match paneAspect, adjusting for whether the target is a file (via fileIds) or a directory, and using rIn/morph to decide how tightly to frame it.
+- found: Computes the viewBox: if opening a file, fits to the fan it opens into; if morphing (replay) and not a file, pins to a fixed nominal-circle extent so the camera doesn't pump in/out as history plays; otherwise fits to the actual target geometry, growing file wedges that can hold a rim label by the label band so names aren't clipped.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+
+### `restFrame`
+- spec 3 · read at `750237e52377` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:07Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Frame object representing the map's steady/idle state — pulling each wedge's static geometry straight from the model's current layout (no coring/leaving transition in progress), likely setting animation-related fields (like e) to a fixed resting value.
+- found: Returns a Frame whose geo lookup reads directly from m.target (falling back to NOWHERE), moving: false, e: 1, and empty/null transition fields (leaving: [], coring: null, fileLeaving: null) — the idle, no-animation-in-flight frame.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+## web/src/components/shell/Dialogs.tsx
+
+### the file itself
+- spec 3 · read at `2791155823ee` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A shell-level container file that aggregates and renders the app's modal dialogs (BigFolderDialog, BigHistoryDialog, CliLinkDialog), each defined as its own component in this file, conditionally rendered based on shared dialog-open state, with props passed to whichever dialog is currently active.
+- found: Three independent, self-contained dialog components (BigFolderDialog, BigHistoryDialog, CliLinkDialog), each rendered via a shared Overlay wrapper, each with its own props/state passed in by its caller — not a unifying 'Dialogs' orchestrator component. Each has a substantial doc comment explaining the UX/product rationale behind its design.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+
+### `BigFolderDialog`
+- spec 3 · read at `9ec07fe19429` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:18Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: BigFolderDialog renders a modal warning that the folder the user picked contains many sub-repos, listing the count and a few names from bigFolder, with a confirm button that calls takeFolder to proceed anyway and a cancel/dismiss action that calls setBigFolder(null).
+- found: Modal warning naming the repo count and a few names, with Cancel (clears bigFolder) and "Scan it anyway" (calls takeFolder) buttons, matching the doc's rationale exactly.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `BigHistoryDialog`
+- spec 3 · read at `c2f9bc61b962` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:17Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Renders a modal explaining why the git history read is being skipped/deferred for a large repo (using the estimated cost with a "~" prefix), includes a "don't show this again" checkbox wired to hideExplain/setHideExplain, and has action buttons — one to proceed adding the folder without history (calling takeFolder) and one to cancel (setBigHistory(null)).
+- found: Renders a modal explaining the three costs of adding a repo (Scan/Trace/Read), showing the estimated trace time (formatted seconds/minutes, noting if it's an estimate from object-store size), a "don't explain again" checkbox, a Cancel button, and an "Add repo" button that persists the checkbox preference (only on confirm, not on tick) and calls takeFolder.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The preference-save-only-on-confirm-not-on-tick behavior is a subtle UX detail called out in an inline comment, not something guessable from the signature.
+
+### `CliLinkDialog`
+- spec 3 · read at `0151dad1ea27` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React dialog component that displays the outcome of the "Install Command Line Tool" menu action. It renders cliLink.text (a success/error message) and, if cliLink.path is present, shows the install path (possibly with a warning if another binary shadows it on PATH). Has a close/OK button that calls setCliLink(null) to dismiss.
+- found: Renders an Overlay containing a dialog with title "Command line tool", a prose paragraph combining cliLink.text with the path rendered inline as a <code> element (not a separate warning block), and a "Done" button that dismisses via setCliLink(null).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The inline comment explains a UX decision (avoiding all-monospace text) that isn't derivable from the code alone.
+
+## web/src/components/shell/LensBar.tsx
+
+### the file itself
+- spec 3 · read at `20e5c9ea8764` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: The file defines the LensBar shell component: a horizontal toolbar for switching between "lens" views/filters, plus small supporting subcomponents Spacer (layout gap), FindButton (search/find trigger), and HistoryToggle (toggle for a history panel).
+- found: A toolbar (LensBar) rendered as a Tauri drag-region strip with three groups: left is what the current color-mode encoding means (mode switcher plus per-lens controls like color count cap, marker toggle, age/tangle/blame/derivable readings, churn window — each conditionally shown per viewMode), middle is ring count (how much of the tree is drawn), and right is two 'doors out' — HistoryToggle (enter commit-by-commit replay, only enabled if already traced) and FindButton (open the finder, ⌘F). Spacer is a stretched, drag-enabled flex-1 gap between the three groups.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: File has no top-level doc header, but nearly every function/section is densely commented explaining design rationale — docs richness is inline, not at file level.
+
+### `LensBar`
+- spec 3 · read at `7646e2a27287` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Renders the top toolbar row of the shell — a color-mode picker (switching between age/tangle/blame/derivable/churn views, each with its own sub-control like ageRead/tangleRead shown conditionally based on viewMode), a picture-shape control (rings/caps/markers for what's drawn), and then the "two doors out" — a Find button and a History toggle — with a help toggle mixed in; most controls are simple wired buttons/selects passing through the given setters.
+- found: Renders a drag-region toolbar: HelpButton, ModeSwitcher (color mode), then conditionally one lens-specific "what color means" control per viewMode (cap count, marker toggle, age/tangle/blame/derivable reading, churn window) — all left of a spacer; then RingCount (geometry) right of a second spacer; then the two doors out — HistoryToggle and FindButton.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The extensive inline comments explain a left/middle/right semantic grouping (color meaning vs geometry vs exit) that isn't otherwise obvious from just reading control order.
+
+### `Spacer`
+- spec 3 · read at `2649020bfe91` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:04Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Spacer renders a flexible div (flex-grow) that fills empty space between the three control groups in the top row, and it explicitly carries Tauri's drag-region data attribute so that space becomes a draggable titlebar handle.
+- found: A flex-1, self-stretch, aria-hidden span carrying data-tauri-drag-region — self-stretch specifically so the drag handle spans the row's full height rather than being a thin sliver in an items-center row.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `FindButton`
+- spec 3 · read at `f0df4d4b010c` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:31Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Renders a button with a hand-drawn magnifier SVG icon and a tooltip mentioning ⌘F, calls `onOpen` when clicked (unless `disabled`), and applies a "lit"/active visual style when `on` is true to show the find panel is open.
+- found: Renders a rounded button with a stroked SVG magnifier icon; disabled when another panel covers the map (with a different tooltip explaining why), otherwise shows '⌘F' in its tooltip; styled with accent background/color and a shadow when `on` is true to show the find panel is open, calling `onOpen` on click.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `HistoryToggle`
+- spec 3 · read at `f9cb5fbd61cb` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:29Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a button/icon toggle for the history view. If traced is false it's disabled/inert since there's nothing to show and it must not trigger tracing itself. If busy it shows a loading indicator. Clicking calls onToggle(); `on` controls active/pressed styling.
+- found: Renders a toggle button. Disabled only when turning ON and (busy or not traced) — leaving the history view (on=true, clicking to turn off) is always allowed regardless of busy/traced state. Shows a lock icon when locked (not on, not busy, not traced), and label switches between 'Tracing…' and 'History'. Tooltip text varies by state. Clicking always calls onToggle.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ## web/src/components/shell/SideBarHeader.tsx
 
 ### the file itself — PREDICTED SOME
@@ -2287,14 +2496,390 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: some · trap: no
 - note: The y-axis flip (screen y-down to gaze y-up) happens on every ref sync, and the pointer direction softening uses the target's own width as a pseudo-depth — neither is guessable from the signature.
 
-## web/src/lib/api.ts
+## web/src/components/useLevelMotion.ts
 
 ### the file itself
-- spec 3 · served in 5 parts · read at `6e078ee58b33` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:27:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: This is the frontend's single API/model layer: thin `invoke()` wrappers matching every Tauri command in commands.rs one-to-one (scanRepo, listProjects, saveRule, projectReport, functionSources, etc.), plus client-side logic for maintaining the scan tree and its derived state — converting raw scan payloads into Node objects (toNode, toScan), merging live agent reports into the tree (applyAgentReports, reaggregate, applyScores, sameReports, reportSignature), pruning/aggregating for display (pruneExcluded, churnSaturation, localityOf, showsShare), and computing the heat/color ramp used to paint the sunburst (heatColor, wedgeHeat, shareRamp, rampAt, temperature). It has no doc header, so this is inferred purely from the function list, which likely means the module's overall shape isn't written down anywhere and has to be read off the exports.
-- found: The file is the frontend's shared model/API layer: the full TypeScript type mirror of the Rust wire types (Node, Score, WireNode, ProjectSummary, FindingGroup, RuleView, AgentReport, etc.), thin invoke() wrappers for nearly every Tauri command (pickProject, scanRepo, saveMovie, installCli, harnesses, startCheck, projectReport, saveRule, functionForks, commitDetail, functionHistory, cliStatus, stopHistory, etc.), Tauri event listeners (onScanScore, onScanProgress, onSetTheme, onOpenProject, onExportReport), and a substantial layer of client-side tree/report maintenance logic — toNode/toScan wire conversion, applyScores/reaggregate (a hand-mirrored copy of Rust's Node::aggregate), applyAgentReports/readInto/readIntoRing/holdReadings/reportSignature/sameReports for folding live agent readings into the tree with object-identity preservation to avoid unnecessary re-renders, plus summarize/countPending for panel statistics and the heat/color ramp helpers (temperature, wedgeHeat, shareRamp, heatColor). It has no file-level header at all.
+- spec 3 · read at `713f9d5f06fe` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:44Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Defines a single exported hook, useLevelMotion, which owns all per-frame motion computation for the sunburst — running a requestAnimationFrame-driven loop that picks among three sources of wedge geometry (an eased level-change keyframe transition, a "chase" animation toward a moving replay/fold target, and the static geo resting layout), holding animation state in refs across renders, and returning the resulting Frame object each tick for MapSvg to draw, alongside functions to trigger a level change or update the chase target.
+- found: A single hook computing per-frame wedge geometry for the sunburst from three sources (level-change keyframe, chase/morph toward a moving target, or static geo), with detailed extra machinery for coring a clicked directory into the hub, flying leaving wedges out, file-open/close tiling transitions, and fold-triggered chases — returning a Frame plus run/fileFrom/armFold.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The file's real complexity is in the level-change bookkeeping (coring, leaving, fileLeaving, fileFrom) and the chase-seeding edge cases (fold vs replay), which the header only gestures at as 'flies the old level out, cores the clicked directory' — the peers list gave no hint of this since only the hook itself is exported.
+
+### `useLevelMotion` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `4060ad6ff63d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:59Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A large stateful hook that drives every animated motion of the sunburst map, producing the per-frame Frame object MapSvg renders. It tracks which of three motion sources currently owns the picture: a keyframed level-change transition (drilling in/out, opening/closing a file, flying the old level out and coring the new directory into the hub), a "chase" that eases wedges toward a moved target (replay steps, folds) without a level change, and a resting state that just reads the current geo layout. It likely uses requestAnimationFrame plus refs to track transition progress and returns the current computed Frame each render, switching sources based on which is active and prioritizing level-change keyframes over chase over rest, per the order described for `geo`.
+- found: A large hook combining a rAF-driven keyframe (t, eased) for level changes — computing per-wedge start positions from what's live on screen, coring the clicked directory into the hub, tracking leaving wedges and file-open/close transitions — with a separate rAF "chase" loop that exponentially eases wedges toward a moved target (replay steps or folds) when morphing is enabled, deferring entirely to the keyframe while one runs; a `geo(id)` function picks among keyframe/chase/rest per wedge each frame, seeding never-before-seen wedges at zero width, and it returns the composed Frame plus run/fileFrom/armFold.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+
+## web/src/components/useMapView.ts
+
+### the file itself
+- spec 3 · read at `61617b0d5bdf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A hooks file for sizing/positioning a map figure inside its pane. usePaneBox likely measures the pane's DOM size (e.g. via ResizeObserver), and useMapView computes the fitted box for the map's picture given that measured size and imperatively writes the resulting dimensions/transform straight onto the SVG element and a badge-over-hub element each frame, rather than storing it in React state, for performance. PLACE_NOWHERE is probably a sentinel/default position constant used before a real placement is known.
+- found: usePaneBox measures the pane's DOM size via ResizeObserver (not pointer tracking) and calls place.current synchronously in the observer callback to avoid a frame of lag. useMapView computes the interpolated/fitted view box for the map composition and writes viewBox + hub badge transform directly to the SVG/DOM elements every layout frame instead of via React state, to keep the hub and wedges moving on the same frame. PLACE_NOWHERE is a no-op Place function (not a position constant) used as a placeholder before the real placer is wired up.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+
+### `usePaneBox`
+- spec 3 · read at `f0ad6014dae7` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:42:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A hook that keeps a Box state in sync with the pane element's actual measured size using a ResizeObserver, so layout decisions (unlike tooltip placement) aren't based on stale {0,0} defaults. It sets up the observer in a useEffect on the pane ref, updates state whenever the element resizes, cleans up the observer on unmount, and returns [box, setBox] so callers can both read and adjust it.
+- found: Uses a ResizeObserver in a useLayoutEffect (mount-only) on the pane element; on each resize it immediately calls place.current(width, height) to move the hub in the same frame as the resize, then updates the box state only if the dimensions actually changed. Cleans up by disconnecting the observer; returns [box, setBox].
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `PLACE_NOWHERE` — PREDICTED SOME
+- spec 3 · read at `f5b7bb5121bf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:47Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A Place function (signature (w, h) => Box) that, regardless of the actual pane dimensions passed in, returns a degenerate placeholder box (e.g., zero size or off-screen position) — used as the initial/default value before the pane has been measured.
+- found: A no-op: it discards both arguments (`void w; void h;`) and returns nothing, rather than returning a degenerate box as I guessed — consistent with `Place` being a side-effecting writer (per the file doc) where "nowhere to place" just means doing nothing.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `useMapView`
+- spec 3 · read at `b71b2e733e03` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A React hook that computes and imperatively writes the SVG viewBox (and hub badge position) on every frame using getBBox() post-render, fitting a square box centered on the actual rendered content (not the origin) to avoid oval distortion. It tracks level-change transitions via run/moving/e for interpolation between old and new bounding boxes, writes directly to the DOM via refs (svg, hubBadge) rather than through state, and returns a viewBox string plus a ref to the current view for other imperative consumers.
+- found: Computes a target view (viewOf) from geometry data, interpolates from the previous view to the new one via lerpView while a level-change is 'moving', and writes the resulting viewBox string directly onto the SVG DOM element (bypassing React state, for per-frame performance) rather than via getBBox measurement. It also imperatively positions the hub badge overlay via a ref-held function so a ResizeObserver can call it pre-paint, and re-bases the interpolation start once per level change via a run counter.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The docs on this handout (about getBBox/measuring content extent) describe a different function's approach than what this body actually does — this body computes the view from geometry (viewOf/lerpView) rather than measuring via getBBox, so the docs likely belong to a sibling like usePaneBox or an internal fit effect.
+
+## web/src/hooks/useAddProject.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `39c916ff047b` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:51Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Exports a single hook, useAddProject, implementing the "Add a repo" flow: opens a folder picker dialog, calls an API to register the chosen path as a project, tracks loading/error state, and returns a trigger function plus that state for the UI. No file-level doc comment.
+- found: Implements the whole "add a repo" flow shared by the sidebar '+' and empty-gate button: picks a folder, and if it holds multiple repos surfaces a confirm dialog (bigFolder) instead of scanning; otherwise estimates trace/history cost and, if over budget, surfaces a bigHistory cost dialog (with a 'hide explain' checkbox committed only on confirm) before calling scanRepo via takeFolder, which also sets pendingAdd so the project can be selected once it appears. Also wires Cmd+O (via onOpenProject) to trigger the same add flow, since manual folder-open was replaced by agent-driven sanity_open.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: No file-level doc, but the exported function itself carries a good doc comment explaining the picker/dialog flow.
+
+### `useAddProject`
+- spec 3 · read at `412686654bda` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:05Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Wires a folder picker (native Tauri dialog, triggered by a button and by Cmd+O), and before adding the repo, calls backend estimate functions to check if the folder is large or has deep git history, showing a confirmation prompt for either case; only after confirmation (or if neither threshold is hit) does it actually register the project and call setPendingAdd with the new project's key so useProjects can follow it onto the map. On error, it calls setError.
+- found: Matches my prediction closely: pickProject() picks a folder, a folder holding >1 repo sets bigFolder state for a confirm dialog rather than refusing, and a repo estimated over the trace budget sets bigHistory state (with cost) instead of auto-tracing; only on confirmation does takeFolder register the project via setPendingAdd and call scanRepo. Returns dialog state/setters rather than rendering dialogs itself. ⌘O now triggers this add flow (repurposed from the old File→Open folder picker, since projects otherwise only arrive via an agent's sanity_open call).
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The comments explain non-obvious history: ⌘O used to mean something different, and the multi-repo/history checks exist to inform rather than block, which the code alone wouldn't make clear.
+
+## web/src/hooks/useAwaiting.ts
+
+### the file itself — PREDICTED NONE
+- spec 3 · read at `62c1981a1f1b` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Defines a single hook, useAwaiting, for tracking whether an async action triggered from the UI is currently in flight — wrapping a promise-returning callback and exposing a boolean (or per-key) awaiting state so buttons can show a loading/disabled state while the promise is pending. No file-level doc comment.
+- found: A hook that, given the project list/selection and streaming state, computes what the pane is waiting on: the project being loaded (falling back to the first project rather than none, to avoid a false empty-state during startup restore), the assembling shape tree (gated on a file-count floor and matching the streaming project so a stale/foreign tree isn't shown), and that project's read progress (built once, carrying its phase/unit rather than being reconstructed ad hoc).
+- predicted: none · documented: none · derivable: no · legible: not judged · trap: no
+
+### `useAwaiting` — PREDICTED SOME — TRAP
+- spec 3 · read at `19fbfaeaaffd` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:12Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This hook derives what status message/state to show a pane that has no map to render yet: it checks whether there are any projects at all, whether one is selected (activeKey/activeProject), how far that project's scan has progressed, and whether the shape (tree data) is still streaming in (via shape/streamingKey), returning a single descriptive value (string or small object) prioritized in that order for the UI to display.
+- found: Returns {awaiting, shapeRoot, awaitingProgress}: `awaiting` is the loading project matching activeKey, or else activeProject/projects[0] as a fallback so the empty pane always names a specific project rather than a generic first-run message; `shapeRoot` builds a partial tree from `shape` only once it clears a size floor and only when streamingKey matches the awaited project (to avoid drawing a stale repo's shape under the new project's name); `awaitingProgress` carries the awaited project's own read phase/unit/done/total as a Progress object since map-assembly completion and scan completion (e.g. the blame pass) are different milestones.
+- predicted: some · documented: most · derivable: no · legible: most · trap: yes
+- note: The shapeRoot guard against a stale repo's leftover shape being drawn under a new project's name is a real trap for anyone touching this without reading the comments closely.
+
+## web/src/hooks/useFindings.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `f19c4561cdd5` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:01Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Single hook, useFindings, that fetches/manages findings (rule violations) for the current project: loading state, polling/refresh as new reports land, and derived/memoized groupings (by rule, by node) consumed by components like FindingBadge and the report grid. At 220 lines, likely also handles errors and normalizes the raw API shape.
+- found: Much broader than just fetching/grouping findings: it's the single store behind the whole findings panel — fetches findings/rules/grammar together in one call keyed on scalars chosen to avoid redundant refetches, tracks archive/decisions, exposes decide/undecide and full rule CRUD (writeRule/removeRule/restoreRule) that all invalidate via one shared archiveAt bump, tracks which panel tab was last asked for, and derives the memoized {count, rules} badge data consumed by the hub's dial (FindingBadge).
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: One export has a one-line doc; the file itself has no header, so 'none' documented is accurate for the file-task's docs field.
+
+### `useFindings` — PREDICTED SOME
+- spec 3 · read at `d2fd3d21fd55` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A React hook that fetches and holds the findings list (and badge count) for the active project, re-fetching when activeKey, treeRev, or assessed changes (assessed likely gates fetching until readings exist), and exposes write actions (e.g. dismiss/save a finding, adjust calibration) that call backend commands and update local state optimistically. historyOn probably toggles whether historical/resolved findings are included.
+- found: A hook that fetches findings/rules/grammar via one combined projectReport call (re-asked on treeRev, assessed count, historyOn, and an archiveAt bump), separately fetches the decision archive, and exposes decide/undecide plus rule-editing actions (writeRule, removeRule, restoreRule, saveBalance, toStock) that each write then bump archiveAt to invalidate everything downstream. Also computes memoized counts (liveRules, findingTotal) and a findingsForMap object for the sunburst badge, plus panel-open/tab-ask state.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Heavy inline-comment documentation explains non-obvious invalidation design (why archiveAt exists, why writes refresh inside .then rather than optimistically) that isn't visible from the signature at all.
+
+## web/src/hooks/useHistory.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `4d288e23cc39` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:40Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Provides React hooks syncing the app's navigation/drill-down state with the browser History API (push/replace state, popstate) for back/forward between zoom levels. useHistoryScope scopes/filters history entries to a subtree or session; useMovieSource turns recorded history into a sequence of frames for replay/scrubbing playback, tying into earlier hints about replayed frames and gaze tracking.
+- found: Three hooks implementing a git-history replay feature: useHistory manages fetching/streaming a repo's commit timeline (tables+deltas), a playhead index, play/pause/duration/scrub state, and builds a per-frame tree via frameTree; useHistoryScope narrows the timeline to commits under the currently drilled-in path and gates the toggle; useMovieSource exposes a MovieSource callback that reconstructs the tree at an arbitrary commit for exporting a rendered movie, independent of the on-screen playhead.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+
+### `useHistory` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `851882fda1e2` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Orchestrates history-mode playback: composes useHistoryScope (resolving which commits/scope apply given repoPath, activeKey, projectName, drilled) and useMovieSource (turning that scope into playable frames). Exposes frame-stepping state (index, total, play/pause, next/prev/seek) and reports errors via setError on failure, while ensuring live reading/findings polling stays suppressed whenever historyOn is true.
+- found: Manages the entire history/replay feature: holds fetched timeline tables+deltas, a single-flight `replay` (trace) function, playhead state (histIndex/playing/duration/flashes), scrub/index functions that wait for streamed data to arrive, a memoized frameTree per playhead position, churn windows, head-size ordering for the replay, and cleanup when the active project changes.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Peers useHistoryScope/useMovieSource are not actually called here — this hook is self-contained: it owns timeline state (tables/deltas), a walk/replay function with a single-flight guard, a playhead/scrub mechanism that waits for streamed-in data blocks, and a memoized per-frame tree builder (frameTree), plus project-switch cleanup.
+
+### `useHistoryScope` — PREDICTED SOME
+- spec 3 · read at `2c30215e7ebd` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:54Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Returns two things gated on the map being loaded: a toggle function for historyOn that refuses to turn history on until tree exists (there must be something on screen to animate away from, and it resets setPlaying/setPicked when toggling), and a derived list/count of commits in scope, filtered from history.tables/deltas to only those touching the subtree rooted at focus (or the whole repo when focus is null).
+- found: toggleHistory gates entry on having a focus node and on not being busy/having zero replayed commits, then flips historyOn, stops playback, and clears the picked selection. scope is just the focused node's path (or '' at the root). frames is fetched asynchronously from the backend via historyScoped(repoPath, scope) rather than being derived locally from history.tables/deltas, and is reset to empty whenever history/repoPath/scope change.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The 'commits in scope' are fetched from the backend (historyScoped) keyed on the focus path, not filtered client-side from history.tables/deltas as the peer names might suggest.
+
+### `useMovieSource` — PREDICTED SOME
+- spec 3 · read at `d063d2b41ae3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:15Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Builds the data an exported movie needs: for each point along `history` (scoped by historyKey/activeKey/stack/drilled), constructs per-frame map data via slotsFor/keyAt/lensViews, and computes one shared scaling measurement (likely from churnWindows) up front so all frames normalize to the same scale instead of autoscaling per-frame. Returns a memoized object combining per-frame maps with the shared scale/look settings.
+- found: Returns a memoized MovieSource whose `frame` field is a closure (not precomputed data) that, given a commit/time, builds the tree via frameTree, walks down `stack` to find the current root, resolves its parent, and returns {root, parent, ranks, key} — plus static `views`/`look`/`sortBy`. It also tracks `paneSide` (the on-screen pane's measured size) via state so `frame` can scale exported pixel density relative to what's on screen; the memo returns null if historyKey doesn't match activeKey (stale/mismatched scope).
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: I expected per-frame data to be built eagerly for each history point; instead it hands back a lazy `frame` function evaluated later per requested commit, and the 'measurement it scales them by' is the live pane size (paneSide), not something derived from churnWindows.
+
+## web/src/hooks/useLens.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `f82f88ca3c74` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:08Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Hooks backing the LensBar toolbar's state: useLensChoices manages per-lens settings (caps, marker toggle, age/tangle/blame/derivable readings), useLocks computes which color modes are locked given current data, useRanks computes ranking/cap-related derived values, and useLensViews builds the lensViews object (e.g. churn windows) consumed by LensBar.
+- found: useLensChoices holds all per-session lens display state (mode, rings, caps, markers, age/blame/tangle/derivable readings, churn window) matching my prediction. useLocks computes which color modes are locked given replay/tree/scan state, also matched. useRanks was far more than I guessed: it's the core color-ranking engine — computing stable author/language-to-color-slot rankings across the whole repo (not just the current view), reconciling live vs. replay/drilled scope, capping ranks, and building movie/legend keys — not merely 'cap-related derived values'. useLensViews builds the calibrated Views object (age span, churn windows, etc.) as I predicted.
+- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
+- note: useRanks is the most conceptually dense function in the file — it encodes multiple hard-won invariants (e.g. 'the end of the replay is the live map') that aren't visible from its name/signature alone.
+
+### `useLensChoices` — PREDICTED SOME
+- spec 3 · read at `7924da95e03b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A composing hook owning all non-per-project display state: lens/view selection, its sub-reading options, ring count, and color caps, each likely a useState (possibly persisted), returning a bundled object of values and setter functions, and internally using useLensViews/useRanks/useLocks for parts of that state.
+- found: Owns a large set of independent useState slices for map-painting choices not tied to a project: color mode, ring count (persisted), fixed band/spacing constants (former sliders now hardcoded), marker toggle, derivable-doc read mode, per-lens color caps (persisted per key), and several per-lens sub-readings (age/blame/churn window/tangle). Returns them all bundled with setters/callbacks; does not call useLensViews/useRanks/useLocks itself.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The extensive inline comments carry most of the actual reasoning (why band/spacing became fixed constants, why markers default off, why derivable defaults to none) — that context isn't recoverable from the signature or peers at all.
+
+### `useLocks`
+- spec 3 · read at `74be6a103a1e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Memoized hook that, for each lens, determines whether it's locked (nothing to show) and why, checking in order: replay limits (if replaying), then whether readings has data for the current project, then whether scan/tree has the git-history or language-wiring data needed — returning a Locked record keyed by lens.
+- found: Thin memoized wrapper that extracts specific derived fields (assessed count, graded counts from readings, trace depth, tangle bands, churned flag) and delegates the actual lock decision to `locksFor`, with a manually-maintained dependency array (deliberately including readingRev since locks count what readings grade).
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `useRanks` — LEGIBLE SOME
+- spec 3 · read at `275b45aeb716` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A large hook that computes the shared color/rank assignment for whichever lens (ColorMode) is active — complexity, age, blame, tangle, etc. — based on the current tree, focus/drill state, and per-mode "read" state objects (ageRead, blameRead, tangleRead) plus caps (numeric thresholds for capped metrics). It likely returns a memoized structure (buckets, a colorOf/rankOf function, legend entries) that every visual surface (the sunburst map, its rim, the legend, the side panel, and off-screen export rendering) consumes so they all agree on the same color for the same node, recomputing when the relevant inputs (viewMode, history, activeKey, etc.) change.
+- found: Computes and memoizes category→colour-slot rankings shared by the map, rim, legend, panel and export: `authorRank` is ranked once over the whole repo's commit history (stable regardless of drill/playhead) rather than what's on screen, falling back to on-screen ranking only for older backends with no cast data; `langRank` is ranked over the live drilled view (since language genuinely is a property of what's in front of you) but padded with history's vanished languages so they still get a colour. `rankedNow`/`ranks` apply the active view mode's cap uniformly. `slotsFor` and `keyAt` expose the same ranking machinery for off-screen consumers (movie captions, report keys) so nothing computes its own separate ranking and disagrees with the map.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The extensive comments document a real history of three failed identity-stability schemes for replay coloring (rank-per-frame, seed-from-today, assign-by-arrival) — genuinely non-obvious design rationale a signature alone gives zero hint of.
+
+### `useLensViews`
+- spec 3 · read at `d83b1de9641a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:20Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Assembles a memoized Views object bundling the current per-lens display modes (age, blame, tangle, churn, derivable) that other code (like the paintTangle-style functions) reads to decide how to render each metric. Given its length, likely also computes derived thresholds from scan/churnAt/ageSpan (e.g., churn or age rank cutoffs) rather than just repackaging the raw props.
+- found: Memoizes a call to viewsFor(...) bundling the lens read-modes plus scan.stats.churnWindows/churned into one Views object, deliberately depending on those stats fields rather than the scan object itself so a landed reading (which replaces Scan but keeps stats identity) doesn't spuriously rebuild the memoized Sunburst's props.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+## web/src/hooks/useLensKeys.ts
+
+### the file itself
+- spec 3 · read at `0709f19ef263` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Defines a single hook, useLensKeys, that wires keyboard shortcuts to switch between the app's lenses (color/view modes) — listening for keydown events (e.g. number/letter keys) and calling a lens-setter, while ignoring keystrokes from text inputs/editable fields. No file header doc.
+- found: Single hook binding a global keydown listener that delegates key interpretation to actOf (lib/keys.ts), which returns an 'act' based on modifier keys, whether an input is focused, and app state (finding/findingsOpen/helping). Handles: opening find, toggling history replay, stepping/cycling through lenses (wrapping), or jumping directly to a lens via Cmd+digit. No file-level header comment, though the body has extensive inline rationale comments.
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- note: The file is essentially two things stapled together — a wire-protocol/API mirror and a nontrivial client-side re-implementation of the Rust tree-aggregation algorithm (reaggregate) that has to be kept in sync by hand, which a bare function/type list doesn't convey.
+
+### `useLensKeys` — PREDICTED SOME
+- spec 3 · read at `5cf484c5c638` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:41Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A React effect hook that adds a keydown listener mapping Cmd-1..9/Cmd-0 to select the corresponding lens/mode from MODE_LABEL's key order via setMode, Cmd-minus to select the eleventh lens, and Cmd-plus/equals to toggleHistory (the replay toggle). It likely bails out early when a text input is focused, or when `finding`/`findingsOpen`/`helping` indicate some overlay/search state is active that should swallow the shortcut instead, and cleans up the listener on unmount.
+- found: Adds a keydown listener that delegates the actual key-to-action decision to `actOf` (in lib/keys.ts), passing typing/finding/covered context flags; based on the returned action it opens find, toggles history, wraps-steps through MODE_LABEL's mode list, or sets the mode directly, preventing default whenever an action was claimed. Uses a ref for the current mode so the listener doesn't need to rebind on every mode change.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+
+## web/src/hooks/useNavigation.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `14b3d6790150` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:47Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A hook defining useNavigation that manages the app's current selection/navigation state (e.g., selected project, node/path within the tree, active tab or view), syncing it with the URL (hash or query params) and browser history so back/forward work, and likely exposing setter functions plus keyboard-driven navigation (moving between nodes/tabs) for the UI to call.
+- found: Manages in-tree navigation/selection state for the sunburst map: current picked node, drill-down (with special-casing for function nodes and the synthesized overflow aggregate), breadcrumb trail and owner chain computed by walking parentOf (not the drill stack, since collapsed directory chains make paths unreliable), goUp/goTo by ancestry index, and jumpTo/flyTo which handle async resolution when a search hit or panel link points at a node not yet fetched into the slimmed tree (tracked via asked/landed refs, resolved in an effect once the file's functions land).
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+
+### `useNavigation`
+- spec 3 · read at `5357dade0a05` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:18Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Centralizes all map navigation logic — computing `selected` (from `picked`, falling back to `focus`), `trail` (breadcrumb ancestry from root to focus), and `owners` (who touched a node) — and returns handlers like `pick`/`clearPick` (set the picked node), `drill` (push onto `stack` to re-root the rings), `goTo`/`goUp` (crumb navigation via `setStack`), `jumpTo`/`flyTo` (search-result navigation that may need to wait via `asked`/`landed` for lazily-loaded subtrees), and `showIn`/`codeNode` for opening the code overlay via `setCodeFile`/`setReveal`.
+- found: Computes codeNode/selected/trail/owners by resolving ids against the live tree, and returns navigation handlers: pick/clearPick set the picked node; drill re-roots the stack but special-cases functions (opens their containing file and reveals them) and the synthesized 'overflow' aggregate (routes to its file's ring); showIn re-roots without clearing selection; jumpTo/flyTo hold a pending 'heading' request resolved by an effect that fetches a file's function ring via asked/landed when the target isn't in the (slimmed) tree yet, then selects by line number once it lands; goTo/goUp move along the ancestry trail.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: jumpTo's resolution is asynchronous and stateful (a pending heading resolved by a later effect once a fetched ring lands), which isn't visible from the returned handler's shape alone.
+
+## web/src/hooks/useProjects.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `a796588c31f4` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:49Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: useProjects.ts is a single large hook (useProjects) that owns the top-level list of projects/repos in the app — fetching them, polling for scan-status updates, and exposing actions like adding/removing/selecting a project. Given the file has no header doc, I'd guess it accumulated a lot of polling/caching logic organically (similar to the rings hook) to keep the project list in sync with an evolving backend scan state, without ever being split into smaller focused hooks.
+- found: A single hook owning the project list, which project is active, and a 1.5s poll that both refreshes the list and follows whichever project an agent is currently working on (an inversion where the backend's focus drives the UI rather than the user always picking). It banks and restores each project's view (color mode + drill-in stack) on switch via a ref-backed store, exposes select/forget/reset/scanKey actions, and carefully uses refs alongside state to avoid the poll's interval closure reading stale values.
+- predicted: some · documented: none · derivable: no · legible: not judged · trap: no
+- note: File has no header doc at all — only a JSDoc directly above the exported useProjects function; the concept of 'following an agent' as the primary navigation model is the single biggest thing not guessable from the file name.
+
+### `useProjects` — LEGIBLE SOME
+- spec 3 · read at `6dbe01919e13` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:28Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: The central hook owning the list of known projects and which one is currently displayed. It polls the backend to follow projects an agent opens, handles sidebar clicks and hand-added repos, and exposes a switchTo that banks the outgoing project's view state (color mode, drill stack) and restores the incoming project's saved state rather than the hook owning that state itself. It also handles forgetting/resetting a project, updating scan/treeRev/error as those transitions happen, and reconciling agent reading state via keepReadings.
+- found: Matches my prediction's shape well: a views Map keyed by project holding {mode, stack}, switchTo banking/restoring it, a 1.5s poll that follows an agent's active project (distinguished from a sidebar click via a separate 'followed' variable so the two doors don't fight), refetches the tree on rescan via a revision/loading check, and forget/reset sharing a dropView helper that clears screen state. Also exposes select (sidebar click, tells the backend via selectProject) and scanKey, plus derived repoPath/activeProject. Missed many specific mechanisms: shownRev/loading gating for early cache reads, why dropView is shared but forget/reset call different backend commands, and pendingAdd's dedicated effect for hand-added repos following the same switchTo path.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: Nearly every line has a comment recording a specific past bug (stale closures, mismatched key vs path, selection surviving a switch) — this hook's comments are load-bearing history, not restatement, and should be read in full before editing any single piece.
+
+## web/src/hooks/useReadings.ts
+
+### the file itself
+- spec 3 · read at `893e4bacb06c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:41Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Provides React hooks for the sanity map's live "readings" data — useReadings fetches/subscribes to the current assessment state (which functions have been read, their grades), useReadingsPoll polls a backend endpoint on an interval to keep that state fresh, and useReadingLeases tracks which functions are currently checked out ("in flight") by other readers so the UI can show them as claimed. No header comment present.
+- found: useReadings holds agent reports in a ref+revision counter (not state) so unchanged polls don't invalidate memoized layout; useReadingsPoll polls agentReports every 2s, skips entirely during history replay (to avoid stutter), and only triggers a rerender when holdReadings signals something actually moved; useReadingLeases converts a list of currently-leased reading ids into a Set that includes both the function id and its containing file's id (via the '#' prefix), so the map can pulse the file band too since tiny function wedges may not be visibly drawn on their own.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: There is no file header doc at all — each hook has its own dense comment instead, so the file-level "what is this for" has to be assembled from three separate comments.
+
+### `useReadings`
+- spec 3 · read at `a19c476eb491` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:05Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Sets up a ref holding the readings map plus a revision counter (rather than React state), calls useReadingsPoll to periodically refetch readings (~every 2s), and uses a holdReadings-style diff to only bump the revision when something actually changed — avoiding invalidating memoized sunburst layout on every poll tick. Returns the ref's current readings alongside the revision counter for consumers to key off of.
+- found: Holds a Held readings ref and a readingRev counter (not state directly), and exposes a keepReadings(list) callback — used by a poller elsewhere — that diffs the incoming list via holdReadings, and only replaces the ref and bumps readingRev if something actually moved, otherwise returns the same list reference unchanged.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `useReadingsPoll`
+- spec 3 · read at `7779a123f818` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Sets up a setInterval that, while historyOn is false, calls agentReports(activeKey), passes the result through keepReadings to preserve object identity, and if moved is true, folds it into the tree via setScan/applyAgentReports. When historyOn is true it skips fetching entirely, and it tears down the interval on cleanup/dependency change.
+- found: A 2s setInterval that skips while historyOn, fetches agentReports(activeKey), bails early if empty, runs keepReadings for identity-preserving dedup, and if moved folds into the scan tree via applyAgentReports — but also checks root===prev.root after folding to avoid a state update when the fold changed nothing.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Two extra guards beyond the basic poll-and-fold shape: an early return on an empty report list, and a post-fold identity check on the root to avoid a no-op setScan.
+
+### `useReadingLeases`
+- spec 3 · read at `df964d99f950` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Set<string> from readingIds, memoized via a ref comparing a stable key (like a sorted/joined string of ids) so that when a new poll returns an array with the same content, the same Set instance is returned instead of a new one, avoiding unnecessary re-renders. It may also add each node's containing file id into the set so the file lights up along with the node.
+- found: Joins readingIds into a key string, memoizes on that key, and builds a Set containing both each reading id and its file-id prefix (split on '#'), so directory ids are excluded but the owning file always lights along with the function/node.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+## web/src/hooks/useRemote.ts
+
+### the file itself — PREDICTED NONE
+- spec 3 · read at `28a05556b560` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:55Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: useRemote.ts is a tiny hook file exposing useRemote, which returns a boolean/flag telling the UI whether it's talking to a remote backend instance rather than the local Tauri one — probably reading it once from a global/env value rather than doing any async work, given the file is only 15 lines.
+- found: useRemote fetches a given repo's git remote as "owner/name" (async, one call per repoPath change, guarded against a stale set after unmount/change), for labeling an exported movie's caption — nothing to do with local-vs-remote backend mode as I guessed.
+- predicted: none · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `useRemote`
+- spec 3 · read at `6129c86e346e` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A React hook using useState/useEffect: when repoPath is set, it calls some API/IPC to run git and get the remote origin URL, parses it into "owner/name" format, and stores it in state; returns null if repoPath is null or no remote exists. Re-runs the fetch when repoPath changes, not on every render/poll.
+- found: Hook resets remote to null then calls an external repoRemote(repoPath) async function, using a "live" flag to avoid setting state after unmount/repoPath change (race guard), storing result in state and returning it.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The doc explains why this is a hook rather than a row field (poll-avoidance rationale), which isn't visible in the code itself; the actual parsing to "owner/name" happens inside repoRemote, not shown here.
+
+## web/src/hooks/useReport.ts
+
+### the file itself
+- spec 3 · read at `b74a99848dfa` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:44Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: This file's sole export is useReport, a hook that manages the lifecycle of generating/fetching the PDF report described elsewhere (lib/report/*) — tracking loading/progress/error state and exposing a trigger function to kick off report generation and a way to download or access the result once ready. Given it's only 68 lines, it's a thin state-management wrapper around a report-building call rather than containing report logic itself.
+- found: useReport tracks whether the export-report dialog is open (via an onExportReport subscription), computes the language legend for methodology text while the dialog is up, and provides completeTree — an async function that fetches missing function data for every wide-enough file and grafts it (with readings) into a full copy of the tree, so the report's counts/tables are self-consistent rather than reflecting whatever the live window happened to have fetched already.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `useReport` — PREDICTED SOME
+- spec 3 · read at `58661ed09561` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:55Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A React hook that manages generating/exporting a report from the current scan state. Given the filled tree node, refs to the active selection, the full tree, and held readings (agent findings), it likely returns state (e.g. open/loading/error) and an action to trigger building a report document (calling into the report layout/text library seen earlier) and either downloading it or opening a preview. It probably reads from the refs at call time rather than subscribing to them, since they're passed as RefObjects.
+- found: Manages the export-report dialog's open state (`reporting`, toggled by an `onExportReport` event listener), computes the language legend for methodology text only while the dialog is open, and exposes `completeTree` — an async function that fetches every file's functions (not just the ones already fetched for on-screen rings) via `fileFunctions`, grafts readings into them, and returns a full tree so the report's counts/rankings are consistent regardless of what the window happened to have rendered already.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: The doc comment on completeTree explains a real bug it fixes (report counts drifting between exports because they were reusing whatever rings the window had lazily fetched) — good context a signature alone wouldn't give.
+
+## web/src/hooks/useRings.ts
+
+### the file itself
+- spec 3 · read at `a541310ef56e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:52Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Implements lazy-loading for the sunburst's ring data — useRingFetch fetches a directory/file subtree's children on demand from the backend, and useRingGraft grafts the fetched results into the existing in-memory tree without discarding the parts that didn't change (preserving referential stability so downstream memoization isn't invalidated), letting the visualization expand a ring without a full re-fetch or full re-layout.
+- found: Confirmed: useRingGraft splices per-file function rings (fetched lazily since a full repo's functions are too large to ship upfront) into the drawn tree while preserving referential identity for unchanged branches (via a graftCache keyed on tree nodes, and readIntoRing returning the same array when nothing moved), batching landed rings on a 120ms timer to avoid rebuilding the tree once per answer during a drill. useRingFetch decides which files are worth a ring (focused subtree, above a MIN_SHARE of parent LOC, plus whatever the map/code view explicitly wants) and fetches them in one batched call per drill, tracking in-flight vs landed separately to avoid a gap where a path is neither held nor being asked for.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+
+### `useRingGraft` — PREDICTED SOME — LEGIBLE SOME — TRAP
+- spec 3 · read at `4ec6184529ba` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:10Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: useRingGraft is a React hook that merges already-fetched reading data (readings, keyed via a ref) onto the current tree (drawn), producing an annotated tree/node structure the ring visualization renders from. It likely uses useMemo/useEffect gated on readingRev and treeRev to avoid recomputing unless the readings or tree actually changed, and activeKey marks which node is currently selected/focused so the graft can highlight or prioritize it.
+- found: A hook that lazily fetches per-file function lists for a sunburst map (since a whole repo's functions can be too large to hand the window at once), tracks which files are "wanted" vs already "asked", batches arrived results every 120ms to avoid re-rendering per-answer, and memoizes grafting those functions plus folded-in readings onto the drawn tree with structural sharing so only changed branches produce new object identities (preserving memoization for consumers). Clears fetched state when the active project or tree revision changes to avoid stale/empty grafts.
+- predicted: some · documented: full · derivable: no · legible: some · trap: yes
+- note: The inline comments document several past bugs (StrictMode double-invoke losing batched results, flicker from keying on `scan` instead of `treeRev`, O(n) rebuild-per-answer during drilling) that are load-bearing constraints on any future edit to this hook.
+
+### `useRingFetch`
+- spec 3 · read at `8d6d2a30153c` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:55Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A React effect hook that, for each path in `wanted` not already in the `asked` set, fetches that path's ring (its children/functions) from the backend, marking it asked immediately to avoid duplicate requests. When a fetch resolves, it checks `activeRef` still matches `activeKey` (guarding against a stale response from a project switch) before storing the result into the `landed` map, likely triggering a re-render via `fns` update so the map/detail views (focus, codeFile) can show the newly loaded ring.
+- found: Walks the focused subtree to find files big enough (share of focus's LOC above MIN_SHARE) to be worth having a ring, unions that with the explicitly `wanted` paths and the open `codeFile`, filters out paths already held (`fns`) or in flight (`asked`), then issues one batched `fileFunctions` call for the fresh set — marking them asked immediately, and on resolution (guarded by activeRef to discard stale-project responses) storing results into `landed` without directly triggering rebuild, clearing the asked marker either way.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+## web/src/hooks/useScanStream.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `f1f9f060e2c6` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:34Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A hook file defining useScanStream, which opens a streaming connection (likely SSE or fetch-stream) to receive incremental scan results/events for the active project, parses each incoming chunk/message, and accumulates them into a Scan state object (exposed to consumers) while managing connection lifecycle — opening on mount/project change, handling errors/reconnection, and cleaning up the connection on unmount.
+- found: A hook that subscribes to two event streams (onScanShape, onScanProgress) rather than opening any connection itself. It batches incoming shape files every 300ms (deliberately not inside a setState updater, per a documented StrictMode double-invoke bug), tracks a decaying set of 'live' ancestor node ids for a sunburst-style progress visualization (lit for LIVE_MS after being touched), resets state when the streaming project changes, and computes a stable first-seen ordering (shapeSort) so the assembling map doesn't reshuffle wedges as more files arrive mid-scan.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `useScanStream` — PREDICTED SOME
+- spec 3 · read at `94fdf8fb3392` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:22Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Listens for a scan-shape event carrying batches of ShapeBatch (each batch tagged with its owning project key), incrementally merges them into a growing tree via lib/shape.ts helpers, and resets that tree whenever a new scan starts for that same key — but not when a different project's finished tree arrives elsewhere. Returns the currently-assembling shape (and its owning key) for the pane to render while a scan is in progress.
+- found: Three combined concerns: (1) batches incoming scan-shape files via a ref drained on a 300ms timer into state, resetting everything when the streaming project key changes; (2) tracks which node ids (and all their ancestor directories) are 'live' right now from scan-progress events, decaying entries after LIVE_MS on a 250ms timer, with identity-preserving Set updates; (3) maintains a stable first-seen-first-placed ordering map for wedges so the assembling map doesn't reshuffle every batch. Returns { shape, streamingKey, live, shapeSort }.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: Far more than shape accumulation alone — it also drives the 'live sweep' highlighting of ancestors during a scan and a stable placement order to keep the assembling map from jumping; the batching also has a StrictMode double-invocation trap it was previously bitten by (drain-before-updater).
+
+## web/src/hooks/useSteady.ts
+
+### the file itself
+- spec 3 · read at `961757633e7b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file defines a useSteady React hook that memoizes a computed value (likely graph data organized into "ranks" of "nodes", e.g. for a layered diagram) so it keeps a stable reference across renders unless the content actually changed. sameRanks/sameNodes are equality-check helpers used internally to decide whether to keep the previous reference or accept the new one.
+- found: useSteady is a generic reference-stability hook: it holds the previous value in a ref and only replaces it when a caller-supplied `same` comparator says the new value differs, computed during render (not an effect) so consumers never see a new-but-equal object. sameRanks compares two node->rank maps for equal contents, sameNodes compares two node arrays for identity-equal elements in the same order — both are equality helpers meant to be passed as the `same` argument, used in the context of a repo visualization (colors/lens rankings) rather than a generic layered diagram as I guessed.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+
+### `useSteady`
+- spec 3 · read at `efdbb7094b83` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:51Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: useSteady keeps a ref holding the last returned value; on each render it compares `next` against that stored value with `same()`, and if they're considered equal it returns the old stored reference instead of `next`, otherwise it updates the stored value to `next` and returns it. This is done synchronously during the render body (not in a useEffect) so the returned reference stays stable across renders when semantically unchanged.
+- found: Uses a ref to hold the last accepted value; if next differs by reference and is not considered same() as the held value, updates the held ref to next; always returns held.current. This gives a stable reference across renders when same() reports equivalence, computed synchronously during render.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `sameRanks`
+- spec 3 · read at `1d6526729b6c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:23Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Compares two Map<string, number> rank tables for equality: handles the undefined cases, checks sizes match, then iterates one map confirming the other has the identical value for every key, returning false on any mismatch.
+- found: Handles undefined via reference equality, compares sizes, then checks every key in `a` has the same value in `b`; returns true only if all match.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `sameNodes`
+- spec 3 · read at `9647c31938fe` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:19Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether two node arrays represent the same containers in the same order — comparing lengths and then each element pairwise by identity or id, returning false on any mismatch.
+- found: Compares lengths, then does pairwise identity (===) comparison by index, exactly as predicted.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+## web/src/hooks/useTraceChain.ts
+
+### the file itself
+- spec 3 · read at `5f2cff3126ea` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:09Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Implements the "Trace" interaction for stepping through a caller/callee chain in the UI. useTraceChain holds the growing chain of traced pills as state and exposes a chaseTrace-style handler that, when "Trace" is pressed, decides the next hop by walking the already-rendered column of results rather than recomputing depth from trace_depth; traceSig likely produces a stable signature/key for the current chain to detect when it should reset (e.g., a new selection).
+- found: useTraceChain manages the project row's "Trace" pill as one multi-phase column: chaseTrace loops calling phasesOf to find the next outstanding phase (trace vs replay) and runs it, using traceSig as a "did this step make progress" check to know when to stop the loop (not to detect selection changes as I guessed) — with per-key chasing/stopChase Sets so multiple repos can trace concurrently and Stop only halts its own repo's column. Also exposes trace() (explicit "replay from scratch") and stopChain().
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+
+### `traceSig`
+- spec 3 · read at `893b4da71b18` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:28Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds a single string fingerprint of the trace's current progress state on a ProjectSummary (likely concatenating fields like commit/sha, phase, and depth/step count), so chaseTrace can compare the signature before and after a step — if it's unchanged, the step made no progress and the chase loop should stop rather than keep firing.
+- found: Concatenates trace_depth, resolved/resolvable, and replayed/commits into one delimited string as a progress fingerprint.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `useTraceChain`
+- spec 3 · read at `87003cd2294d` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:22Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A React hook managing the Trace pill's menu for each project row — exposes handlers for 'continue tracing' (walking to the next depth via chaseTrace), 'replay from scratch' (calling replay), and 'Stop' (canceling an in-flight trace), tracking per-project in-progress state, updating projects via setProjects/refreshProjects, and reporting failures through setError.
+- found: Returns exactly the three handlers I predicted (chaseTrace, trace, stopChain), each per-project keyed via two Sets (chasing/stopChase) rather than one global flag. chaseTrace runs a polling loop: repeatedly lists projects, asks phasesOf what the outstanding trace action is, runs traceProject or replay for that phase, checks whether traceSig changed to detect no-progress/stop, and loops until the whole column (log→blame→replay) is walked or a stop flag is set between phases.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The extensive comments explain the *why* (one column not one step, per-project not per-app guarding, stop-between-phases not mid-phase) far beyond what the signature alone would suggest — worth reading in full before touching this hook.
+
+## web/src/hooks/useWindowChrome.ts
+
+### the file itself
+- spec 3 · read at `4b93acf2fd60` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:08Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Four small standalone hooks used once at the app's window/root level — useFaceRev (loads/tracks a webfont), useTheme (drives the appearance/theme menu), useNoDevMenu (suppresses the native dev context menu outside development), and useCliInstall (wires up CLI tool installation) — each a side-effect subscription with no return value.
+- found: Four independent hooks for window-level chrome not owned by any project: useFaceRev bumps a counter once the webfont finishes loading (forcing a redraw of font-metric-dependent layout that doesn't otherwise react to font load); useTheme owns theme state, persistence, and syncing the native Appearance menu's checkmarks to it; useNoDevMenu suppresses WebKit's native right-click menu in production builds (but not over text/inputs, to preserve copy); useCliInstall listens for the native "Install Command Line Tool" menu action and reports back install status as a message+optional path.
+- predicted: full · documented: none · derivable: yes · legible: not judged · trap: no
+- note: Each hook's real motivation (a specific prior bug: clipped font labels, losing Inspect Element in dev, PATH ambiguity between multiple installs) lives only in the inline comments, not the file header.
+
+### `useFaceRev`
+- spec 3 · read at `bc9468fc1bde` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React hook that starts at 0 and uses useEffect to listen for the webfont finishing load (likely via document.fonts.ready or a specific FontFace.load() promise), then bumps a counter via useState/setState once the font is available, returning that counter so consumers can use it as a dependency to force a redraw exactly once when the real face replaces the fallback.
+- found: Starts at 0, on mount waits for document.fonts.ready then increments the counter once (guarded by a live flag to avoid setting state after unmount), returns the counter as a redraw trigger.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `useTheme` — PREDICTED SOME
+- spec 3 · read at `c2489b5e22f5` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A hook with no return value that subscribes to the OS's dark/light preference (via matchMedia) and to an app-level "View → Appearance" override (likely an IPC event), applying the resulting theme as a class/attribute on document (e.g., document.documentElement), and cleans up the listener(s) on unmount.
+- found: Holds theme state initialized from a persisted value, watches the OS theme while applying the current theme, listens for a Rust-emitted "set theme" event (from a native View→Appearance menu) to update and persist the preference, and keeps the native menu's checkmarks in sync with the current theme.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: This is a Tauri-style app where the appearance choice is driven by a native menu (Rust side) rather than in-page UI, which isn't obvious from the hook name alone.
+
+### `useNoDevMenu`
+- spec 3 · read at `888b778a5635` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A React effect hook that adds a window 'contextmenu' listener which calls preventDefault to suppress WebKit's native Reload/Inspect Element menu, but only in production builds (checking something like import.meta.env.PROD or a Tauri release flag) and only when the right-click target isn't text/input (so text selection copying still works). It removes the listener on cleanup.
+- found: Adds a document-level contextmenu listener (skipped entirely in dev) that preventDefaults the native menu unless the target is an editable/input element or there's an active text selection, so copying still works; cleans up the listener on unmount.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `useCliInstall` — PREDICTED SOME
+- spec 3 · read at `b59db7b6c10f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:59Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: React hook with no params that listens (via useEffect + a Tauri event/invoke) for the result of the "Install Command Line Tool…" menu action, storing it as state split into a sentence and a path (so the path renders as inline code), and returns that state for the window chrome to display, cleaning up the listener on unmount.
+- found: On the menu event, it actually runs installCli() then queries cliStatus() to decide which of three messages to show: installed and resolved to this app, linked but another build shadows it on PATH, or linked but not found on PATH at all; errors from installCli() are caught and shown as their string. Returns [cliLink, setCliLink] as a controlled pair, not just the read state.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The three-way status branching (is_this_app / shadowed / not-on-PATH) is the real content and isn't hinted at by the signature.
+
+## web/src/lib/api.ts
+
+### the file itself — STALE
+- spec 3 · served in 5 parts · read at `37d8ffce39fc` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: The frontend's bridge to the Tauri backend: thin invoke() wrappers for project management, scanning/tracing, findings/rules, reports, function history, and agent-reading plumbing, plus event listener registrations (onScanProgress etc). It also appears to have accreted unrelated pure utility code — heat/color ramp helpers and readability/legibility grading helpers — making it a broad grab-bag "everything external the UI needs" file rather than one narrow responsibility.
+- found: A huge grab-bag file: (1) the full wire/domain type model (Node, WireNode, Score, ScanStats, ProjectSummary, FindingGroup, Rule/Clause/Grammar, AgentReport, etc.) with extensive doc comments explaining absence-vs-zero semantics; (2) thin invoke() wrappers for nearly every backend command (projects, scanning, tracing, findings/rules, function history, reports); (3) event listener registrations; (4) a substantial identity-preserving tree-fold/diff layer (readInto, holdReadings, readIntoRing, applyAgentReports, reaggregate, sameReports) that merges agent readings into the tree while avoiding unnecessary re-renders; (5) grade/legibility accessor helpers (legibleOf, trapOf, reportGrades, readingWords) that centralize 'dated' grade invalidation; and (6) heat/color ramp helpers (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampStop).
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: The file's center of gravity is really the identity-preserving reading-fold/diff machinery (readInto/holdReadings/applyAgentReports) and the huge documented type model, not just IPC wrappers plus stray utilities as the peer list alone suggests.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `languages`
 - spec 3 · read at `8b90410603f0` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:54:20Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2528,9 +3113,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `resetRule`
-- spec 3 · read at `b4622828eeaf` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Thin wrapper that calls Tauri's invoke("reset_rule", { project, id }) to delete the local override for that rule id so it falls back to the built-in catalog definition and default threshold, resolving to void.
-- found: Thin wrapper invoking the Tauri command 'reset_rule' with project and id, resolving to void, exactly as expected.
+- spec 3 · read at `ba122db49d49` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A thin wrapper that invokes the Tauri backend command (e.g. `invoke('reset_rule', { project, id })`) to remove a repo-local override for a built-in rule, restoring it to its shipped default, and returns the resulting promise.
+- found: Thin wrapper invoking the Tauri `reset_rule` backend command with project and id, returning its promise.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `decideFinding`
@@ -2687,20 +3272,6 @@ What this is and how to add to it: [README.md](README.md)
 - found: Maps a WireScan (snake_case wire format) into the internal Scan type: recursively converts the root node via toNode, and remaps stats fields to camelCase, with explicit backward-compatible defaults (e.g. churnWindows defaulting to [30,60,90,180], churned to false) so that older backends missing these fields present as \"not measured\" rather than zeroed-out data.
 - predicted: some · documented: some · derivable: no · legible: full · trap: no
 
-### `onScanScore`
-- spec 2 · read at `64991aedf868` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:24:27Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Subscribes to a Tauri backend event (likely named "scan-score" or similar) via listen(), invoking cb with the event payload's id and Upgrade data as each per-function reading streams in during a scan; returns an unlisten function to unsubscribe, mirroring the pattern of onScanProgress.
-- found: Listens for Tauri "scan-score" event with payload {id, surprise, hotspots}, reshapes it into an Upgrade object {surprise, hotspots}, and calls cb(id, upgrade); returns a function that unlistens once the listen promise resolves.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Got the shape right but didn't predict the exact event name or the surprise/hotspots field reshaping into Upgrade.
-
-### `applyScores`
-- spec 2 · read at `81d9f5c34a2f` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:42:04Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Walks the tree recursively; for each leaf node whose id/path is a key in `scores`, clones it and applies the Upgrade (score/hot fields). For internal nodes, recurses into children, and if any child changed, clones the node and recomputes its aggregate fields (LOC-weighted mean score, hot share over analyzed lines) from the (possibly updated) children — mirroring Node::aggregate in Rust. Nodes with no changed descendants are returned unchanged (shared, not cloned), and the function returns the new root.
-- found: Recursively visits the tree; for leaves present in the scores map, clones the node and patches only the `surprise` field of its score (plus hotspots, source, analyzedShare), leaving age/churn/doc fields untouched. For internal nodes, recurses and reaggregates via `reaggregate` only if a child actually changed, otherwise returns the same node reference for React reconciliation.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I expected the whole score object to be replaced by the Upgrade; actually only `surprise` (plus hotspots/source/analyzedShare) is patched, with churn/age/doc coverage explicitly preserved as historical/code properties.
-
 ### `reaggregate` — PREDICTED SOME — LEGIBLE SOME
 - spec 3 · read at `ca0e7e0c0def` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:28Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Recomputes a parent node's rolled-up score fields (loc, churn, surprise/hot share, etc.) as a weighted combination of the given children's scores, mirroring the same arithmetic as the Rust `Node::aggregate`, and returns a new (or mutated) node with those fields updated and `children` set to the given array — used client-side when new scan results for a subset of children arrive incrementally and the ancestor totals need to be refreshed without re-walking the whole tree from Rust.
@@ -2824,11 +3395,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/colorMode.ts
 
 ### the file itself
-- spec 3 · served in 5 parts · read at `dbcb42bb4002` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:20:38Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A large, undocumented domain-logic module (1314 lines) that implements every color mode the visualization supports — mapping metrics like age, authorship, churn/tangle, documentation coverage, and call/reach share into color bands and ramps, plus helpers to build legends, histograms, and buckets from those computed values. It's the shared computational core behind the color-coded map/legend components, growing organically without a top-level doc describing its overall shape.
-- found: Confirmed the core guess: this is the domain-logic module computing every color mode (tangle/surprise/legible/docs/composition/traps/clones/callers/reach/blame/language/churn/age) for the visualization, converting scan/reading/git data into paints, legends, bucket breakdowns and per-directory histograms. What I underestimated massively was the depth and care: it also handles replay/history semantics (which lenses are 'live' vs 'cost' under a commit timeline), stand-in synthesis for files/functions the frontend hasn't fetched data for yet (contributeCols/contributeHeld/roll-up folding), a whole calibration system (Views/AgeView/ChurnView/TangleRead/BlameRead/DerivableRead) threaded as one bag rather than many props specifically to avoid drift bugs, a distinct 64-color categorical palette with slot-recycling and CVD-tested separation, and extensive engineered docstrings recording specific historical bugs (measured regressions like ceph's 94% mis-colored, 25ms/frame stutter) that motivated each design decision.
+- spec 3 · served in 5 parts · read at `d1e750e98023` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:24:59Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: The color-computation library backing the sunburst's visualization modes — a paintX function per mode (age, churn, docs, traps, callers, reach, clones, tangle, category, composition, surprise, legibility) turning per-node facts into colors, built on shared ramp/band helpers, share-fraction helpers, and legend/histogram generation shared between the map and its legend. No file header, so nothing documents the rationale behind ramp/threshold choices or how the modes relate as a set.
+- found: A color-computation library for the sunburst's twelve visualization "lenses" (paintX per mode over live nodes), but far deeper than a palette: it defines mode ordering/labels/families for the switcher, replay semantics (which lenses are 'live' vs 'cost' during history playback, birth/touch event flashes overriding the lens color), a categorical author/language palette with rank-based slot assignment and a reader-controlled color cap, band tables per lens with careful direction/ordering rules, and a substantial bottom-up 'contribute'/'contributeCols'/'contributeHeld' machinery that builds accurate per-directory histograms in one pass (avoiding O(nodes×depth) blowup) even when function rings or readings haven't been fetched, using synthetic stand-in nodes.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The file has zero header doc despite being the largest, most heavily-commented file I've seen in this codebase — nearly every function has a multi-paragraph comment citing specific measured incidents (kibana, ceph, tonepoet) that justify the current shape; the comments are the real spec but there's no single entry point summarizing the module's shape, so a reader has to read all 1300 lines to get the picture predicted from the file listing alone.
+- note: This is one of the densest files I've seen in this exercise — nearly every function carries extensive prose justifying design decisions (colorblindness testing, past bugs, cost tradeoffs) that goes well beyond what the code alone documents, though there is no single file-level header summarizing the whole.
 
 ### `replayNote`
 - spec 3 · read at `e4a707db5280` · commit `c40b9bc` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:21:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2998,10 +3569,87 @@ What this is and how to add to it: [README.md](README.md)
 - note: Docs (module-level, not per-function) fully explained the rationale; I slightly misjudged the traps condition as dir-only when it's actually func-only (excludes files too).
 
 ### `colorFor` — PREDICTED SOME
-- spec 3 · read at `b71e06c8c7bd` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:51:59Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A big switch/dispatch over `mode` (age, churn/tangle, doc coverage, category, etc.) that pulls the node's raw metric via helpers like ageOf/tangleBandOf/docGrade, maps it through a ramp function (ageRamp/tangleRamp) calibrated by `views`, and returns a {color, label} pair — returning null early for any mode where the node has no relevant data rather than defaulting to a color.
-- found: A long per-mode dispatch: first handles replay/flash state (birth/touch flashing for history-provenance frames), then branches on ColorMode (surprise, legible, docs, composition, traps, callers, reach, clones, churn, tangle, age, and a final category/blame fallback), each with its own share-vs-leaf logic, ramp function, and label formatting, returning null wherever the node has no relevant reading for that mode.
+- spec 3 · read at `0dca556964fc` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A dispatcher — it switches on `mode` and calls the matching `paintX` helper (paintSurprise, paintDocs, paintTraps, paintChurn, etc.), passing `node`, `ranks`, and `views` (falling back to `VIEWS_DEFAULT` if not given), and returns whatever that helper returns (a Paint+label, or null if there's nothing to say for this node/mode).
+- found: It first checks if the node's score came from history replay: if the commit under the playhead created the node, it flashes '--birth'; if it edited it, flashes '--touch'; otherwise if the mode isn't a 'live' replay mode it returns null (stays at ground). Otherwise (or for live modes) it delegates to PAINTERS[mode](node, views, ranks) to get the actual paint.
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The docstring only describes the null-for-no-data case; the birth/touch flash-outranks-lens logic during replay is the real substance and isn't mentioned in the doc comment on the function itself (it's explained in an inline comment instead).
+
+### `paintSurprise`
+- spec 3 · read at `061dc44f9758` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:39Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Colors a node according to how surprising its code was to readers — likely looking at the node's reports for `predicted` values (full/most/some/none) and computing a share of readings where the prediction missed, then mapping that share onto a color ramp (green when well-predicted, red/hot when surprising), returning a Painted with that color and a label describing the share or grade, similar in shape to paintDocs/docGrade.
+- found: Paints a node by its surprise score: for a container it uses `hotShare` (share of readings that were NOT predicted, i.e. some/none) run through a calibrated ramp and labels the raw percentage; for a single analyzed function it uses `s.surprise` directly and labels it with the reader's actual `predicted` word (full/most/some/none) rather than a manufactured number, falling back to a degree-style number when no reading word is available. Returns null if the node has no score or isn't analyzed.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `paintLegible`
+- spec 3 · read at `0dc80ae312dc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:26Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: paintLegible is one of the per-lens "paint" functions that turns a Node's score into a Painted color for a color mode called "legible" — likely a readability-oriented lens combining documentation and/or complexity signals into a single color, following the same pattern as sibling paint* functions (paintDocs, paintTangle, etc.).
+- found: For a container node it rolls up an "opaque share" (percentage of the subtree that's hard to follow) into a ramped color with a "% hard to follow" label. For a leaf, it reads a model-assigned legibility grade (`legibleOf(node.agent)`) and colors by that grade instead — an agent's reading-difficulty verdict, not a documentation/complexity heuristic I predicted.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `paintDocs` — PREDICTED SOME
+- spec 3 · read at `ab9b795188bb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:06Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Computes the color-mode paint for the "docs" lens — given a node (and aggregate views for directories), it derives a documentation-coverage grade (likely via docGrade, or undocShare/opaqueShare for aggregates) and returns a Painted result (color plus label) reflecting how well-documented that node is, mirroring the pattern of sibling paint* functions like paintAge/paintChurn.
+- found: Paints the inverse of documentation coverage (bright = undocumented, the gap you need to act on, not the coverage you already have) — for files it grades only the file's own header via docGrade (returning null rather than averaging its functions, since a file's self-description is a distinct question from its contents' grades), for share-showing containers it uses a linear (not curved) undocShare percentage, and otherwise falls back to a per-node docGrade mapped through DOC_GAP.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The brightness direction is inverted relative to every other lens (bright = gap, not more-of-the-metric) — easy to get backwards without the comment.
+
+### `paintComposition` — PREDICTED NONE
+- spec 3 · read at `43551a817222` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:54Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: For a container node, uses `rankCategories` to find the dominant category among its children/content and colors the node with that category's color via `colorFor`, labeling it with the dominant category's share (percentage). Likely returns null for leaf nodes or when there's nothing to rank.
+- found: Only paints function nodes with a classified `codeKind` (hand-written/generated/test/vendor/etc, four kinds plus a neutral null when nothing has classified it), coloring by `KIND_FILL[k.kind]` and labeling with the kind and how it was determined (e.g. a DO-NOT-EDIT banner vs a directory named "generated"), rather than anything about category composition of a container's children.
+- predicted: none · documented: none · derivable: no · legible: full · trap: no
+
+### `paintTraps`
+- spec 3 · read at `49115e6367f6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:52Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: One of a family of "paint*" functions that turn a node's reading data into a Painted color result for the map. This one likely colors a node based on whether any reading flagged it as a `trap` — e.g. a warm/alert color (red/orange) if trap is true, and a neutral/gray color if untested or not a trap — possibly also considering how many readings exist.
+- found: Colors a function node red/alert if its current (non-dated, non-stale) reading flagged a trap, neutral/structural gray if it explicitly reported no trap, and returns null (no swatch) for anything else — files (which are never asked about traps), containers, or readings answered under a superseded trap question.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The comment explains a real subtlety a reader could easily miss: a dated/superseded trapDated answer must be treated as 'no answer', not as an all-clear, because the alternative reading collides with a genuine 'no trap reported' result.
+
+### `paintCallers` — PREDICTED SOME
+- spec 3 · read at `f2928b2868e6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:47Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Buckets node.callers into bands (no in-repo caller, low counts, 6+ callers) and returns a Painted with a ramped fill color and label, similar structure to paintAge but without a views argument.
+- found: Has two modes: if showsShare(node), paints by calledShare(node) as a percentage-called ramp; otherwise buckets node.callers via CALLER_BANDS into a ramped color, labeling 0 as "no in-repo caller" and others as "N caller(s)". Returns null when the relevant data is absent.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: Missed the showsShare/calledShare branch entirely — the function isn't just a caller-count bander, it has an alternate share-based coloring mode gated by showsShare(node).
+
+### `paintReach` — PREDICTED SOME
+- spec 3 · read at `349e51cc3af0` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:49Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: paintReach colors a node by its "reach" — likely the dependents count from the wiring data (how many other functions transitively depend on/call this one), distinct from paintCallers which is probably direct callers. It likely ramps color by that count/share and returns a label naming the number, with containers rolling up an aggregate.
+- found: "Reach" is actually about outgoing calls (node.calls — how many functions this one calls out to), not incoming dependents as I predicted; I had the direction of the call graph backwards. Container rollup uses a "reaching share" and leaves are banded/labeled by their outgoing call count, with a distinct "calls nothing" label at zero.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `paintClones` — PREDICTED SOME
+- spec 3 · read at `9dd78ae337e7` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:33Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: One of several "paint" functions used to color nodes in a visualization by a specific metric — here, whether/how much a node is a code clone (duplicate). It likely reads a clone-count or clone-group id off `node`, maps it to a color via some scale (perhaps reusing `colorFor`), and returns a `Painted` object with color and a label describing the clone status/count.
+- found: Returns null for container/share-based nodes and for nodes never compared (below token floor); otherwise returns a binary paint — grey 'structure' color if no clone match found, or a fixed clone color with a "1 of N clones" label if the node matches a clone group. Not a gradient/scale as I guessed — it's a categorical result, with extensive inline comments explaining why a continuous oklch-based share mapping was rejected.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The body contains a long inline rationale comment (design history), but the `docs` field handed to the reader was empty — worth checking whether that comment should be surfaced as doc metadata.
+
+### `paintChurn` — PREDICTED SOME
+- spec 3 · read at `dfe9c1275b6a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:48:47Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Reads the node's churn value, and if it's missing/untraced returns a "no data" Painted via saysNothing; otherwise normalizes the churn via standScore, maps it to a color with colorFor, and returns a Painted with fill/stop/ink and a label from churnLabel describing the churn level.
+- found: Returns null (no paint) if the node has no lastTouchedDays (no history) or if the churn view hasn't been measured yet (timeline not walked, to avoid reading zero-everywhere as a real "no churn" finding); otherwise delegates to `ramped` for the churn value at the view's window/resolution and labels it via churnLabel with the commit count and window name — one churn question answered at whatever resolution is available rather than two different metrics under one ramp.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+
+### `paintTangle` — PREDICTED SOME
+- spec 3 · read at `7fbf010718fb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:42:59Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Looks up a "tangle" metric for the given node from views (a measure of interconnectedness/coupling), and if present, computes a band via tangleBandOf, maps it to a color using tangleRamp, and returns a Painted object with that color and a label from tangleLabel. If the metric is missing/undefined, returns a neutral/gray fallback.
+- found: Reads node.score.tangle (a tuple keyed by raw/normalized view mode via views.tangle), returns null if absent (meaningfully, per comment, distinct from zero), and otherwise spreads a ramped() color for the selected value plus a label derived from cognitive complexity via tangleLabel.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `paintAge`
+- spec 3 · read at `f95eec2a0b5a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:30Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Picks node's age metric per views.age.read (newest or oldest line days), buckets it into a band (today/this week/this quarter/older) and returns a Painted with fill/label for that band, or an absent/unknown result if no age data.
+- found: Gets the node's age via ageOf(score, view.read) (newest or oldest reading), returns null if unavailable, otherwise returns a Painted combining ramped(ageRamp(d, view.span), 'age') with a label from ageLabel(d, view.read).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `paintCategory`
+- spec 3 · read at `bdd0fed5ee22` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:30Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Selects the node's category (author for 'blame' mode, language for 'language' mode), looks up its rank/color assignment from the precomputed `ranks` table, and returns a Painted { color, label } for it — falling back to a neutral/gray color when the node has no category value for that mode.
+- found: Gets the node's category key via catKey (returning null if none), special-cases uncommitted blame lines with a dedicated 'unanalyzed' color, otherwise looks up the key's rank and picks a categorical slot color (or OTHER if unranked), returning fill/stop/ink/label — labeling the actual value even when colored as Other so identity isn't color-only.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `rankCategories`
 - spec 2 · read at `3520bac67344` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3042,11 +3690,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `contribute` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `e7c831999155` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:19:37Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A large dispatcher that, given a node and a ColorMode, computes which color/category bucket the node falls into for that mode (age band, doc coverage, tangle, churn, etc., using the various *BandOf/*Ramp/*Label helpers among its peers), then calls `put` to record that node's contribution into the aggregate stats/histogram/legend for the current view. Likely a big switch/if-chain over mode variants, with `outOfScope` nodes handled specially (excluded or separately bucketed).
-- found: Dispatches on mode (age/churn/tangle/composition/language/blame/docs/etc.) to bucket a node and call put() with a key/label/color, matching per-mode bands and absence rules — but roughly a third of the function is dedicated to handling folded roll-up nodes (n.rest set), recursing back through itself per-file tally entry so folded and drawn nodes land in identical bands, which my prediction did not anticipate at all.
-- predicted: some · documented: none · derivable: no · legible: some · trap: no
-- note: The roll-up/fold branch (n.rest !== undefined) is the hardest part to predict from the signature alone — it's a distinct code path with its own recursive contract that the peers list gives no hint of.
+- spec 3 · read at `d9eea153a702` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:37:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Dispatches on the node's shape: if `outOfScope`, calls `put` with nothing / returns early since it's not this map's business. If the node is a roll-up stand-in (`n.rest`), it iterates the folded tally entries and recursively calls `contribute` on each so they land in the same bands a drawn node would. Otherwise it switches on `mode` to compute this node's value for that lens (age, churn, tangle, category, callers, reach, clones, etc.), falling back to an absence/neutral bucket when the value is missing, and calls `put` with the bucket key/label/fill/node and a ramp value where the mode is a ramped one.
+- found: Got the top-level dispatch right (outOfScope skip, roll-up stand-in recursing back through itself, mode-based bucketing) but massively underestimated the scope: it's a huge per-mode switch covering file nodes (blame/language/docs) and func nodes separately, with entirely distinct logic and absence-bucket rules for surprise, composition, legible/docs/traps, callers, clones, reach, blame/language, tangle, churn, and age — plus the roll-up branch itself has mode-specific handling (language/blame/composition read tallies directly; age/churn/tangle re-synthesize a stand-in node and recurse through contribute; callers/reach/clones skip roll-ups entirely since they have nothing to say).
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `contributeCols` — LEGIBLE SOME
 - spec 3 · read at `ec4136e92991` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:57:45Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3068,12 +3715,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: most · trap: yes
 - note: The final two-tier partition (UNKNOWN last, OTHER_KEY second-last) is a second sorting pass layered on top of the mode-specific one, and the comments explain a subtle indexOf(-1) bug-turned-feature that isn't visible from the signature at all.
 
-### `bucketsFor` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `080c9fbbab95` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:42:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Walks the subtree of root, visiting each function (skipping .sanityignore-excluded ones), and classifies it into a bucket per `mode` using colorFor/heatColor so colors match the map. Categorical modes group by discrete category; ramped modes group into fixed bands and color each band by the mean of its members' ramp inputs (a color actually on screen). Anything unclassifiable falls into a final structural-neutral bucket so counts still sum to the total.
-- found: Walks the tree calling out to contribute/contributeCols/contributeHeld helpers to classify each function/file into a bucket by mode, tracking per-bucket node lists (excluding synthetic stand-ins), counts (special-cased for file nodes under blame/language mode), and line totals; ramped modes accumulate raw ramp values per bucket and average them afterward to pick each bucket's actual on-screen color via `ramped`/`rampOf`.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
-- note: The classification logic itself lives in contribute/contributeCols/contributeHeld, not here — this function is mostly bucket bookkeeping (dedup, count semantics, synthetic-node exclusion, NUL-escape sentinel key) around those calls.
+### `bucketsFor`
+- spec 3 · read at `68550fc81a9e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:35:41Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Walks the subtree rooted at `root` once, classifying each function/node into a bucket according to the current ColorMode's own coloring logic (reusing the same per-mode color function rather than a separate palette). Functions excluded via .sanityignore are counted in a separate bucket rather than silently dropped, and anything the mode can't classify gets a final "structural neutral" bucket. For ramped modes, each bucket's displayed color is computed as the color at the mean of that bucket's members' ramp inputs (via heatColor), so the legend swatch matches an actual on-screen color; returns the resulting array of Bucket objects.
+- found: Does one recursive walk over the visible subtree, delegating actual per-node classification to `contribute` (plus `contributeCols`/`contributeHeld` for file nodes with unread function rings), accumulating counts/lines into buckets keyed by mode, guarding against pushing a mutated synthetic stand-in node into the list multiple times (though its lines still count), special-casing file-level counts for blame/language modes, then after the walk computing each ramped bucket's fill as the ramp color at the mean of its members' ramp values via `rampOf`/`ramped`.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ### `histogramsFor`
 - spec 3 · read at `fd5884a4949f` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3209,11 +3855,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `mergeFindings`
-- spec 3 · read at `f6a6ba771072` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:20:50Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Walks the FindingGroup[] (each group presumably being one rule's findings), and re-buckets them keyed by subject (function/file id) so a body flagged by multiple rules becomes a single merged FindingItem describing all the reasons, rather than one row per rule. Returns the merged list sorted descending by lines, matching the map's own sizing.
-- found: Matches prediction closely: groups (each a rule's hits) are merged by subject key into FindingItem, accumulating rules/says/flagged, skipping blocked groups. Sort is by loc descending then key ascending (tie-break I hadn't predicted), and a comment explains flagged items deliberately do NOT jump to the front despite intuition, since that would reorder the list under the reader's pointer.
+- spec 3 · read at `a139f1c6ebcc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:35:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes rule-grouped findings and collapses them so each unique subject (e.g., a function) appears once even if multiple rules flagged it, combining the rules/reasons into one entry, then sorts results by line count (lines) descending since that's the map's ranking axis. Handles null input by returning an empty array.
+- found: Groups findings by subject key (skipping blocked groups entirely), merging rules/says/stale arrays and OR-ing the flagged bit for a key seen across multiple groups. Sorts by hit.loc descending then key alphabetically, explicitly NOT moving flagged items to the front (per an inline comment explaining that was a past UX mistake).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Blocked groups (g.blocked) are silently skipped entirely — worth knowing since that's not obvious from the signature.
+- note: The doc comment explains a UX decision (flags don't reorder rows) that isn't obvious from the code alone without the inline comment; the docs field passed to me described the whole tile/merge concept rather than this exact function's edge cases (blocked filtering, tie-break by key).
 
 ### `introductions`
 - spec 3 · read at `8ae87d7eb35e` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:10Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3257,6 +3903,28 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Returns false if groups is null; otherwise checks whether any group's row/finding count reached the PER_GROUP limit, indicating the wire truncated that group's rows, via a .some() over groups comparing length to PER_GROUP.
 - found: Returns false for null groups, otherwise true if any group's declared total exceeds its actual hits array length (a self-reported total vs. delivered-hits comparison), rather than comparing against a fixed PER_GROUP constant directly.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+## web/src/lib/gazeTargets.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `1c5b254a44cd` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:05Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Utility functions for a camera/viewport system in this codebase-visualization app: gazeOf computes the target point the camera should look at for a given item, and bearingOf computes the angle/direction from the current viewpoint to that target, supporting animated pans/transitions in a spatial visualization.
+- found: Computes bearings (2D direction vectors, y-up) for an animated 'creature' character in a sunburst visualization: gazeOf returns direction(s) toward currently-active (scanning/replaying) wedges — individual bearings if few, an averaged one if many, or null if idle; bearingOf returns the direction toward a selected wedge (or its nearest drawn ancestor) for a separate gaze target used on click.
+- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
+
+### `gazeOf` — PREDICTED SOME
+- spec 3 · read at `b90f0cd34301` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:09Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Filters wedges to those whose id is in `pulsing`, converts each to a bearing via bearingOf, computes the circular mean angle (sin/cos sum) rounded to avoid jitter, and returns it as a single-element Bearing[] array, or null if pulsing is empty/undefined so gaze follows the pointer instead.
+- found: Collects direction vectors for wedges that are pulsing or mid-appear/edit. If a handful or fewer (<=GAZE_INDIVIDUALS), returns each as its own bearing so the gaze can glance between them; past that threshold it collapses them to one circular mean vector (returning null if they cancel out to near-zero, i.e. spread evenly around the ring).
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The docs block handed to the reader says \"the mean direction, not one of them\" as if that's the only mode, but the code actually returns individual bearings below GAZE_INDIVIDUALS — the crowd-vs-individuals distinction lives only in an inline comment, not the doc header given for prediction.
+
+### `bearingOf`
+- spec 3 · read at `51dc319b6821` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Finds the wedge in `wedges` matching `selected` (or its nearest ancestor if the exact node isn't drawn), and returns the angular direction from the hub center to that wedge's midpoint (y-up like `gaze`); returns `null` when `selected` is the root itself since the root sits at the hub with no directional wedge.
+- found: Returns null if nothing selected or selected is root; otherwise scans wedges for an exact match, or else the longest-path non-func wedge whose path is an ancestor/equal, then converts that wedge's midpoint angle to an (x,y) unit vector using sin/cos.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The 'nearest drawn wedge that holds it' is picked by longest matching path among non-func-kind wedges, excluding root explicitly.
 
 ## web/src/lib/glyphs.ts
 
@@ -3345,18 +4013,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns Math.max(hist.funcCount, hist.funcs.length), exactly as predicted.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `blank`
+### `blank` — STALE
 - spec 3 · read at `180826796a7a` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:24Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
 - expected: Allocates a fresh Frame with every field at its empty/zero state — likely typed arrays or maps sized against hist's function/path counts (for perf, since this is the frontend replay hot path) rather than growing objects, with order as an empty array, lines: 0, and container-count structures pre-sized but zeroed, ready for opening/advance to populate incrementally.
 - found: Allocates a Frame of typed arrays sized to function count, path count, and directory count, each filled with a sentinel "absent" value (NO_TS, NO_AT, NO_AUTHOR, NO_GRADE, NO_COG), including per-function and per-path churn history buffers (hits/pathHits sized by CHURN_MEMORY), starting ts at hist.baseTs and at at -1.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `opening`
-- spec 3 · read at `fa59f52578ab` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds the initial Frame object representing the state accumulated by truncated/dropped earlier commits (i.e., hist.base) before any recorded commit frame is applied — the JS/TS mirror of the Rust scan.base starting point, mapping function indices to their sizes/locations so the frontend's replay can start from a non-empty baseline when history was truncated.
-- found: Builds a blank frame, then seeds it from hist.base (and baseRead/baseCog): sets loc/live/lines/order for each pre-window function, census's their containers so they're counted from frame one, and deliberately leaves them unmarked as touched/born since their actual write time is unknown.
+- spec 3 · read at `47f184723af4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:38:32Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Constructs the initial `Frame` representing the state before any replayed commit is applied — derived from the `base` entries in `hist` (the truncated prefix of history that was folded rather than played commit-by-commit), setting up initial file/function counts, author tallies, and a commit index of zero, ready for `advance` to fold subsequent commits onto.
+- found: Builds a blank frame then populates it from `hist.base` (loc/live/order/lines, plus a `census` call so containers are counted as present without being marked "born"), and additionally carries over `baseRead` (pre-window agent readings) and `baseCog` (pre-window complexity) so the opening frame isn't blank on those dimensions either. I correctly predicted the "state before any commit, base entries, no touch/birth dates" core but wrongly guessed at author tallies/commit-index fields that don't exist here, and missed the baseRead/baseCog carry-over and the census/shape bookkeeping entirely.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The doc says only 'the opening state', missing the deliberate semantics around counted-but-not-dated and carrying baseRead/baseCog forward.
 
 ### `enter`
 - spec 3 · read at `a6d46c8d0021` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:39:53Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3378,28 +4047,34 @@ What this is and how to add to it: [README.md](README.md)
 - note: I underestimated: this also propagates the departure up through ancestor directories' live counts, not just the single path/function entry.
 
 ### `advance` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `28bb131feb90` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Iterates commit indices from frame.at+1 through to, looks up each commit's delta in hist/deltas, and applies it to frame's in-place state, advancing frame.at as it goes. If a commit is missing it breaks early and returns false; otherwise returns true after fully catching frame up to `to`.
-- found: Applies commits (frame.at, to] to frame in place: for each commit, updates per-function state (loc, live, touched, author, editedAt, born/bornAt on arrival, a fixed-size ring buffer of recent touch timestamps), handles deletions (leave, clearing state), applies grading/cog reads, and updates per-path author/timestamp and churn ring. Rather than splicing frame.order on every arrival/departure (O(live) each), it batches all arrivals/departures for the whole step into two sets and does a single linear merge into a new order array at the end for performance. Returns false if it runs out of fetched commits before reaching `to`, otherwise true; frame.at and frame.ts are updated to the reached point.
+- spec 3 · read at `b69e3100fe80` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:00Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Iterates commit indices from frame.at + 1 through to, looking up the corresponding delta for each commit in deltas, and applies it to mutate frame's row/table state (using hist for row identities). If any commit's delta is missing partway through, it breaks early, leaves frame.at at the last successfully applied commit, and returns false; otherwise it advances frame.at to to and returns true.
+- found: Folds commits (frame.at, to] into frame's per-function and per-path state (lines, liveness, authorship, birth, churn ring buffers, grading/complexity), tracking arrivals/departures in sets to do one linear merge into frame.order instead of per-commit splices; stops early and returns false if a commit's delta hasn't been fetched yet, otherwise advances frame.at/frame.ts and returns true.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 
-### `freeze` — PREDICTED SOME
+### `freeze` — PREDICTED SOME — STALE
 - spec 3 · read at `1354e622a688` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:13Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Snapshots the current mutable state of a Frame (its node tree, live file/author tracking maps, position in the commit sequence, etc.) into an immutable Checkpoint value, copying/cloning whatever mutable structures need to survive further replay steps so a later `thaw` call can restore the frame to this exact point without being affected by subsequent mutation.
 - found: Snapshots a Frame's structure-of-arrays state (flat typed arrays for per-function and per-path/per-dir churn, timestamps, liveness, authorship, cognitive scores etc.) into a Checkpoint, compacting the ragged ring buffers (hits/pathHits, which are stored as fixed-stride CHURN_MEMORY slots per entity) down into tightly packed Uint32Arrays using the hitLen/pathHitLen counts, while other arrays are just sliced (shallow-copied) as-is.
 - predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `thaw`
+### `thaw` — STALE
 - spec 3 · read at `2a242348194b` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:09Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
 - expected: Reconstructs a live `Frame` object from a serialized `Checkpoint`, the inverse of `freeze`: unpacks the checkpoint's compact/packed arrays (loc, cog, timestamps, etc.) into the Frame's working data structures so replay can resume from this point without re-walking from the start.
 - found: Reconstructs a Frame from a Checkpoint: unpacks ragged-array-style compact hit lists (pathHits/hits) back into fixed-stride Uint32Arrays using per-entry hitLen counts, rebuilds the `order` list of live function indices, and copies the rest of the checkpoint's flat arrays directly across.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
-### `weigh`
+### `weigh` — STALE
 - spec 3 · read at `b4fb07068bb6` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:22Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: Sums the byte lengths (or element counts) of the Checkpoint's various typed arrays to produce an approximate memory-size estimate for the checkpoint, used by the checkpoint cache (remember/evict/nearest) to enforce a memory budget.
 - found: Sums the byteLength of all the typed arrays held in a Checkpoint to give a total memory-size estimate in bytes, used for checkpoint cache budgeting.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `evict`
 - spec 3 · read at `fc7f56dda765` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:34:26Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -3465,11 +4140,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Unpacks a two-byte int into an AgentReport: predicted/documented/legible via gradeAt at bit offsets 0/3/6, trap as a single bit at offset 9, and derivable as a tri-state 2-bit field at offset 10 (0=undefined/never asked, else true/false), reusing the passed-in `into` object or creating a minimal one.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `scoreInto` — PREDICTED SOME
-- spec 3 · read at `deade2b5c9fa` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:44Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds (or reuses `into`) a Score object for function `f` as of `frame`: reads its loc/cognitive from the frame's tables, computes age from `since`/frame timestamp, computes churn using `windows`, computes a tangle ramp from `bands` if available, and unpacks `packed` into a color/reading value if not NO_GRADE. Since surprise isn't replayed, it leaves surprise at 0 and analyzedShare at 0 so the map doesn't color it as analyzed.
-- found: Fills (or reuses pooled) Score for function f at this frame: computes churn per window by scanning recent hit timestamps against 4 windows, age/lastTouched from born/touched timestamps, surprise/documented/analyzedShare/hotShare/source from unpacking `packed` if present (not just left at 0 — it decodes grade info when available), cognitive/tangle from frame.cog and bands, and appeared/edited flags for whether born/edit fell within the current step.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
+### `scoreInto` — TRAP
+- spec 3 · read at `508b5f303477` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:37:31Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Computes the Score for function index f as of a given replay frame — decoding the packed reading (or leaving surprise/analyzedShare at 0 if NO_GRADE), computing churn for all four window sizes from the frame's commit data, deriving age/last-touched from since, and looking up tangle from bands — writing into (and returning) into if supplied to avoid a fresh allocation per frame during replay.
+- found: Fills a pooled Score for function f at this frame: churn per window from hit timestamps, age/lastTouched from born/touched, surprise/documented/analyzedShare/hotShare/source from the packed reading (source flips 'agent' vs 'proxy'), cognitive/tangle nulled when the language is untaught, and appeared/edited flags computed against the since/inStep window — every field is written unconditionally, including to null, because Score objects are reused across functions frame to frame.
+- predicted: most · documented: some · derivable: no · legible: most · trap: yes
+- note: Every field must be explicitly assigned on every call, even to null — an added field that's only conditionally written would leak the previous function's value through the pooled object; that's a real trap for the next editor since nothing enforces it besides the comment.
 
 ### `aggregate` — PREDICTED SOME — LEGIBLE SOME
 - spec 3 · read at `2cc48c71c638` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:14:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -3517,10 +4193,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `historyLangs`
-- spec 3 · read at `edc4ca790989` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:00:28Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Walks every path that has ever existed in the history tables under `scope` (excluding excluded paths), buckets them by language extension, counts files per language, and returns the language names sorted by file count descending — supplying a stable ordering for languages that no longer exist at HEAD so they still get a consistent color/position in a replay instead of falling into an "other" bucket.
-- found: Counts files per language across `hist.langs`, skipping excluded/unlabeled paths and paths outside `scope` if given, then sorts descending by count with an alphabetical tiebreak and returns just the language names.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `8d4695321592` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: It scans the full history table (Tables) for every path under the given scope across all commits/snapshots, extracts each path's language, and tallies file counts per language (excluding excluded paths). It then returns the languages sorted descending by file count, as an array of language name strings, to serve as a tail ranking for languages absent from today's live map.
+- found: Iterates hist.langs (a per-path language map), skips excluded paths and paths outside scope, tallies file counts per language, and returns language names sorted by count descending then alphabetically.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `pathIndexOf`
 - spec 3 · read at `adbb902f8645` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:48Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -3528,11 +4204,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a Map from path string to index over hist.paths, but memoizes it in a module-level `index` variable keyed by reference equality to `hist`, returning the cached map if the same hist object is passed again.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
-### `frameTree` — LEGIBLE SOME
-- spec 3 · read at `503cce156153` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:45:13Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Reconstructs the sunburst's Node tree as it existed at history frame `index` (with `since` marking the prior frame for flash detection), walking the repo's directory/file/function structure from `hist`/`deltas`, rolling up small functions below a minLoc threshold (scaled by density, squared for tile area), scoping to `scope` if drilled down, computing churn/blame/age readings using `windows`, and marking nodes touched in (since, index] as flashing when `flashes` is true — returning the root Node ready for the Sunburst to render.
-- found: Builds (and reuses via a pool keyed to `hist`) the sunburst Node tree for one history frame at `index`: replays the frame, computes a per-frame minLoc roll-up threshold from lines/density², walks live functions building/updating pooled function nodes (skipping excluded and too-thin-to-draw ones into per-file stand-in accumulators using typed arrays for perf), aggregates totals top-down per directory to decide which subtrees are worth descending into vs. rolling into synthetic '#/folded' function stand-ins or '#/files' directory crowd nodes (carrying language/author/kind/time/tangle tallies), marks birth/edit flashes for anything in (since, index], forces the scope's ancestor chain to stay drawn, then aggregates and collapses the root.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `frameTree` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `63063226670b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:38:56Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Builds a fresh Node tree (not reusing the live scan's tree) representing the repo's shape at frame `index`: walks the frame's live functions, groups them into file/directory nodes, applies a `minLoc` roll-up threshold (scaled by `density` squared, since functions are area-packed tiles rather than ring wedges) to collapse tiny functions into roll-up stand-ins, marks nodes whose commits fall in `(since, index]` as "flashing" when `flashes` is true, attaches per-function scores/readings (age/churn using `windows`), then aggregates and collapses the resulting directory tree the same way the live sunburst does, finally rooting it under `scope` and naming the root `repoName`.
+- found: Vastly more machinery than predicted. Got the broad idea right (fresh tree per frame, minLoc roll-up threshold scaled by density², flash window via since/index), but missed: a persistent node/dir/file/fold pool keyed on the hist object for reuse across frames; dense typed-array (Float64Array/Uint32Array) accumulators per path for perf instead of maps, chosen specifically to avoid cache-miss costs measured on large repos; a top-down walk (not bottom-up) that only descends into directories/files whose live lines clear the cutoff, folding everything else into per-directory "crowd" stand-in nodes and per-file "#/folded" stand-ins, each carrying tallied lang/author/kind/time/tangle distributions gathered file-by-file; a `forced` scope-path set so directories on the way to a drilled-in scope are always drawn regardless of size; and separate handling for functions vs files vs directories at each rollup tier.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `posOf` — PREDICTED SOME
 - spec 3 · read at `077496c8f1ea` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:27Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -3989,482 +4665,1031 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/report.ts
 
 ### the file itself
-- spec 3 · served in 5 parts · read at `29ec47e4ed16` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:01:56Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Module that assembles the project's analysis into a standalone paginated PDF report — wraps vector Sheet/text-drawing primitives, provides text-flow/pagination helpers (flow, pour, paginate, columnWidths, table/list layout), drawing routines for cover, legends/keys, maps, grids and tables, and a top-level buildReport() (plus contents() for TOC) that stitches a cover, methods section, one two-column essay per analysis lens with a numbered map figure, and a findings section into the final document.
-- found: Exactly what the header describes plus a great deal of implementation depth I did not predict: a full vector-PDF report builder covering three output shapes (report/brief/deck), with extensive greedy-then-binary-search pagination balancing (paginateEven, pourEven, balance), a rich text/markup engine (bold/italic/code spans, word wrapping with code-span-aware breaking), a legend/key system with ramps, a findings grid comparing rules × locations, badge/mark placement on maps with clustering, and a whole prose-templating system (fillSlots, lensGates) that conditionally includes sentences depending on what data the repo actually has. The scale (2400+ lines) and the density of layout-tuning heuristics (each with its own explanatory comment about a specific past visual bug) was far beyond what I predicted.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The header is accurate as a top-level description but says nothing about the sheer amount of iterative-refinement layout logic (binary search over trial layouts, ladders of degrading table limits, balancing columns) that makes up most of the file's actual bulk.
+- spec 3 · read at `d6dbd6362ecd` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:25:01Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: report.ts is the top-level assembler that builds the full report document — a small orchestration file exposing two functions: buildReport, which pulls together all the per-lens tables/sections (likely calling into reportTables.ts) into one report object/structure, and numberPages, which walks the assembled sections afterward to assign sequential page numbers for pagination/rendering. It has no file header doc, so its responsibility must be inferred purely from these two exports.
+- found: buildReport assembles a full PDF report (cover, contents, per-lens essays with map figures, findings groups, appendix) by laying out every section first via a Frame/Press/Sheet pipeline, then drawing them in page order; numberPages computes each section's starting page index (not per-page numbers) from the laid-out section lengths, used for both drawing footers and the contents page.
+- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
+- note: The task's `docs` field was empty, but the file actually carries a long, thorough JSDoc-style header comment directly above buildReport explaining the whole file's design — it just isn't surfaced as file-level doc metadata to the reader, so 'documented: none' reflects what I was handed, not the file's actual documentation.
 
-### `lead`
-- spec 3 · read at `3860bdd64197` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:51Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A one-line helper computing line-height (leading) from a font size, e.g. `size * 1.4` or similar fixed ratio, used wherever the layout code needs to know how tall a line of text at a given size is.
-- found: `const lead = (size: number) => size * 1.45 * U` — leading as 1.45x the font size, scaled by a document-wide unit constant `U`.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Same file as pourEven/text, warm read.
+### `buildReport`
+- spec 3 · read at `3bc24b2b8f87` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:50Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Orchestrates the whole pipeline: sets up fonts and a Press/Surface, lays out each section (cover, contents, lenses, findings, appendix) against Frames to determine total page count first (per the docs, layout before drawing), calls numberPages to stamp footers/contents entries, then draws everything and serializes the result to a Uint8Array PDF byte buffer.
+- found: Merges findings, builds a fixed white-paper ink theme and a Sheet/Press, lays out every section (front matter, lenses, findings, appendix) via Frame before drawing anything, uses numberPages to compute page numbers/starts, then draws each section in page order with contents drawn last since it names every other page, ticking progress throughout, and finally serializes via doc.write with title/date/subset/deflate options.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The always-white-paper ink choice, figureCache reuse, lens skip/lock filtering, and progress ticking are invisible from the signature.
 
-### `lensPages` — PREDICTED SOME
-- spec 3 · read at `b8078fbc0085` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:57Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: `lensPages` takes the map of locked lens states and returns the subset of `ColorMode` values that actually appear in `locks`, filtered down from a fixed canonical menu-order array of all lenses — giving the report the lenses to allocate a page to, in the menu's display order.
-- found: Returns all `ColorMode` keys from `MODE_LABEL` (the canonical menu order) EXCLUDING any that are locked — the opposite filter direction from what I predicted (locked lenses are excluded, not selected).
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-
-### `settingOf`
-- spec 3 · read at `b53bc8fb8e76` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the currently active reading/view for a given lens/mode within `views`, and returns the label text that the on-screen switch control uses for that reading, mirroring UI wording. Returns an empty string if the lens only has one reading (no switch shown on screen).
-- found: A hardcoded per-mode switch returning a fixed caption string matching each lens's on-screen control wording (e.g. 'by oldest line', 'raw count'), with churn formatting a dynamic day count from the current window, and an empty string as the default/fallback.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `fontOf`
-- spec 3 · read at `6e345e8dd233` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:39Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Builds a canvas font string from `run`'s style flags (bold/italic/mono) and the given `size`, picking a monospace family if `run.mono` is set and a serif/sans family otherwise, e.g. `"italic bold 11px ui-monospace"`.
-- found: Builds a canvas font string using MONO face when run.code or run.mono is set (else FAMILY), numeric weight 700/400 for bold/normal, and size scaled by U, with italic prefix — matches prediction closely except weight is numeric and the mono check also includes `run.code`.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `setLines` — LEGIBLE SOME
-- spec 3 · read at `acf1278d6cd9` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:40Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Word-wrapping: given a sequence of formatted inline Runs, measures each word's rendered width via the Surface at the given font size, and greedily packs words onto lines that don't exceed width, splitting runs across line boundaries as needed, returning an array of Line objects each holding the runs that fit on it.
-- found: Splits runs into words/spaces, measures each piece's width via the Surface, and greedily packs them into Lines that fit `width`, with special handling: padding around code chips suppressed next to clinging punctuation, breaking an overlong code span at an internal separator (/.-_:#(,) before falling back to moving it whole, and breaking a plain word character-by-character (preferring a path/anchor separator) only when no line could ever hold it.
-- predicted: most · documented: none · derivable: yes · legible: some · trap: no
-
-### `drawLine`
-- spec 3 · read at `2f0dc1583de1` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:41Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Renders one line of laid-out text onto the PDF Surface at the given baseline and x start, iterating over the line's runs (formatted spans like inline code, emphasis) and drawing each with its appropriate font/style and color from inks, advancing the x cursor by each run's measured width as it goes.
-- found: Sets baseline/align once, then for each pre-positioned item in line.items (x offset already computed), draws a background rect for code runs, sets font via fontOf, picks color (run color, muted, or default fg), and fillTexts the run's text at x + item.x + padL.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Items already carry precomputed x offsets (from an earlier layout pass, e.g. fillSlots/setLines) rather than this function accumulating cursor position itself.
-
-### `inlineRuns`
-- spec 3 · read at `1b8f944b4da8` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:22:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: inlineRuns parses a string for *italic*, **bold**, and `code` markup, splitting it into an array of Run objects (text plus style flags merged onto base) so the PDF renderer can draw each segment with the right font/style.
-- found: Splits string on regex matching `code`, **bold**, or *italic* spans, pushing each part as a Run with the corresponding style flag set (code/bold/italic) merged onto base, plain text runs otherwise.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `codeRuns`
-- spec 3 · read at `4df500016cf5` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:29:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Parses a string s for backtick-delimited code spans, splitting it into an array of Run objects: text inside backticks gets a monospace/code variant of base style, other text keeps base style unchanged. Because this is for reader notes specifically, it does not treat `*` as bold markup (unlike inlineRuns for other prose).
-- found: Splits the string on backtick-delimited spans via regex, filters empty pieces, and maps each piece to a Run — backtick spans become {...base, text: inner, code: true}, everything else becomes {...base, text: piece} unchanged.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
-- note: The doc's note about `*` being an operator not emphasis wasn't directly relevant to this function's own logic — it's context about how notes are authored, not something this code implements itself.
-
-### `fillSlots`
-- spec 3 · read at `a7841290a688` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:46Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Replaces `{?name text}` and `{!name text}` gated spans first (including text yielding, keeping the span if vars[name] is non-empty for `?` or empty/falsy for `!`, dropping it otherwise), recursing so nested slots inside the kept text also resolve, then replaces remaining `{name}` slots with vars[name] values, returning the final string.
-- found: One regex pass resolves `{?name text}`/`{!name text}` gates by keeping the inner text only when vars[k] truthiness matches the sign (allowing one level of nested `{word}` slots inside the gated text via the alternation in the pattern, not full recursion), then a second pass replaces remaining `{name}` slots with vars[name], leaving the literal `{name}` in place if the var is missing.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Missing slot vars are left as the literal `{name}` text rather than becoming empty string — worth knowing if a caller expects blanks for absent vars.
-
-### `lensGates` — PREDICTED SOME
-- spec 3 · read at `47384ebb054f` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a Record<string,string> keyed by lens name (plus a special "readings" key), where each value is set (e.g. to the lens's own name) only if that lens actually has a page in report `o`, and "readings" is set if any lens with a reading is present; this record is then used by the prose templating to gate sentences that compare against a specific lens so they only render when that lens's page exists.
-- found: Returns a record of 'yes'/'' gate flags: one per color-mode lens (based on whether o.locks[m] is unset), a combined 'readings' flag, plus unrelated gates for language presence (rust/nix/cFamily/manyLanguages) and whether group maps should draw (form !== 'brief').
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-
-### `proseBlocks`
-- spec 3 · read at `a37da293ee1d` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:51:40Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes the parsed prose sections (headings, paragraphs, etc.) and template variables, substitutes vars into text placeholders, and maps/flattens each section into one or more layout Block objects (heading block, paragraph block, etc.) for the pagination/flow code to lay out on the PDF pages.
-- found: Builds a flat array of layout Blocks from prose sections: a bold heading block per section, then for each body string it fills template slots, drops the line if filling left it empty, splits on newlines, and classifies each resulting line as a bullet ('- '), numbered ('N. '), or plain paragraph block with inline-formatted runs.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `flow`
-- spec 3 · read at `64b7449bc830` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:42Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Takes an array of content Blocks (headings, paragraph body text) and performs text-wrapping layout at the given column width and font size, using the Surface (c) to measure text extents, producing a flat list of Rows — one per wrapped line, including spacing for headings — ready to be paginated/drawn by callers like pour/pourEven.
-- found: Iterates Blocks, wraps each into lines via setLines (as predicted), but also computes per-block spacing rules: larger font for headings, indent for list items, and a gap before each block that depends on the current and previous block kinds (heading-before, after-heading, consecutive list items, or default paragraph gap) — only applied to the first wrapped line of each block. Each Row also carries a 'keep' flag (true for headings, presumably to avoid orphaning a heading at page bottom) and block/first indices for pagination.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: Got the wrapping/measurement idea right but missed the detailed inter-block spacing heuristics and the 'keep'/label/block bookkeeping meant for pagination logic in sibling functions like pour.
-
-### `drawRow` — PREDICTED SOME
-- spec 3 · read at `2bffec53904f` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:22:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Draws a single laid-out Row (a horizontal strip of cells, e.g. a table/finding row) onto the Surface at (x, top): iterates the row's cells, positions each along x using column widths, and renders their text runs via Sheet/drawLine-style helpers using colors/fonts from `inks`, advancing y as needed and likely returning the row's total height.
-- found: Draws one text line (r.line) at the given baseline via drawLine, with an optional right-aligned muted label (e.g. a line number) placed just left of the indent; baseline is computed from top plus a fraction of the row's leading.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-
-### `pour` — PREDICTED SOME
-- spec 3 · read at `36eba5326eb5` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:20Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Walks through rows, filling successive regions (from regionsFor(page)) column by column and page by page, tracking remaining vertical space per region. Special-cases headings so one is never left alone at the bottom of a column without its first content line following it (pushing it to the next region instead), and skips a region entirely if it's too short to hold even one line. Returns the resulting Slice[][] grouped per region/page.
-- found: Fills regions per page (capped at 500 pages as a safety bound) by accumulating row heights until a region is full, accounting for a lookahead 'hold' row that must fit with a kept-together row. Rather than heading-specific logic, it prevents orphan/widow lines generically: if the row after the break belongs to the same paragraph block as the last placed row, and either it's the tail of that block or the last row was marked 'first', it pops the last row back so two lines travel together across the break. Falls back to force-placing one row if nothing fits in a fresh page's regions, to guarantee progress.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-
-### `pourEven`
-- spec 3 · read at `90aa0f3c67e5` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Pours rows into pages via the normal `pour` function, then checks whether the final page is under half full; if so, it re-pours only the last two pages using narrowed/adjusted region heights so the content splits evenly across those two pages instead of ending in one full page and a near-empty remainder — total page count stays the same.
-- found: Pours normally, and if the last page is more than half full, returns as-is. Otherwise computes a target column height by averaging the combined fill of the last two pages over the second-to-last page's column count, re-pours with the last two pages' regions capped to that target height, and uses the result only if it still produces the same number of pages (falling back to the original otherwise).
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: The doc's rationale ("page count never changes") is directly enforced by the final `out.length === n ? out : pages` fallback, but that connection isn't obvious without the comment.
-
-### `drawSlices`
-- spec 3 · read at `6675eb3c83d0` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:39Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the given array of Slice objects and, for each, draws its rows at their laid-out region on the current sheet page, delegating the actual row drawing to drawRow (and/or drawLine) for each row within the slice.
-- found: For each slice, walks its region top-down through its rows, adding each row's gap (except before the first) and lead after drawing, calling drawRow for each row at the slice's x/y.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `constructor`
-- spec 3 · read at `9aebffc9da63` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:55Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Sheet's constructor mostly just stores its readonly parameter properties (doc, paper, inks, stamp, env), and likely also computes a few derived layout constants from paper size, such as left/right/bottom margins and content width, that the rest of the class's methods (begin, header, footer, etc.) reference.
-- found: Stores the readonly params, computes pixel width/height in points (W/H) from paper size and unit U, creates a placeholder measuring Surface on an unbegun page for layout-time text measurement, and computes left/right/bottom margins from MARGIN*U.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `width`
-- spec 3 · read at `847a3833f2c5` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:56Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Getter returning the usable content width of the page — page width minus left and right margins — used by layout code (fitText, drawRow, etc.) to know how much horizontal space is available.
-- found: Returns the content-area width of the sheet, computed as this.right - this.left.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `begin`
-- spec 3 · read at `d23799af93f1` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:32:33Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A method on Sheet that starts page `index`: adds a new page to the PDF document, then immediately paints a full-page white rectangle as a backdrop (since the doc says nothing is drawn until painted, and grayscale blends over nothing look wrong), and resets/updates internal cursor or layout state for the new page.
-- found: Fetches the page at `index` from the doc, creates a new Surface drawing context for it, then fills the whole page rect with the background ink color as a backdrop before anything else is drawn.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `text`
-- spec 3 · read at `8231e59cc909` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:25Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A method on Sheet (the PDF-page drawing surface) that sets the canvas context's font (choosing family/weight from bold/mono), fillStyle from color, and textAlign from align, then draws the string at (x, y) via fillText — with the `optical` flag applying a small positional adjustment (via `bearing`/`measure`) for visually-aligned edges rather than raw glyph metrics.
-- found: Sets font via `fontOf` (keyed on the text itself plus bold/mono), fillStyle, textAlign and a fixed alphabetic baseline, computes an optional optical shift via `bearing`, draws with fillText at the shifted x, then resets textAlign to 'left' afterward.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Already saw this file for pourEven, so this is a warm read of the same module.
-
-### `bearing` — PREDICTED SOME
-- spec 3 · read at `6b3fe80611a4` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:00:42Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Measures the left side bearing of the first glyph of string `s` at a given font size (with bold/mono variants) so text can be shifted left to align its visible ink with a margin. It likely draws the string onto a scratch canvas with the appropriate font, then measures pixel data (or uses TextMetrics.actualBoundingBoxLeft as a starting point but corrects it against actual pixels drawn) to compute the bearing offset in points.
-- found: Resolves the font spec for the string/size/bold/mono combo and delegates the actual bearing measurement to the Face object's own `bearing` method — this is a thin lookup/delegation wrapper, not the measurement itself.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: The doc's mention of a scratch canvas describes Face.bearing (in fonts.ts), not this method, which is just a delegating wrapper.
-
-### `measure`
-- spec 3 · read at `54f238d0b9a2` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Computes the rendered width in points of string `s` at `size`, choosing among bold/mono font variants, by summing per-glyph advance widths from an embedded font-metrics table scaled by size — the PDF equivalent of CanvasRenderingContext2D.measureText, used throughout layout to know how much text fits.
-- found: Sets the canvas-like context's font via fontOf({text, bold, mono}, size) then delegates directly to this.c.measureText(s).width — a thin wrapper around the vector Surface's own measureText, not a from-scratch metrics computation.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: I overestimated the implementation, assuming it summed glyph widths itself; it actually just configures the font string and delegates to the Surface's own measureText implementation.
-
-### `rule`
-- spec 3 · read at `a884ad4cdaa4` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:04Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Draws a thin horizontal divider line on the canvas at y, from x to x + w, using a stroke color/width appropriate for a rule (e.g. a light gray hairline).
-- found: Draws a thin horizontal bar (via fillRect, not stroke) in the border ink color, at y spanning x to x+w, with height `max(1, 0.6*U)` so it stays visible at small scales.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `link`
-- spec 3 · read at `ed0757ded824` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: `link` converts the given rectangle (x0,y0,x1,y1 in layout pixels) into PDF page coordinate space and registers a clickable internal link annotation on the current page that jumps to page `target`, likely delegating to the underlying PDF library's annotation/link API.
-- found: Converts the two corner points from layout to page coordinates via `this.c.toPage`, then pushes a `{rect, page: target}` entry onto the current page's `links` array — a plain data record consumed elsewhere when serializing the PDF, rather than calling an external PDF-lib annotation API directly.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `header`
-- spec 3 · read at `eb5df9cf0cd1` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:12Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: `header` is the main section-header counterpart to `continued` — draws an uppercase eyebrow and a larger title (fit via `fitText`, narrowed to `o.width` if given, e.g. for the lens-slide layout where the map sits beside a narrower head), plus a rule, but does not draw a commit/citation line since that's the footer's job.
-- found: Draws an uppercase muted eyebrow, then a bold title (size 22, fitted down to a floor of 12 via fitText) at a width that defaults to the sheet's full width but can be narrowed via o.width, followed by a rule spanning that same narrowed width.
+### `numberPages`
+- spec 3 · read at `a33131b762cc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:16Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Walks through the report's sections in fixed order — cover/methodology, contents, each lens, the findings overview, each finding group, and the appendix — accumulating a running page count and assigning each section's starting page number. Returns a Book structure (likely including a start map, like the `starts` map consumed by drawGroups, plus the total page count) used to drive both the contents page and pagination elsewhere.
+- found: Accumulates a running page counter through cover/contents (report-only), each lens, the findings overview, each finding group, and the appendix, recording each section's starting page number into per-kind maps (lensStart, groupStart) or scalars, returning a Book with the total page count and all start offsets.
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
+## web/src/lib/report/appendix.ts
+
+### the file itself
+- spec 3 · read at `e72d22de71fe` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:30Z · by ross@rossturk.com · warm reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is part of a PDF/report generation library (web/src/lib/report/), responsible for the "appendix" section of a generated report. layoutAppendix likely computes the appendix's layout—positions, pagination, page breaks for its content—while drawAppendix renders that computed layout onto a canvas/PDF drawing context, following a layout/draw split pattern used elsewhere in this report module.
+- found: layoutAppendix builds prose blocks (an intro plus each color-mode's "method" essay content) for report-form documents only, then flows/paginates them into two-column slices. drawAppendix takes those paginated slices and renders each page via a "press" (draw pipeline), adding a header on the first page and "continued" headers on subsequent ones.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: The file has no file-level header comment; only layoutAppendix has a doc comment, and it uses domain terms ("lens's instrument", Essay.method) not otherwise explained here.
+
+### `layoutAppendix` — PREDICTED SOME
+- spec 3 · read at `8edf59940085` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:26Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the frame's lenses, finds each one whose essay pushed its full instrument view into the appendix, and lays out that content into one or more pages (Slice[] per lens/page), returning the resulting list of page-slices — parameterized by modes because the appendix must render correctly across light/dark color modes.
+- found: Only runs for the 'report' form; filters the given color modes down to those whose ESSAYS[m].method has content, returns empty if none. Builds a single flowing document (intro paragraph plus one prose section per qualifying mode/method) and flows it through pourEven/flow into two-column pages with a header on the first page and a 'continued' header on subsequent ones — it's one continuous appendix document, not a separate layout per lens.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: I mistook 'modes' (color modes, each with its own essay/method text) for 'lenses'; the appendix is really one flowed document assembled from each mode's method prose, not per-lens pages.
+
+### `drawAppendix`
+- spec 3 · read at `97c08847f19a` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the array of pages (each an array of Slice produced by layoutAppendix), drawing each page's slices onto the frame using press, starting the page numbering/count at `start` and advancing for each subsequent page.
+- found: Loops over the appendix's pages, calling press.check/tick for progress, beginning each page at start+p, writing a fresh 'Appendix' header on the first page and a 'continued' header on later ones, drawing that page's slices via drawSlices, then ending the page (only naming it 'Appendix' in the TOC-like end marker for page 0).
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+## web/src/lib/report/contents.ts
+
+### the file itself
+- spec 3 · read at `bfc35c82080e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:26Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds and renders a table-of-contents page for reports (only reports, not briefs/decks). A Toc class accumulates entries as other pages are laid out (row adds an entry with title/eyebrow/page number, eyebrow sets a section label), and drawContents renders the final list, grouped/formatted via lensRows and groupRows (grouping entries by lens or by section) once all other pages are known — hence "drawn last."
+- found: Draws the report-only contents page: a Toc helper that lays out dotted-leader rows (each linked via sheet.link to the page it names) top-down; lensRows lists every lens by family, showing a page number or a muted "not in this report" explanation (deduped when consecutive lenses share the same reason); groupRows lists finding groups, falling back to two columns when they don't fit one, and printing an "and N more" tail past that.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+
+### `constructor`
+- spec 3 · read at `0d63ce8057d5` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:38Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A trivial TypeScript parameter-property constructor: it does nothing beyond what the signature already declares — assigning the passed `sheet` to `this.sheet`, with an empty body.
+- found: Empty-body TS parameter-property constructor; just stores `sheet` on the instance.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `row`
+- spec 3 · read at `495663cf6193` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:31Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Draws one line of the table of contents — the label text (indented per o.indent, optionally muted/mono), a dotted leader filling the gap, and the page number right-aligned — then wraps the row in a clickable link to that page via sheet.link. If o.left/o.right/o.at are given it draws within that column bound at that fixed y (for the two-column group list); otherwise it spans the full page width at the current running y and advances it.
+- found: Draws label (shrunk to fit via fitText if needed) at x, a dotted leader of small filled squares between label and page number, then the page number right-aligned, and adds a clickable link region to page Number(page)-1; returns early without drawing dots/number/link if page is empty (heading row). Does not advance a running y itself — that's the caller's job.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `eyebrow`
+- spec 3 · read at `f8506bf78c81` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Draws a small styled label (eyebrow caption, likely uppercase/gray/small font) at the current y-cursor position on the contents page, then advances the cursor down slightly, probably returning `this` for chaining with Toc.row.
+- found: Draws the uppercased text at the sheet's left margin and current y, small/bold/muted, then advances y by 16 units. No chaining return (void).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `drawContents`
+- spec 3 · read at `70002b78fde3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:00Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds the report's table-of-contents page onto f, using a Toc helper (via its constructor/row/eyebrow methods) to write section headers and rows for each finding group and lens (via groupRows/lensRows), pulling page numbers from book, and appending a note for lenses in skips that were left out because they only had one value.
+- found: Draws the header, an Abstract/methodology row hardcoded to page 1, an eyebrow+rows for Lenses (via lensRows with skips), an eyebrow+overview row for Findings (with finding/group counts) followed by groupRows for each section, and finally an optional Appendix eyebrow+row if book.appendixStart is set — all page numbers pulled from book.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `lensRows`
+- spec 3 · read at `a8ee3c29cdaa` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:47Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Iterates all color modes grouped by family (e.g. structural, history, docs), writing an eyebrow header per family via `toc.eyebrow`, then for each lens writes a `toc.row` — either pointing to its page number from `lensStart`, or showing the explanatory reason from `skips` when the lens has no page in this report.
+- found: For each lens family, draws a muted family label then each lens's row: if it has a start page in `lensStart`, draws a row with the page number; otherwise draws a muted row plus an italic 'Not in this report. <reason>' explanation, where the reason is deduplicated — if the next lens in the family shares the same skip reason, the sentence is not repeated and is instead printed once under the last lens sharing it.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The dedup-of-repeated-skip-reasons behavior (printing the explanation once under the last lens sharing it) isn't mentioned in the doc comment at all.
+
+### `groupRows`
+- spec 3 · read at `276d8fcdeca1` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: groupRows takes the sections/groups and lays them out as TOC rows, deciding whether one or two columns are needed based on how many groups there are. If the total exceeds what two columns can display, it truncates and adds some kind of "+N more" summary row instead of silently dropping entries, so every group is at least accounted for even if not individually named.
+- found: Computes how many rows fit in the remaining vertical space (accounting for appendix start offset), decides on one or two columns based on whether sections overflow single-column capacity, draws each section as a row with letter/name/entry-count and starting page number, splitting into two columns with a gutter when needed, and if sections still don't all fit, appends an "and N more groups" summary line rather than dropping them silently.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+## web/src/lib/report/cover.ts
+
+### the file itself
+- spec 3 · read at `ddfcfb1a2c3b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:10Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Generates the front/cover page shared by report exports (brief covers, deck title slides) — drawing a wordmark/logo, a facts summary, and a methodology blurb onto a canvas or SVG. wordmarkPaths supplies the logo's vector paths, factsOf/briefMethod compute the summary/methodology text, coverOf/layoutFront compute layout geometry, and drawCover/drawFront do the actual rendering — likely two variants (report cover vs. brief/deck front page) sharing common front-matter logic.
+- found: Renders the cover/front-matter shared across report forms (report, brief, deck) onto a canvas-like Sheet: wordmark logo, title/owner/name, fact line (lines/functions/pages), abstract, and a methodology section that is paginated for reports, adaptively trimmed to fit under the cover for briefs (briefMethod gives up specific paragraphs/sections in a tuned priority order, then restores what still fits), and omitted for decks (which instead show a full-repository hero map beside the title).
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+
+### `wordmarkPaths`
+- spec 3 · read at `1eed1f6077fb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:50Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Returns an array of SVG path `d`-strings for the brand wordmark, sourced from the same place the on-screen wordmark component defines them (e.g., importing/parsing that component's source or a shared constant) so the path data isn't duplicated between the app UI and this PDF/report renderer.
+- found: Renders the Wordmark React component to static markup and regex-extracts every `d="..."` attribute value, returning them as an array of SVG path strings.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `coverOf` — PREDICTED SOME
+- spec 3 · read at `d0469df66358` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:14Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds the layout data (a Cover object) for the report's cover page — wrapping the title/subtitle text, pulling metadata via factsOf(o, vars) for the facts block, and sizing/positioning the wordmark (via wordmarkPaths) to fit width. Doesn't draw anything itself — that's drawCover's job — just computes positions and content to be drawn later.
+- found: Splits the repo slug into owner/name, shrinks title font size until it fits width without eliding the name, then computes a cascading sequence of Y-offsets for each cover element (eyebrow, title, subtitle, facts, rules, abstract), builds the abstract text from a METHODOLOGY template filled with vars, and returns it all as a Cover layout object. No factsOf/wordmarkPaths calls happen here — just a factsY position is reserved.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `drawCover`
+- spec 3 · read at `8219a3f2fd7a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Renders the cover page: draws the wordmark logo from the given SVG paths, the cover's title/metadata, and the facts summary text; if note is non-empty, draws it beneath the abstract/facts block, used by deck title slides to state once what a map's width and color mean.
+- found: Draws the wordmark (filled vector paths, scaled), a "sanity.monster" watermark, eyebrow label, owner/name title (aligned by first-glyph ink), a fitted subtitle, fitted mono facts line, a rule, "Abstract" heading and its body lines, another rule, and finally the optional note (wrapped and muted) below that second rule.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `factsOf`
+- spec 3 · read at `fefb7e55b4d1` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds a short summary string like "X lines · Y functions · Z readings · N pages" by pulling counts (lines, functions, readings) from the report object `o` and combining with the `total` page count parameter, joined with some separator such as " · ".
+- found: Builds an array of fact strings (line count, function/file counts, an "assessed of total read" fact shown only if there are functions or files, and a page/slide count depending on report form), filters out empty strings, and joins with " · ".
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The file_doc describes the module generally but factsOf itself has no direct doc, so 'documented: none' reflects that gap rather than poor docs.
+
+### `briefMethod` — LEGIBLE SOME
+- spec 3 · read at `5af4452311ad` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds the methodology text blocks for the report's cover page, assembling candidate paragraphs in a fixed priority order (dropping ones redundant with the rest of the brief first, least-needed ones next — not simply truncating from the end). Repeatedly calls onCover with progressively trimmed block lists until the result fits the cover space, and returns the resulting flattened Slice[].
+- found: Tracks a `gone` set of dropped section/paragraph keys, greedily drops items in BRIEF_GIVES priority order until the methodology fits on one cover page (onCover returns exactly one page), then does a reverse pass re-adding last-given-first items that still fit (since giving up a long paragraph can free room for an earlier short one), and finally falls back to trimToFit for any remaining overflow.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+
+### `layoutFront` — PREDICTED SOME
+- spec 3 · read at `8461dfc6e818` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Given a Frame (the page/canvas dimensions), computes and returns a Front layout object describing where the cover page's elements go — likely delegating to or combining results from coverOf and factsOf to position the wordmark, title, and summary facts within the frame. Being only 5 lines, it's probably a thin composition of a couple of sub-layout calls rather than raw geometry math itself.
+- found: Computes heroSide (the hero image's side length from the sheet's paper height minus margins), calls coverOf to lay out the cover (narrowing its width by heroSide+gap if a deck hero image is present), and looks up the methodology pages via METHOD_PAGES keyed by the doc form (brief/deck/etc), returning all three bundled into a Front.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: I correctly guessed it composes coverOf's result but wrongly guessed factsOf was involved — it's actually a form-keyed METHOD_PAGES table, not a facts sub-layout call.
+
+### `drawFront` — PREDICTED SOME
+- spec 3 · read at `b9b0dcf00594` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:25:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Renders the report's cover page: calls layoutFront to compute positions, draws the wordmark/logo, title/brief text, and summary facts (via factsOf) onto the Press drawing context for the frame; async because it may need to load fonts or images before drawing.
+- found: Draws the whole methodology section (cover plus continuation pages), not just a cover: on page 0 it draws the cover with wordmark/facts and, for a deck, a hero lens map beside the title and an explanatory caption; every page also draws methodology "slices" and subsequent pages get a "continued" header, all wrapped in press.check/tick/begin/end progress bookkeeping.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: Function docs were empty; only the file-level doc (about the whole cover/methodology section) was given, so it doesn't count as documentation for this specific function.
+
+## web/src/lib/report/entries.ts
+
+### the file itself
+- spec 3 · read at `dbc805b2c357` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file builds and paginates the "entry" list items shown on a report's group page: entryOf constructs an entry (number, address, rule sentences) for a finding; partsOf/partsIn split an entry's rule sentences into page-sized parts when an entry is too tall to fit on one page; wholeEntries filters/groups entries that fit without splitting; paginateEven and paginate lay entries (and their parts) out across pages, balancing height; partHeight measures a part's rendered height; and drawPart/drawEntryHead/drawLensChips are the actual drawing routines that render an entry's heading, its lens tag chips, and each rule-sentence part onto the page/canvas.
+- found: entryOf builds an Entry (numbered badge, address, wrapped head lines, per-rule title/says lines, lens list) from a FindingItem. partsOf/partsIn split an entry into per-rule parts with measured heights (partHeight). wholeEntries keeps an entry as one unit if it fits a page limit, else splits it into its parts. paginate greedily pours parts onto pages given first/next-page room, marking continuation slots; paginateEven binary-searches the per-page room to balance page counts while matching paginate's page count. drawPart/drawEntryHead/drawLensChips render the numbered circle badge, wrapped text, rule colour bar, and lens chip legend onto the canvas sheet.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+
+### `entryOf` — PREDICTED SOME — LEGIBLE SOME — TRAP
+- spec 3 · read at `5727059d549c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:28Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds an Entry model for one finding on a report's group page — computing its display number, its address/path label, and splitting its rule violations into "parts" (each with the rule's sentence text pulled from `intro`), measuring each part's layout/height via `sheet` so the caller can later paginate the entry across pages.
+- found: Builds an Entry: wraps the header lines (dir/file/name, flagged tag) and, per rule, wraps the rule's title and its "says" text via setLines/measured width — appending the rule's shared background text only when `intro.get(r.id) === item.finding.key` (a dedup check I hadn't anticipated), plus computing the addr string and a deduped lenses list. Not really pagination/height math as I guessed — that lives elsewhere (partHeight/paginate).
+- predicted: some · documented: none · derivable: yes · legible: some · trap: yes
+- note: The `intro.get(r.id) === item.finding.key` gate for showing a rule's background text is a non-obvious convention (dedupe boilerplate across entries sharing a rule+key) with no comment explaining it — an editor changing the `intro` map's semantics could silently break this.
+
+### `partsOf` — PREDICTED NONE
+- spec 3 · read at `232ed170fcc3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:47Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A one-line function that takes a single Entry and maps its list of rule-sentences into an array of Part objects (one part per rule, tagged with the owning entry e and a computed height via partHeight), used downstream by partsIn/wholeEntries/paginate to lay out and paginate the entry across pages.
+- found: Returns the count of parts an entry will occupy: the number of rules, or 1 if it has none.
+- predicted: none · documented: none · derivable: no · legible: full · trap: no
+- note: Name 'partsOf' strongly suggests it returns the actual Part objects (matching the sibling Part-building functions in this file), not just a count — easy to misread without the body.
+
+### `partsIn`
+- spec 3 · read at `5fc046c48ef8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:20Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Flat-maps over each entry, calling partsOf to break it into its constituent parts and computing each part's height via partHeight, returning a single flattened array of all parts across all entries for the pagination logic.
+- found: flatMaps entries, and for each generates one { e, k, h } tuple per part index k (0..partsOf(e)-1), with h computed by partHeight(e, k) — exactly a flattened list of parts-with-heights across all entries.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `wholeEntries`
+- spec 3 · read at `85a13e914182` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:15Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Takes the list of findings (entries) and their already-computed rule-parts (parts), and packs them into pages (arrays of Part[]) bounded by limit (a height budget). For each entry, if all its parts together fit within limit as a single unit, they go out together; if not, the entry's parts are split across multiple pages so no page exceeds limit.
+- found: For each entry, filters its parts and returns them as one group if their combined height fits within limit, otherwise splits into one group per part.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `paginateEven` — PREDICTED SOME
+- spec 3 · read at `301a889b8c6c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:35Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Tries increasing page counts (starting from the minimum needed) and for each calls paginate to greedily fill columns, checking whether the resulting distribution is balanced (no page much emptier than others, e.g. a lone last-page entry). It picks the smallest number of pages that gives a balanced spread rather than a greedy pack that leaves a near-empty trailing page, returning the array of PartSlot pages.
+- found: Gets the baseline page count from a greedy paginate() call, then binary-searches the column-height budget between the tallest single unit and the full first-page height, shrinking it as far as possible while paginate() still produces the same page count — so pages come out balanced (shorter) rather than greedily packed. Returns paginate() run once more at that minimal budget.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+
+### `paginate` — PREDICTED SOME
+- spec 3 · read at `f925e729122f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:06Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Walks through units (arrays of parts that move together), tracking remaining room (first page uses `first`, later pages use `next`), measuring with partHeight, and packing parts into page arrays of PartSlot. When a unit would overflow the current page it starts a new page, and units split mid-way get marked so a 'continued' line is drawn for the piece that opens a later page.
+- found: Treats each unit (already pre-split elsewhere into parts, each carrying an index k) as atomic within paginate itself: if a unit's total height fits in the remaining room it's appended to the current page, otherwise the whole unit moves to a new page (never split here). The 'cont' flag on a unit's first slot is set only when that unit's own first part already has k>0, i.e. it's itself a continuation fragment of a bigger entry produced upstream — paginate doesn't do the splitting, just decides which page a unit lands on and accounts for CONT_H space when it opens with a continuation.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The actual mid-entry splitting into parts happens upstream (partsOf/partsIn); paginate only decides page boundaries for already-split units, which the file doc's phrase 'cut into parts at its rules' doesn't make obvious is a separate step from this function.
+
+### `partHeight`
+- spec 3 · read at `39678ad52e78` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:20Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Computes the vertical space (in points/pixels) that part `k` of an entry will occupy when drawn — adding the heading's height only for part 0, summing a per-line height for whichever rule sentences fall in that part, and adding room for the lens chips if this is the entry's last part. Used by the paginator to decide where a page break can go.
+- found: Sums height in units U: for part 0, adds heading block height (based on wrapped line count of e.head); for the rule at index k (if present), adds its title's wrapped-line height plus its 'says' text's wrapped-line height plus a fixed gap; for the last part, adds fixed space for the lens chips row.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `drawPart`
+- spec 3 · read at `0bb76270bfff` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:59Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders the k-th chunk (of an entry split into parts by partsOf/partsIn) onto sheet starting at y-coordinate top. cont indicates this is a continuation from a previous page break, so it likely skips or abbreviates the entry head (drawEntryHead) and just continues drawing rules/lens chips. Returns the new y-position (top plus height consumed) for the caller's pagination loop.
+- found: Draws one part k of entry e onto sheet at y=top: if cont, first draws a muted 'continued' label and advances by CONT_H; if k==0 draws the entry head; draws the rule's title and body text if present; if this is the last part, draws the lens chips; returns the height consumed (y-top), not an absolute position.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `drawEntryHead` — PREDICTED SOME
+- spec 3 · read at `4c1837effb73` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:37Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Draws a finding entry's header onto the sheet at position (x, top) — a numbered badge (filled/highlighted if flagged on the map), the address text, and lens-colored rule text — and returns the y-coordinate where drawing ended so the caller can stack subsequent content below it.
+- found: Draws a circular badge (filled if e.pinned, outlined otherwise) with the entry number inside, then each line of e.head text below it, then a horizontal strip of colored segments (one per lens, via lensColor, or a plain border-colored bar if no lenses) beneath that, and returns the y-coordinate after the strip.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: Lens rendering is a colored bar segment, not text of the rule sentence as the docs implied.
+
+### `drawLensChips`
+- spec 3 · read at `6b5aec092323` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:18Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a row of small pill/chip labels — one per lens referenced by the entry's rules, shown as dots and names — starting at x, top on the sheet, wrapping or spacing them out, and returns the y-coordinate just below the drawn chips for layout continuation.
+- found: Draws a horizontal row of dot+label chips (one per lens id, using lensColor/lensName) advancing cx by measured label width, then draws a horizontal border rule below the fixed-height row and returns the y position after it.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+## web/src/lib/report/figure.ts
+
+### the file itself
+- spec 3 · read at `8e27efdb0226` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:18Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This is the module for rendering the map "figure" used throughout the report (referenced by findings.ts): it builds and draws the legend/key (keyItems, keyRows, keyHeight, drawKey, drawRamp, drawKeyItem, pendingItems), converts the map's own coordinate space to page coordinates and caches rendered figures (userToPage, figureCache), draws the map itself (drawMap), and locates/highlights/marks findings on it (parentOf, locate, spotOf, highlight, drawMarks).
+- found: Builds and draws the map figure's furniture: the key/legend (keyItems/keyRows/keyHeight/drawKey/drawRamp/drawKeyItem/pendingItems), a page-coordinate transform and per-build figure cache (userToPage/figureCache), the map drawing itself (drawMap), locating a finding's spot on the drawn map by id/path fallback (parentOf/locate/spotOf), desaturating+shading the map to mark findings (highlight), and drawing outline/badge marks with label clustering (drawMarks).
+- predicted: full · documented: most · derivable: no · legible: not judged · trap: no
+- note: The header names the three pieces (key, map, shade/badges) but the actual hard logic — badge placement avoiding wedge labels, label clustering, compositing-based highlight to avoid canvas pixel reads on WebKit — is only in inline comments.
+
+### `keyItems`
+- spec 3 · read at `9e301400ef29` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:37Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Normalizes a LensKey (null, or flat-list vs ramp/gradient variant) plus extra items into one combined { ramp, items } shape: extracts ramp if present, concatenates the key's own items with `extra`, so measuring and drawing code share the exact same list. If key is null, returns just extra with no ramp.
+- found: Delegates to flatKey() to normalize; builds entries list only when not a ramp; adds a synthesized "N more" overflow item when the flat key has more entries than shown, with a special "shades repeat" suffix for 'cast'-kind keys with repeats; appends extra items; returns ramp from the flat result or null.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The overflow "N more"/"shades repeat" entry synthesis is entirely implicit — the doc only explains why one list is shared, not the truncation/overflow logic that's most of the body.
+
+### `keyRows`
+- spec 3 · read at `7d46fb31b782` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:47Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Takes a flat list of KeyItems (legend entries) and packs them into rows that fit within width, similar to word-wrapping — measuring each item's rendered width (label + swatch) and starting a new row once the running width would exceed width. Returns the rows structure used later by keyHeight/drawKey to lay out and draw the legend.
+- found: Packs KeyItems into wrapped rows: measures each item's width (swatch box + label text), starts a new row when adding the next item with its gap would exceed width, and records each item's x offset within its row. Returns the array of rows with items and total row width.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `keyHeight`
+- spec 3 · read at `239cf9ca214a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes the pixel height needed to render the legend/key area: it likely calls keyItems to gather the list of key entries (combined with `extra`), then keyRows to figure out how many rows those items wrap into given `width`, and returns row count times a row height plus some fixed padding/title allowance. Returns 0 if there are no items and no key.
+- found: Gets combined key items via keyItems(key, extra), then returns height as (13*U if a ramp exists else 0) plus number of wrapped rows (from keyRows) times 13*U per row.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `drawKey`
+- spec 3 · read at `becf919ee733` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:59Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Combines key and extra items via keyItems, lays them into rows via keyRows, draws a ramp if present via drawRamp plus each item via drawKeyItem onto sheet, positioned at top and centered on cx within width (or left-aligned per align), returning the y-coordinate where drawing ended.
+- found: Splits key/extra into ramp + items via keyItems, draws the ramp (if any) then each row of items (via keyRows/drawKeyItem), advancing y by a fixed 13*U per row/ramp, centering or left-aligning per align, and returns the final y where drawing ended — matching my prediction almost exactly, including the row-height and centering math.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `drawRamp`
+- spec 3 · read at `e63f112a931d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:39Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Draws a horizontal color-gradient legend bar (a ramp swatch for a continuous color scale used in the key) at vertical position y, centered on cx spanning width, with min/max value labels at each end, aligned per the align parameter.
+- found: Draws lo/hi text labels flanking a bar clamped between 40U and 150U wide, filling the bar with ramp.fills.length discrete colored rectangles (not a smooth gradient), positioned left or centered per align.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `drawKeyItem`
+- spec 3 · read at `dde80f8fd6a6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders one legend/key entry onto `sheet` at horizontal position `x`, baseline `base` — drawing a small colored swatch rectangle (with a hatch pattern overlay if the item is marked stale) followed by the item's text label to its right.
+- found: Draws a filled swatch box (if fill/hatch set) with optional diagonal hatch lines clipped to the box plus a border, then draws the label text to the right (or at x if no swatch), using muted color when there's no swatch and fg color when there is.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The doc mentions only the hatch/stale case, but the function also handles a plain solid-fill swatch and a label-only (no swatch) case.
+
+### `pendingItems`
+- spec 3 · read at `e24db8df69ff` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:43Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds legend/key entries for the map's 'stale' and 'unread' states — returning a KeyItem for each count that's nonzero, with a label including the count and a color/swatch chosen based on the given ColorMode.
+- found: Builds up to two KeyItem legend entries (stale functions with a hatch pattern, unread functions with a fill/alpha) only when counts are nonzero, with correct singular/plural wording — but first zeroes both counts if paintsFromReadings(m) says the given color mode doesn't paint from readings at all, which I didn't anticipate; ColorMode gates whether the legend appears, not the swatch color as I guessed.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The comment about 'functions AND files' explains why the label says 'function' explicitly, which is a real non-obvious reason worth keeping in mind when editing the wording.
+
+### `userToPage`
+- spec 3 · read at `28d6d6e95227` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes the "meet" scale (side / max(vb width, vb height)) and centering offsets for both axes given a viewBox, then returns a Matrix that maps the user-space point (x,y) into page space — likely a translation matrix positioned at the scaled+centered coordinates for placing a mark/badge at that map location.
+- found: Computes the xMidYMid-meet scale (side/max(vw,vh)) and returns an affine Matrix [s,0,0,s,e,f] where e,f center the viewBox within the side-sized square and add the given x,y as an additional page-space offset (for positioning the whole figure at (x,y) on the page), rather than transforming a specific user-space point.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `figureCache`
+- spec 3 · read at `d482fdbea891` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:11Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Returns a FigureOf function that memoizes rendered figures keyed by lens and root, backed by the map object passed in (presumably Report.map) — on a cache miss it lays out and draws the figure once at the fixed FIGURE_PX density, stores the result in map, and returns the cached instance on subsequent calls with the same key.
+- found: Returns an async memoizing function keyed by `mode|root`; on miss it calls the passed-in `map` render function at FIGURE_PX, parses the returned SVG markup, caches {render, svg}, and returns it on later calls with the same key.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The extra detail beyond my prediction is that it also parses the SVG markup into a DOM/svg object and stores both render and parsed svg together as the cached Figure.
+
+### `drawMap` — PREDICTED SOME
+- spec 3 · read at `e2cb97cc6ce3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:28Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: drawMap renders the core map figure onto the report sheet at position (x,y) sized to `side`: it draws the map's rings/wedges (shaded/grayed rather than in lens color, per the labelInk comment), applies highlighting for the located node, draws finding badges/marks via drawMarks, sets label text in the given labelInk, and finally invokes the optional `over` callback so a caller can draw extra overlay content on top.
+- found: It's a thin wrapper: draws the figure's pre-built SVG (fig.svg, which already contains the wedges/shading/marks) onto the sheet's canvas at (x,y,side) via drawSvg, passing labelInk and a minimum-label-size cutoff in points, then calls the optional `over` callback for extra drawing on top.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: I assumed this function did the ring/highlight/badge drawing itself; that work is actually already baked into fig.svg by the time drawMap runs.
+
+### `parentOf`
+- spec 3 · read at `8514a11a7097` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:32Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Takes a path string p and returns its parent path by stripping the last segment (e.g. after the last '/'), used to walk up to a containing directory when locating or highlighting findings on the map.
+- found: Returns the substring before the last '/' in p, or '' if there is no '/' — exactly the parent-path stripping I predicted.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `locate` — PREDICTED SOME
+- spec 3 · read at `62fba3c0e1ed` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:24Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Tries each id in `own` against the `spots` map for a directly-drawn wedge; if none match, walks up the id's path (falling back toward `fallback`) looking for the deepest ancestor container that was actually drawn, and returns that Spot (possibly transformed via `page`), or null if nothing in the chain is drawn.
+- found: Builds a try-list of `own` ids plus the ancestor chain from `fallback` (via parentOf), and returns the first matching spot found in `spots`. Beyond just returning that spot, it computes where on the wedge to place a badge point — picking inner-edge, along-the-arc, or center placement based on wedge depth/span so the badge never covers the wedge's own drawn name — and returns a Spot with `coarse` (whether it matched an own id or only a fallback ancestor) and `small` (area-based) flags.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The badge-placement geometry (avoiding the wedge's name label) is the bulk of the function and isn't hinted at by the signature or file doc at all.
+
+### `spotOf` — PREDICTED SOME
+- spec 3 · read at `5f6d4a56cbe5` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:40Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Looks up where on the drawn figure a given finding should be marked — tries matching item.key against spots keyed by function node id first, falls back to another lookup keyed on the finding's own path#name@line id when there's no matching function node; found user-space coordinates are transformed to page coordinates via the page Matrix, returning the placement point or undefined if nothing matches.
+- found: Delegates to `locate` with two candidate keys (finding.key first, then the hit's own id) and a path — the hit's own path if it's a function, otherwise the parent directory/file path — plus spots and the page matrix, to find where to place the mark.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explains the key-order rationale but not the path-vs-parentOf branch based on hit.kind.
+
+### `highlight` — LEGIBLE SOME
+- spec 3 · read at `4ac5dd51b3f8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:53Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Renders the map in grey, then composites a single uniform shade color over every wedge in spots that holds a finding (using canvas globalCompositeOperation tricks rather than reading back pixel data, to avoid WebKit's canvas-tainted-by-SVG restriction), producing the shaded figure at position x, y sized to side.
+- found: First desaturates the whole clipped region via 'saturation' compositing plus a translucent bg wash, then builds a union VPath of all non-null spots' shapes, clips to it, and applies the accent color via 'multiply' then 'color' compositing so the shade tints without covering the underlying lightness/labels.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+
+### `drawMarks`
+- spec 3 · read at `8da355e71a3d` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the marks, converts each mark's coordinates into page/canvas space (via userToPage), and draws a small outline/dot for each. It clusters marks that fall within one label's width of each other so they share a single combined label (like "4 · 8 · 11" joined with ·), positioning that shared label near the cluster, all while keeping the drawing bounded within side (the map's square size) starting at x,y.
+- found: First strokes each mark's outline (a VPath built from the spot's path/matrix, dashed for coarse/dashed marks), skipping small spots. Then clusters marks whose spot centers are within 2.2x badge radius, joins their labels with ' · ', sizes a pill badge to fit the text, clamps its center within the [x,y,side] square, and draws a filled pill with the joined label text.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+## web/src/lib/report/findings.ts
+
+### the file itself
+- spec 3 · read at `cbee275df90d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:32Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the layout/rendering engine for a report's "findings" visualization: given a list of findings grouped by location, it computes a summary and a grouped layout (findingSummary, layoutFindings, groupPlan), then draws map-based overview figures for two output formats — a full paper/report version (paperOverview, placeOverview) and a condensed single-slide deck version (deckOverview), using shared drawing primitives (drawOverview, drawOverviewFigure, drawLetters, drawGroups) to render a map with numbered/lettered markers and group counts.
+- found: The file lays out and draws the "Findings" section of a generated PDF-style report (report/brief/deck forms): findingSummary builds the header text, layoutFindings groups items into sections and computes an overview plus per-group plans, paperOverview/deckOverview size the overview map+grid+caption differently for paper vs. slide layouts, groupPlan decides whether a group's entries fit under its own zoomed map or need their own page, and the draw* functions render the map, marks/letters, grid, and captions onto the page/press.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: The header comment carries design rationale (the ceph anecdote about why decks get one slide) that isn't recoverable from the code, but doesn't fully spell out the paper-vs-deck sizing mechanics or groupPlan's fallback pagination logic.
+
+### `findingSummary` — PREDICTED SOME
+- spec 3 · read at `360b4375a18b` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a short textual summary (array of styled text Runs) describing the total finding count and how they break down across the given groups, e.g. "23 findings across 5 places," possibly with each group's letter/color key. Meant to be the footer/caption giving context the abbreviated list/grid can't convey alone.
+- found: Builds an array of text Runs for the report footer: if zero findings, says so (noting ignored/set-aside matches if any); otherwise states the finding count (with a '+' if rows were capped and a note about the cap), notes ignored matches, and appends a note for each 'need' blocking some rules from running (e.g. N of M rules inactive due to missing X).
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+
+### `layoutFindings`
+- spec 3 · read at `6a32224844b1` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:06Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds the FindingsPlan: groups the finding items by place (via groupPlan), picks either deckOverview or paperOverview layout depending on the report's form (single overview slide for a deck vs. overview + per-group zoomed pages for a report), and numbers the figures continuing from the figure count passed in, returning a plan drawOverview/drawGroups can later draw from.
+- found: Groups items by place, letters each section, builds numbered entries, decides whether to show an overview map (suppressed when there's just one ungrouped section in a report), lays out deck vs paper overview and increments the figure counter for it, then — only for report form — builds a per-group zoomed-map plan via groupPlan, each incrementing the figure counter too.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the letter-per-section scheme, the 'show' suppression rule for a single ungrouped section in report form, and that per-group pages are report-only (a deck/brief stops at the overview).
+
+### `paperOverview`
+- spec 3 · read at `833a974be4c6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Unlike deckOverview (map full-height on left, sections ignored), paperOverview stacks: summary at top, then the map full-width below the summary, then the grid below that. It actually uses sections (not ignored) to build the grid layout/rows, likely computing pages > 1 when the grid doesn't fit on one page, unlike deck's fixed pages: 1.
+- found: Computes summary lines/height, then the full-width map area below it, then builds the grid via gridOf(sections) and paginates its rows with gridPages based on remaining page height; returns an Overview with pages = number of grid-row pages (min 1).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `deckOverview` — PREDICTED SOME
+- spec 3 · read at `c83ed80bc3d0` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds the layout/geometry for a deck findings slide — positioning the overview map to fill the full height on the left side, and computing positions for the summary text and letter-grid legend to the right of it, plus a caption below that column. Likely ignores _sections (unused param) since deck doesn't break findings out per-group, and uses fig for figure numbering and show to toggle a conditional element.
+- found: Computes layout geometry only (not drawing): the square map "side" size, the left x-offset for the summary column depending on `show`, wraps the summary text via findingSummary/setLines, and computes summaryH to place gridTop. Returns an Overview struct with grid:null and rows:[] — the actual grid/letters/caption content is filled in by other functions later, not built here.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `groupPlan` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `d3b801999ea4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:43Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Decides how a finding group is laid out — tries progressively smaller figure sizes (down to GROUP_FIGURE_MIN) checking whether all the group's entries fit below the map at that size, and if none fit even at the minimum, it plans the map alone on its own page with the entries starting on the next page(s), balanced across however many pages they need; returns a GroupPlan describing the chosen figure size and the resulting page/entry layout.
+- found: Computes directly (not by iterative shrinking) the figure side size that would leave exactly enough room for all entries below it on one page; if that size is still at least GROUP_FIGURE_MIN of the page width, returns a single-page plan at that size with entries below. Otherwise the map gets the full page width to itself as page one, and entries are paginated evenly across following pages via paginateEven.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- note: The `fig` parameter is just threaded through into the returned plan and doesn't drive the sizing decision itself — the sizing is solved algebraically from `total` entry height rather than tried at discrete step sizes, which the doc's phrasing ('down to GROUP_FIGURE_MIN') makes sound like a search.
+
+### `drawOverview` — PREDICTED SOME
+- spec 3 · read at `7e1dc30e6603` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:59Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Draws the single overview slide/section for a findings report — rendering the overview map figure (via drawOverviewFigure) with lettered markers (drawLetters) at the top, then drawing the grid of finding groups below it (drawGroups), starting at vertical position start; it's async because rendering the figure requires an awaited canvas/image step, and it likely branches behavior between paper (full grid) and deck (compact) layouts using paperOverview/deckOverview.
+- found: Renders the overview figure once (if shown), then loops over `ov.pages`, drawing a fresh page for each: page 0 gets the header, summary text, and the figure; every page draws its slice of the grid rows (paginated via ov.rows[p]), or — for a deck with no grid rows — draws the letters legend instead of a grid.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The file_doc talks about a report zooming per-group elsewhere, but this function itself is pagination logic for the overview grid across pages plus the deck's letters-only fallback, which isn't mentioned in the doc.
+
+### `placeOverview` — PREDICTED NONE — LEGIBLE SOME
+- spec 3 · read at `370bf5410f0a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Lays out the overview figure together with the group letters/counts onto the given Figure, calling into drawOverviewFigure and drawLetters (and possibly drawGroups), returning a Drawn result describing the space consumed.
+- found: Maps the overview's user-space box into the figure's rendered viewBox, then computes a Drawn record: a spot location for each finding in the plan's list, plus dashed marks for each named section's root spot labeled by its letter.
+- predicted: none · documented: none · derivable: yes · legible: some · trap: no
+- note: Docs on this function are just the file-level doc about decks/reports in general, not about placeOverview's actual job of computing spot coordinates.
+
+### `drawOverviewFigure` — PREDICTED SOME
+- spec 3 · read at `a36eef373565` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Orchestrates drawing the overview map figure: computes the map's placement in frame f via placeOverview, then calls drawOverview to render the base map, and drawGroups/drawLetters to add the grouped finding markers and their letter labels, using plan (FindingsPlan) for data and d (Drawn) to track drawing state.
+- found: Draws the map and finding marks via drawMap/drawMarks, then builds a caption whose wording varies by output form (report/brief/deck) and mentions any unplaced spots, positioning the caption differently for deck (bottom of text column, capped lines) vs paper (below the map, figure-numbered).
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `drawLetters`
+- spec 3 · read at `289b62e88a3f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Draws a legend list under/beside the overview map on a deck slide — for each section (place), it prints the letter badge, the place name, and how much is there (e.g., count), starting at (left, top) and stacking downward until the column runs out of vertical space, at which point it stops and prints a summarized "+N more" for the remaining sections rather than silently dropping them.
+- found: For each section, draws a line "<letter> <name> (<count>)" stacking downward from top/left; if the next line would overflow the available room (bottom minus deck caption height), it prints "and N more" for the remaining sections instead and stops, rather than silently truncating.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `drawGroups` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `35420f973856` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over each finding group in the plan (report-only, not the deck), drawing a map zoomed to that group's place followed by a listing of its individual findings/entries, writing pages into the Frame via press. It likely uses the starts map to look up numbering/letters so entries reference the right position from the overview.
+- found: For each group, renders a zoomed map figure, computes each entry's spot on it (marking which are pinned/coarse/unplaceable), then paginates the group's entries across one or more pages — drawing the map, marks, and a caption explaining zoom scope and any findings too small or unable to be placed on the first page, and continuation headers on subsequent pages.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+
+## web/src/lib/report/frame.ts
+
+### the file itself — PREDICTED SOME
+- spec 3 · read at `89a1218d1f73` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Defines the two core types used to lay out and draw the report's sections in two passes. Frame (built by frameOf) is the layout context — page dimensions/margins/available space — that a section's layout step consumes to compute where things go, without drawing anything. Press is a stateful class used during the drawing pass, which knows the total page count (since layout already ran); its constructor sets up drawing state, tick() advances to next position/page and draws incrementally, check() tests whether a section fits in remaining space or needs a new page, and begin()/end() bracket a page or section (e.g. drawing headers/footers, starting/finishing a canvas page).
+- found: Frame (via frameOf) holds the layout context sections consume: the sheet, two text-column geometry (colW/col2/twoCols), the report's tree, pending stale/unread counts, lens color buckets, and methodology/essay template variables. Press is a much thinner drawing-time helper than I expected — not layout/position tracking, but progress reporting (tick calls onProgress), cancellation checking (check throws CANCELLED), and per-page bookkeeping (begin starts a sheet page, end writes the footer with total page count, records an outline title, and increments done).
+- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
+
+### `frameOf` — PREDICTED SOME
+- spec 3 · read at `14e555b368a9` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:32Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Frame object describing page geometry (margins, usable width/height, left/top offsets) derived from sheet's dimensions, plus some layout parameter influenced by o (the report config) and findings count — e.g. deciding column count or whether a section fits on one page based on how many findings there are.
+- found: Builds a Frame: computes two-column geometry (colW, col2) from the sheet's content width, carries through the report's tree ('full'), whether it's a 'deck', pending stale/unread counts, a `bucketsOf` closure for grouping nodes by mode, and precomputed narrative variables (`vars`, `essayVars`) used elsewhere to generate the report's prose.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: This does much more than geometry — it also bundles narrative-text variables and data-bucketing closures, which the name/signature alone don't suggest.
+
+### `constructor` — PREDICTED SOME
+- spec 3 · read at `6b09a4f11b25` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:32Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Stores o (report), sheet, and figure via parameter properties, and initializes internal mutable tracking state (like current page index and cursor position) that tick/check/begin/end use to advance drawing across pages.
+- found: Empty body — just TypeScript parameter properties assigning o, sheet, and figure to instance fields; no extra state initialization despite my expectation.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: The docs shown (file_doc) describe the Frame/Press split at the file/class level, not this constructor specifically.
+
+### `tick`
+- spec 3 · read at `63de3104d9c9` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:28Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A tiny progress-reporting method: increments an internal step counter and calls a stored progress callback with the label `what`, letting the caller (e.g. a UI) show render progress as the report is drawn page by page.
+- found: Calls this.o.onProgress with {done, total, what} — reports current progress state plus a label; does not itself increment done (that's presumably done elsewhere, e.g. check/begin/end).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `check` — PREDICTED NONE
+- spec 3 · read at `76256ac09976` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: check() likely asserts that Press is in a valid state for drawing — probably verifying that begin() was called (so the total page count is known) before any draw operations proceed, throwing/erroring if called out of order.
+- found: check() throws a CANCELLED error if the underlying operation (this.o) reports itself as cancelled — a cooperative cancellation checkpoint, unrelated to page counting or draw/layout ordering.
+- predicted: none · documented: none · derivable: yes · legible: full · trap: no
+
+### `begin` — PREDICTED SOME
+- spec 3 · read at `6e94545c82c2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:05Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Starts a drawing pass for page index — resets internal drawing cursor/position state and selects the target canvas/page context for that page number, working with tick (advance) and end (finish that page).
+- found: A thin one-line delegator: Press.begin just forwards to this.sheet.begin(index) — all the actual page-starting logic lives in the sheet object, not here.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The method is a pure delegation wrapper; the interesting behavior (what 'beginning a page' actually does) lives in sheet.begin, not visible from this peer list.
+
+### `end`
+- spec 3 · read at `48f96ae24e30` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:16Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Press.end(index, title?) finalizes page index by drawing its footer (page number/branding), and if a title is given, registers an outline/bookmark entry in the PDF pointing to that page so that section "opens" via the document's table of contents/outline.
+- found: Draws the footer with 1-based page number and total page count, sets the page's title (for outline generation) if given, and increments an internal done-pages counter.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+## web/src/lib/report/grid.ts
+
+### the file itself
+- spec 3 · read at `1b760a248e7f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:25Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds and draws the overview grid matrix of findings (rows) against rules (columns), grouped into bands by whatever grouping the report uses (e.g. directory/file), and paginated with balanced page breaks similar to entries.ts. letterOf maps a rule/column index to a letter label (A, B, C...) for column headers. gridOf assembles the grid data (rows/bands/columns) from the report's findings and rules. gridRowH computes a row's height. pageGrid/gridPages split the bands/rows across pages, balancing page fill. drawGridHead renders the column letter headers, and drawGridRow renders one finding's row, including a mark/dot in each rule column it triggered.
+- found: Builds/draws the findings-vs-rules overview grid: gridOf computes rule columns (sorted by hit count) and sizing; letterOf letters the group/section bands (not columns); pageGrid greedily packs bands+entry rows onto pages (keeping a group whole where it fits, never leaving a lone band at a page foot, repeating the band name as 'continued' when a group spans pages); gridPages binary-searches a page-height cap to balance the page count to the greedy minimum. drawGridHead draws rotated rule-title column headers with hit counts; drawGridRow draws either a band header row or a finding row with a dot per rule column it was flagged under.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+
+### `letterOf`
+- spec 3 · read at `70bfd7d41b10` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:44Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Converts a zero-based column index into a spreadsheet-style letter label (A, B, ..., Z, AA, AB, ...) for use as grid column headers.
+- found: Recursive base-26 letter conversion, exactly the Excel-style column-letter algorithm I predicted (A..Z, then AA, AB, ...).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `gridOf` — PREDICTED SOME
+- spec 3 · read at `173cc61fc01e` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:02Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds the overview grid data structure: one row per finding (grouped into bands by FindingGroup) and one column per Section/rule, computing column widths to fit the given page width and using the sheet for text measurement, and returns a Grid object holding rows, columns, and header info ready to be split into pages by gridPages.
+- found: Builds column definitions (one per unblocked rule/group that actually has findings), sorted by finding count descending then title, computes a shared column width capped at 16 units and bounded by half the page width, measures the longest column title to size the header row (capped at 170 units), and returns a Grid layout-metrics object (colW, labelW, titleH, headH, rowH, bandH) rather than the actual row data — row/band construction must happen elsewhere (likely pageGrid/gridPages).
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The function only computes layout metrics/column defs, not actual finding rows — row content is presumably built by a peer like pageGrid.
+
+### `gridRowH`
+- spec 3 · read at `686f17c7c929` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:50Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A one-line function returning the height for a given grid row, likely just a constant from the grid's config unless the row is a group/band header, in which case it returns a taller value to fit the group label.
+- found: Returns g.bandH if the row is a band/group header row, otherwise g.rowH — a simple discriminated-union check.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `pageGrid`
+- spec 3 · read at `f03f50096e0f` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:07Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the grid's rows (grouped into bands by `sections`), packing them onto pages: the first page gets up to `first` units of vertical room, each subsequent page gets up to `next`, and it also enforces that no single page's total row height exceeds `cap` (presumably a hard limit distinct from the room budgets, maybe for balancing). It returns an array of pages, each itself an array of GridRow, starting a new page whenever adding the next row/band would overflow the current page's room.
+- found: Packs section groups (a band header + its entry rows) onto pages within first/next/cap room budgets, keeping a group whole on one page when it fits; if a group is taller than a page it splits row-by-row, careful never to leave a band header alone at the bottom of a page (pushing it to the next page instead) and re-emitting a `cont: true` band header at the top of the continuation page. If `first` room is too small (<3 row heights) it emits an empty first page and starts the real content on the next one.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Missed the orphan-band-header avoidance and the tiny-first-page special case in my prediction — those are the trickiest, least guessable parts of the pagination logic.
+
+### `gridPages` — PREDICTED SOME
+- spec 3 · read at `e2c7b93ffa2d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:05Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds all GridRow entries for the sections, computes how many pages are needed given first/next capacities, then evenly distributes rows across that many pages (rather than greedy fill) so the last page isn't left with a tiny remainder like a single row.
+- found: First computes the unconstrained page count via pageGrid with infinite page height. Then binary-searches the smallest page-height threshold (between a minimum band+row height and the max of first/next) that still yields that same page count, and calls pageGrid with that threshold — effectively shrinking pages to the minimum height that keeps the same number of pages, balancing rows across them.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The balancing is done via binary search on an effective page-height cap, not by evenly distributing row counts — worth calling out since it's a non-obvious algorithm choice from the signature alone.
+
+### `drawGridHead` — PREDICTED SOME
+- spec 3 · read at `dd243a9f6246` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:48Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Draws the header row of the findings/rules grid using single-letter column labels from letterOf for each rule, positioned starting at left/top, and returns the y-coordinate (bottom of the header) where subsequent rows should begin drawing.
+- found: Draws each rule column's title rotated 90° (fit to the header height) above a bold centered count, draws a "FINDING" label over the row-label column, then a horizontal rule under the whole header; returns top + g.headH as the fixed offset for subsequent rows, not a value derived from what was actually drawn.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: letterOf is a peer in the file but not used here — the column headers are full rotated titles plus counts, not single letters, contrary to what the peer list suggests.
+
+### `drawGridRow` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `c2f864f4d054` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Draws one row of the findings grid at top/left: a row label cell plus one cell per rule column, marked/filled where that rule raised for this row, using gridRowH for height and possibly letterOf for cell labels. Returns the bottom y-coordinate (top + row height) for positioning the next row.
+- found: Handles two row kinds: a 'band' (section header) row draws a border line, fits and draws the band letter+name (with ', continued' if wrapped) and returns top+bandH; an entry row draws zebra-striped alternate columns, the finding number and address label, then a filled dot (not a letter) in each rule column where that finding's rule ids match, returning top+rowH.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+
+## web/src/lib/report/lenses.ts
+
+### the file itself
+- spec 3 · read at `aa59e2e961cf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:03Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Layout/rendering engine for lens sections (figure+essay+tables) across report/brief/deck formats, built from a shared LensPlan: per-format planners (reportPlans/briefPlans/deckPlans) using shared helpers for pagination, headings, context/settings, table row-fitting, section assembly, and text placement, unified by layoutLenses (compute layout) and drawLenses (render).
+- found: Confirmed the predicted shape: reportPlans/briefPlans/deckPlans build LensPlan objects per format, sharing headsAt/ctxOf/sectionsOf; reportPlans additionally runs a table-reduction ladder (tableLadder/reportSection/placeUnderEssay) to keep sections to 2 pages, briefPlans shrinks the figure and trims prose to fit one page, deckPlans binary-searches a shared font size across slides. layoutLenses dispatches by Form, drawLenses actually renders pages via the Press/Sheet APIs.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+
+### `settingOf`
+- spec 3 · read at `a9082fcccd8b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:16Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: settingOf looks up the currently selected reading/variant for a given lens (mode) inside the views state, and returns a human-readable label string matching the wording used by that lens's on-screen switch control — returning an empty string for lenses that only have a single reading.
+- found: A switch over specific lens names (age, blame, tangle, churn, docs) returning a hand-written label matching each lens's current reading, defaulting to empty string for any other mode.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `lensPages`
+- spec 3 · read at `e865dd42777e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Filters the full canonical menu-ordered list of ColorModes down to just the ones not locked (per the locks param), returning the lenses that should get a page in the report.
+- found: Takes the keys of MODE_LABEL (the canonical menu order of ColorModes) and filters out any that are locked in the given locks map.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `lensSkips`
+- spec 3 · read at `dfc020f8a1aa` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:29Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: For each ColorMode in modes, checks whether that lens's data has only one distinct value across the frame (nothing meaningful to visualize/discuss), and if so, adds an entry to the returned Map keyed by that mode with a one-sentence explanation (e.g., "everyone here is the same author") instead of giving it a full page/section. Modes with real variation are simply omitted from the map, signaling the caller to render them normally.
+- found: Only handles the 'blame' mode specifically (not a generic loop over all modes): if 'blame' is requested and the frame is full-fidelity, it filters buckets to real (non-absent) authors with lines, and if there's exactly one author, adds a one-sentence attribution to the skip map instead of giving blame its own page. Other modes are never added to the map regardless of their variation.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The function signature takes a general `modes: ColorMode[]` but the body is hardcoded to only ever check 'blame' — a reader would expect a generic per-mode check from the signature alone.
+
+### `headsAt` — PREDICTED SOME
+- spec 3 · read at `a5f08b48664a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:02Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: For each ColorMode in modes, measures/lays out the key and caption at the given width (with spacing above, between, and below), returning an array of Head objects—one per mode—describing that lens's figure furniture (key then caption) so callers know how much vertical space each lens's header needs.
+- found: For each mode, builds the key (if full map, via keyFor), gets pending items, derives a "setting" string (e.g. mode label + its reading) used to compose the figure caption text (numbered for paper/report, unnumbered for deck, omitted entirely for deck with no setting), computes key height, and returns a Head with all these pieces plus total space consumed (`under`).
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+
+### `paperPlan`
+- spec 3 · read at `cbf8417878b8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Centers a figure of size figSide horizontally under the head h within frame f, then computes the vertical placement of the key and caption below the figure, returning a LensPlan object with these positions plus the pages array for downstream drawing.
+- found: Centers the figure (figSide) horizontally in the sheet under HEADER_BOTTOM, computes keyTop below it, centers the key, and stacks the caption below the key using h.keyH; returns a LensPlan bundling all these positions/dims plus head fields (m, key, extra, caption) and the pages array.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `ctxOf` — PREDICTED SOME
+- spec 3 · read at `1414c7f850eb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:06Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Assembles a TableContext object from f and the given ColorMode, pulling together the lens's underlying data (nodes/metrics) and any formatting helpers so that both the lens's tables and its Results view can read from a single shared context.
+- found: Builds a TableContext plain object with root (f.full), buckets (f.bucketsOf(m)), views, tangleBands, and mapLines pulled straight off f's fields for the given color mode — a simple field-selection assembly, no computation.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `sectionsOf`
+- spec 3 · read at `d880a51544de` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:07Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Small wrapper that calls lensStory for mode m and returns its essay text plus a "Results" prose block appended after the definition, packaged as a Prose[] array for rendering.
+- found: Computes the lens's data-driven story via lensStory/ctxOf; if non-empty, splices a STORY_HEADING section containing it between the first and remaining sections of the lens's static ESSAYS entry; otherwise returns the static sections unchanged.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `reportPlans` — PREDICTED SOME
+- spec 3 · read at `c7faf7c1becc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Maps each ColorMode in modes to a LensPlan for the full report form — calling sectionsOf to get the essay/story content and reportSection (plus figure/table layout helpers like tableLadder/placeUnderEssay) to lay out the section keeping full essay text but trimming table rows as needed, returning the array of per-lens plans.
+- found: Computes shared per-mode heads, a fixed square figure size (figSide) leaving room for the tallest caption/key, and a shared text-start line; then for each mode calls reportSection at the appropriate top (below whichever of the figure or line is lower), threading a running tableNo counter (incremented by how many tables that section used) across lenses so table numbering is continuous across the whole report, wrapping each result via paperPlan into a LensPlan.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+
+### `tableLadder`
+- spec 3 · read at `89c2f61aeeb1` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:25:49Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Returns an ordered array of decreasing TableLimits (or null for no tables) configurations for a lens's tables, from full allowance down through progressively cut-down versions (examples trimmed to three, cast's named rows trimmed, examples table dropped, breakdown dropped), which a caller walks in order to find the first that fits within two pages.
+- found: Builds the cut-down ladder exactly as predicted, with one exception carved out first: Traps returns only the full allowance (its table IS the finding, never trimmed), and for everything else the ladder steps examples down to 3, then shrinks the cast down to 4 with examples pinned at 3, then one final {cast:4, examples:0}, then null (no tables at all).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `reportSection` — PREDICTED SOME
+- spec 3 · read at `bd806fe40f75` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:42:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds one lens's report-form layout: places the figure, lays the full essay text starting at `top`, then adds as many table rows as fit within MAX_LENS_PAGES, numbered from tableNo+1, and returns the resulting layout plus updated top/tableNo for the caller to chain subsequent sections.
+- found: Flows the essay prose into pages/regions, then tries a "ladder" of decreasing table-row limits, placing found tables under the essay via placeUnderEssay, and keeps trying smaller limits until the resulting page count is <= MAX_LENS_PAGES (or the ladder runs out). Returns the chosen pages plus how many tables were used.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The retry ladder against MAX_LENS_PAGES isn't guessable from the signature/docs alone — the file doc mentions 'gives up table rows' but not the iterative shrink-to-fit mechanism.
+
+### `placeUnderEssay` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `c25a4bace769` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:54Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Lays out the found tables beneath a section's essay text, starting at lastTop on the essay's final page and flowing onto additional pages in `pages` as needed when tables run out of vertical room, numbering tables sequentially from tableNo and returning/mutating layout info for each table's placement.
+- found: Lays out tables under a section's essay: if there's more than one table and the first fits narrow, it places the first table beside the essay's rebalanced second column (filling otherwise-empty space) and flows the rest via placeTables; otherwise it rebalances the essay's last page into even columns and flows all tables full-width via placeTables, starting after wherever the balanced content or side table ends.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+
+### `shortBlocks`
+- spec 3 · read at `90ff7d4a7340` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:46Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds the essay Block[] for a lens in a brief or deck by taking only the sections listed in SHORT_SECTIONS (a subset of the full report essay's sections) rather than every section, converting them to blocks via something like proseBlocks/ctxOf(f, m) — mirroring the report's full essay build but truncated to those few sections.
+- found: Filters sectionsOf(f, m) down to only headings listed in SHORT_SECTIONS and converts them to prose Blocks via proseBlocks(..., f.essayVars).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `briefPlans` — LEGIBLE SOME
+- spec 3 · read at `dd4fddbbff11` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:58Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds one LensPlan per lens (one page each) for the brief format, computing a shared figure size that shrinks uniformly across lenses down to BRIEF_FIGURE_MIN when the essay content doesn't fit alongside it, and truncating essay paragraphs from the end when still too long, using modes to pick each lens's color variant.
+- found: Computes a shared figure "side" size shrinking by 6*U steps (down to BRIEF_FIGURE_MIN of width) until every lens's essay blocks fit on one page below it, trims each lens's blocks further to fit, then pours the remaining text into two columns, balances the last column, and wraps it all via paperPlan with no tables.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+
+### `deckProse`
+- spec 3 · read at `92e783277caf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:06Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the lens's fixed two-line deck text for the given ColorMode `m`, then appends the fact sentences to build a candidate list of Prose blocks — returning the deck lines plus the facts as one array, leaving the actual space-fitting/truncation to a later trimToFit step rather than doing it here.
+- found: Builds three Prose sections for a lens's deck slide from the ColorMode's fixed ESSAYS[m].deck text: a "Definition" section, a "Reading the map" section, and — only if facts is non-empty — a "Results"-headed (STORY_HEADING) section holding the fact sentences.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `deckPlans` — LEGIBLE SOME
+- spec 3 · read at `6305b34cefd6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:34Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds one LensPlan per lens/section for deck slides: map placed full-height on the right (margin to margin, past the head), words in a left text column. To satisfy "one size for the whole deck," it likely tries font sizes from largest down, checking via deckProse whether every slide's text fits at that size, picks the largest that works for all, then builds the final array of LensPlans using that uniform size — rather than sizing each slide independently like paperPlan/briefPlans presumably do per-section.
+- found: Computes the square figure side and left text-column width, builds per-lens headings/facts, then finds the single largest font size (stepping down from DECK_TEXT.max) at which every slide's prose fits its text region; builds each LensPlan with figure on the right, text/key/caption on the left at that uniform size.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
+
+### `layoutLenses`
+- spec 3 · read at `2d63ee1728cc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:59Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A short dispatcher: it builds the shared context/sections for the frame's lenses and, for each requested color mode, produces a LensPlan by delegating to whichever of reportPlans/briefPlans/deckPlans matches the document's setting — since the doc says all three document forms are drawn from the same LensPlan shape but built differently per form.
+- found: A one-line dispatcher that looks up the plan function for the frame's document form (report/brief/deck) in a PLANS table and calls it with the frame and color modes.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Guessed a switch/if dispatch to reportPlans/briefPlans/deckPlans; it's actually a table lookup (PLANS[f.o.form]), same effect but no shared context-building step as I'd guessed.
+
+### `drawLenses` — PREDICTED SOME
+- spec 3 · read at `89be9dd082c4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the `LensPlan[]`, and for each plan draws its figure onto the frame at a position derived from `starts` (keyed by ColorMode, presumably so lenses sharing a color mode reuse/advance from the same baseline), then draws the essay text and tables using `press` as the drawing/pagination context, awaiting any async rendering (e.g. converting a canvas/SVG figure to an image) needed before continuing to the next plan.
+- found: For each LensPlan, awaits rendering its figure once, then for each of the plan's pages begins a press page at `starts.get(plan.m) + p`, draws the header (or "continued" header on later pages), the map/figure, caption, key, slices and tables for that page, then ends the page — using `starts` as the base page number per color mode rather than a drawing-position baseline.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+
+## web/src/lib/report/sheet.ts
+
+### the file itself
+- spec 3 · read at `624b2b790595` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:16Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Defines the Sheet class wrapping a canvas/PDF context for one page: text primitives (text, bearing, measure), page structure (begin, header, continued, footer), simple shapes (rule, link), plus free functions fitText (shrink text to fit width), pill (rounded badge shape), and drawSlices (render laid-out line/row slices). Low-level page-drawing API for the report layout code.
+- found: Confirmed: Sheet class wraps a PdfPage/Surface for one page — constructor/begin set up drawing, text/bearing/measure handle type, rule/link/header/continued/footer handle page furniture and structure. fitText shrinks-then-middle-truncates a string to fit a width, pill draws a rounded rect manually (WebKit compat), drawSlices renders laid-out text rows.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+
+### `constructor`
+- spec 3 · read at `a34c99950eb5` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:09Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Since the constructor params are already TypeScript parameter properties (auto-assigned), the body likely computes derived page-geometry fields — margins/bounds like left, right, top, bottom (based on a MARGIN constant and paper.w/paper.h) — and initializes the drawing context (e.g. calling into doc to get the canvas/context used by text, rule, measure, etc.), plus maybe a page counter.
+- found: Scales paper dimensions to internal units (W, H), creates a measurement Surface/context wrapping a throwaway PdfPage (used for layout before any real page is begun), and computes left/right/bottom margin bounds from MARGIN*U.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `width` — PREDICTED SOME
+- spec 3 · read at `9ae70f36a47f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:24Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A getter on Sheet returning the page's usable width in points, likely the canvas's pixel width divided by a DPI/scale factor or a fixed page-width constant, used by layout code to know how much horizontal space content has to fit into.
+- found: Simply the content width between the page's right and left margins (this.right - this.left), not derived from canvas pixels or DPI.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `begin`
+- spec 3 · read at `59f046c8ce83` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:05Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Starts/selects page index in the underlying PDF document (e.g. via a doc.addPage()/context switch), then immediately fills the entire page rectangle with white before returning, since the doc note says the page needs an explicit white backdrop or later gray-blended figures would render on transparent (defaulting to gray) instead of white.
+- found: Gets the page at index from the doc, creates a new Surface/canvas context for it, then fills the whole page rect with the background ink color.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `text`
+- spec 3 · read at `9aa0677c9d9c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:25Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Sets up the canvas font (from size, bold, mono), fill color, and text alignment from o, optionally uses bearing to shift x when optical is set so the glyph's visible ink rather than its advance box starts at x, then draws the text at (x, y) with y as the baseline, and resets textAlign back to 'left' afterward so it doesn't leak into the next draw call on the shared canvas context.
+- found: Sets font/color/alignment/baseline on the canvas context, computes an optional optical shift, draws the text with fillText, and resets textAlign to left afterward.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `bearing` — PREDICTED SOME
+- spec 3 · read at `3d59d6eba9a4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:30Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Sets font (size/bold/mono) on a scratch canvas 2D context, draws/measures the string, and returns the left-side-bearing offset computed by rendering to canvas and scanning pixel data for the first non-transparent column (since actualBoundingBoxLeft was unreliable in WebKit). Used to shift text so its ink aligns to the margin.
+- found: It's a thin delegator: resolves the font spec (size/bold/mono → concrete font) via fontOf/this.c.fontSpec, then calls the resulting face object's own .bearing(s, size) method, which presumably does the actual pixel/metric lookup elsewhere.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The real bearing computation (the scratch-canvas measurement the docs describe) lives in the face object's own bearing method, not here.
+
+### `measure`
+- spec 3 · read at `e04099082a7c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:26Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Sets the sheet's canvas/PDF context font to the given size and style (bold/mono selecting the right font family), then calls measureText on the string and returns its width, so callers can lay out text before actually drawing it.
+- found: Sets the canvas context's font via fontOf (choosing family by bold/mono at the given size) then returns measureText(s).width.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `rule` — PREDICTED SOME
+- spec 3 · read at `b6c9239640d2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:32Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: rule(y, x, w) draws a thin horizontal divider line on the page at vertical position y, spanning from x to x + w, converting through the same toPage coordinate transform seen in link(), and issuing a stroke call to the underlying drawing context.
+- found: Sets fill color to the border ink and draws a filled rectangle (not a stroked line, and no toPage coordinate transform) of height max(1, 0.6*U) at (x,y) spanning width w — a solid thin bar rather than a stroke.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `link`
+- spec 3 · read at `d88571b58dfe` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:20Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: link() converts the given rectangle from layout-pixel coordinates into the PDF's coordinate space (likely flipping the y-axis since PDF origin is bottom-left, and scaling by a pixels-per-point factor), then registers a clickable annotation on the current page (via the underlying PDF library) that navigates to page target when clicked.
+- found: link() converts the two corner points from layout pixels to page coordinates via this.c.toPage (note it swaps y0/y1 order between the two corners), then pushes a {rect, page: target} record onto the current page's links array — a lightweight internal representation rather than an immediate PDF-lib annotation call, presumably materialized into real link annotations later.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `header`
+- spec 3 · read at `c36bc7e81360` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:18Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Draws the eyebrow label above the title text at the top of the page, optionally in a monospace font, wrapping/narrowing the title to o.width when given (for a deck slide's text column beside its map); it draws directly to the canvas and returns nothing.
+- found: Draws the uppercased eyebrow, then fits the title text to width by shrinking font size (down to a floor of 12) via fitText rather than wrapping, draws it bold/optionally mono, and finishes with a horizontal rule below the title.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
 ### `continued`
-- spec 3 · read at `df99998e46e4` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:01Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: `continued` draws a compact header at the top of a PDF page that continues a previous section — printing the `eyebrow` (small label) and `title` text (possibly in mono font per the flag), then positioning the internal cursor at `CONTINUED_TOP` so the caller can resume drawing body content immediately after.
-- found: Draws a continuation-page header: an uppercase muted eyebrow label, then the title fit to the page width via `fitText` (shrinking font size if needed, bold/mono per flag), followed by a horizontal rule beneath it. It does not itself set the cursor to CONTINUED_TOP; that constant is presumably used by the caller to know where body content should start after this header.
+- spec 3 · read at `c0b3bbbda1b0` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:07Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Draws a page header similar to header() but styled for a continuation page — printing the eyebrow and title (optionally monospace) near the top of a new page, positioning things so the body content resumes at CONTINUED_TOP.
+- found: Draws the uppercased eyebrow label, then the title fit-to-width (shrinking font via fitText, optionally mono) below it, then a horizontal rule under that — a continuation page's head, positioned via fixed offsets from MARGIN rather than returning a cursor.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `footer`
-- spec 3 · read at `5f437f021ab7` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:54:13Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Draws the page footer once per page: a thin rule near the bottom, the commit/repo stamp text on one side, and the page number formatted as "n of of" on the other, in small muted type.
-- found: Draws two small muted text strings near the page bottom: the "charted by sanity.monster" credit plus the repo/commit stamp on the left, and "n / of" page numbering right-aligned on the right — no rule line.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `bc6a5d6874ab` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:45Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Draws a small muted line at the bottom margin of the page containing the page number (n of of), a credit string (e.g. "Sanity"), and the commit hash — using this.text/this.rule to place it, likely right-aligned or centered near sheet.bottom.
+- found: Draws two muted 7.5pt text lines at the bottom margin: 'charted by sanity.monster · {stamp}' left-aligned, and '{n} / {of}' right-aligned as the page number.
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
 
 ### `fitText`
-- spec 3 · read at `4a2a770e7953` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Shrinks the font size step-by-step down toward `floor` while the string's measured width exceeds `maxW`; if it still doesn't fit at the floor size, truncates the middle of the string (keeping head and tail, inserting an ellipsis), and returns the resulting {text, size} pair.
-- found: Shrinks font size in 0.25 steps down toward floor (default 75% of the starting size) until the string's measured width fits maxW; if it still doesn't fit at the floor size, binary-shrinks a middle-truncated version (head + ellipsis + tail) character by character until it fits, returning {text, size}.
+- spec 3 · read at `37f3008e084d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Shrinks the font size step-by-step from `size` down toward `o.floor` while the string still exceeds `maxW` (via sheet.measure); once at the floor size it truncates the middle of the string with an ellipsis (keeping a prefix and suffix, useful for paths) until it fits, returning the final {text, size}.
+- found: Shrinks font size in 0.25 steps down to a floor (default 75% of the starting size) while measured width exceeds maxW; if still too wide at the floor size, truncates the middle with an ellipsis, shrinking the kept character count one at a time until it fits.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `pill`
-- spec 3 · read at `1db9b4c2e131` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:00:40Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Draws a fully-rounded rectangle (radius = h/2) onto the canvas-like Surface at (x,y,w,h) by manually building the path with moveTo/lineTo/arc calls, since Surface.roundRect isn't available in the target WebKit — a hand-rolled polyfill for a pill/stadium shape.
-- found: Builds a rounded-rectangle path via beginPath/moveTo/four arcTo calls/closePath, with radius = min(h,w)/2 so it degrades gracefully when w < h, manually replacing roundRect for WebKit compatibility.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `keyItems`
-- spec 3 · read at `ccc5ca7107a1` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:22:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Flattens the given LensKey's grouped/structured legend entries into a single flat array of KeyItem objects, appends the `extra` items to that list, and returns both the flattened items and the key's ramp (or a default ramp if key is null) in one object. This shared flat list is then used both to measure the legend's height/layout and to actually draw it, keeping the two in sync.
-- found: Flattens a LensKey via flatKey, builds a list of {label, fill} entries only when there's no ramp, appends a "N more" overflow entry (with a shades-repeat note for cast keys) when applicable, then appends the extra items, returning the combined list plus the ramp.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `keyRows`
-- spec 3 · read at `c059f830245a` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:16Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Given a legend's KeyItems and an available width, measures each item's rendered width (via sheet.measure/fitText) and greedily packs them into rows so no row exceeds `width`, returning an array of row arrays. This wrapped layout is then presumably consumed by keyHeight (to size the legend) and drawKey (to render each row).
-- found: Greedily packs KeyItems into rows: measures each item's width (swatch box + gap if it has fill/hatch, plus measured label width), and wraps to a new row when adding the next item plus gap would exceed `width`, tracking each item's x offset within its row and returning the rows with their total width.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `keyHeight`
-- spec 3 · read at `a5daabc66c32` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:00:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Computes the total vertical space needed to render a map legend/key: combines items from key and extra, lays them into rows via keyRows given the available width, and sums row heights plus padding to return the total height needed before drawKey actually draws it.
-- found: Combines key+extra into items via keyItems, adds a fixed row height (13*U) if the key has a color ramp/gradient legend, then adds 13*U per row returned by keyRows.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `drawKey`
-- spec 3 · read at `853ae0852ce9` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:00Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Builds the list of key/legend items (combining `key` and `extra`), lays them out into rows via `keyRows`/`keyItems` sized to `width`, then draws each row's pills and labels starting at `top`, centered on `cx` (or left-aligned at `cx` if `align` is 'left'). Returns the y-coordinate where the drawn key ends, so the caller can continue laying out content below it.
-- found: Draws an optional gradient "ramp" bar (with low/high end labels) followed by rows of swatch+label key items (solid fill or diagonal hatch pattern for swatches), laid out via keyRows and centered on cx (or left-aligned), returning the y-coordinate after the last row.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-
-### `pendingItems`
-- spec 3 · read at `c584ddbfc3d7` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:31Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds a small array of KeyItem legend entries for the map's key, one for stale and one for unread counts, each included only when its count is greater than 0, with a label describing the count and a swatch/color chosen based on the ColorMode.
-- found: Gates the counts to zero unless paintsFromReadings(m) is true (i.e. this color mode actually shows staleness/unread painting), then conditionally builds KeyItem entries for stale (hatch fill) and unread (var(--unanalyzed) fill with alpha) counts, each pluralized and only included when >0.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: An inline comment explains why the label says 'functions' explicitly (to avoid contradicting a nearby files+functions count), which isn't visible from the signature/docs.
-
-### `userToPage`
-- spec 3 · read at `d50271201b4b` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:24:56Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Computes the transform matrix that maps SVG viewBox (user-space) coordinates into a `side`-sized square placed at (x, y) on the PDF page, replicating `xMidYMid meet`: scale is the minimum of side/vbWidth and side/vbHeight so the whole viewBox fits without cropping, and the result is centered within the square on whichever axis has slack, then translated so the viewBox origin lands correctly.
-- found: Computes a 2D affine matrix [s,0,0,s,tx,ty] mapping viewBox user-space into a side×side square at (x,y): uniform scale s = side/max(vw,vh) (xMidYMid meet), with translation centering the scaled viewBox on the slack axis and offsetting by the viewBox origin.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `drawMap`
-- spec 3 · read at `52ca903577eb` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:50Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders one snapshot of the sunburst map into the PDF sheet at position (x,y) sized to `side`, drawing the figure's shapes/labels (using labelInk for contrast against the figure's own gray/shaded coloring), then calling the optional `over` callback afterward so the caller can draw extra annotations (like highlight marks) on top.
-- found: Thin wrapper: calls drawSvg to render the figure's SVG into the PDF canvas at (x,y,side) with labelInk and a minimum label size, then invokes the optional `over` callback for caller-drawn overlays.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
-
-### `parentOf`
-- spec 3 · read at `e201ff9ea12f` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Tiny path helper — given a repo-relative path string, returns the parent directory path (everything before the last '/', or '' for a root-level path).
-- found: Returns everything before the last '/' in the path, or '' if there is no slash — exactly the predicted parent-directory helper.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `locate` — PREDICTED SOME
-- spec 3 · read at `f40c64a75445` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:51Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: locate first tries each id in own against the spots map for an exact match; if none hits, it walks up the fallback id path (splitting on separators) looking for the deepest ancestor that is actually drawn/present in spots, returning that Spot (possibly transformed via page/userToPage) or null if nothing along the path is drawn.
-- found: It does search own ids then walk up the fallback's ancestors via parentOf to find a matching drawn spot, but the bulk of the function computes a badge placement point within the wedge geometry (inner edge, along the arc, or center) chosen specifically to avoid covering the wedge's name label, plus flags for coarse match and small-wedge classification.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-
-### `spotOf`
-- spec 3 · read at `bb9a7ecde5ad` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:11Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Looks up where a finding's function/file sits in the drawn map's `spots` table — trying finding.key first since that matches a node id, falling back to another key (probably the file path) if the function-precise lookup misses — then transforms the resulting map-space coordinates into page coordinates using the `page` matrix.
-- found: Delegates to `locate`, passing two candidate ids to try in order (finding.key, then the raw hit id) plus a fallback path (the hit's own path if it's a function, else its parent directory's path) so a mis-keyed hit still lands somewhere sensible; `locate` presumably resolves this against `spots` and transforms through `page`.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `highlight` — PREDICTED SOME
-- spec 3 · read at `130f10a5b99c` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:21Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: highlight draws the map in a single grey at x,y sized side (a thumbnail), then for each non-null spot in spots draws a single fixed highlight shade over the wedges that hold a finding, using a canvas composite/blend-mode operation (e.g. source-atop/multiply) so it never needs to read pixels back from the canvas — avoiding the WebKit restriction mentioned in the docs.
-- found: First desaturates the clipped x/y/side square via 'saturation' composite plus a dimming overlay to make it grey. Then builds a union VPath of all non-null spots' paths, clips to it, and applies a two-pass shade (multiply then color blend mode) using the sheet's accent color, so marked wedges get one consistent tint that preserves the underlying map's lightness/detail rather than covering it.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-
-### `drawMarks`
-- spec 3 · read at `ada6d3b1283d` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:46:00Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Draws each mark's outline/marker on the PDF sheet at its mapped position within the side x side square starting at (x,y), and clusters marks whose labels would overlap (within label width of each other) into one combined label string like "4 . 8 . 11", positioning each label so it stays inside the map's bounds rather than spilling outside.
-- found: First pass strokes each mark's outline path (dashed if coarse/marked dashed, muted if quiet); second pass clusters marks within a fixed pixel radius of each other (not label-width based), joins their labels with ' · ', and draws a clamped pill badge with centered bold text, keeping it inside the x/y/side bounds.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-
-### `entryOf` — PREDICTED SOME
-- spec 3 · read at `77a8bedc3a47` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a layout Entry describing one finding item — its numbered label, wrapped/laid-out text lines starting at `left`, and computed height — using `intro` to look up (and likely omit) text already introduced elsewhere so it isn't repeated, producing an object the pagination/flow system can measure and draw later.
-- found: Builds an Entry for one finding item: a "head" (dir/file/name path, bold if not a function, plus a "flagged" marker) laid out via setLines, and per-rule blocks each with a title and a "says" body — where a rule's muted background text is appended only the first time that rule id's intro maps to this finding's key (i.e. shown once across the report, not omitted). Also collects the union of lenses across the item's rules and a joined `addr` string.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: I guessed `intro` was used to omit already-shown text; it's actually used to show the muted background text exactly once (on the finding that "owns" the intro), the reverse of my guess.
-
-### `partsOf` — PREDICTED NONE
-- spec 3 · read at `515c4499f7a7` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:20Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: One-line helper deriving the drawable "parts" (page-fitting chunks) for a report Entry, likely delegating to paginate/paginateEven with partHeight to split the entry's findings/items into groups that each fit within a page's available height.
-- found: Returns the count of an Entry's `rules` array, floored at 1 — not a pagination/chunking function at all, just "how many rules (or one, if none) does this finding entry cite" for some downstream layout decision (likely how many sub-rows or columns to draw per entry).
-- predicted: none · documented: none · derivable: no · legible: full · trap: no
-- note: The name "partsOf" alongside pagination-flavored peers (paginate, partHeight, drawPart) strongly suggested page-chunking logic; it's actually unrelated to pagination — it's a rules-count-with-floor, and the shared "part" vocabulary is a false cognate with drawPart/partHeight.
-
-### `paginateEven` — PREDICTED SOME
-- spec 3 · read at `922e90cfc113` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:27Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: `paginateEven` takes a list of units (each an array of Parts) and packs them into pages, using `first` capacity for the first page and `next` for each subsequent one, but does so by finding the minimum number of pages needed and then balancing the distribution across that many pages (rather than greedily filling first-fit) — this avoids the case where the last page ends up with only a lone item under a "continued" header. It returns `PartSlot[][]`, the parts assigned per page along with continuation markers.
-- found: First finds the minimum page count via a normal greedy `paginate(units, first, next)`. Then binary-searches on the effective page capacity (between the largest single unit's height and `first`) to find the smallest capacity that still achieves that same page count, and re-paginates with that balanced capacity — so pages fill evenly instead of the last page being sparse.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-
-### `paginate`
-- spec 3 · read at `99fd7493c98d` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:54:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Greedily packs units (each an array of Parts that must stay together on one page) into pages, using `first` as the first page's capacity and `next` as each subsequent page's capacity, summing unit heights and starting a new page when the next unit would overflow, returning pages as PartSlot[][].
-- found: Greedily packs units (each a whole array of Parts) into pages, tracking remaining `room` starting at `first` then `next` per page. If a unit doesn't fit and the current page isn't empty, it starts a new page and marks the unit's first slot as a continuation (cont: true) when that part's `k` (presumably a sub-index within a multi-part entry) is >0, reserving CONT_H space for a 'continued' label; otherwise appends the unit's slots to the current page and reduces room.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `partHeight`
-- spec 3 · read at `ca576ef20364` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:42:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Computes the rendered height (in points) needed for the k-th chunk of an entry when its rules are split across page parts. Part 0 includes a heading plus its first rule; later parts contain the remaining rules assigned to that chunk. The function likely sums a fixed heading height (only for k=0) with per-rule heights for whichever rules fall in part k.
-- found: Computes height of part k of an entry: part 0 adds heading height, rules[k] (one rule per part index, not a group) adds title+body line heights, and the final part adds trailing bottom padding.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `drawPart`
-- spec 3 · read at `e5c8f179e845` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:10Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Draws the k-th part of a finding entry (badge/number, title, body text/snippet) at the given top y-position and left column x, drawing a "continued" marker if `cont` is true for parts that carry over from a previous page/slide, and returns the height the drawn content consumed so the caller can advance its cursor.
-- found: Draws one part of a finding entry: an optional "continued" line, then on part 0 a numbered circle badge (filled if pinned on the map, outlined otherwise), the finding's heading lines, and a colored strip showing which lenses surfaced it; then the rule's title/body text for this part; and on the last part a row of lens legend dots with labels plus a divider rule beneath. Returns the total height consumed.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-
-### `letterOf`
-- spec 3 · read at `8483993c652d` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:18Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Converts a zero-based index to an uppercase letter label (A, B, C, ...), likely wrapping into two-letter labels (AA, AB, ...) past 26 for numbering figures or finding groups in the report.
-- found: Recursive spreadsheet-column-style letter labeling: A-Z for 0-25, then recurses for the prefix and appends the remainder letter for higher indices.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `gridOf`
-- spec 3 · read at `ca3f217bc9f8` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:00Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Computes the column widths and row/band heights for the findings grid table given the sheet's width, the finding groups, and the laid-out sections, returning a Grid object with these metrics that drawGridHead/drawGridRow and the pagination logic elsewhere consume.
-- found: Builds the Grid for the findings table: filters to non-blocked groups with at least one matching entry, sorts them by count desc then title, sizes column width from available width and column count, measures the longest title to size the header row, and precomputes the full flat row list (band rows and entry rows) alongside the other layout constants.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `gridRowH`
-- spec 3 · read at `4b3817d237c8` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:33Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Computes the height (in points) that a specific grid row `r` should occupy within grid `g` — most likely just returning a fixed per-row height taken from the grid's config (e.g. g.rowH), since it's a one-line function and probably doesn't do per-row content measurement itself.
-- found: Returns g.bandH for a band-type row and g.rowH for an ordinary row — a fixed height picked by row kind, not measured from content.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `drawGridHead` — PREDICTED SOME
-- spec 3 · read at `22c7f688cf29` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:10Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: drawGridHead draws the header row (column labels, likely with a bottom border/background) of a table/grid g onto sheet starting at top/left, using the same layout logic as drawGridRow for column widths, and returns the y-coordinate just below the header where the first data row should start.
-- found: Draws each column's header as vertically-rotated (90°) fitted text plus a count sub-label beneath it, draws a "FINDING" label in the left label column, draws a horizontal rule under the whole header, and returns the y-coordinate below the header (top + g.headH) for the first row to start at.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-
-### `drawGridRow` — PREDICTED SOME
-- spec 3 · read at `23c64aa9a90f` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:32:42Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Draws one row of a data grid/table onto the PDF sheet at vertical position `top` (and horizontal offset `left`), using the grid's column widths to lay out each cell's text, trimming/wrapping cell text to fit (trimToFit/oneLine), and using placeName to resolve a display name for a Section reference in one of the columns (likely a "location" or "file" column). Returns the y-coordinate after the row (top + row height), so the caller can chain rows using gridRowH for height accounting.
-- found: Handles two row kinds via a discriminated union: a 'band' row draws a divider line and a bold section-label heading (using placeName, with a ", continued" suffix if wrapped), while an 'entry' row draws alternating-column shading, a row number, a truncated address/path, and a dot at each column whose rule id is present on that entry's item — i.e. it's a presence matrix, not per-column text cells. Returns top advanced by bandH or rowH.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: This is a presence-dot matrix row (checklist/heatmap style), not a text-table row — most columns render as a filled circle or nothing, only the leading two columns (n, addr) hold text.
-
-### `findingSummary`
-- spec 3 · read at `afb43b7b02c0` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:15Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Builds a short prose sentence — as an array of styled text Runs for the PDF — stating the total finding count and how many groups they fall into (e.g. "14 findings across 5 groups"), serving as context that a bare list of findings can't convey on its own, placed before the list in the report.
-- found: Builds styled text runs summarizing findings: handles the zero-findings case (with a different message if matches were set aside vs truly none), otherwise a bold count + 'findings, grouped by where they are' with a '+' suffix if rows were capped, a muted caveat if the count undercounts due to capping, a muted note of ignored matches, and finally muted notes for any rules that are inactive due to missing prerequisites.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: Got the basic count sentence right but missed the several edge-case branches: zero-findings messaging, row-capping caveats, set-aside/ignored matches, and inactive-rule reporting.
-
-### `wordmarkPaths`
-- spec 3 · read at `74589e9c53ad` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:06Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: wordmarkPaths reads the actual <path> elements from the wordmark SVG component already rendered in the DOM/component tree and extracts their d attribute strings into an array, so the PDF cover can reuse the exact same brand shapes instead of a hardcoded duplicate.
-- found: Renders the Wordmark React component to a static HTML string via renderToStaticMarkup, then regex-extracts every `d="..."` attribute value into an array of SVG path strings.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `methodVars`
-- spec 3 · read at `69dfef53f386` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:45Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds a Record<string,string> of named values referenced by the methodology prose section of the PDF report — things like repo name, total files/functions scanned (derived from `full`, the root node), number of findings, commit window/date range, and similar counts pulled off the `Report` object — so `briefMethod`/prose templates can substitute them by name.
-- found: Builds the named-value dict for methodology prose: counts (functions/files/lines/findings/assessed/stale), a commit clause noting sha/dirty state, a languages/grammars clause, a reader clause describing which model(s) took the readings (or none), locked color-mode names, churn window, and report-only extras (named function/file clause and appendix flag) when the output form is 'report'.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: Missed the reader/model attribution clause, lock-mode listing, and the report-vs-other-form conditional fields entirely in my prediction.
-
-### `joinList`
-- spec 3 · read at `e1e5b8f5a6cc` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:29Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Joins a list of strings into a natural-language enumeration: returns the single item unchanged for length 1, "a and b" for length 2, and comma-separated items with "and" before the last for length 3+ (Oxford comma unclear).
-- found: Joins with commas and "and" before the last item, no Oxford comma; single item or empty returned as-is.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `barTextOf`
-- spec 3 · read at `49286464037f` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:35:23Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Computes the width needed to render bar-column figures in a table: starts from a base constant BAR_TEXT width, then scans the table's rows for the bar column's figure strings, measuring each one's rendered width and returning the maximum of the constant and the widest actual figure, so a wide figure (like a fixed one-author 100% case) isn't clipped.
-- found: Flattens all bar-marked cells across table rows, measures each cell's text width plus 8*U padding, and returns the max of that set and the BAR_TEXT constant — giving the column width needed so no bar figure gets clipped.
+- spec 3 · read at `d4c97c63ea37` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:04Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Builds a path for a pill shape (rectangle fully rounded at both ends, radius = h/2) on the canvas context by manually issuing moveTo/arc/lineTo calls instead of calling the newer `roundRect` API, since the target WebKit doesn't support it — leaving fill/stroke to the caller.
+- found: Builds a rounded-rect path (radius = min(h,w)/2, so fully pill-shaped when h<w) via beginPath/moveTo/four arcTo calls/closePath, avoiding the roundRect API; caller does fill/stroke.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `deckProse` — PREDICTED SOME
-- spec 3 · read at `69bf8082ba34` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:27Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the deck's two written lines for lens m (from Essay.deck) and combines them with as many sentences from facts (the report's own generated Results text) as will fit on a slide, using trimToFit to drop trailing sentences rather than pre-selecting which ones to keep — returning the combined text as an array of Prose blocks for slide rendering.
-- found: Builds three Prose blocks: 'Definition' and 'Reading the map' from the essay's deck fields (definition, reading), and conditionally a third block under STORY_HEADING containing the facts array (only if non-empty) — no trimming happens in this function itself, that's presumably done elsewhere by the caller/layout code.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: Correctly identified the two deck lines and the facts merge, but wrongly assumed trimToFit was called inside this function — it just assembles the Prose[] and leaves fitting to the layout/rendering pipeline (per the doc, trimToFit 'drops the ones that do not fit', which happens downstream).
+### `drawSlices` — PREDICTED NONE
+- spec 3 · read at `a9e97b3ec2da` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:08Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Draws a row or strip of colored slices onto the sheet/canvas — likely a small legend or breakdown bar — iterating over the slices array and drawing each as a filled rectangle or pill sized proportionally, with a label, side by side.
+- found: For each slice, walks its rows top-to-bottom within the slice's own region, advancing y by each row's gap and lead, calling drawRow to render each row's content at (region.x, y).
+- predicted: none · documented: none · derivable: no · legible: full · trap: no
 
-### `briefMethod`
-- spec 3 · read at `4c2829d65a2b` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:28:50Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Builds a prioritized list of methodology paragraphs (from vars-substituted prose), then repeatedly calls onCover with a shrinking set of blocks — dropping the least essential paragraph first according to a fixed priority order (not simply truncating from the end) — until the cover layout fits, returning the resulting Slice[] for the winning attempt.
-- found: Confirmed the priority-ordered drop mechanism (BRIEF_GIVES, tracked as a `gone` set of section/paragraph keys, tested against `onCover` fitting to one slice). Missed a second pass: after enough is dropped to fit, it walks BRIEF_GIVES in reverse and tries putting back each dropped item (last-given-first), keeping it only if the layout still fits — reclaiming room a later drop opened up for an earlier, shorter paragraph — before a final `trimToFit` fallback.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+## web/src/lib/report/tables.ts
 
-### `trimToFit`
-- spec 3 · read at `c9fff730fa1c` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:47Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Repeatedly removes the last block from a copy of `blocks` while `fits(copy)` is false, working in whole-block units (no partial paragraph truncation); after trimming, if the new last block is a heading now left with nothing under it, that heading is also dropped. Returns the trimmed array.
-- found: Loops: while more than one block remains and fits(b) is false, drops the last block, then strips any now-trailing heading blocks (kind 'h') in an inner loop, repeating until it fits or only one block is left.
+### the file itself
+- spec 3 · read at `92bcce6fffe1` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:06Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file is the layout/rendering module for lens summary tables in the report: it computes column widths and row heights (columnWidths, tableHeight, tableCapH), lays out single tables or lists in a column or grid across the page (layoutTable, layoutList, tableFrame, chunksOf, evenChunks, placeTables), and draws them with repeated headers on continuation pages while keeping rows intact (drawTable, drawGridRows, drawListRows, barTextOf, oneLine, noteOf).
+- found: Layout and drawing for report tables: sizes columns/bar wells (columnWidths, barTextOf), lays out grid or list-style tables (layoutTable/layoutList/tableFrame), paginates rows across pages without splitting a row and balances the last page's rows evenly (chunksOf/evenChunks/placeTables), and draws captions, headers, rows, bars, swatches and notes (drawTable/drawGridRows/drawListRows).
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header's one-line summary is accurate but the real design reasoning (why bar wells need a measured floor, why lists vs. grids, why the last page is balanced rather than greedy) lives entirely in inline comments, not the header.
+
+### `barTextOf`
+- spec 3 · read at `543129295315` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:27Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the table's rows, measures the text width of each row's bar-figure cell via sheet, and returns the max of a fixed BAR_TEXT constant and the widest measured figure, so the column is never narrower than its widest content and no figure gets clipped.
+- found: Flattens all cells flagged `bar` across rows, measures each's text width plus 8*U padding, and returns the max against the BAR_TEXT floor constant.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `oneLine`
-- spec 3 · read at `2b0c6966ef2c` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:22:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Measures the width of `run`'s text using `sheet`/`size` font metrics, and if it exceeds `width`, truncates it by cutting out a chunk from the middle (replacing with an ellipsis) rather than from the end, so both the start and end of a path remain visible. Returns a `Line` object representing that single line of text ready for PDF layout.
-- found: Delegates the actual middle-truncation to fitText (with a floor at the given size and a minimum width of 10*U), then wraps the resulting text into a single Line via setLines, returning the first line or an empty fallback.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `78ed7734648e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Measures the text of `run` against `sheet`'s font metrics at `size`; if it's wider than `width`, truncates by removing characters from the middle and inserting an ellipsis, preserving head and tail (useful for paths). Returns a Line object with the resulting single-line text ready to draw.
+- found: Delegates the actual middle-truncation/fitting to `fitText` (passing bold/mono styling and a floor equal to size, plus a minimum width clamp of 10*U), then wraps the resulting text into a single Line via `setLines` with an effectively unbounded max-lines, taking the first line (or an empty fallback).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The middle-cut behavior described in the docs actually lives in `fitText`, not in this function's own body, so this function reads as a thin wrapper/adapter.
 
 ### `columnWidths`
-- spec 3 · read at `cec2b41cc0b7` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:28:39Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Measures (via sheet, a canvas-like text-measuring context) the widest header/cell in each column after the first — giving a bar column enough width to draw a bar — sums those, and assigns whatever width remains to the first column. If that leftover would make the first column too narrow to be usable, it returns null so the caller falls back to full-page-width layout instead.
-- found: For each column after the first, computes needed width as the max of header width and cell widths (or, for bar columns, header vs. bar-text-derived width); sums those, gives the remainder to the first column, and returns null if that remainder is less than what the first column's own header/cells need — so the caller falls back to full width rather than truncating labels.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `e59ecc36e145` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:04Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Measures each non-first column's cell/header text to find its widest content, allocates a bar column enough room to draw a bar, and gives whatever width remains to the first column; returns null when that leftover would make the first column too narrow, so the caller falls back to full-width layout.
+- found: Computes each column's needed width from its header and cell text measurements (bar columns get room for the bar text plus a fixed bar width instead), sums everything after the first column, and gives the remainder to the first column — returning null (forcing full-width layout) only if that remainder is narrower than the first column's own header/cell needs, so a label is never silently truncated mid-word.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `layoutList` — PREDICTED SOME
-- spec 3 · read at `0ac256f5744d` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:55:43Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: `layoutList` computes the vertical layout for a table rendered "list style" (subject heading on its own line, then its prose sentence wrapped to the full given `width` below it, with a rule between rows) — for each row it measures the wrapped-text height and accumulates row positions/heights, producing a `TableLayout` (row heights/offsets) analogous to `layoutTable` but for this one-column-per-row list format. `n` likely limits how many rows to lay out (e.g., for the current page).
-- found: Builds a TableLayout for list-style rendering: each row becomes a bold heading line (first cell) plus wrapped body text from the remaining cells indented under it, with row height computed from line count. It also builds the caption ("Table {n}.") and continuation caption text, note text, and column x/width metadata used elsewhere for drawing/pagination — `n` is the table's number for the caption, not a row limit.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
+### `tableFrame`
+- spec 3 · read at `c53b7c8b1f39` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:45Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Builds and returns { caption, cont, note }: caption is the table's numbered title line built with oneLine using n and table.title/label fit to width, cont is a 'continued' line for later pages, and note is built via noteOf from the table's note text, also fit to width.
+- found: Builds caption (bold 'Table N.' plus muted table.caption), cont ('Table N, continued.'), and note (italic muted table.note if present, else empty), each set into wrapped lines via setLines at the given width and font size 7.5.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
-### `layoutTable`
-- spec 3 · read at `d2ab894be01d` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:44Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Computes column widths for table (via columnWidths) at the given x/width, wraps and measures each cell's text to determine row heights (using colHeight/wrapping helpers), and returns a TableLayout describing each column's x-position/width and each row's y-position/height so drawTable can render it; n is the table's figure/table number used in its caption (e.g. "Table 2").
-- found: Delegates to layoutList for list-kind tables; otherwise computes column widths (fitting or falling back to weight-proportional), x offsets, wraps/measures header and cell text (with special handling for bar cells, swatches, and markup/code runs, capping wrapped lines at 10), computes each row's height, and returns a TableLayout with caption ("Table n. ..."), a continuation caption, column geometry, header/row line layouts, header height, and an optional note.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: The list-table delegation and the continuation-caption/note fields aren't guessable from the signature.
+### `layoutList`
+- spec 3 · read at `0a2ede867a88` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:09Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Computes layout (positions, heights, wrapped line breakdown) for list-style table rows — each row a heading name line plus a full-width wrapped prose sentence and rule beneath it — packaging results into a TableLayout for drawListRows; n likely bounds how many rows are laid out (pagination), x/width position and size the column.
+- found: For each row, builds a bold one-line heading from cell 0 and wraps remaining cells' text (with code-markup support via codeRuns) at width minus a 12*U indent, computing row height from line count. Delegates caption/continuation/note to tableFrame(n). Returns a full TableLayout with two-column xs/widths (heading vs indented body), zero headH/heads/barText since there's no header row.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: `n` is passed straight through to tableFrame rather than used here directly — its pagination role lives entirely in that other function.
+
+### `layoutTable` — PREDICTED SOME
+- spec 3 · read at `0bbcb7782410` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:23Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes a TableLayout: calls columnWidths to size the columns for the given width, computes header/caption height and row heights (tableCapH, tableHeight), and returns an object with column widths, row y-positions, and total height, positioned at x. The n parameter likely controls how many rows to include, for pagination purposes.
+- found: Delegates to layoutList for list-kind tables; otherwise computes column widths (via columnWidths or proportional weight fallback), lays out header cell lines, computes barText width, and lays out each row's cells (with per-cell wrapping, bar cells, swatches) into wrapped line arrays with computed row heights. Calls tableFrame(sheet, table, n, width) to get caption/continuation/note info, where n is apparently a table index/number used for captioning, not a row-count/pagination limiter. Returns the full TableLayout bundling all of this.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: n is passed straight to tableFrame for captioning, not used to slice rows or limit pagination here.
 
 ### `tableCapH`
-- spec 3 · read at `c6dbf3a3c5d2` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:37Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Returns the vertical space reserved for a table's caption/heading — nonzero when `first` is true (only the first table in a sequence gets a caption; later ones are captionless continuations), and 0 or smaller when false, computed from L's layout metrics.
-- found: Computes caption block height as (number of caption lines, either `L.caption` for the first table or `L.cont` continuation-caption for later ones) times a 7.5pt leading value, plus a fixed 4-unit pad — so continuation tables still reserve caption space via `cont`, not zero as I guessed.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: I assumed non-first tables get zero caption height; they actually get a different (presumably shorter, "continued"-style) caption array L.cont rather than none at all.
+- spec 3 · read at `b6c53b0720c4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:56Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: tableCapH(L, first) is a one-line arrow function computing the height of a table's "cap" (its header area) — likely returning a taller value when first is true (title + column headers) versus just the repeated column-header height on continuation pages.
+- found: Computes cap height as (number of lines in caption if first, else continuation-header lines) times a line-lead height at font size 7.5, plus a fixed 4*U padding — exactly the title-vs-repeated-header distinction I predicted.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `noteOf`
+- spec 3 · read at `c73ced88fc94` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:56Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A one-line function returning the height contributed by a table's optional note (a line-height constant if L's table has a note field, else 0), used by height-summing/pagination logic so the note is accounted for when deciding if the last row plus note fit on a page.
+- found: Returns 0 if the layout's note is empty, otherwise a fixed top margin (4*U) plus per-line height (lead(7.5)) times the number of note lines.
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
 
 ### `tableHeight`
-- spec 3 · read at `306f0b6d27fb` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:32:23Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A short arrow function taking a TableLayout and returning its total rendered height: likely the caption height (via tableCapH) plus the sum of each row's height (via colHeight over L's rows), possibly plus fixed spacing/padding constants used elsewhere in the table-drawing code.
-- found: Sums caption height (tableCapH), header row height, all row heights, and — if a note is present — extra space for the note lines, to get the table's total rendered height.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `635aaa0b811e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:58Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Sums up the vertical space a table layout will occupy: caption height plus (row count × row height) plus note/footer height if present, returning a single number used to decide whether the table fits in remaining space.
+- found: Sums caption height, header row height, the sum of each individual row's own (variable) height, and the note's height, to get the table's total rendered height.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Docs shown were file-level/for a sibling function (whole-table-in-one-piece note), not this function specifically.
 
-### `colHeight`
-- spec 3 · read at `2d4a0ee94747` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:57:41Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A one-line function that sums the height of each Row in the array (e.g. `rows.reduce((t, r) => t + r.h, 0)`) to get the total vertical height a column of rows occupies.
-- found: Sums each row's `lead` (line height) plus its `gap` from the previous row (no gap added before the first row) to get total column height.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `balance`
-- spec 3 · read at `0eedf5f77fcd` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:46:03Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Takes the leftover text slices for an essay's final page and re-splits them across the two columns (xs) so each column ends at roughly the same height instead of one full column and one nearly empty one, reserving `reserve` height at the bottom of the second column for a table, and returns the slices repositioned/reassigned between the two columns within top/bottom.
-- found: Flattens slices to rows, bails early if fewer than 2 rows; finds the cut point where accumulated height first reaches half of (total+reserve) so column A is never shorter; moves a trailing 'keep' (heading) row from A to B so a heading never ends a column; if the resulting max column height (with reserve added to B) exceeds the available space it gives up and returns the original slices unbalanced; otherwise returns two new column slices.
+### `chunksOf`
+- spec 3 · read at `e67175ea80bc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:44Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: chunksOf walks the table's row heights, accumulating rows into the current page starting at top until adding the next row would exceed bottom, then closes that chunk and starts a new one (leaving room for a repeated header) — returning an array of chunks, each listing its rows and whether it begins a fresh page, without ever splitting a row across chunks.
+- found: Returns {from,to,fresh} index ranges rather than row objects; accounts for caption height (only on the first chunk) and header height added at the top of every chunk, reserves space for a trailing note on the last row, guarantees at least one row per chunk even if it overflows, and resets to CONTINUED_TOP for subsequent pages.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The bail-out condition (falls back to unbalanced original slices if it can't fit) isn't mentioned in the doc, which only explains the motivating problem.
 
-### `placeTables` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `fa10f646b9bd` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:25Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Walks the list of tables, laying each one out starting at startY on the current page/sheet; when a table or its next row would overflow the page it starts a new page and re-draws the table's header there, treating a row as atomic so it never splits one across a page break — measuring via tableHeight/colHeight and painting via drawTable.
-- found: For each table, computes a greedy page-break chunking of its rows (never splitting a row, repeating the header cap on each new page, keeping the note attached to the last row's page), then if it spans multiple pages binary-searches for the shortest last-page height that still yields the same page count so rows are spread evenly rather than leaving a near-empty final page; pushes placement records (layout, row range, top y, first/last flags) onto each page's `tables` list rather than drawing directly.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+### `evenChunks` — PREDICTED SOME
+- spec 3 · read at `a0b3fe7d3952` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:21Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Determines the greedy page count for the table's rows (likely via chunksOf), then if that count is more than one, redistributes the rows evenly across that many pages so no page (especially the last) ends up nearly empty, returning arrays of row indices/chunks per page sized within the top/bottom vertical bounds.
+- found: Computes the greedy chunking first; if it's a single page, returns it as-is. Otherwise binary-searches the page-bottom bound between CONTINUED_TOP and the true bottom to find the smallest bottom that still produces the same number of pages as the greedy packing, then re-chunks at that bound — effectively shrinking each page just enough to force rows to spread evenly across the same page count rather than greedily filling early pages and leaving a stub at the end.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The even distribution is achieved via binary search on the page-height bound (re-running chunksOf repeatedly), not by directly computing a per-page row count — a non-obvious trick worth flagging for future maintainers.
+
+### `placeTables` — PREDICTED SOME
+- spec 3 · read at `e347670aa6a3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the `tables` list, tracking a vertical cursor starting at `startY` on the current (last) page; for each table it checks whether the table height fits in the remaining space, and if not, starts a new page (appending to `pages`) redrawing the table's header there, calling into `drawTable`/`tableHeight` helpers, and never breaking a single row across the page boundary.
+- found: For each table, computes row chunks via evenChunks that fit within the page (from startY to sheet.bottom); when a chunk needs a fresh page it pushes a new LensPage and resets y to CONTINUED_TOP. It pushes layout placement records (table, row range, top y, first/last flags) into page.tables rather than drawing directly, and advances y by cap height + header + summed row heights + trailing note space.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: This function only computes placement records; actual drawing (drawTable/drawGridRows) happens elsewhere, and the row-fitting/no-split-row logic actually lives in evenChunks, not here.
 
 ### `drawTable`
-- spec 3 · read at `6130097362a6` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:54:01Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Takes a positioned TableSlot (a layoutTable result placed at a specific y/page) and actually draws it onto the PDF sheet — the caption (or continuation caption if this slot continues a table split across pages), the header row with its underline rule, then each row's cell text, including special rendering for bar cells (a filled bar) and color swatches, plus any trailing note. Side-effecting draw call, returns nothing.
-- found: Draws only the slice of rows [from,to) for this slot, starting with caption or continuation caption; for list-kind tables it draws a two-column name/value layout with thin row-separator rules and no header, for regular tables it draws the header row (right-aligned if the column says so) with an underline rule, then each row's cells including swatches, bar fills, and right/bar-relative text positioning, with a border rule under every row; draws a trailing note only on the slot marked `last`.
+- spec 3 · read at `89b758513785` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:30Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Draws one already-laid-out TableSlot onto the Sheet: draws the header/caption, then dispatches to drawListRows or drawGridRows depending on whether the slot is a list-style or grid-style table, since layout math has already been done upstream by layoutTable/placeTables.
+- found: Draws the caption (or a repeated continuation header on later pages via s.first), dispatches row-drawing to drawListRows or drawGridRows based on table kind, and draws a trailing note only on the slot's last page.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Missed the first/continuation caption distinction and that the note is only drawn on the last slot.
+
+### `drawListRows`
+- spec 3 · read at `f1a1323264dd` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Draws the row contents of a "list"-style table (as opposed to grid-style, handled by peer drawGridRows) onto the sheet starting at y-position `top`, iterating through the slot's rows and rendering each row's text/cells. Returns the new y-coordinate (bottom of the last drawn row) so the caller knows where drawing stopped, without itself handling pagination.
+- found: Draws rows s.from..s.to of a list-layout table: first cell as a single label line at xs[0], second cell as wrapped multi-line text at xs[1] below the row's first line, advances y by row height, and draws a thin separator rule between rows (not after the last). Returns final y.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `drawGridRows`
+- spec 3 · read at `e2ac480252b2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Draws the actual grid/table rows (cell text laid out per column widths) onto the sheet canvas starting at the given `top` y-coordinate, iterating rows and drawing borders/text for each, and returns the y-coordinate after the last row drawn. Likely doesn't handle pagination itself, just renders one contiguous block of rows.
+- found: Draws the table header line(s), a rule below it, then rows s.from..s.to with per-column alignment, optional color swatch and bar-chart cell rendering, and a border line under each row; returns the y position after the last row.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Docs on the function itself are absent; the file_doc describes the whole tables.ts module, not this function specifically.
+
+## web/src/lib/report/text.ts
+
+### the file itself
+- spec 3 · read at `a15b6e0faa80` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:59:13Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A text-layout pipeline for report generation: parses reportProse markup into runs/words (wordsOf, inlineRuns, codeRuns, proseBlocks), uses a LineFill builder to greedily pack words/pieces into fixed-width lines (handling code-span breaking, spacing, trimming), groups lines into blocks/rows (flow), and distributes rows across page columns with height balancing and pagination (pour, pourEven, balance, colHeight), with drawLine/drawRow doing the actual rendering — page/sheet layout itself lives elsewhere (sheet.ts).
+- found: Matches prediction closely: word/run tokenization and greedy line-filling (with code-span breaking at separators), markup parsing (inlineRuns/codeRuns/proseBlocks with slot-filling), flow turning blocks into rows with gaps/keep flags, and pour/pourEven/balance distributing rows into page regions/columns with widow/orphan control, last-page evening-up, and two-column balancing that reserves room for a table.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `fontOf`
+- spec 3 · read at `5e337b983f34` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:33Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds a canvas font string combining weight (bold if run.bold) and font family (monospace if run.mono, otherwise a default sans/serif) with the given pixel size, returning something like "bold 12px monospace" for use as ctx.font.
+- found: Picks MONO family if run.code or run.mono, else FAMILY; prefixes 'italic ' if run.italic; uses numeric weight 700/400 for bold; and scales size by unit U before appending 'px' and the face, returning a canvas font string.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `setLines`
+- spec 3 · read at `a2147c049e35` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:03Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Calls wordsOf(runs) to break the runs into word-sized pieces (keeping code spans intact), feeds them one by one into a LineFill accumulator via push, which greedily packs words onto the current line until it would exceed width, wrapping otherwise; returns the completed lines via fill.done().
+- found: Creates a LineFill accumulator sized to width, feeds it each word from wordsOf(runs, size*0.3*U) via fill.word(), and returns the finished lines via fill.done() — the greedy wrapping/code-span logic lives inside LineFill, not shown here.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc's rich rules (code spans as one padded piece, breaking only overlong words at / or #) all live inside LineFill's methods, not in this thin driver function.
+
+### `wordsOf` — PREDICTED SOME
+- spec 3 · read at `1f0f93165929` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:14Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Splits an array of text Runs into individual Word entries for line-filling: plain-text runs are split on whitespace into separate words (each carrying a measured width), while a code-span run is kept whole as a single Word, padded by `pad` on either side so it isn't broken mid-span across lines.
+- found: Groups runs into Words made of Pieces split on whitespace; a code run's text becomes one piece with padL/padR set to `pad`, and non-code text is split on whitespace with each whitespace run closing the current word and becoming its leading `space`. A word can mix code and non-code pieces (no space between them) — a second pass then zeroes the pad on whichever side touches clinging punctuation (e.g. a comma right after a code span) so it doesn't render as a stray space.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Missed that words are built from multiple pieces (code + adjacent punctuation can share a word) and the punctuation-clinging pad-suppression pass, which is the actual point of the function per its trailing comment.
+
+### `constructor` — PREDICTED NONE
+- spec 3 · read at `113a28a4b8b6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:08Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Beyond storing c, width, size as parameter properties, the constructor body initializes internal mutable state for the line-filling algorithm — an empty array for pieces/words placed so far on the current line and a running width-used counter reset to 0, possibly setting the canvas font via fontOf(size) so subsequent widthOf measurements are accurate.
+- found: Empty body; just declares c, width, and size as private readonly fields via TypeScript parameter properties.
+- predicted: none · documented: none · derivable: no · legible: full · trap: no
+- note: The 'lines: 5' count in the task metadata is the parameter list, not executable body lines — misleading if you expect body logic proportional to the line count.
+
+### `done`
+- spec 3 · read at `27f8295a7456` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:07Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: done() finalizes the LineFill builder — flushing any in-progress/pending line or piece that hasn't yet been committed — and returns the accumulated array of completed Line objects.
+- found: Calls this.push() to flush the pending in-progress line, then returns the accumulated this.lines array.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `widthOf`
+- spec 3 · read at `2e13851b40ac` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:11Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A private LineFill method measuring the rendered pixel width of a single text Piece, picking the right font/style (mono, bold, code) via fontOf and delegating to the sheet's text-measurement function, used to decide whether adding this piece would overflow the current line.
+- found: Sets the canvas context's font to match the piece's run style at the current size, measures the text width via canvas measureText, and adds the piece's left/right padding to get its total width.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `push` — PREDICTED NONE
+- spec 3 · read at `34c649024d86` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:14Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A private helper on LineFill that flushes whatever partial text piece has been accumulated so far (from `word`/`piece`) onto the current line's array of placed segments, then resets the accumulator so the next word/piece starts fresh.
+- found: Finishes the current line: if it has any items, pushes it onto the accumulated `lines` array, then resets `this.line` to a fresh empty line ({items: [], w: 0}) for subsequent content.
+- predicted: none · documented: none · derivable: yes · legible: full · trap: no
+- note: I guessed it operated at the word/piece level (flushing a partial text run); it actually operates one level up, at the line level.
+
+### `place` — PREDICTED SOME
+- spec 3 · read at `b6526cad0a2b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:20Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Takes a text Piece and its computed width w and adds it to the current line being built, checking whether it fits in the remaining line width and, if not, finalizing the current line and starting a new one before placing the piece.
+- found: Purely appends the piece to the current line's items array at the current running x-offset (this.line.w), then advances that running width by w — no fit-check or line-wrap logic here at all, that must be decided by a caller before place is invoked.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The wrap/fit decision I expected to be here must live in a caller (likely push or word) — place itself is unconditional.
+
+### `placeSpace`
+- spec 3 · read at `6a487ba7243b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:19Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: placeSpace(run, w) appends a space-sized piece to the current line at the LineFill's cursor position (using width w, likely measured for this run's font), advances the x cursor accordingly, and records it as a candidate break point for word-wrapping/justification.
+- found: Thin wrapper delegating to place() with a piece of text=' ', no left/right padding, and width w — the actual cursor/break-point bookkeeping lives in place(), not here.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `codeCut`
+- spec 3 · read at `73d7d02fe9f7` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:07Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: codeCut scans the code Piece's text for a good break point — iterating candidate split positions after separator characters (like ., /, _), picking the longest prefix that fits within room while leaving at least 3 characters before and after the cut, and returning 0 if no such separator-aligned cut exists (forcing a hard break instead).
+- found: Scans backward from length-3 down to index 3, looking for a separator character from the set `/.-_:#(,`, and returns the first (longest) prefix length that fits within `room`; returns 0 if none found.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `word`
+- spec 3 · read at `ee1af459afe5` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:39Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Measures the word's width, decides whether it fits on the current line given remaining space, and if not calls done() to close out the current line before starting a new one, then pushes/places the word (possibly handling code vs inline word formatting).
+- found: Measures widths of each piece of the word, computes preceding space width if needed, and if it wouldn't fit on the current line, tries breakInCode (which may re-split the word for a mid-code break), then calls push to start a new line. Then places the space (if any) and each piece via piece().
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: The list vs regular table branch draws with different separator/border conventions (thin mid-row rule for lists vs full-width bottom rule per row for regular tables) which isn't visible from layoutTable's output shape alone.
+
+### `breakInCode`
+- spec 3 · read at `cbab68dc8d5b` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Given a code-styled word and available space sw, checks whether breaking the word at one of the separator characters (/ . - _ : # ( ,) would let a leading piece fit within sw while leaving a nonempty remainder. If such a separator break point exists, it splits the word there (pushing the fitting piece onto the current line and keeping the rest as a new word to continue on the next line) and returns true; otherwise returns false, meaning the whole word should move to the next line unbroken.
+- found: Only attempts a code-separator break when the first piece is code-styled and the current line is under 80% full; delegates the actual cut point search to codeCut() and only proceeds if it returns a positive cut index. On success it places any pending space, slices off the head text up to the cut as its own placed piece, and rewrites the word's first piece to the remainder (dropping left padding on the remainder and right padding on the head).
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `piece` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `edeedc777503` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Measures characters of the word from `first` onward, accumulating width, and finds the longest prefix that fits within `pw` (given the word's total width `ww`), returning a Piece split into the fitting chunk and the leftover remainder — used to hard-break an overlong word that cannot fit on any line as a whole.
+- found: Loops, breaking off as much of the word as fits the remaining line width (measured via canvas measureText), preferring to cut right after a trailing '/' or '#' separator when one is close enough, pushing each fitting chunk as its own line, until what's left fits in the current line — then places the final remainder normally.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+
+### `drawLine`
+- spec 3 · read at `50f2112219be` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:58Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: drawLine draws one already-laid-out Line of text onto the Surface at position (x, baseline): it walks the line's pieces/runs (from setLines/LineFill) and renders each with the font size and color (Inks) appropriate to its style (plain, bold, code, etc.), advancing x as it goes.
+- found: Iterates the line's items, drawing a highlighted background rect behind code runs (which I didn't predict), then sets font/color per run (explicit color, muted, or default fg) and draws the text at its computed x offset plus padding.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `drawLines`
+- spec 3 · read at `b1d3542dc991` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:50Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over lines, calling drawLine for each one at x and a y-coordinate starting at top and increasing by lead(size) per line, returning the y position just after the last line so callers can continue layout below.
+- found: Loops over lines, drawing each at x and an accumulating y (top + i*lead(size)), with a 0.74*lead baseline offset per line, then returns the final y after the last line.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `inlineRuns`
+- spec 3 · read at `1da1449a9cd1` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Scans the input string for **bold**, *italic*, and `code` markup, splitting it into a sequence of Run objects (text plus style flags) using a regex, merging base style properties into each run and preserving unmatched text as plain runs.
+- found: Splits the string on a regex matching backtick-code, bold, or italic spans, and for each piece pushes a Run with base fields plus text and the appropriate style flag (code/bold/italic), or plain text if unmatched.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `codeRuns`
+- spec 3 · read at `51e08e5ae168` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:49Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Splits string s on backtick-delimited code spans only (ignoring other markup like * since notes are free-form reader text), producing an array of Run objects that inherit base's properties except code spans get a code/mono flag set.
+- found: Splits s on backtick-delimited spans via regex, filters empty pieces, and maps each into a Run: backtick-wrapped pieces become {...base, text: inner, code: true}, others become {...base, text: piece}.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+
+### `fillSlots`
+- spec 3 · read at `8ed75993d567` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:33Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Resolves {?name text} (include text if vars[name] is non-empty) and {!name text} (include if empty/falsy) gates via regex, recursing so gated text can contain nested slots, then replaces plain {name} slots with vars[name] in a final pass, returning the resulting string.
+- found: Replaces {?name text}/{!name text} gates in one regex pass (text's own {slot} placeholders are allowed by the pattern but not further gates), keeping text when Boolean(vars[k]) matches the sign, then replaces {name} placeholders with vars[name], leaving the literal {name} if the var is missing.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `proseBlocks`
+- spec 3 · read at `83549d46b70e` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:42Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Takes a list of Prose sections (markup source, e.g. headings/paragraphs/code) and a vars map for substitution, and produces an array of Block objects — parsing/splitting each section's markup into paragraph-like units (possibly using inlineRuns/codeRuns to tokenize runs of text/code within each), substituting `${var}`-style placeholders from `vars`, and tagging each resulting block with its kind (heading, paragraph, code, etc.) so that `flow` can later turn them into rows. It's the top of the pipeline described in the file doc, before line-setting happens.
+- found: For each Prose section, pushes a bold heading block (with vars filled via fillSlots), then for each body string fills its vars/slots and drops it entirely if that leaves it empty (a fact the repo couldn't supply). It splits the filled text on newlines into separate blocks, detecting bullet (`- `) and numbered (`1. `) list markers to emit 'li' blocks with a label, falling back to a plain 'p' paragraph block otherwise, tokenizing each line's inline runs via inlineRuns.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: I wrongly assumed codeRuns/code-block handling lived here; this function only handles heading/paragraph/list-item blocks, no code.
+
+### `trimToFit`
+- spec 3 · read at `7c3f2e712c23` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Loops while fits(blocks) is false, popping the last block off the array each iteration; after trimming, if the new last block is a heading with nothing following it, pops that too. Returns the resulting trimmed array, only ever removing whole blocks.
+- found: Loops while more than one block remains and fits(b) is false: drops the last block, then drops any further trailing heading blocks (kind 'h') left dangling with nothing under them. Returns the trimmed array, always leaving at least one block.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `flow` — PREDICTED SOME
+- spec 3 · read at `5b1d16865a73` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:21Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the parsed Block[] (paragraphs, headings, code, etc.), converts each block's content into wrapped lines via setLines/inlineRuns/codeRuns at the given width/size, and groups those lines into Row objects (one or more per block, capturing block type/spacing), returning the full flat list of rows ready to be poured onto pages by pour.
+- found: For each block, computes a gap before it based on block-type transitions (extra space before/after headings, tighter between consecutive list items, indent for list items), calls setLines to wrap its runs, then emits one Row per wrapped line carrying size/lead/indent/gap (only on the first line)/label/keep(heading)/block index/first flag.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+
+### `drawRow` — PREDICTED SOME
+- spec 3 · read at `1ed522e4bed6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates the row's lines, calling drawLine (or similar) for each at increasing y offsets computed from line heights, starting at `top`, drawing at horizontal position `x` with the given `inks` styling. Essentially a thin per-row wrapper around line-drawing logic.
+- found: A Row holds exactly one line (not multiple), plus an optional right-aligned label (e.g. a line number or marker) drawn to the left of the indent. It computes a single baseline from top and the row's lead, draws the muted label right-aligned at x+indent-4*U if present, then draws the row's one line via drawLine at x+indent.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: Row is a single line plus optional label, not a block of multiple lines as the name/peers suggest.
+
+### `colHeight`
+- spec 3 · read at `0c72b40a23b4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:57:16Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A one-line function that sums the heights of all rows in the array (rows.reduce((h, r) => h + r.h, 0)), giving the total vertical space a column of rows would occupy — used by pour/pourEven/balance to decide how rows split across page columns.
+- found: Sums each row's lead (line height) plus, for every row after the first, its gap (space before it) — giving the total height of a column of rows including inter-row gaps but not a leading gap before the first row.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `pour`
+- spec 3 · read at `2c45e03027f8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:48:23Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This is the same `pour` function I already assessed: fills page regions with rows, reserves space for kept rows' following lines, pulls back orphaned/widowed paragraph lines, force-places oversize rows, caps at 500 pages.
+- found: Same function as previously reported: fills page regions with rows, reserving room for a kept row's following line, pulling back orphaned/widowed paragraph lines, force-placing an oversize row when nothing fits, capped at 500 pages.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: This is a duplicate of item 8 (identical id/source) — I had already read and reported on this exact function, so this reading is recall, not a fresh prediction.
+
+### `pourEven`
+- spec 3 · read at `a95763a67366` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:24Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Calls pour to greedily fill rows into pages using regionsFor, then checks whether the final page is under half full; if so, it re-pours just the last two pages' rows (via balance or a shortened column height) so the text ends split evenly across two pages instead of a full page followed by a sparse remainder — without changing the total page count.
+- found: Pours normally first; if fewer than 2 pages or the last page already exceeds half the region's room, returns as-is. Otherwise computes an even target column height from the combined fill of the last two pages divided across columns, shrinks just those two pages' regions to that target height, re-pours, and falls back to the original if the re-pour changes the page count.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `balance`
+- spec 3 · read at `cb36661af532` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:52Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Takes the flowed content slices for the last page and re-distributes them across the two columns (positions xs) so both columns end at roughly the same height, rather than filling the first column completely before spilling to the second — computing total height, splitting near the midpoint, and leaving `reserve` height empty at the bottom of the second column for a table; returns the repositioned Slice[].
+- found: Flattens slices into rows, finds the row where accumulated height first reaches half the total (plus reserve), splits there into two column row-sets, adjusts so a heading row never ends up last in a column, bails out returning the original slices if fewer than 2 rows or if the split still overflows the available height, otherwise returns two new Slices positioned at the two column x-offsets.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explains why balancing matters (table space) but not the actual cut/half-height/heading-adjustment algorithm, which is the harder-to-guess part.
+
+## web/src/lib/report/units.ts
+
+### the file itself — PREDICTED NONE
+- spec 3 · read at `3487f645eee6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:30Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A small utility module for the reporting feature that formats numeric values with their units for display (e.g. converting raw numbers into human-readable strings with suffixes like %, $, or counts). It likely exports a single main function, `lead`, that picks/formats the primary "lead" metric or headline number shown at the top of a report, possibly deciding which unit/format to apply based on magnitude.
+- found: This file is not about formatting numbers with units at all — it's a set of layout geometry constants (page size in points for Letter vs A4, a deck slide size, a pixel-to-point scale factor `U` tuned to a 240dpi canvas, margins, gutter widths, header offsets, etc.) used to lay out a printable/exportable report. The 'units' in the name means physical/layout units (points, pixels), not measurement units for data values. `lead` is a tiny helper converting a font size into a leading (line-height) value in layout units — nothing to do with a headline metric.
+- predicted: none · documented: full · derivable: no · legible: not judged · trap: no
+- note: Rich rationale-heavy JSDoc comments (why Letter not A4, why one map density, why no subtitle) capture design decisions that are impossible to recover from the code/values alone — this is a case where the docs carry real irreplaceable information.
+
+### `lead`
+- spec 3 · read at `c4c412130a37` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes typographic leading (line-height) from a given font size, likely a multiplier like size * 1.2, used for layout/report rendering calculations.
+- found: Multiplies font size by 1.45 and a unit constant U to get a line-height/leading value in whatever unit system the report module uses.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The meaning of U (the unit scale constant) isn't visible from this one-liner alone.
+
+## web/src/lib/report/vars.ts
+
+### the file itself
+- spec 3 · read at `f5801443be1b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file supplies the data used to fill template placeholders ({slots}) and conditional gates ({?gates}) in report prose — methodVars builds variables describing the methodology, lensVars builds variables describing the "lenses"/essays for a given repo, lensGates decides which conditional sections apply, and joinList is a small helper to format an array into readable prose (e.g. "a, b, and c").
+- found: File builds Record<string,string> variable maps consumed by a prose templating system: lensGates computes which optional lens sections/language caveats apply (empty string vs 'yes'), methodVars fills methodology-describing slots (repo stats, commit info, locked modes, reader/model info), joinList formats an array into "a, b and c" prose, and lensVars fills per-essay factual sentences that are empty when data is missing so templates never print a fake zero.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+
+### `lensGates`
+- spec 3 · read at `08a65e72f914` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Record<string,string> keyed by lens name, where each value acts as a boolean gate (empty string or truthy marker) for whether this report actually has a page for that lens — used by the template's {?gates} syntax to conditionally print comparison sentences. Also sets a special "readings" gate that's true if the report has a page for any lens that a reading paints.
+- found: Builds gate strings ('yes'/'') based on o.locks per color-mode lens, a combined "readings" gate if any of those lenses is unlocked, plus separate language-caveat gates (rust/nix/cFamily/manyLanguages) derived from o.stats.languages, and a groupMaps gate based on report form — all feeding the template's {?gates} conditionals.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `methodVars`
+- spec 3 · read at `d609b843a557` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:21:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Record<string, string> mapping the named template slots the methodology prose text references (things like repo name, file/function counts, findings count) to actual values pulled from the Report object, the findings count, and the full node tree (e.g., counting descendants) — used to fill in {slot} placeholders in the methodology essay.
+- found: Builds the slot map as predicted, but with many specific slots I didn't anticipate: language list truncated to 12 with a '+N more' suffix, a locked-color-modes clause, a prose sentence describing which model(s) read the corpus (singular/mixed/none phrasing), a churn window default of 90, and a namedClause/appendix flag that's only populated when o.form === 'report' (using the full node tree only in that case).
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The file doc names the general purpose but gives no hint of the report-only conditionals or the specific prose-generation logic for the reader/model clause.
+
+### `joinList`
+- spec 3 · read at `6a07fc3f14ff` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:25Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Joins a string array into a natural-language list — single item as itself, two items as "a and b", three or more as "a, b and c" with comma separators and no Oxford comma before the final "and".
+- found: Exactly as predicted: <=1 item returns it (or '' if empty), else Oxford-comma-less join with "and" before the last item.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `lensVars`
-- spec 3 · read at `3f7316c3a3a8` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:28Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Builds the token → sentence dictionary used to fill placeholders in the lens essay's prose template (reportProse.ts), deriving each fact from o's report data for that lens; where the underlying data isn't available (stale scan, unread repo) the token maps to an empty string so no partial/zero sentence prints. readerClause is spliced into one of the sentences describing who/what produced the reading.
-- found: Builds a record of named prose-template tokens from o.stats/o.views: each is a full sentence (or list, for tangle medians) when the underlying data is present and non-trivial, else an empty string. Covers tangle read mode, age read mode, size-band medians, language count, call resolution rate, commits/authors, age span, churn window choice, and current-reading coverage (which appends readerClause).
+- spec 3 · read at `db2b40e7409f` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: lensVars builds a lookup of template variable names → formatted string values, pulled from fields on the Report object (counts, dates, resolved-call stats, etc.), for substitution into essay prose templates. Each var is only included when the underlying fact is actually available (guarding against printing empty/zero placeholders), and readerClause is likely spliced in as one of the values or used to phrase a sentence about the reader.
+- found: Builds a Record<string,string> of template variables for essay prose, each derived from Report.stats/views fields (tangle size-band medians, language count, call resolution rate, commit/author counts, age span, churn window choice, reading/staleness state) and merged with lensGates(o); each entry is the empty string when its underlying fact is unavailable/zero so the template sentence is skipped, and readerClause is appended into the readingState sentence specifically.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Also spreads in lensGates(o) at the front, a separate token source not obvious from the signature.
-
-### `coverOf`
-- spec 3 · read at `91675551a07a` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:33Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: coverOf computes the layout for the report's cover page — wordmark, title, an abstract paragraph and methods blurb filled in from vars (name/date/etc. tokens, similar to the render/inlineRuns pattern), measured and wrapped to width via the sheet's text measurement — returning a Cover object that drawCover later paints, without doing any drawing itself.
-- found: Splits the repo slug into owner/name, shrinks the title font size in a loop until it fits width, computes a stack of Y-coordinates for each cover section, fills and wraps the methodology abstract text via fillSlots/inlineRuns/setLines, and returns a Cover object with all these precomputed positions/text for drawCover to paint.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-
-### `drawCover`
-- spec 3 · read at `d4a2f982d538` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:17Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Draws the report's cover page: the wordmark (via wordmarkPaths), the project title/paths list, and an abstract built from `facts`, with an optional `note` string drawn beneath the abstract (used to explain the map's width/color legend when this cover doubles as a deck title slide). Lays text out using the Sheet's text-drawing primitives, likely in a single column since it's a title page rather than the two-column essay layout used elsewhere.
-- found: Draws the wordmark as scaled vector paths plus a "sanity.monster" byline, an eyebrow label, an owner/name title pair (aligned by first-glyph ink bearing), a subtitle and a facts line each shrunk-to-fit via fitText, a rule, an "Abstract" heading with its wrapped body lines, another rule, then an optional note block drawn as muted wrapped lines beneath.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-
-### `buildReport` — LEGIBLE SOME
-- spec 3 · served in 2 parts · read at `e9e71e0d6f12` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:54:02Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Top-level async orchestrator assembling the whole PDF: builds the cover, computes per-lens layouts/prose, lays out and places tables/lists, builds the findings section maps, builds the contents page once page numbers are known, draws everything onto the Sheet/Surface, and returns the finished PDF bytes.
-- found: The full document builder: branches heavily by output form (report/brief/deck) to lay out cover+methodology, each lens's figure/essay/tables (with a fallback ladder shrinking tables when a section would exceed the page limit), the findings overview (with a binary-searched balanced grid pagination) and per-group zoomed maps, an appendix, and finally the contents page once every page's index is known — then draws all of it page by page onto the Sheet in a fixed order (cover, lenses, findings overview, groups, appendix, contents) and serializes to PDF bytes via doc.write, reporting progress/cancellation throughout.
-- predicted: most · documented: none · derivable: yes · legible: some · trap: no
-
-### `contents`
-- spec 3 · read at `58e36bdcce07` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:36Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Draws the report's table-of-contents page onto sheet, listing each lens section (using lensStart for its page number), the findings overview and each finding group (using findingsStart/findings/groupStart), and the appendix page if present, using placeName for labels. Lenses in `skips` (single-value lenses with no real section) are shown with their explanatory sentence instead of a page number since they have no page to link to.
-- found: Draws the TOC page: abstract row, then lens families each listing modes with page numbers as leader-dot rows linking to their page, or (for skipped lenses) an indented explanatory sentence — deduped so consecutive skips sharing the same reason print it once. Then a findings overview row, followed by finding groups laid out in one or two columns depending on how many fit on the remaining page, truncating with an 'and N more groups' line if still too many, and finally an optional appendix row.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ## web/src/lib/reportInputs.ts
 
@@ -4516,189 +5741,246 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/reportTables.ts
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `a269d5bed6a9` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:01:42Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A pure data-computation module (no drawing) that, for each analysis lens, computes the two report tables described in the header — a complete breakdown of lines/functions per band, and a ranked/possibly-partial table of named examples — plus narrative helper strings (facts, stories, trap counts) that report.ts later renders. Organized around per-lens table builders (tablesFor, breakdown, complexity, clones, composition, examples, filesByLanguage) built on shared tree-walking/ranking/formatting utilities (walk, ranked, shareOf, num, share, graded), and text-generation helpers (lensFact, lensStory, complexityStory, docs, traps, chip) that summarize the numbers into report prose.
-- found: A pure data module computing, per color-mode lens, the two report tables (breakdown and examples) plus one-sentence narrative summaries (lensFact, lensStory/complexityStory) drawn from the same data, all built on a shared tree-walk (walk) and ranking utilities. I underestimated how much of the file is per-lens narrative-sentence generation (lensStory/complexityStory are huge switch statements building prose per lens) versus table construction — roughly half the file is prose generation I hadn't anticipated from the header, which focused on the tables.
+- spec 3 · served in 2 parts · read at `2bb6a850ec25` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:20Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Computes, per lens, the report's breakdown table and ranked-examples table plus the narrative "story" text explaining each lens's numbers; pure data/text logic, no rendering.
+- found: Per-lens report data: Table 1 (breakdown by band/author/language), Table 2 (ranked examples like most-complex, clone groups, oldest/churned functions, traps) via a dispatch switch keyed by ColorMode, plus per-lens narrative "story" sentence generators (compositionStory, languageStory, etc.) that read the same bucket data and produce prose with placeholder tokens like {authorsCommits} filled elsewhere. Also exports lensFact for one-line slide summaries. Pure data/text, no rendering, matching the header's own claim.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `n`
-- spec 3 · read at `712db5890544` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:56:39Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A one-line helper that formats a number for display in the report tables — likely rounding it and inserting thousands separators (e.g. via toLocaleString), used wherever a count needs to be printed in a table cell.
-- found: `const n = (v: number) => v.toLocaleString()` — formats a number with locale thousands separators.
+- spec 3 · read at `9111c8ddf945` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:41Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A one-line formatting helper that returns v formatted with thousands separators for display, e.g. v.toLocaleString().
+- found: Returns v.toLocaleString() — formats a number with locale thousands separators.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `fn`
-- spec 3 · read at `02cf5c0a84f1` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Formats a function Node into a table Cell — likely a text label combining the function's name with some qualifying context (file/class), for display in ranked or example rows.
-- found: Formats a function Node into a Cell with text `path#name` in monospace, for use as a row label in tables.
+- spec 3 · read at `3eb978e167ac` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A one-line helper that turns a function Node into a table Cell, most likely just wrapping the node's name/label as the cell's display text (e.g. `{ text: f.name }`), used when building Table 2's list of named function examples.
+- found: Builds a table Cell from a function Node, formatting its text as `path#name` (matching the id format used elsewhere) and marking it monospace.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `num`
-- spec 3 · read at `00c9260cc611` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:18Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A one-line helper that wraps a numeric value into a table Cell, returning some placeholder (like an em dash or empty string) when the value is null/undefined, and otherwise formatting the number as a display string (possibly with thousands separators).
-- found: Wraps a number into a Cell: '—' text when null/undefined, otherwise rounds and formats via the sibling `n` helper.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `cb4567466222` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:52Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A one-line helper that converts a number (or null/undefined) into a table Cell object, formatting the value as a display string and using a placeholder like "—" when the value is missing.
+- found: Formats a nullable number into a table Cell: '—' when null/undefined, otherwise rounds it and delegates to another formatter `n` for the display string (likely adding thousands separators).
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `share`
-- spec 3 · read at `8158d7323451` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:51Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Formats x as a percentage of total, e.g. rounding to a whole number and appending '%'; guards against total being 0 by returning something safe like '0%' instead of NaN.
-- found: Formats a share as a percent string: '—' when total is non-positive, '<1%' for a nonzero-but-sub-1% share, otherwise rounded whole-number percent.
+- spec 3 · read at `5f484f4695d2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:42:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Computes what percentage x is of total and returns it as a formatted string like "42%", rounding to a whole number. Guards against total being zero by returning "0%" instead of dividing by zero.
+- found: Formats x/total as a percentage string, returning an em-dash for total<=0, "<1%" for a nonzero fraction under 1%, and a rounded whole-number percent otherwise.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `walk` — PREDICTED SOME
-- spec 3 · read at `a237dc8aa3d2` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:42:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Recursively traverses the Node tree from root, flattening it into a Walked structure (likely arrays of file nodes and function nodes) for the various table-building functions to consume. Handles null root by returning empty arrays, and recurses into children accumulating nodes by kind.
-- found: Recursively flattens the Node tree, skipping excluded nodes; collects file nodes (and sums their `funcs` count into `unnamed`), and for func nodes only counts them if they aren't a roll-up (`rest === undefined`) into `funcs`, further splitting into `named` when the func's codeKind isn't in the UNRANKED set.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-- note: file_doc describes the report tables concept generally (Table 1/2), not this specific function's roll-up/UNRANKED logic.
+- spec 3 · read at `b94418685543` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Recursively traverses the node tree starting at `root`, collecting flat lists of files and functions (and maybe folders) into a `Walked` result object that other helpers (`functionsOnly`, `filesByLanguage`, `examples`, `complexityRanked`) consume, handling `root === null` by returning empty collections.
+- found: Recursively walks the tree, skipping excluded nodes. For func nodes that aren't roll-ups (rest === undefined), pushes to `funcs`, and additionally to `named` if the codeKind isn't in an UNRANKED set. For file nodes, pushes to `files` and adds the file's function count to `unnamed`. Returns the accumulated Walked object.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: The file_doc for the module was shown but doesn't describe this specific function's exclusion/roll-up/unnamed-count logic.
 
 ### `namedClause` — PREDICTED SOME
-- spec 3 · read at `6c12f397fd10` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:28:53Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Walks the tree to compare how many functions have actual Node bodies present (loaded rings) versus the total function count the repo reports, and returns a sentence describing that coverage (e.g., "based on the N% of functions this window holds") when it's less than complete, or an empty string when the tree can name every function.
-- found: Always returns a base sentence noting that ranking tables exclude test/generated/vendored code, and appends a clause naming how many of the total functions the report actually holds names for when some are unnamed — never returns an empty string.
+- spec 3 · read at `b183fffaf03f` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:15Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Walks the tree to count total functions vs. how many are actually present/named in the (possibly slimmed) tree, returning a clause like "N of M functions" explaining the limited coverage, or an empty string if the tree holds every function and can name any of them.
+- found: Walks the tree; always states that ranking tables exclude test/generated/vendored code, and appends an "N of M functions" clause only when some functions are unnamed (not held by the report).
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The doc's "or nothing when it can name them all" is a bit misleading — the function always returns the base 'kept' sentence, never truly empty.
 
 ### `ranked`
-- spec 3 · read at `f593f4c06fd6` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:18Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Sorts a copy of xs in descending order by by(t), using tie(t) as a secondary key to break ties deterministically.
-- found: Returns a sorted copy of xs, descending by by(t), with descending tie(t) as the secondary sort key.
+- spec 3 · read at `a532572d7291` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:48Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns a sorted copy of xs, descending by by(t), breaking ties using tie(t).
+- found: Returns a copy of xs sorted descending by by(t), with ties broken descending by tie(t).
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `tablesFor`
-- spec 3 · read at `88eb414a0efc` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:24:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Switches on ColorMode to pick the matching builder(s) among breakdown/examples/complexity/composition/clones/docs/traps, calls them with ctx and limits to produce the breakdown table and the examples table for that lens, then filters out any empty tables before returning the array.
-- found: Walks the tree once via walk(ctx.root), then builds an array of [breakdown table, examples table] (examples capped by limits.examples and TRAPS_MAX for the traps mode, skipped entirely if the cap is 0), filtering out null/empty-row tables.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `9115b18019cb` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:31Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: tablesFor builds the two tables for a given lens/ColorMode — calling something like breakdown(ctx, ...) for Table 1 and examples(ctx, limits.examples, ...) for Table 2 — pushes them into an array in that fixed order, filters out any table with no rows, and returns the resulting Table[].
+- found: Walks the tree once, computes a capped example count (special-cased lower for the 'traps' lens), then returns breakdown() and (if any examples allowed) examples() as an array, filtering out nulls and empty-row tables.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `breakdown` — PREDICTED SOME
-- spec 3 · read at `51f8e74e8e9d` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:46:17Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds "Table 1" for a given lens/ColorMode - the complete band breakdown (lines and functions per bucket) computed via bucketsFor over the whole repo, not limited to the visible window w, returning a Table with one row per band and counts/shares; returns null for modes that have no meaningful buckets (like blame, which is categorical). castRows likely caps how many rows are shown before folding the rest into an "other" row.
-- found: Sorts ctx.buckets (filtered by lines>0, using functionsOnly for docs mode) by the color mode, computes total lines and bails if zero; for blame/language modes caps shown rows at castRows and folds the remainder into a 'N more authors/languages' summary row; builds columns (optionally a Files column for language mode) and a caption noting how much of the map's total lines this table covers plus a docs-specific caveat, returning a Table.
+- spec 3 · read at `ea4b24fdcfc4` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds Table 1 for a lens: buckets files/functions into color-mode bands (via something like bucketsFor) and produces rows showing lines and function counts per band, with share percentages, matching what the panel/rims display. castRows likely controls how many extra/"cast" rows (e.g. summary or overflow rows) are appended to the table.
+- found: Sorts buckets by color mode, computes total lines, and for blame/language modes caps shown rows at castRows and collapses the rest into a "N more authors/languages" summary row; builds a table with mode-specific columns (Band/Author/Language, optional Files, Functions, Lines, Share of lines with a bar), plus a caption noting how much of the map's total lines this table covers and a docs-specific caveat about file headers.
 - predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The "cast" row-collapsing behavior only applies to blame/language modes, not band/docs modes, and castRows is not simply an "extra rows" count as I guessed — it's a cap on shown rows before collapsing the remainder.
 
 ### `functionsOnly`
-- spec 3 · read at `12ca29bdf55b` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:24:39Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Takes the Docs lens's buckets (which include files as their own reading, via their header) and returns a new set of buckets with the file-level lines/counts subtracted or filtered out, so the breakdown reflects only function bodies and doesn't double-count a file's lines under both its own header bucket and its functions' buckets.
-- found: Copies the buckets into a map keyed by bucket key, then for each file subtracts its loc and decrements the count from the bucket matching its doc grade, removing each file's own header-reading contribution so the table reflects function bodies only.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `0aa67d74bfae` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: functionsOnly takes the existing buckets array (whose line/function counts include file headers, per the doc about double counting) and returns a new array of Bucket[] with the file-header contributions subtracted out, walking the tree w and using views to identify which counted items are files versus function bodies.
+- found: For each file in the walked tree, it finds the bucket its own doc-grade falls into and subtracts that file's line count and one from the bucket's function count, removing the file-header's contribution so the buckets represent function bodies only.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `filesByLanguage`
-- spec 3 · read at `7a0c559c2265` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Walks the tree (Walked), and for each file determines its language (from extension or a language field) and tallies a count per language, returning a Map<string, number> of language -> file count, likely used for a composition/breakdown table in the report.
-- found: Iterates w.files, and for each file with a truthy `lang` field increments that language's count in a Map, skipping files with no lang.
+- spec 3 · read at `c1a02301520e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Walks the file tree in w and counts files per language, returning a Map from language name to file count.
+- found: Iterates w.files, and for each file with a truthy lang field, increments a per-language count in a Map, returning that Map.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: No function-level doc; only the file-level doc about report tables in general applies.
 
-### `examples` — PREDICTED SOME
-- spec 3 · read at `ac2be3ba2684` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:32:58Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Walks the tree `w` to collect function nodes, scores/ranks each one according to the lens `m` (likely via something like `graded` or `lensFact`), sorts them and keeps the top `top` entries to build a Table of named examples (function name, file, value/score). Since a slimmed tree doesn't have every function node, it adds a note stating what fraction of the total this window's ranking actually covers when that's less than everything, and returns null if there's nothing to rank.
-- found: A big switch on ColorMode `m` that dispatches to a different table-builder per lens: complexity/composition/clones/docs/traps/graded are delegated to their own named functions, while callers/reach/age/churn build their own ranked rows inline with lens-specific captions and columns; age has a special case returning null when all rows tie (an unrankable table); blame/language fall through to null since their breakdown table already says it.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
-- note: The docs field was empty for this function; the useful description (\"Table 2 names examples...\") lives at file_doc scope, not attached here, so this specific dispatcher's per-case logic is undocumented.
+### `examples`
+- spec 3 · read at `967405e714c5` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:24:25Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Dispatcher for "Table 2" across lenses — switches on m (ColorMode) to pick the right ranking/example logic (complexity, blame/age, churn, language, etc.) over w.named functions, builds rows of top-ranked example functions with their values, and appends a note about how much of the full function population the window actually holds when it's not complete — returning null for modes without a Table 2.
+- found: Dispatches on ColorMode to build each lens's example table: delegates to complexity/composition/clones for those modes, and inline-builds ranked tables for callers, reach (calls out), age (with a null-return guard when all ages tie), churn, and delegates surprise/legible to `graded`, docs/traps to their own functions. Blame and language modes return null because the breakdown table already lists people/languages directly.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ### `complexityRanked` — PREDICTED SOME
-- spec 3 · read at `107fb8111573` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:27:28Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Walks the tree collecting every function node with a complexity value, sorts descending by complexity (most complex first), and returns them through the `ranked` helper as Table 2 for the complexity lens, including a note about how much of the full function set this covers when the tree is slimmed.
-- found: Scores each named function with a nonzero cognitive complexity against the median cognitive score for its size band (via TANGLE_EDGES/tangleBands), then ranks by that ratio when tangle weighting is on (else by raw cognitive score), with ties/secondary sort by raw cognitive score or LOC depending on mode — via the shared `ranked` helper.
-- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
-- note: The file doc's line about ordering ("most complex first") undersells that the actual ranking key is often a ratio to a size-band median, not raw complexity — that mechanism isn't mentioned in either doc excerpt.
+- spec 3 · read at `c66db7ed1578` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds a ranked list of functions from the walked tree, sorted by complexity (most complex first), likely using a "ranked"/"examples" helper to cap the count and note how many were omitted if the window is a slimmed tree. Returns table rows (name, complexity score, lines) for Table 2 of the complexity lens report.
+- found: Computes, for each named function with a cognitive score, a ratio of its complexity against the median complexity for functions of similar size (tangle band), then delegates to a `ranked` helper sorted either by that ratio (weighted mode) or raw cognitive score (raw mode), with a secondary tiebreak key.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The "weighted vs raw" comparison-against-peers-of-similar-size logic (tangle bands, ratio) is not derivable from name/docs alone — docs describe the file/table-pair concept, not this specific scoring method.
 
-### `complexity` — PREDICTED NONE
-- spec 3 · read at `2ddf53bd72a3` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:46:12Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Builds the Table 1 breakdown for the complexity lens: buckets lines/functions per complexity band (using bucketsFor or similar), complete even for a slimmed window since it works off file-level bucket data, and returns a Table with rows per band showing counts/shares, or null if not applicable for this context.
-- found: This is the Table 2 (named-examples) table for complexity, not the bucket breakdown: it takes the top-N functions from complexityRanked and builds a table listing each function's lines, decision points (cog complexity), the band median, and the ratio to median, with a caption that differs depending on whether tangle view is weighted or raw.
-- predicted: none · documented: none · derivable: yes · legible: full · trap: no
-- note: Easy to confuse with a Table-1-style bucket breakdown from the file doc alone; it's actually the ranked-examples table, delegating the real ranking work to complexityRanked (a separate peer function).
+### `complexity` — PREDICTED SOME
+- spec 3 · read at `2f74bd9be1fa` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:27Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds a report Table ranking the top N most complex functions from the walked tree w, likely using the complexityRanked helper, with rows showing function name/file/complexity score, returning null when there's nothing to rank.
+- found: Builds a Table of the top N functions by decision points (cognitive complexity), with columns for lines, decision points, band median, and ratio-to-median; caption varies depending on whether ctx.views.tangle is 'raw' (plain decision-point count) vs weighted (normalized against size).
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: Return type says Table | null but this implementation never returns null.
 
 ### `kindsOf`
-- spec 3 · read at `824bf7e23b36` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:24:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks a file node's functions (if present) and buckets them by "kind"/band, summing lines and counting per bucket; if the file has no function nodes it falls back to reading pre-aggregated per-kind columns stored on the file itself (via something like bucketsFor) so the map is populated either way.
-- found: Buckets a file's function children by codeKind.kind, summing loc and counting; if the file has no materialized func children with rest===undefined, falls back to the file's columnar cols.kind/cols.loc arrays, mapping kind indices through KIND_ORDER (defaulting to 'unplaced' for missing/out-of-range).
+- spec 3 · read at `a5a58f17316d` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: kindsOf builds a map from kind name (e.g. function/method/etc.) to summed lines/count. If file has its function nodes populated, it iterates them, grouping by each function's kind. If not (a slimmed file without functions), it falls back to reading pre-aggregated per-kind columns stored directly on the file node, producing the same map shape either way so the table is always complete.
+- found: Filters file.children for actual function nodes (kind 'func', no rest) and sums lines/count per codeKind if any exist; otherwise falls back to file.cols' parallel kind/loc arrays, mapping kind indices through KIND_ORDER, defaulting unknowns to 'unplaced' in both paths.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `composition` — PREDICTED NONE
-- spec 3 · read at `9dd64d4b0bc4` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:26:04Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Uses kindsOf to classify each function into a kind/category, groups functions by kind, ranks the kinds by count or total lines, and takes the top N. Builds a Table listing example function names per kind (similar shape to the clones table: columns for count/lines and a members column), with a namedNote(w) note about how much of the walked window this covers. Returns null if there are no classifiable functions.
-- found: Fixed set of non-production kinds (test/generated/vendored/header); for each file, gets its per-kind line/function totals via kindsOf and emits a row per (file, kind) that has lines > 0, ranks all such rows by lines then count, and lists the top N files-by-kind as a flat table (no grouping/aggregation, no namedNote).
-- predicted: none · documented: none · derivable: no · legible: full · trap: no
+### `composition` — PREDICTED SOME
+- spec 3 · read at `f0bf91052643` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:24:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Groups the functions in w.funcs by their codeKind (via kindsOf), ranks kinds by count/lines using the shared ranked helper, takes the top `top` kinds, and returns a Table with columns for count, lines, and example function names for each kind — returning null if there's nothing to report.
+- found: For each file in w.files, computes kind breakdowns via kindsOf(file) and emits one row per file per special kind (test/generated/vendored/header) that has lines > 0. Ranks these file×kind rows by lines then count via the shared `ranked` helper, takes top N, and returns a Table listing file path, kind (with color swatch), function count, and lines — one row per file, not per function.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: Operates at file granularity with a fixed set of non-mainline kinds (test/generated/vendored/header), not at function granularity as the name/signature (which takes w.funcs-shaped Walked) might suggest.
 
 ### `clones`
-- spec 3 · read at `09d688185f69` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:56:35Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Builds Table 2 for the clones lens: ranks and lists the top N clone groups/duplicated functions found in the walked tree (using something like `ranked`/`examples`), returning null if there are no clone findings, and otherwise a Table with rows naming the duplicated functions/files and a note if the window doesn't cover every file (since clone detection needs full function nodes, not a slimmed tree).
-- found: Groups all functions by their `cloneGroup` id, ranks groups by clone size then total lines across copies, takes the top N, and builds a Table with Copies/Lines/Members columns — Members lists up to 3 named members (path#name, largest first) plus an "and N more" suffix.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Despite the return type Table | null, this body never explicitly returns null — presumably an empty groups map just yields an empty-rows table, so the null case must live elsewhere or is unreachable here.
+- spec 3 · read at `11c791b2dc90` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Groups the functions in w.funcs by their clone-group id (duplicate code detection), counts members per group, sorts groups by size/lines descending, and returns a Table listing the top `top` clone groups with example function names — returning null if no clone groups exist.
+- found: Groups functions by cloneGroup id, ranks groups by cloneSize (falling back to group length) then total lines via the shared `ranked` helper, takes the top N, and builds a Table with columns for copy count, total lines across copies, and up to 3 example member names (path#name) plus "and N more".
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
 
 ### `graded`
-- spec 3 · read at `d0361c04a31e` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:19:24Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Builds a Table listing nodes from the walked tree ranked by the given grade function: filters out nodes with no/stale grade, sorts worst grade first and widest (e.g. most lines) as a tiebreaker, takes the top N, and returns null if no gradeable nodes exist. Caption/label are used for the table's title/column labels.
-- found: Builds a Table of functions graded 'none' or 'some' (excluding stale/undefined grades), ranked worst grade first then by lines of code, capped at `top` rows, with a fixed 3-column layout (Function, grade label, Lines).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `b95dcb6466cd` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:28Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A generic Table-2-style builder: applies gradeOf to each named function, keeps only the two "informative" grades (excluding stale/undefined), ranks worst grade first then by size (loc) as tiebreak, slices to `top`, and returns a Table with the given caption and a column labeled by `label` plus Function/Lines columns. Used by docs() and a similar traps() function to share the ranking/table-building logic.
+- found: Generic Table-2 builder: excludes stale-agent functions, keeps only 'none'/'some' grades from gradeOf, ranks worst-first-then-largest, slices to top, builds a table with caption, a custom-labeled grade column, and Function/Lines columns.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `docs`
-- spec 3 · read at `247c673a1c9d` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: docs builds a ranked Table (like examples/complexityRanked) listing the top N files or functions by documentation coverage (e.g. worst/most undocumented), returning null if the walked tree has no doc data to rank.
-- found: Filters functions with real (non-stale, non-derivable) documentation graded 'none' or 'some', ranks them by grade then size descending, and returns the top N as a table with function/documentation/lines columns; derivable docs are treated as 'none'.
+- spec 3 · read at `6bb3b1666d4e` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds Table 2 for the "docs" lens: ranks named functions by some documentation-quality/coverage metric (e.g. undocumented or poorly-documented functions first), takes the top `top` examples, and returns a Table object (or null if there's nothing to show), following the same ranked/examples pattern as complexityRanked.
+- found: Filters to agent-graded functions that are documented but graded 'none' or 'some' (treating derivable docs as 'none'), builds a Table with columns Function/Documentation/Lines, ranked worst-graded-and-largest first, capped at `top` rows.
 - predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: The subtlety that "derivable" documentation is downgraded to 'none' in the score but displayed as 'none (derivable)' in the table is not obvious from the signature/name alone.
 
-### `lensFact` — LEGIBLE SOME
-- spec 3 · read at `c82b52ce356b` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:57Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A switch over ColorMode (each lens: cold, complexity, docs, traps, composition, clones, etc.) that pulls the Table 1 bucket counts from ctx for that lens and formats one sentence naming the extreme end of the lens (e.g. share of undocumented functions, share flagged as traps), returning an empty string when the lens counted nothing in this repository.
-- found: A large switch over ColorMode with a distinct, hand-tuned sentence template per lens (tangle, composition, language, clones, callers, reach, blame, age, churn, surprise/legible, docs, traps), each computing its own bucket percentage or count from ctx.buckets (with docs mode filtering to functionsOnly first), falling back to '' for total<=0 or unknown modes.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: The doc explains the general Table 1/Table 2 concept but not the twelve distinct sentence templates and their individual bucket-selection logic (e.g. 'graded' helper reused for surprise/legible/docs).
+### `lensFact` — PREDICTED SOME
+- spec 3 · read at `cceb7b683482` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:46Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: lensFact computes Table 1's buckets for the given lens m and mode context ctx, then switches on m to produce a single human-readable sentence naming the "extreme" end of that lens (e.g., "38% of functions are undocumented" for a docs lens, "X% of code sits in the highest complexity band" for complexity), pulling the relevant bucket's share/count; returns an empty string when the lens counted nothing.
+- found: A large switch over ColorMode producing a bespoke templated sentence per lens (tangle, composition, language, clones, callers, reach, blame, age, churn, surprise/legible, docs, traps), each pulling its own specific bucket sums/shares and phrasing, with a shared graded() helper for the surprise/legible/docs family; returns '' when total lines is zero or lens unmatched.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
 
 ### `traps`
-- spec 3 · read at `f82a60bc9bb8` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:51:40Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds a ranked Table (similar to examples/complexityRanked) listing up to `top` functions/files flagged as hazardous ("trap") within the walked data `w`, showing name/location and a note describing the hazard; returns null if no trap-flagged items exist.
-- found: Filters funcs to those with agent.trap set but not agent.trapDated and not agentStale, ranks them (trivially, by loc with a zero weight function), takes the top N, and builds a two-column list Table (Function, What breaks) using each function's agent note as the explanation, with a trailing note if more traps were omitted.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Never returns null despite the -> Table | null signature; also excludes stale/dated trap reports which isn't guessable from the name.
+- spec 3 · read at `ff2725e9e9db` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a report table listing functions flagged as "traps" during assessment, ranking/selecting the top N by some criterion and formatting name/location/note into rows; returns null if the walked tree has no trap-flagged functions.
+- found: Filters funcs to those with a live (not dated/stale) reported trap, ranks them by loc, takes the top N, and builds a two-column table (function, what-breaks note) with a note about how many more traps exist beyond the shown slice.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Docs shown (`docs: []`) were empty for the function itself; the file_doc describing the whole reportTables.ts file was given instead, so it doesn't count as function-specific documentation.
 
-### `lensStory` — LEGIBLE SOME
-- spec 3 · read at `6658ed8b7cc5` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:59Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A large switch/dispatch over ColorMode `m`: for each lens that has been given a story, it pulls facts out of ctx's table data (band medians, counts, examples) and assembles a handful of sentences describing what the map shows for this repo, sometimes delegating to a per-lens helper like complexityStory; lenses whose page hasn't been written yet just return an empty array.
-- found: A large switch over ColorMode `m` (delegating to complexityStory for 'tangle'), each case pulling specific facts (shares, top examples, unresolved/uncounted lines) out of ctx.buckets/views and assembling a handful of hand-written sentences; joins them into one string, or returns [] if no case matched or nothing was said.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `lensStory`
+- spec 3 · read at `4d3017306bed` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A dispatcher — a switch/map on ColorMode that calls the matching *Story peer function (compositionStory, languageStory, clonesStory, callStory, blameStory, ageStory, churnStory, gradedStory, trapsStory) with ctx and returns its string array, defaulting to an empty array for modes without a story yet.
+- found: Special-cases 'tangle' mode to complexityStory, otherwise looks up a STORIES table by mode, walks the tree, and calls the story function with a context object (mode, ctx, walked tree, total lines, and a lazy 'lead' example getter), joining the resulting sentence fragments into a single string wrapped in an array (or empty if nothing was said).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The STORIES lookup table and the 'lead' lazy-example callback aren't visible from the signature/peers alone.
+
+### `compositionStory`
+- spec 3 · read at `a129ba009ece` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:53Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Given a StoryInput (ctx, total, lead), it builds the narrative paragraph for the "composition" lens — describing the breakdown of the codebase (e.g., by kind or language share) as prose sentences, prefixed by the lead-in line — and returns it as an array of strings (one per line/paragraph) for the report.
+- found: Builds narrative sentences for the composition lens: the share of function lines per non-code bucket (comments/blank/etc), a note if no generated/vendored/header code was found, the file with the largest share of non-code lines (from `lead()`), and a mention of any unplaced lines — returned as an array of sentence strings.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+
+### `languageStory`
+- spec 3 · read at `e36f8dd4aeed` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:37Z · by ross@rossturk.com · warm reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Filters non-absent buckets, sorts by lines descending, returns a one-sentence array listing each language and its share of total function lines.
+- found: Filters non-absent, non-zero language buckets, sorts descending by lines, and returns a single sentence naming each language and its share of total function lines.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Already read this exact function earlier in the same session as part of the whole-file reveal of reportTables.ts, so this was recall rather than a blind prediction.
+
+### `clonesStory` — PREDICTED SOME
+- spec 3 · read at `4d7ea421e8ad` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:34Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Builds the prose paragraph(s) for the clones lens: computes the share of lines/functions that are clones (via `clones`/`shareOf`/`linesWhere`), opens with `lead` phrasing that percentage, and if the window holds named example functions lists a few via `listed`, otherwise notes their absence via `isAbsent`. Returns an array of strings (one or more sentences/paragraphs) for the essay.
+- found: Filters buckets whose label matches a clone-group pattern, sums their function counts against the "unique"/no-clone bucket to state the share of comparable functions in clone groups and the share of lines they hold (or a "none belongs to a clone group" sentence if there are none); appends a sentence about the largest clone group's member/line counts from `lead()`; and if any bucket is too-small-to-compare or absent, notes the line share excluded from comparison.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `callStory`
+- spec 3 · read at `a6da6ca4a8fc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Produces the narrative paragraph(s) (as an array of strings) for the "calls" lens in the report — summarizing the call graph's two ends (callers and reach) by picking out notable functions (e.g. most-called or with deepest reach) from m/ctx, formatting them with helpers like chip/listed, and prefixing with lead text, following the same pattern as sibling *Story functions.
+- found: Shared implementation for both the 'callers' and 'reach' lens modes (branching on m): computes share of function-lines with zero vs 6+ callers/calls, adds a sentence naming the top function from lead(), a shared-edges placeholder token on the callers branch only, and a final sentence noting lines in languages where calls aren't resolved.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The '{callsResolved}' string literal is a template placeholder filled in elsewhere, not dead text — easy to miss on a first read.
+
+### `blameStory`
+- spec 3 · read at `5c23930f0615` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:09Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Generates narrative prose (an array of paragraph strings) summarizing the blame/authorship lens for the report — likely describing which author(s) own the most code, how concentrated or spread out ownership is, and possibly flagging a dominant single author or highly fragmented ownership, using shareOf-style percentage phrasing.
+- found: Builds narrative sentences for the blame lens: the top one or two authors and their share of function lines (under either the most-lines or newest-line attribution reading), plus separate sentences for uncommitted work and authors folded into an 'other' bucket beyond the color cap, when those are nonzero.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `ageStory` — PREDICTED SOME
+- spec 3 · read at `61f08c8a55fe` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:48:44Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Looks at the age buckets in ctx (bands like "new"/"typical"/"old"/etc, mirroring `ageBandNoun`), picks out the oldest band(s) via `linesWhere`, computes its share of `total` via `shareOf`, and returns one or two sentences describing what fraction of the codebase's lines fall in the oldest age band(s), without needing named examples (no `lead`/`listed` since function nodes aren't required here).
+- found: Computes both a recent-lines share ("today"/"this week") and an old-lines share ("this quarter"/"older") via linesWhere/shareOf, and phrases the sentence differently depending on whether the age view is reading oldest-surviving-line vs newest-changed-line (`ctx.views.age.read`); prepends a `{ageSpan}` template placeholder and appends a note about undated lines with no recorded history, if any.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+
+### `churnStory`
+- spec 3 · read at `55a5b409baa2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:52:53Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Generates prose sentences (array of strings) narrating churn/change-frequency findings from ctx, comparing against total and referencing a precomputed lead (top churn item/band), as part of the report's set of *Story narrative generators alongside ageStory, blameStory, complexityStory, etc.
+- found: Reports the churn window length in days, computes share of function lines in "10+ commits" buckets vs "no commits found" buckets, prepends a template placeholder string '{churnWindows}' (presumably substituted elsewhere), and calls `lead()` (a function, not a precomputed value) to optionally append a sentence naming the single most-changed body and its commit count.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: `lead` in StoryInput is a callable, not a plain value — easy to misread from the destructured signature alone.
+
+### `gradedStory`
+- spec 3 · read at `15469b4b9a2e` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:33Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Generates narrative sentences for whichever of the three grade-based lenses (Predictability, Legibility, Docs) is active — using `m` to pick mode-specific wording — summarizing the share of code at each grade band (full/most/some/none), likely emphasizing the share that graded poorly (some/none) as the notable finding, with `lead` perhaps supplying a headline percentage and `w` some weighting or width parameter.
+- found: Builds narrative sentences for whichever grade lens is active (surprise/legible/docs, selected via `m`): the share of function lines graded 'none' vs 'some' (with a special case for docs where 'derivable' counts as full or none depending on a view toggle), a sentence about lines with no current reading (including a stale-reading sub-share), and a final sentence naming the largest body at the top grade band, pulled from a `lead()` callback rather than a precomputed value.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+
+### `trapsStory`
+- spec 3 · read at `d26958d46282` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:38Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: trapsStory generates prose sentences (string[]) narrating the "traps" lens's findings for a report — likely stating what share/count of functions are flagged as traps, and naming a few examples (using listed), following the same {ctx, total, lead} pattern as sibling *Story functions, with a fallback sentence via isAbsent when there's nothing to report.
+- found: Builds prose sentences from bucket counts: how many trap vs clear functions were read, an "unread" share sentence when some lines have no current answer, and a sentence naming the longest body with a reported trap via `lead()`/`chip`. Close to my prediction but it pulls from precomputed buckets rather than the raw tree, and names only the single "longest" example rather than a joined list via `listed`.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `shareOf`
-- spec 3 · read at `e1501826ca4a` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:34:10Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A small percentage helper similar to `share`, likely used when generating narrative prose (given nearby peers like lensStory/complexityStory) rather than table cells — computing x as a percent of `of`, guarding a zero/non-positive divisor, and returning a string phrased for embedding in sentence text rather than a table.
-- found: Prose-oriented sibling of `share`: '0%' for a non-positive divisor, 'less than 1%' for a nonzero-but-sub-1% share (spelled out for sentence embedding rather than '<1%'), else rounded whole-number percent.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: This near-duplicate of `share` differs only in string phrasing (spelled out vs symbolic) and zero-divisor fallback ('0%' vs '—') — worth noting as a small duplication if anyone consolidates these.
+- spec 3 · read at `ec3a26e17df9` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A small helper that computes what fraction/percentage `x` is of `of`, likely returning `x / of` (possibly rounded or converted to a percentage), with a guard to avoid dividing by zero when `of` is 0 (returning 0 in that case). Used elsewhere in the report tables to compute the share of lines/functions a band or bucket represents.
+- found: Computes x as a percentage of `of`, returning a formatted string: '0%' when `of` is non-positive, 'less than 1%' for a nonzero fraction under 1%, otherwise the rounded percentage with a '%' suffix.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `listed`
-- spec 3 · read at `7718b0ec74de` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A small formatting helper that joins an array of strings into a human-readable list (e.g., comma-separated with "and" before the last item) for use in report prose/notes.
-- found: Joins a string array into prose: empty/single element passes through as-is (or empty string), multiple elements become comma-joined with "and" before the last.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `isAbsent`
-- spec 3 · read at `8afae2e76cbe` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Predicate checking whether a Bucket represents an absent/not-applicable band (e.g. matching a specific label/key), used to filter or special-case that bucket in breakdown/report tables.
-- found: Checks whether a Bucket's key starts with a NUL character, apparently the sentinel used to mark an absent/placeholder bucket key.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- note: The specific sentinel (NUL-prefixed key) is an implementation detail not hinted at anywhere in the visible peers or file doc.
-
-### `linesWhere`
-- spec 3 · read at `0d0c83afd727` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:23Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Filters the Bucket array by the pick predicate and sums the lines field of matching buckets, returning the total.
-- found: Filters buckets by the predicate and sums their lines field via reduce, exactly as predicted.
+- spec 3 · read at `f0816cedf50d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: listed is a small text-formatting helper that joins an array of strings into a human-readable comma-separated list (e.g., "a, b, and c"), used when generating prose notes/captions for report tables.
+- found: Joins a string array into "a, b and c" style prose (no Oxford comma), with single-item and empty-array edge cases handled.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `chip`
-- spec 3 · read at `5b7b16825622` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A tiny formatting helper that wraps a string in backticks (or similar markdown delimiter) to render it as an inline code "chip" in report text.
-- found: Wraps a string in backticks to render as inline code in markdown-style report text.
+### `isAbsent` — PREDICTED NONE — TRAP
+- spec 3 · read at `7bb87209bff1` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:52Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A one-line predicate that checks whether a Bucket has no data — likely returning true when its line count and/or function count are both zero, used to skip or grey out empty bands in the breakdown table.
+- found: Checks whether a Bucket's key starts with a NUL character — a sentinel marker convention for "absent/placeholder" buckets, not a check on counts as I guessed.
+- predicted: none · documented: none · derivable: yes · legible: full · trap: yes
+- note: The NUL-prefix sentinel convention for marking a bucket 'absent' is invisible from this one-liner alone — whoever adds a new bucket kind needs to know elsewhere in the codebase that keys starting with   are treated specially, or they'll silently fail this check.
+
+### `linesWhere`
+- spec 3 · read at `6d11f0df98c6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A one-line helper that filters the Bucket array with `pick` and sums the `lines` field of the matching buckets, returning a total line count for whatever subset of bands the caller selects.
+- found: Filters buckets by the predicate and sums their `lines` field.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
+### `chip`
+- spec 3 · read at `506938d5e6cf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:55Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Wraps string s in backticks to render as an inline-code "chip" in markdown report text, e.g. `${s}`.
+- found: Wraps s in backticks for inline-code markdown rendering.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
 ### `complexityStory` — PREDICTED SOME
-- spec 3 · read at `732885c5b47b` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:29:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Builds narrative sentences describing the complexity lens's findings — e.g. what share of functions/lines fall in risky complexity bands, and calls out the worst offenders by name — pulling from the table context's breakdown/ranked data. Returns an array of strings meant to be rendered as prose paragraphs/bullets in the report alongside the complexity table.
-- found: Computes the share of function lines in 'very high' vs 'low' complexity bands, the median decision-point counts for short vs mid-size bands, the single highest ratio-to-band-median offender (with tie count), which file dominates the top-ranked list, and a note about lines in uncounted languages — joining it all into one narrated paragraph rather than a bullet list.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The file-doc's framing ('stated, not narrated') is echoed almost verbatim by an inline comment in the body, so the file doc mostly repeats intent already stated in-body.
+- spec 3 · read at `fb3ce662388e` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds a short narrative (array of strings) describing the complexity distribution from `ctx` — e.g. what share of functions/lines fall in high-complexity bands, calling shareOf/isAbsent/linesWhere for stats and chip/listed to format example function names into readable sentences, similar to sibling *Story functions for other lenses.
+- found: Builds one narrative sentence-string (returned as a single-element array) stating measured facts about complexity: share of lines in very-high vs low bands, median decision-point counts per size band (when weighted by size), the top-ranked function's ratio to its band median and ties, which file clusters the most top-ranked bodies, and a note about lines in uncounted languages. It deliberately avoids editorializing language per an inline comment.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: Result is joined into one string in a 1-element array, not multiple lines as the plural return type name suggests; also calls complexityRanked(ctx, walk(ctx.root)) internally rather than receiving ranked data via ctx.
 
 ## web/src/lib/rim.ts
 
@@ -4714,6 +5996,26 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Converts a directory's slice values into angular segments across [a0,a1], then walks them in order merging any run of adjacent segments narrower than floor into a single combined segment (summing widths so total angle is preserved). For a merged run, color/label differ by names: a ramp-like merge keeps the largest member's color, while a categorical merge (names true) uses a neutral "other" label/color and reports how many members it holds. Returns {runs, total}, or null if nothing to draw.
 - found: Builds runs by walking slices in order, starting a new run whenever a segment is itself wide enough (>= floor) or the previous run was not merged; a run that started under-floor keeps absorbing subsequent segments regardless of their own width, tracking the widest member's color/label. After merging, any categorical (names=true) run with 2+ members gets relabeled to a neutral "N others" swatch. Finally assigns a0/a1 angles proportionally over the merged runs so total angle is preserved. Returns null for empty slices or zero total.
 - predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+## web/src/lib/rimHit.ts
+
+### the file itself
+- spec 3 · read at `2abf5b1109ea` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:06Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A small geometry/hit-testing utility file for the map's ring visualization. `toUser` converts a screen/pointer coordinate into the map's user-space coordinate system (undoing pan/zoom transforms), and `rimSliceAt` takes a point (or angle/radius) and determines which ring segment/wedge on the rim it corresponds to, for click and hover detection on the circular layout.
+- found: Hit-testing utilities for the ring/rim visualization: toUser converts a pixel pointer position into the map's user-space coordinates given the current pan/zoom view and pane box; rimSliceAt uses that plus the same rimRuns function the paths are drawn from to find which angular wedge (RimSlice) of a directory's rim is under the pointer, returning its label/fill/share/held/named info for tooltip display — deliberately done by arithmetic rather than per-segment DOM listeners so click/drill events aren't swallowed by the rim paths.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `toUser`
+- spec 3 · read at `edad53739bb1` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:27Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Inverts the pane→SVG transform, computing scale = min(box.w, box.h) / view.side, then mapping pos.x/pos.y (pixels from pane top-left) back to user units via x = view.cx + (pos.x - box.w/2) / scale and similarly for y, mirroring the placement math seen in useMapView's hub badge code.
+- found: Computes scale = min(box.w, box.h) / view.side, then maps pos back to user-space coordinates centered on view.cx/cy.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `rimSliceAt`
+- spec 3 · read at `ff45e8744520` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Converts the pointer position into polar coordinates around the box's center (using the smaller dimension as scale, matching the map's own placement math), computing a radius and a clockwise-from-twelve angle. It checks whether the radius falls within the rim's ring band, then looks up which node's rimRuns cut (from the target map) covers that angle, returning the matching RimSlice or null if the pointer isn't over any rim segment.
+- found: For a single given directory node, looks up its geometry and rim cut, converts the pointer to user-space via toUser, computes radius/angle (inverting arcPath's placement, wrapped near the band's own start angle to handle the seam), checks the radius against the band and finds which angular run contains the angle, then returns a RimSlice with label/fill/lines/share/held/named for that run.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ## web/src/lib/rings.ts
 
@@ -4769,6 +6071,46 @@ What this is and how to add to it: [README.md](README.md)
 - found: No-ops outside Tauri-on-Mac. Otherwise dynamically imports the window API, reads fullscreen state immediately and on every resize, calling cb each time; tracks a `dead` flag so if the returned cleanup fires before the async setup finishes, the just-obtained unlisten function is invoked right away instead of leaking, and future reads are suppressed.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 - note: Missed the isTauriMac() gate and the initial synchronous read() before the first resize; also missed the dead-flag race handling for early unsubscribe.
+
+## web/src/lib/sameProjects.ts
+
+### the file itself
+- spec 3 · read at `7e4ebf9d63bc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:58:48Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A set of small equality-comparison helpers used to detect whether project data has meaningfully changed between updates (e.g., for memoization or avoiding unnecessary re-renders). sameIds, sameRun, sameProgress, and sameCost each compare one facet of a project's state, and sameProjects composes them into one overall equality check for a list/set of projects.
+- found: A field-by-field equality check for ProjectSummary lists, used to avoid re-rendering/re-storing when a poll returns freshly-allocated but semantically-unchanged data. Rather than a hardcoded conjunction of named fields, sameProjects walks the union of keys present on either object and compares each with Object.is unless it has a bespoke comparator in DEEPLY (for run, progress, cost, id-list, and event-log fields whose shape or allocation pattern makes shallow/naive equality wrong).
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: Comments record real production incidents (frozen agent panel, periodic stutter during replay) that motivated the union-of-keys design — worth preserving as history for future editors.
+
+### `sameRun`
+- spec 3 · read at `86068e088b4f` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:26:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Compares two run objects field by field (not by reference), checking things like status/phase, the live countdown, assessed count, and other progress-related fields the sidebar displays, returning true only if every compared field matches so the poll can decide whether to keep the old object or replace it with the new one.
+- found: Null-guards then compares eight specific run fields (running, stopping, live, spawned, finished, failed, readers, ended) by value equality; true only if all match.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Docs describe a past bug about a missing field ('assessed') causing stale UI, but the actual field list here has no 'assessed' field at all — the doc's specific example doesn't map cleanly onto this exact field set.
+
+### `sameIds`
+- spec 3 · read at `6c45514e1a3d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Compares two optional string-id arrays, treating undefined as an empty array, and returns whether they're equal in order — checking length and each corresponding element.
+- found: Exactly as predicted: defaults undefined to [], then compares length and elementwise equality in order.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `sameProgress`
+- spec 3 · read at `6839b955bd59` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:55:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Treats missing progress (null/undefined) specially: if both a and b are absent, returns true; if only one is absent, returns false (the null<->report transition mentioned in the doc); otherwise compares the two Progress objects' relevant fields for equality.
+- found: Returns true if both a and b are falsy (null/undefined), false if only one is; otherwise compares done, total, phase, and unit fields for equality.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `sameCost`
+- spec 3 · read at `bc1a56a28fca` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:29Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: sameCost does a shallow field-by-field equality check between the two cost objects (handling null/undefined equally), comparing seconds, cold, and fits, so a freshly allocated object with identical values compares equal — used to avoid unnecessary re-renders/polling updates.
+- found: Shallow-compares seconds/cold/fits, treating null/undefined as equal to each other, plus a structural (not type-named) comparison of an optional commits or files field shared by trace-cost vs scan-cost shaped objects.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+
+### `sameProjects`
+- spec 3 · read at `df23fa50470b` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:59Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: First checks array lengths match, then for each pair of project objects walks the union of keys from both sides, comparing each with Object.is except for keys listed in a DEEPLY set which get a deeper/structural comparison (likely delegating to sameRun/sameProgress/sameCost for those specific fields), returning false on the first mismatch.
+- found: Checks lengths match, then for each pair of projects unions both objects' keys and compares each key with a DEEPLY-registered comparator if one exists for that key, else Object.is, returning false on any mismatch.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ## web/src/lib/shape.ts
 
@@ -5102,6 +6444,28 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Walks the token array; for each plain-identifier token, peeks at the next token: if it's "(" reclassifies as a call, else if the identifier starts with an uppercase letter reclassifies as a type. Returns the array with these tokens upgraded from generic identifier to call/type kind.
 - found: Walks tokens; for each plain identifier, looks both backward (skipping whitespace) to see if preceded by a dot, and forward to see if followed by "(". Dotted+call or dotted alone -> tok-prop (property/method access); undotted+call -> tok-fn; undotted+uppercase -> tok-type. I predicted the forward-looking call/type logic but completely missed the backward dot-check for property classification, which is a separate branch of real work.
 - predicted: some · documented: some · derivable: no · legible: full · trap: no
+
+## web/src/lib/tree.ts
+
+### the file itself
+- spec 3 · read at `a2ac12175319` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:50:38Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A small utility file with generic tree-traversal helpers over the app's Node tree structure — findById recursively searches the tree for a node matching an id, and parentOf walks the tree to find the parent of a given node. It has no header doc because the two functions are small and self-evident.
+- found: Two recursive tree helpers over the Node type: findById searches for a node by id (used so drill-in position survives a rescan), and parentOf finds the tree-parent of a given id (distinct from the drill-in stack's previous entry, since drilling is a jump not a step).
+- predicted: full · documented: none · derivable: yes · legible: not judged · trap: no
+- note: No file-level header exists, but each function has a purpose-explaining doc comment, so the module's intent is documented at the function level rather than the file level.
+
+### `findById`
+- spec 3 · read at `977918682157` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively searches the tree starting at `node` — checks if node.id === id, and if not, recurses into node.children (if any), returning the first match found or null if none exists anywhere in the subtree.
+- found: Recursive DFS over node.children, returns first node with matching id, or null.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explains why this exists (preserving drill-in state across rescans) but not derivable from the code itself, which is a plain recursive search.
+
+### `parentOf`
+- spec 3 · read at `c0cda91e70f7` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:28Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: parentOf walks the tree from node recursively, checking each directory's children for one whose id matches id, and returns that directory node when found (i.e., the true parent in the tree structure), or null if id is the root or not found.
+- found: Recursive DFS over children: returns node if any direct child matches id, else recurses into children, else null.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ## web/src/lib/vector/color.ts
 
