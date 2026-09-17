@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1286 of 1286 read · 233 unpredicted
+1291 of 1291 read · 234 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -379,9 +379,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc says 'kill the readers it has out' but the code just flips an atomic flag — the actual kill must live in whatever polls run.stop, not in this function.
 
 ### `trace` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `2eec90f1f6fe` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:30:37Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: HTTP handler taking TraceParams that synchronously walks the repo's git history to build (or extend) History/Blame data — depth 1 quick, depth 2 the expensive full walk — honoring a stop flag so the caller (having already seen a cost estimate) can cancel it, and returns the resulting trace data as JSON without imposing the request budget/gate other endpoints use.
-- found: Resolves the target project, picks a depth (explicit "files"/"lines", or one step past whatever depth the project is currently at), clears the stop flag, and runs crate::trace::deepen in a blocking task with progress/scan-snapshot callbacks so a window watching the project sees live ticks. Afterward it stores the resulting scan, computes whether the pass was stopped short by comparing the depth actually reached to the one requested (reading it off deepen's return rather than the flag, since the flag gets replaced), banks the reached depth via note_trace, and returns ok/depth/stopped/elapsed-seconds as JSON.
+- spec 3 · read at `bf7ad329c91c` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:12Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: HTTP handler that runs a synchronous call-graph/dependency trace over the repo for a given symbol at a requested depth (1 or 2), skipping the budget-ceiling check other endpoints have since the caller explicitly asked for it. It reports the cost/token estimate it incurred rather than refusing, and supports a stop-flag so long depth-2 runs can be cancelled mid-flight; it likely returns nodes/edges as JSON.
+- found: It's an HTTP handler for deepening a git-blame/history trace (depth levels: files/lines/edits/budget, not a code call-graph), synchronously via spawn_blocking, respecting a per-project stop flag and a budget that decides how far to go if depth isn't given explicitly, never regressing below the depth already reached, and reporting whether it stopped short plus a declined-rung price if the budget capped it.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `scan_now` — PREDICTED SOME
@@ -2319,11 +2319,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/cli.rs
 
-### the file itself — LEGIBLE SOME
-- spec 3 · served in 5 parts · read at `9d029be5f44d` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: The CLI binary's implementation - defines all `sanity` subcommands (serve, check, status, summary, findings, callers, trace, refresh, export_data, decide, clear) as read-only verbs that talk to a single per-machine backend daemon rather than embedding app state directly. Contains backend lifecycle management (spawn lock file, health probing, waiting for backend startup, retiring stale backends), a small HTTP client (get/post) to talk to that backend, terminal-output formatting helpers (bar, plural, commas, fancy, wrap, elapsed, grade_ink), an interactive picker mode (interactive/choose/reveal_in_window), and unit tests for formatting and locking logic.
-- found: Confirmed the predicted shape (backend lifecycle via spawn lock/health probe/ensure_backend, HTTP get/post client, terminal formatting helpers, interactive picker, tests) but the file is far larger and richer than the prediction captured: it defines the full clap CLI grammar (Cli/Verb/Decide/Decided), implements every verb's actual logic (init's interactive harness/model prompts, check's live-tailing progress bar with terminal redraw escape codes, findings/decide/clear against an on-disk decision archive with read-back verification, callers' call-graph lookup, trace, refresh's format-migration-by-rewrite, export_data for the offline PDF renderer, and offline_status/offline_summary that answer without a running backend), plus cross-build backend retirement (retire_stale_backend) and signal handling for clean shutdown.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### the file itself
+- spec 3 · served in 5 parts · read at `ddb97f9c0a2f` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:58Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file is the CLI entry point (main) and all its subcommand implementations (serve, check, init, trace, resume, list, summary, refresh, clear) that talk to a per-machine backend process over HTTP rather than doing work in-process. It handles backend lifecycle (spawn lock to avoid double-starting, health probing, retiring stale backends), a thin get/post HTTP client, terminal-formatting helpers (bar, elapsed, grade_ink, wrap, duration, plural), export/report formatting, and unit tests around spawn-lock races and export/progress-line formatting.
+- found: Matches the predicted shape (main/clap parsing, backend lifecycle via spawn lock, thin HTTP get/post client, serve/check/init/trace/status/summary/refresh, terminal-formatting helpers, export-data, and unit tests around spawn-lock races and export/progress formatting), but is substantially larger: it also owns the findings workflow (findings/decide/clear/callers subcommands, a shared `survey` builder, a `list` renderer), interactive terminal prompts (`interactive`, `choose`) for init/check, a `Wanted`/resume mechanism for a tail that reconnects across backend handovers, and offline (in-process, no-daemon) fallbacks for status/summary when nothing is serving.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `spawn_lock_path`
 - spec 2 · read at `d361e1076438` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2507,10 +2507,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: some · trap: no
 
 ### `project_header`
-- spec 3 · read at `6b09aa7897b8` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Prints a shared header block from the JSON value returned by the backend: the repo name/path, and a single consistent reading of how much of it has been assessed (e.g. "N of M assessed" plus staleness), replacing the previously-diverging computations that `status` and `summary` each did on their own. Likely uses helper functions like `plural`, `bar`, or `grade_ink` from its peers to format the numbers/progress.
-- found: Prints the shared project header: project name, segment counts (functions + file headers, minus any .sanityignore exclusions), read/unread/stale percentages (with unread computed as remaining minus stale since remaining contains stale), the git-history trace status (untraced with cost estimate, per-file, or per-line) distinguishing an offline 'unknown' from an online 'not traced', how many are currently out with readers, and where the assessment file lives.
+- spec 3 · read at `26bb5e54eea1` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:18Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes a JSON Value (project status payload) and prints a shared header — project name/path and progress counts (assessed, remaining, stale) — computing the denominators once so callers like status and summary render consistent numbers instead of each computing their own.
+- found: Prints a shared header from a JSON status Value: project name, segment counts (functions+files, minus excluded), read/unread/stale percentages computed from a single set of denominators (unread = remaining - stale, since remaining contains stale), plus git-trace depth status and in-flight reader count.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Predicted the consistency purpose correctly but missed the trace_depth reporting and in_flight/assessment_file lines.
 
 ### `offline_status`
 - spec 2 · read at `bb642af55251` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2538,9 +2539,22 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: full · derivable: no · legible: most · trap: no
 
 ### `trace`
-- spec 3 · read at `ce683b58a41c` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:35:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Opens the repo (likely via read_repo/similar) to get a project handle, then explicitly triggers a full git-history read (unlike scan/launch which skip or budget it), printing progress/cost info as it goes since this is an explicit costly operation the user asked for. Returns an integer exit code, printing an error and returning nonzero if opening the repo fails, or the `lines` flag toggles whether progress output uses a line-based format.
-- found: Resolves the repo path, ensures a backend is running, and posts to /open (idempotently) to register/open the project — if that fails because the project isn't registered, it prints a friendly error plus the `sanity init` hint. Then it posts to /trace with depth "lines" or "files" depending on the flag, and prints a human-readable summary of what was read, how long it took, whether it was stopped early, and (if not per-line) a hint that --lines goes deeper.
+- spec 3 · read at `af79af07c408` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:28Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This CLI `trace` command opens the repo, determines depth from `want` (either an explicit rung like `--edits`/`--blame` that spends whatever it costs, or by default reads every rung affordable in ~10 seconds via `trace::affordable`), runs the deepen pass with progress printed to the terminal, and returns an exit code reflecting success/failure.
+- found: A thin CLI client: resolves the repo path, ensures a backend process is running, POSTs /open to register the project, then POSTs /trace with the requested depth (an explicit rung or "budget"), and prints a human-readable summary of what was read, whether it stopped early, and any rung the budget declined — all actual work happens in the backend over HTTP, not locally.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `rung_name`
+- spec 3 · read at `1933e5dbcabf` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:51Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A simple match over the trace::Depth enum variants, returning a short human-readable string for each rung (e.g. "untraced"/"skipped", "log", "blame") meant to be interpolated into a status sentence about how deep the tracing went.
+- found: Matches on trace::Depth, returning "The edit timeline" for Edits, "Per-line history" for Lines, and "The commit log" as the catch-all default for everything else (including Untraced presumably).
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The catch-all `_ => \"The commit log\"` folds multiple variants (including whatever untraced/budget states exist) into one string, so I couldn't have named the exact variant set or wording from the signature alone.
+
+### `duration`
+- spec 3 · read at `947489df0d64` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:53Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Formats a raw f32 seconds value into a human-readable string (e.g. "3s", "2m", "1h 5m"), rounding coarsely the same way status's other estimates are rounded, so it's consistent with how project_header/status display estimated costs elsewhere.
+- found: Formats seconds as "{n} min" if >= 60, else "{n}s" (floored at 1s to avoid printing "0s"). No hours tier, unlike I guessed.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `status` — PREDICTED SOME
@@ -2551,31 +2565,38 @@ What this is and how to add to it: [README.md](README.md)
 - note: I predicted use of bar/elapsed/grade_ink formatting helpers and an explicit offline_status fallback call, but the function is much plainer — no progress bar or color, and the online/offline distinction is handled inside read_verb rather than here.
 
 ### `findings`
-- spec 3 · read at `b71ea4ec61a8` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Reads the on-disk repo state (parsed tree, .sanity/ readings and rules) directly rather than asking the backend, merges multiple rule-flags on the same function into one entry (one subject per line, not one per rule), ranks them, truncates to `limit`, and prints them - optionally annotating with diffs (edits) or git blame info (blame). Returns an exit code, likely via read_repo/read_verb helpers for error handling.
-- found: Thin composition: calls survey() to load repo facts/rules/traced/read state (handling edits/blame), passes them to findings::report() to merge and group findings by subject, then hands the groups to list() for printing/truncation to limit. Error from survey short-circuits with its code.
+- spec 3 · read at `4294ece05c0a` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:30Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A CLI verb that reads the repo tree and .sanity/ readings directly from disk (no backend call), runs the rule catalog, merges multiple rule hits per subject into one entry, ranks them, prints the top `limit`, and uses edits/blame to control how much git history detail is shown per finding; returns an i32 exit code.
+- found: Thin orchestration wrapper: surveys the repo on disk, calls crate::findings::report to merge rule hits per subject using the archive, then hands the grouped result to list() for printing/limiting, returning its exit code.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The merging/ranking logic I expected lives in findings::report and list, not in this function itself — it's just a 3-call pipeline.
 
-### `callers`
-- spec 3 · read at `7735ed2b1330` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:51Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Runs a survey of the repo at `path`, looks up the function identified by `key`, and prints out its named callers (not just a count) grouped by file — marking which are in the subject's own file — using the edge list from edges::wire; returns 0 on success or a nonzero exit code if the path or key can't be resolved.
-- found: Surveys the repo, finds the Facts for the given key, rejects file-level (not function) subjects and unresolved line numbers, looks up the function's call-link Ref via links.at, distinguishes 'not read for calls' (unwired language) from a true empty caller list, then prints callers grouped by file (own file marked), sorted by line, with owner-qualified names.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Prediction matched closely; missed only the explicit file-vs-function guard and the wired/unwired distinction for silent languages.
+### `callers` — PREDICTED SOME
+- spec 3 · read at `a37647d31d1e` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the node identified by `path` and `key` in the wired edge list/graph, filters edges whose target matches that node, and returns the count of matching caller edges as an i32.
+- found: It's a CLI subcommand handler: surveys the file, finds the fact matching `key`, validates it's a function (not a file) with a wired call graph, then prints a formatted, file-grouped list of its callers (own file first, others after) distinguishing 'not wired for this language' from a true zero. Returns an i32 exit code, not a caller count.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The docs handed to me described the `callers`/`dependents` struct fields conceptually, not this CLI-printing function, so they didn't cover the actual body (error handling, exit codes, formatting).
 
-### `survey` — PREDICTED SOME
-- spec 3 · read at `57045459a6a0` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:47Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Reads/opens the repo at `path`, builds its node tree and scoring reports, and assembles a Survey summary (likely counts/grades across the project), optionally enriching it with git blame data when `blame` is true and recent edit/diff info when `edits` is true, returning Err(i32) as an exit code on failure.
-- found: Canonicalizes the path, opens a ScanCache, picks a trace Depth (Edits/Lines/Files) based on the edits/blame flags, runs crate::scan::scan with an Ordering fidelity heuristic model, loads assessment reports, retests the scan tree against reader-marked test bodies, builds Traced state and per-subject Facts, derives rules, and returns a Survey struct bundling path/facts/rules/traced/read/links.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: My prediction had the right shape (build tree + reports + survey, blame/edits affecting behavior) but missed that edits/blame select a trace Depth rather than 'enriching' the result, and missed the specific pipeline (ScanCache, retest_tree, Traced::of, subjects, rules_for).
+### `of`
+- spec 3 · read at `53d4d2477137` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:57Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Maps the two CLI flags to an explicit `Want` variant — `edits` (implying blame too, since edits is the deepest rung) returns a fixed "Edits" want, `blame` alone returns "Blame", and neither flag returns an "Auto"/budget-decided variant, since the doc says these flags name a rung explicitly rather than deferring to `affordable`.
+- found: Matches (edits, blame): edits true gives Want::Exactly(Depth::Edits), blame true (edits false) gives Want::Exactly(Depth::Lines), neither gives Want::Budget (deferred to affordable/budget logic).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `survey` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `1e12979478b7` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Resolves the given path to a repo, ensures the backend/coordinator has it scanned (possibly triggering a scan or connecting to the per-machine backend process), and assembles a Survey struct containing only the subsets of data requested by `want` (e.g. summary, grades, findings). Returns Err with an exit code (i32) if the path isn't a valid repo or the backend is unreachable.
+- found: Canonicalizes the path, runs an in-process scan (not a separate backend call as I guessed) at a log-only fidelity by default, then conditionally deepens to blame tracing if `want` isn't a forced depth (Want::Budget vs Want::Exactly(depth) — Want is about trace depth, not which data fields to return, which I got wrong), loads assessment reports, reconciles test links, and assembles the Survey with facts/rules/traced state.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: Want's actual meaning (trace-depth budget vs forced depth) isn't guessable from the peer list alone; the file_doc's talk of a per-machine backend process describes a different verb/architecture aspiration than what this function does today (a synchronous in-process scan).
 
 ### `decide`
-- spec 3 · read at `7325448fda40` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Opens/loads the project containing `path`, locates the finding subject at `key`, and determines which rule(s) to record a decision for — either the single named `rule` or all rules that raised that subject. For each applicable rule it captures a "pin" of what the rule currently measures (skipping/refusing rules whose measurement is unavailable/dark, e.g. churn rules), writes the verdict and reason to persistent storage, optionally including edits/blame info, and returns an exit code (0 success, nonzero on error like missing subject or unresolvable rule).
-- found: Surveys the repo, finds the finding by key, filters rules that raise it (optionally narrowed to one named rule), skips rules that are `blocked` (cannot answer without --edits/--blame) with an explanatory message, writes a Decision per remaining rule via findings::decide, then re-reads the archive back to verify the writes actually landed before printing a summary and returning an exit code.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The read-back-and-verify step after writing decisions is a notable defensive pattern not obvious from the signature.
+- spec 3 · read at `bf476dfa1016` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Runs (or loads) the survey with a trace depth chosen from `edits`/`blame`, finds all rule findings matching `key` (or just the one named by `rule` if given), and for each writes a decision "pin" (verdict + reason) to persistent storage — skipping/refusing any rule that has no actual measurement for that subject (the "dark churn rules" case) with an explanatory message rather than silently recording nothing. Returns 0 on success, nonzero if the key isn't found or nothing could be decided.
+- found: Surveys the repo, finds the fact matching `key`, filters rules to those that raise it (optionally narrowed by `rule`), skips/reports rules that are `blocked` (couldn't measure), writes a Decision per remaining rule via findings::decide, then reads the archive back and verifies the written decisions actually landed before printing confirmation. Returns 1 on any failure path, 0 on verified success.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The read-back-and-verify step after writing (re-reading the archive to confirm the decision persisted, since the archive is fully rewritten each time) isn't hinted at by the docs at all.
 
 ### `verdict_note`
 - spec 3 · read at `5424b9f25e6d` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:09:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2590,10 +2611,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `list` — PREDICTED SOME
-- spec 3 · read at `a36281662a44` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:44:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Reads the survey/worklist for the repo at `path`, filters or organizes entries by the given `groups`, prints up to `limit` items (likely the not-yet-assessed functions) to stdout in a human-readable worklist format, and returns an exit code (0 on success, nonzero if e.g. no survey exists yet).
-- found: Merges findings across rule groups by subject key into rows (tracking flagged status and loc), sorts by loc descending, prints a header with total findings/ignored count, then prints a summary of "blocked" rules (rules that couldn't run and why, deduped and sorted by frequency), then prints up to `limit` rows each showing the finding text per rule group (with each rule's background note shown once), and finally a "…and N more" hint if truncated. Returns 0 always.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- spec 3 · read at `4f2d17b9bbdc` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:12Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Reads a previously computed survey/scan result from `path`, filters its findings by the given `groups` (categories), optionally excludes/adjusts items matching `declined` (a depth+confidence threshold pair), truncates to `limit`, prints them as a worklist to stdout, and returns an exit code (0 success, nonzero on missing survey or empty results).
+- found: Merges findings across rule groups by subject key (widest loc first), prints a header with finding/ignored counts, then a summary of blocked/inactive rules (deduped by need+why), an optional line about a skipped trace rung due to budget, then each row's findings (rule title + wrapped message, with a rule's background text appended only the first time it's shown), truncated to `limit` with a '…and N more' footer. Always returns 0.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The `groups` param is already-computed data, not something to load from `path` — `path` is only printed as a label; I incorrectly assumed this function does the loading/scanning itself.
 
 ### `wrap`
 - spec 3 · read at `b2cf6ea9c697` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -2636,10 +2658,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file doc describes the whole CLI module, not this function specifically, so per-function coverage is partial.
 
 ### `main`
-- spec 3 · read at `e17f06d82797` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:24Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Parses args for a subcommand name (serve, check, findings, list, clear, survey, etc.), dispatches to the corresponding handler function, prints error/usage to stderr and returns nonzero exit code for unknown/missing subcommands or handler failures, returns 0 on success.
-- found: Uses clap::Parser to parse args (re-prepending the "sanity" argv[0] since main.rs strips it), handling --help/--version/parse-error exit codes via clap (2 for stderr errors, 0 otherwise). Then matches on the parsed Verb enum to dispatch to handler functions (serve, init, trace, check, status, summary, findings, callers, refresh, export_data), with special handling for Findings' nested `decide` subcommand that maps Decide variants to Verdict values or short-circuits to `clear`.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `d349c0189e79` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:19Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: The CLI entry point that parses `args` for a subcommand (like serve, check, list, clear, summary, refresh, grades, export), dispatches to the corresponding handler function among its peers, and returns a process exit code (0 for success, non-zero on error or unrecognized command/usage failure).
+- found: Parses args with clap (re-prepending the binary name), handling --help/--version/bad-arg exit codes itself, then matches on the parsed Verb to dispatch to the right handler (serve, init, trace, check, status, summary, findings/decide/clear, callers, refresh, export_data), returning each handler's exit code.
+- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- note: Docs shown were the file-level doc, not specific to main; function itself has no doc comment, just inline comments explaining the argv[0] re-add and the mcp/help stderr-vs-stdout code split.
 
 ### `the_progress_line_reads_correctly_at_both_ends` — PREDICTED SOME
 - spec 2 · read at `e58761c44962` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:09:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -4103,10 +4126,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `catalog`
-- spec 3 · read at `7ee765c15ca6` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:52:38Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds and returns a hardcoded Vec<Rule> — the default catalog of finding heuristics (large function, deep nesting, high churn/many-hands style rules, single-author ownership, etc.), each with a name/description, a placeholder numeric threshold, and a condition/clause evaluated against a node's measurements, intended to be recalibrated per-repo rather than used as shipped.
-- found: Builds a Vec<Rule> of ~20 default finding heuristics, each constructed via a local `rule()` helper with id/title/so_what/says/background text templates, a population scope (Func/File), a list of threshold clauses (ge/lt/le on named Fields like Loc, Cognitive, Dependents, Surprise, Tangle, Headcount, TouchedDays), and a calibration tier (0/1/2) indicating which clause's threshold gets tuned per-repo. Covers size (giant-function, crowded-file), dependency+quality combos (load-bearing + unread/illegible/undocumented/untested), churn/trap/clone interactions, staleness/fossils gated by repo age, and blame-derived ownership rules (sole-author, lone-file, alone-in-shared-code) gated on repo/file headcount to avoid tautological findings on small teams.
+- spec 3 · read at `16bad5efaf72` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds and returns a hardcoded Vec<Rule> representing the default "batteries-included" catalog of heuristics (e.g. large file, high churn, hotspot, long function, etc.), each constructed with a name, description, a placeholder numeric threshold, and some predicate/query tied to fields on a scored node. It's mostly a long flat sequence of Rule struct literals or builder calls, one per heuristic, with no real logic beyond assembling the list.
+- found: Returns a flat Vec<Rule> built via a local `rule` helper closure, each entry a heuristic combining Clause predicates (ge/lt/le on Field values) with a calibration level. The actual rules are much more specific than generic "large file/churn/hotspot" guesses: they pair axes like surprise+churn, tangle+size, dependents+documentation, and several ownership/headcount rules (sole-author, alone-in-shared-code, lone-file) gated on repo headcount to avoid tautological findings on small/solo repos.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The extensive inline comments carry most of the design rationale (why gates precede calibrated clauses, why headcount pairs with tangle not loc, etc.) — reading just the Rule data without comments would miss why thresholds are structured this way.
 
 ### `tighten`
 - spec 3 · read at `af8914c34e2d` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -7762,10 +7786,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/trace.rs
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `64c8ddb0d1b4` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:34:47Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: This file owns all the git-derived (blame/history) analysis that used to be part of the scan and was pulled out because git blame dominates scan cost on large repos. It computes per-function "trace" data (author, edit counts, main author, headcount) at multiple progressively deeper/more expensive "rungs" (depth1, depth2, deepen), caches ("banks") those results keyed by depth so cheaper rungs aren't recomputed, and then folds/applies that trace data onto a map/tree that was already built without git data (apply, apply_to, apply_dir_history) — letting the initial render happen fast from a git-free parse, with authorship/blame data arriving and being layered in afterward, possibly incrementally or in the background.
-- found: A large module: a Depth ladder (Untraced/Files/Lines/Edits) each costing ~10x the last; estimate()/BUDGET/Go decide whether a depth can run unasked or must ask the user, using a per-repo banked commit rate (bincode-cached 'Bank'); depth1/depth2/deepen run the log walk, per-line blame (in publish-as-you-go chunks so the UI updates mid-pass rather than only at the end), and the edits timeline respectively; FileTrace/FuncTrace read history+blame+edits per file/function; and apply/apply_to/apply_dir_history idempotently fold all of that onto a Scan tree that was built without git, so a deferred trace produces byte-identical results to an inline one. Extensive tests pin several historical bugs (cumulative-depth-off-by-equality, blame lost on quit before FLUSH_EVERY, churned flag not set on deferred deepen).
+- spec 3 · served in 3 parts · read at `f6f108e8734a` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Implements the git-history layer that colors/attributes the code map without needing a full blame on every open. Defines a tiered Depth (edit-count-only up through full per-line blame), cost-estimation functions (estimate, blame_seconds, affordable, relines) to decide how deep to go without blocking the UI, a persistent cache/"bank" (bank_config, bank_path, load_bank) so blame work isn't repeated across restarts, progressive deepening (depth1, depth2, deepen) to upgrade resolution incrementally, and FileTrace/apply* functions that fold the git data (last author, edit counts, per-function blame) onto the already-parsed scan tree.
+- found: Implements the tiered, deferred git-history trace: a Depth ladder (Untraced/Files/Lines/Edits) each roughly 10x costlier, cost estimation (estimate/blame_seconds/affordable/relines) so a launch or verb can decide how deep to go without a person waiting, a bincode-cached 'bank' of the log walk keyed to format version, chunked/publishing depth1 (log walk) and depth2 (blame) passes that stream partial results onto the live tree as they run, a depth3 edits-walk (timeline diff, distinct from blame's surviving-commit count) for true change-frequency, and FileTrace/apply/apply_to/apply_dir_history which idempotently fold whichever facts are available onto an already-built Node tree so an inline scan and a deferred trace produce byte-identical maps.
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: Extensive doc comments and a large regression-test suite document specific historical bugs (equality-vs-cumulative depth checks, unflushed blame cache, unmoved churned flag) that materially shaped the current code — these are load-bearing context, not filler.
 
 ### `tag_str`
 - spec 3 · read at `ec8c602dc756` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -7812,10 +7837,23 @@ What this is and how to add to it: [README.md](README.md)
 - note: Missed that even the "banked" branch can fall back to COLD_RATE when b.rate is None, so the cold/not-cold flag isn't purely about which branch was taken — it's really about whether a bank record exists at all.
 
 ### `relines`
-- spec 3 · read at `09603caa8223` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:02Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether restoring this scan to per-line trace depth would be free: iterates the scan's files, and for each checks whether scancache already has a cached blame keyed by content/last-commit (via history). Returns true if every file's blame is already cached (so no wait is needed to reline), false if at least one file would require a fresh git blame call.
-- found: Walks the scan's files, counting how many lack a cached blame (via scancache's has_blame keyed on content hash and last commit), then estimates the total blame cost for the missing files (missing * BLAME_MS_PER_FILE) and returns true if that estimated cost fits within a fixed BUDGET — i.e. it's not a strict all-cached check but a "cheap enough to just do it" threshold.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `292c6e26ac96` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether the repo's blame data can be restored to full per-line resolution using only the cache — no live git blame needed. It likely estimates the cost of the "remainder" (uncached/changed files), and returns true if that cost is zero/negligible (i.e., everything is already cached), false if real blame work would be required.
+- found: Returns true if the estimated remaining blame cost (blame_seconds) is within a fixed BUDGET constant, i.e. whether it's cheap enough to reline without a perceptible wait.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `blame_seconds`
+- spec 3 · read at `aad0d1a79d57` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Estimates how long a git blame pass would take for the files in `scan` that the cache (ScanCache) can't already answer from, by counting the uncached lines/files and converting to seconds using a per-line or per-file rate (likely via relines/estimate), returning that estimate as f32.
+- found: Walks the scan tree counting files whose blame isn't already cached (via scans.has_blame keyed on hash + last commit), then multiplies the missing-file count by a flat BLAME_MS_PER_FILE constant to estimate seconds — not a per-line or relines-based calculation.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The doc's pointer to `relines` doesn't correspond to anything called in this body — it uses a flat per-file constant instead, so the cross-reference is misleading for this specific function.
+
+### `affordable`
+- spec 3 · read at `8341bcbc326a` · commit `2f2cad0` · read by claude-sonnet-5 · when 2026-09-17T00:50:44Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Walks the depth ladder (log walk, blame, timeline) pricing each rung's remaining cost — using cached results from `scans`/`scan` to avoid re-walking — against `crate::trace::BUDGET`, and returns the deepest rung whose cumulative cost still fits, plus (if it stopped early) the next declined rung and the cost it would have added, so a CLI verb can tell the user which flag would buy it.
+- found: Prices each rung of the depth ladder in order (log estimate, then actual depth1 history walk to price blame, then edits::estimate for the timeline) each against BUDGET, stopping at the first one that doesn't fit and returning the prior depth plus the declined (deeper depth, cost) pair; reaches full Depth::Edits with None if everything fits.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `go`
 - spec 3 · read at `de9ed7b418ce` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
