@@ -350,6 +350,14 @@ export function FindingBadge({
      *  off whatever the hub is sitting on in both themes, and the two thirds of a token that
      *  would be spent saying "a bit lighter than the ground" is what the mix already says. */
     const plate = 'color-mix(in oklch, var(--foreground) 20%, transparent)'
+    /** **And nothing found is not a notification either.**
+     *
+     *  `found 0` is worth printing — a repo where sixteen rules ran and asked their questions
+     *  and nothing came back is a clean bill, and the dial is the only place that says so. It
+     *  is not a thing to go and do, so it is not lit: at zero the top bar drops to the plate
+     *  and the figure to the dial's own ink, which is the same sentence the bottom half has
+     *  always been set in. Red for a zero would be an alarm about the absence of one. */
+    const lit = count > 0
     const k = (DIAL_CORNER * thick) / 2
     const bar = (mid: number, half: number, fill: string, line?: string) => (
       <path
@@ -381,7 +389,12 @@ export function FindingBadge({
     )
     /** id, path, size, and the ink it is set in. */
     const runs: Array<[string, string, number, string]> = [
-      [`${pathId}-t`, arc(topMid, top.half, upBase(font), true), font, PAPER],
+      [
+        `${pathId}-t`,
+        arc(topMid, top.half, upBase(font), true),
+        font,
+        lit ? PAPER : 'var(--foreground)',
+      ],
       [
         `${pathId}-b`,
         arc(bottomMid, bottom.half, downBase(font), false),
@@ -415,7 +428,7 @@ export function FindingBadge({
             <path key={id} id={id} d={d} />
           ))}
         </defs>
-        {bar(topMid, top.half, DIAL_COLOR, DIAL_EDGE)}
+        {bar(topMid, top.half, lit ? DIAL_COLOR : plate, lit ? DIAL_EDGE : undefined)}
         {bar(bottomMid, bottom.half, plate)}
         {runs.map(([id, , size, ink]) => {
           // The two words are tracked and light; the two numbers are not. A name says what

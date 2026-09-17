@@ -428,8 +428,17 @@ function SunburstView({
 
               The count is honest during a run, and interestingly so: tier-2 rules are blocked
               until something has been read, so the number GROWS as the readers land — which is
-              the reading pass paying off, said in the one place you are already looking. */}
-          {!!findings.count && (
+              the reading pass paying off, said in the one place you are already looking.
+
+              **And drawn at nothing found**, which is the same argument one step further. It
+              was gated on the count, so a repo where every rule ran and came back empty had
+              no dial at all — and the rules half of it is the only door into the grid, so a
+              clean repo lost both the number and the way to ask what produced it. `found 0 …
+              16 rules` is the sentence that state has to say; what changes at zero is that
+              the top bar stops being lit, because nothing is being asked of anybody. The gate
+              is on the RULES instead: no rules is no dial, since a count measured by nothing
+              has nothing to say and that is the state before the grid has loaded. */}
+          {(findings.rules ?? 0) > 0 && (
             <FindingBadge
               layer={2}
               box={HUB_BADGE * hubK}

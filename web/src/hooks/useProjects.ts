@@ -358,6 +358,13 @@ export function useProjects({
 
   /** A sidebar click. */
   const select = (key: string) => {
+    // **Arriving where you already are is not a switch.** The row is focusable and keeps
+    // focus after the click, so Space and Enter on it fire this again — and without the
+    // guard that re-ran the whole arrival: `switchTo(key, key)` drops the picked wedge, and
+    // the refetch hands the tree a fresh root object, which every memo under it reads as the
+    // repo having moved. The map redrew and the panel emptied on a keypress that means
+    // "select the thing that is selected".
+    if (key === shown.current) return
     // Selected immediately, before the tree is fetched. A project still being
     // rescanned has no tree to return, and gating the selection on one meant
     // clicking it did nothing at all — no highlight, no pane, no acknowledgement
