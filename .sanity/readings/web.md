@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-1120 of 1125 read · 261 unpredicted · 6 stale
+1128 of 1128 read · 263 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -676,6 +676,18 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/BalanceSheet.tsx
 
+### the file itself
+- spec 3 · read at `1ef25db0f2fa` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:59:07Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A React component (BalanceSheet) rendering a review UI for a proposed rule-threshold change set: a list of proposed changes (pre-ticked), toggling of individual proposals, a save action persisting ticked changes to catalog.md, and a "back to stock" action reverting this repo's local rule changes. `trim` is likely a small formatting/truncation helper used in the list display.
+- found: A React component that fetches a rule-threshold rebalancing proposal (aimed at a target finding count) via balanceRules, lets the user tick/untick individual proposed threshold changes in a table, and either saves the ticked ones (onApply) or reverts this repo's rule customizations ("back to stock", with a confirm step) via onStock.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+
+### `trim`
+- spec 3 · read at `68ac38c8fcb9` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:17Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Formats a numeric threshold value into a clean human-readable string — fixing to some decimal precision then stripping trailing zeros and a trailing decimal point (e.g., 0.50 -> "0.5", 1.0 -> "1").
+- found: Rounds to 2 decimal places via Math.round(v*100)/100 and converts to string, relying on JS number-to-string to drop trailing zeros naturally rather than doing explicit string trimming.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
 ### `BalanceSheet`
 - spec 3 · read at `f6215856cd93` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:39Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
 - expected: A React component that fetches a proposed rule-threshold rebalancing for `projectKey` (via something like balanceRules), renders each proposed change pre-ticked with checkboxes and a preview of the resulting finding count, and on save calls `onApply` with the ticked [id, threshold] pairs; also offers a "back to stock" action calling `onStock` to discard this repo's rule overrides, and `onClose` to dismiss the panel.
@@ -1142,14 +1154,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Findings.tsx
 
-### the file itself — STALE
-- spec 3 · served in 3 parts · read at `51ff197dc387` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:25:26Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: This file implements the Findings panel: the `Findings` component that lists/groups findings produced by the rule catalog (grouped into `sections`, with per-lens/per-field coloring via `lensColor`/`fieldColor`), plus `RuleForm` for authoring or editing a custom rule with draft state (`draftOf`/`blankDraft`, `fieldsFor` for which fields a rule can use). Supporting pure helpers format node addresses/paths (`address`, `dirOf`, `dirFor`, `fileOf`, `nameOf`, `trim`) and compute proportions (`share`, `spreadFor`) for the panel's display.
-- found: The Findings panel: a modal with three tabs (Findings/Ignored/Rules). Findings view merges per-subject findings into tiles with address, lens-colored rule attributions, rendered "says" sentences, and per-tile verdict buttons (flag/fine-for-now/fine-always/false-positive) that file Decisions with an optional typed reason, plus a footer reporting set-aside matches and blocked rules. Rules view lists/edits the rule catalog via RuleForm (with draft state, save/delete/reset against the backend, live hit counts and share-of-repo, and per-clause distribution stats), and Ignored view lists archived decisions with undo. Helpers format addresses/paths, lens colors, and computed shares/spreads used throughout.
+### the file itself
+- spec 3 · served in 3 parts · read at `180b294effc8` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:28Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A React component file implementing the app's "Findings" panel — a UI for viewing and managing code-quality findings/rules ("lenses") derived from the scan. Likely includes a `RuleForm` for authoring/editing rules (with draft state, field pickers, color coding) and the top-level `Findings` component that groups findings into sections, with helper functions for deriving file/dir names from paths and colors for fields/lenses.
+- found: A large React component file for the app's "Findings" modal panel: three sub-views (findings list, ignored/archive drawer, rules catalog) switched by tabs, plus a `RuleForm` for creating/editing rules with dynamic clause builders driven by a `Grammar` schema, live distribution hints (median/p95/max), and a `Findings` component managing per-tile verdict actions (flag/fine-for-now/fine-always/false-positive) with inline reason capture. Extensive design-rationale comments explain UI decisions (truncation direction, tile merging by subject, why colors map 1:1 to lens tokens) but the form intentionally does no validation itself, deferring rule-legality checks to the backend.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: File has no header doc at all, which is itself notable given how heavily every individual function/component inside it is commented.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: The file is almost entirely comment-driven design rationale for UI/UX decisions rather than describing data flow, so predicting exact behavior from name/peers alone undersells how much of the file is presentation logic (address truncation, color/lens mapping, tabs) versus data logic.
 
 ### `trim`
 - spec 3 · read at `4921dbf891a5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1816,11 +1826,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Phases.tsx
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `17271bab776f` · commit `4bf0da1` · read by claude-sonnet-5 · via claude · when 2026-08-26T21:00:12Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Renders the row of three fixed-width "phase" pills (scan, trace, read) shown per project, each acting as both a button and a progress gauge: its fill width tracks percent-complete, its label states the action and its cost (e.g. "106k commits"), and it degrades to a flat non-interactive marker once there's nothing left to do. Helpers: `compact` formats large numbers (e.g. 106k), `seconds` formats durations, `fnv` hashes something (maybe for a stable key or color), `phasesOf`/`traceOf` derive each pill's display state from the project/run data, `Pill` is the single reusable pill component, and `Phases` is the exported component that lays out all three.
-- found: Matches my prediction closely for the helpers (compact/seconds/fnv/Pill/Phases) and the button-is-gauge concept. What I missed: the trace pill's fill is multi-chamber (one per depth: log walk, blame, replay) rather than a single fraction, since the three depths are a 1:10:100 cost ladder that a single bar can't represent honestly; a rich state machine of na/done/stale/label markers per phase; a "pressed" state held until the next poll acknowledges it (to bridge the up-to-1.5s polling gap); and an idle decorative `Sprig` plant (seeded per-project, mixed with a session random) that fills the note line when nothing is hovered or running, replacing what would otherwise be a blank strip.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The header doc explained the pill-as-gauge design well, but the multi-chamber trace gauge and the idle Sprig decoration are significant pieces of the file's actual shape that a reader would only get from the body.
+- spec 3 · served in 2 parts · read at `52b5ccb245bc` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:52Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A React component rendering the three fixed-width "pills" (scan, trace, read) that show a project's progress in each phase — the button doubles as a progress gauge, filling with completion fraction and showing a label of what pressing it would cost/do, collapsing to a flat marker once a phase has nothing left. Helper functions compute derived numbers from a project's state (phasesOf/runOf/traceOf/runCount/runFraction), format them (compact, seconds), and fnv is probably a hash used to pick a stable color or key; Pill is the single-pill subcomponent and Phases is the exported row of three.
+- found: Matches my prediction's shape — three fixed-width pills (scan/trace/read) doubling as progress gauges and buttons, phasesOf/traceOf deriving per-project phase state, Pill/Phases as the subcomponent/row — but with much more nuance: the trace pill has multiple 'chambers' (log/blame/edits/replay) drawn as unweighted equal steps rather than one fill, a hover-driven note line under the pills showing one phase's detail at a time, a decorative `Sprig` (seeded plant graphic) filling the note slot when idle and unhovered, and a `pressed` state that keeps a just-clicked pill looking busy until the next poll confirms the backend noticed.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `compact`
 - spec 3 · read at `73bcbba467b7` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1841,10 +1850,30 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `phasesOf`
-- spec 3 · read at `dc6358a22f36` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:33:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds an array of exactly 3 Phase objects (scan/trace/read pills) from a ProjectSummary, each with a label, progress value, and button-vs-flat-marker state. It carefully distinguishes similar-looking states (no git history vs untraced repo, declined scan vs in-progress, map behind repo vs never generated) per the doc, and uses replayBlocked to gate whether the read/map phase can be actioned.
-- found: Builds the scan/trace/read Phase objects. Scan branches on scan_cost/loading/unloaded/behind/else to produce estimate, in-progress-with-stop, not-scanned, need-rescan, or done states. Trace is delegated entirely to traceOf(p, scanned, replayBlocked). Read branches on a 'reading' wave state (running/stopping, with its own stop action) vs not-scanned-yet vs fully-read-and-fresh vs partial, and in the partial case splits the remainder into 'unread' vs 'stale' counts rather than subtracting one from the other.
+- spec 3 · read at `74dac6011b8c` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:54:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds the three Phase descriptors (scan/trace/read) for a project using helpers (runOf, runCount, runFraction, traceOf) to distinguish look-alike states (no history vs untraced, declined vs in-progress, stale map vs never made), each with a label, progress fraction, and button-vs-marker status; replayBlocked disables/changes the read phase when a replay is blocking it.
+- found: Builds scan/trace/read Phase objects. Scan phase branches on scan_cost (has estimate) / loading (in progress, with stop action) / unloaded (reset/missing, offer scan) / behind (needs rescan) / else done. Trace delegates to traceOf(p, scanned, replayBlocked). Read branches on currently reading (stop action with live count), not yet scanned (na), fully assessed (done), or partial (split into unread vs stale counts). Each phase carries fill fraction, verb/act for button, or done/na/stale markers.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
+- note: The code's own inline comments already explain the state-collapsing rationale that the docs restate, so the docs are somewhat redundant with the body.
+
+### `runOf`
+- spec 3 · read at `ec8e7d8e54d6` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:58:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes the "read" phase's progress for display: likely the count of items assessed since run.from out of total, returning something like {done, total}, possibly returning null or a flat-marker value when run is null.
+- found: Computes done = assessed count since run.from (0 if no run), and target = done + remaining unassessed items (total - assessed), used to size the "read" phase pill.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `runCount`
+- spec 3 · read at `0a5ed6371af7` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:58:57Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Formats a short "count of total" style string for a pill label, e.g. "assessed/total". If p.run is non-null, it likely adjusts the count to reflect progress since the run started (assessed - run.from) rather than the raw assessed total, so the label reflects the current run rather than all-time progress.
+- found: Delegates to runOf(p, total) to compute {done, target}, then formats them as a locale-formatted "done/target" string.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The file_doc describes the overall three-pill UI philosophy, not this specific formatting helper.
+
+### `runFraction` — PREDICTED SOME
+- spec 3 · read at `62dfdb4c072d` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:58:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes how far through a run a phase is: likely (p.assessed - run.from) / total, clamped to [0,1], returning 0 if run is null (no active run).
+- found: Delegates to runOf(p, total) to get {done, target}, then returns done/target guarded against divide-by-zero, returning 0 if target is 0.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `traceOf` — PREDICTED SOME — LEGIBLE SOME
 - spec 3 · read at `f707f58acdc3` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:40:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2872,14 +2901,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/lib/api.ts
 
-### the file itself — STALE
-- spec 3 · served in 5 parts · read at `37d8ffce39fc` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: The frontend's bridge to the Tauri backend: thin invoke() wrappers for project management, scanning/tracing, findings/rules, reports, function history, and agent-reading plumbing, plus event listener registrations (onScanProgress etc). It also appears to have accreted unrelated pure utility code — heat/color ramp helpers and readability/legibility grading helpers — making it a broad grab-bag "everything external the UI needs" file rather than one narrow responsibility.
-- found: A huge grab-bag file: (1) the full wire/domain type model (Node, WireNode, Score, ScanStats, ProjectSummary, FindingGroup, Rule/Clause/Grammar, AgentReport, etc.) with extensive doc comments explaining absence-vs-zero semantics; (2) thin invoke() wrappers for nearly every backend command (projects, scanning, tracing, findings/rules, function history, reports); (3) event listener registrations; (4) a substantial identity-preserving tree-fold/diff layer (readInto, holdReadings, readIntoRing, applyAgentReports, reaggregate, sameReports) that merges agent readings into the tree while avoiding unnecessary re-renders; (5) grade/legibility accessor helpers (legibleOf, trapOf, reportGrades, readingWords) that centralize 'dated' grade invalidation; and (6) heat/color ramp helpers (temperature, wedgeHeat, shareRamp, paintHeat, heatColor, rampStop).
+### the file itself
+- spec 3 · served in 5 parts · read at `3c62d52c7f4a` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This is the frontend's single API/IPC layer: thin wrapper functions around Tauri `invoke` calls (listProjects, projectReport, saveRule, scanRepo, stopScan, readSource, etc.) plus `listen`-based event subscriptions (onScanProgress, onSetTheme, onOpenProject). It also seems to have accumulated a grab-bag of pure domain/presentation helpers unrelated to IPC itself — color/heat-ramp math (heatColor, wedgeHeat, rampAt), report-grading helpers (isReportStale, legibleOf, trapOf, reportGrades), and tree/locality utilities (localityOf, toNode, pruneExcluded) — with no file header explaining why these live alongside the IPC wrappers rather than in their own modules.
+- found: It is the single frontend model + IPC layer: every type mirroring a Rust struct (Node, Score, ProjectSummary, FindingGroup, AgentReport, etc.), the wire-format conversion functions (toNode, toScan) that translate snake_case Rust JSON into the app's camelCase shapes with careful null-vs-zero-vs-undefined semantics, thin invoke() wrappers for every Tauri command, event listeners (onScanProgress, onSetTheme...), plus a cluster of pure aggregation/coloring helpers (reaggregate, summarize, countPending, heatColor/rampAt/shareRamp, readInto/holdReadings for identity-preserving polling merges). It has no file header doc at all, which the docs field's emptiness itself signals — odd for a file this central and this heavily commented at the declaration level.
 - predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The file's center of gravity is really the identity-preserving reading-fold/diff machinery (readInto/holdReadings/applyAgentReports) and the huge documented type model, not just IPC wrappers plus stray utilities as the peer list alone suggests.
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+- note: I called it a loose 'grab-bag' of unrelated helpers, but on reading it's actually a tightly-scoped single model/IPC layer — the aggregation and color helpers exist here specifically so the wedge, panel, and legend can't disagree, which is a real architectural reason rather than accretion.
 
 ### `languages`
 - spec 3 · read at `8b90410603f0` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:54:20Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -3117,6 +3144,25 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A thin wrapper that invokes the Tauri backend command (e.g. `invoke('reset_rule', { project, id })`) to remove a repo-local override for a built-in rule, restoring it to its shipped default, and returns the resulting promise.
 - found: Thin wrapper invoking the Tauri `reset_rule` backend command with project and id, returning its promise.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `balanceRules`
+- spec 3 · read at `2ec93790abe2` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:58:55Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Makes an HTTP request (likely GET or POST) to a backend endpoint like `/api/projects/${project}/balance` with `target` as a query param or body field, then parses and returns the JSON response typed as Balance.
+- found: It's a thin wrapper that delegates to a Tauri IPC `invoke('balance_rules', {project, target})` call rather than an HTTP fetch, returning the typed Balance result.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `applyBalance`
+- spec 3 · read at `197cd02c30be` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:58:58Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Thin API wrapper that calls the backend (via invoke or fetch) with project and thresholds to persist the user's chosen rule thresholds, returning a Promise<void> once the request completes.
+- found: Calls invoke('apply_balance', { project, thresholds }) to persist chosen thresholds via Tauri IPC.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `stockRules`
+- spec 3 · read at `06e5e33c2bff` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:59:03Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: API client function that calls a backend endpoint to reset a project's rules to the shipped defaults, discarding this repo's own changes and self-referential rules, returning void as a fire-and-forget mutation.
+- found: Thin wrapper invoking a backend command 'stock_rules' with the project name, returning its Promise<void> result unchanged.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: The doc explains what the backend command semantically does (reset to shipped rules), which isn't visible from this wrapper's body alone.
 
 ### `decideFinding`
 - spec 3 · read at `ce72779d2562` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:15Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -4013,13 +4059,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns Math.max(hist.funcCount, hist.funcs.length), exactly as predicted.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `blank` — STALE
-- spec 3 · read at `180826796a7a` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:24Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Allocates a fresh Frame with every field at its empty/zero state — likely typed arrays or maps sized against hist's function/path counts (for perf, since this is the frontend replay hot path) rather than growing objects, with order as an empty array, lines: 0, and container-count structures pre-sized but zeroed, ready for opening/advance to populate incrementally.
-- found: Allocates a Frame of typed arrays sized to function count, path count, and directory count, each filled with a sentinel "absent" value (NO_TS, NO_AT, NO_AUTHOR, NO_GRADE, NO_COG), including per-function and per-path churn history buffers (hits/pathHits sized by CHURN_MEMORY), starting ts at hist.baseTs and at at -1.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `blank` — PREDICTED SOME
+- spec 3 · read at `4b587bee77b6` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:21Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Constructs a Frame object representing "nothing has happened yet" state for a replay: sets counters to 0, index/cursor fields to a sentinel like -1, and collection fields (maps/arrays of nodes, authors, touches) to empty. It likely uses `hist` only to size or reference shared tables (e.g. total commit count) rather than to seed any actual content.
+- found: Builds a Frame as a struct-of-arrays: typed arrays (Float64Array/Uint8Array/Uint32Array/Int32Array) at three distinct widths — per function (n from widthOf), per path (hist.paths.length), and per directory (shape.path.length) — each filled with its own sentinel constant (NO_TS, NO_AT, NO_AUTHOR, NO_GRADE, NO_COG) rather than zero, plus scalar fields ts (from hist.baseTs) and at (-1).
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+- note: I predicted the general 'sentinel-filled empty state' idea but missed that this is a performance-oriented struct-of-typed-arrays with three separate width tiers (func/path/dir), not simple maps/arrays.
 
 ### `opening`
 - spec 3 · read at `47f184723af4` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:38:32Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -4052,29 +4097,25 @@ What this is and how to add to it: [README.md](README.md)
 - found: Folds commits (frame.at, to] into frame's per-function and per-path state (lines, liveness, authorship, birth, churn ring buffers, grading/complexity), tracking arrivals/departures in sets to do one linear merge into frame.order instead of per-commit splices; stops early and returns false if a commit's delta hasn't been fetched yet, otherwise advances frame.at/frame.ts and returns true.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 
-### `freeze` — PREDICTED SOME — STALE
-- spec 3 · read at `1354e622a688` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:13Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Snapshots the current mutable state of a Frame (its node tree, live file/author tracking maps, position in the commit sequence, etc.) into an immutable Checkpoint value, copying/cloning whatever mutable structures need to survive further replay steps so a later `thaw` call can restore the frame to this exact point without being affected by subsequent mutation.
-- found: Snapshots a Frame's structure-of-arrays state (flat typed arrays for per-function and per-path/per-dir churn, timestamps, liveness, authorship, cognitive scores etc.) into a Checkpoint, compacting the ragged ring buffers (hits/pathHits, which are stored as fixed-stride CHURN_MEMORY slots per entity) down into tightly packed Uint32Arrays using the hitLen/pathHitLen counts, while other arrays are just sliced (shallow-copied) as-is.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `freeze` — PREDICTED SOME
+- spec 3 · read at `e87d329b88ba` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:00Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes a live `Frame` (probably a large in-memory structure built while replaying commit history) and extracts/copies just the essential fields into a lightweight, serializable `Checkpoint` — likely so it can be cached and later restored cheaply via `thaw` without re-walking history from scratch.
+- found: Compacts the frame's fixed-stride ring buffers (hits/pathHits, stored at CHURN_MEMORY stride per function/path slot) into densely packed Uint32Arrays using the hitLen/pathHitLen counts, then bundles that with sliced copies of all the other per-function/per-path/per-dir arrays into a plain Checkpoint object.
+- predicted: some · documented: none · derivable: no · legible: most · trap: no
+- note: The compaction of strided ring buffers into dense arrays (driven by hitLen) is the load-bearing logic and isn't hinted at by the signature at all.
 
-### `thaw` — STALE
-- spec 3 · read at `2a242348194b` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:09Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Reconstructs a live `Frame` object from a serialized `Checkpoint`, the inverse of `freeze`: unpacks the checkpoint's compact/packed arrays (loc, cog, timestamps, etc.) into the Frame's working data structures so replay can resume from this point without re-walking from the start.
-- found: Reconstructs a Frame from a Checkpoint: unpacks ragged-array-style compact hit lists (pathHits/hits) back into fixed-stride Uint32Arrays using per-entry hitLen counts, rebuilds the `order` list of live function indices, and copies the rest of the checkpoint's flat arrays directly across.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
+### `thaw` — TRAP
+- spec 3 · read at `b45c9ddb24c1` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:38Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Given a Checkpoint (a compact/serialized snapshot presumably produced by the paired `freeze` function), reconstructs a full Frame object — rehydrating whatever fields were stripped or compacted for storage, likely rebuilding maps/arrays keyed by node id from more compact representations. This is probably used when scrubbing/replaying history so a past state can be restored as a live Frame without having replayed every intermediate step.
+- found: Reconstructs a Frame from a compact Checkpoint by unpacking ragged per-function and per-path hit histories (stored back-to-back in `cp.hits`/`cp.pathHits` with per-item lengths) into fixed-stride `CHURN_MEMORY`-width typed arrays, and rebuilds the `order` list of live function indices from the `live` flags.
+- predicted: most · documented: none · derivable: no · legible: full · trap: yes
+- note: Unpacking here assumes the read cursors (pr/r) consume cp.hits/cp.pathHits in exactly the order the paired `freeze` wrote them (by function/path index, front-truncated to hitLen) — nothing in thaw enforces or checks that pairing, so a change to freeze's packing order would silently corrupt history on replay.
 
-### `weigh` — STALE
-- spec 3 · read at `b4fb07068bb6` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T01:15:22Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Sums the byte lengths (or element counts) of the Checkpoint's various typed arrays to produce an approximate memory-size estimate for the checkpoint, used by the checkpoint cache (remember/evict/nearest) to enforce a memory budget.
-- found: Sums the byteLength of all the typed arrays held in a Checkpoint to give a total memory-size estimate in bytes, used for checkpoint cache budgeting.
+### `weigh`
+- spec 3 · read at `fde7576e091d` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:25Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Estimates the memory cost of a Checkpoint, probably summing the size of its stored state (nodes/strings/snapshot data), so the history/undo cache can rank checkpoints by weight and decide which ones evict should drop when the cache grows too large.
+- found: Sums the byteLength of every typed-array field on the Checkpoint to get its total memory footprint in bytes.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- this code has changed since it was read; the reading above may no longer
-  describe it, and Sanity will offer it for re-reading first.
 
 ### `evict`
 - spec 3 · read at `fc7f56dda765` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:34:26Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
