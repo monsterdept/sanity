@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-1128 of 1128 read · 263 unpredicted
+1128 of 1128 read · 264 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1147,10 +1147,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `FindingBadge` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `d60dee4adea2` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:44:29Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: React component rendering an SVG watch-dial split into two halves around the hub's rim: top half shows `count` (findings), bottom half shows `rules`, drawn via sectorPath and sized proportionally to `box`/`layer`. Despite onFound/onRules props suggesting click handlers on the halves, the doc says pointer-events:none since the whole creature one level up owns the click — so likely onFound/onRules are invoked from elsewhere or the props are vestigial/passed through. Numbers rendered as text at 12 and 6 o'clock.
-- found: Renders an SVG dial: two curved bars (top=count via sectorPath, bottom=rules) each with a number set on a textPath arc and a small-caps label ("found"/"rules") beside it, with extensive trigonometric layout computing bar widths, word gaps, baselines and angular shifts so number+label read as one phrase per half. The whole SVG is pointer-events:none except two transparent hit-region <path> overlays (drawn with sectorPath, wider than the visible bars) that directly wire onClick to onFound/onRules with stopPropagation — so my hedge that these props might be vestigial/handled elsewhere was wrong, they are used directly here.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- spec 3 · read at `dd66690f68b9` · commit `8e13753` · read by claude-sonnet-5 · via claude · when 2026-09-17T20:18:20Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Renders a dial-shaped SVG split into two semicircular halves — top showing `count` (findings) and bottom showing `rules` — using the `sectorPath` helper to draw each half's arc scaled to `box`. Sets pointer-events: none on itself per the docs (click handled one level up), with `layer` affecting radius/offset for stacking multiple rings, and onFound/onRules likely wired to the halves anyway despite the pointer-events note, or exposed for a parent to use.
+- found: Renders an SVG dial with two filled arc "bars" (top = findings count, bottom = rules count), each with a label ("found"/"rules") set along a textPath arc. Extensive precise geometry computes font sizes, radii, baselines, and angular offsets so bar widths match text width, words are positioned outside their bars, and everything scales with `box`. The findings bar is lit red only when count>0 (a true "nothing found" is shown in neutral plate color, not zero-as-alarm); separate invisible hit-target paths layered on top capture clicks/dblclicks for onFound/onRules while the whole SVG itself is pointer-events:none.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
 
 ## web/src/components/Findings.tsx
 
@@ -2256,11 +2256,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: useEffect that, for each file wedge with funcs>0 and no children yet, checks tilingOf against the node's settled target geometry, collects paths that would tile, and calls onWantRings with them if any; only tilingOf is excluded from deps (via eslint-disable) since it closes over band/minPatchArea which are already listed.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `SunburstView`
-- spec 3 · read at `a6ad27fa06a8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This is the main Sunburst chart component. It renders an SVG radial layout of concentric rings (one per directory depth) with wedges sized by area (lines of code) and colored per mode/ranks, draws a center hub showing repo state/findings badge, handles click/drag interactions (select, drill, clear, up), animates ring geometry when morph is set, pulses nodes in reading, draws directory-rim distribution bars sized by rimShare, and optionally overlays marker dots and data-node/data-arc attributes for report tagging.
-- found: It's a thin composition/orchestration component: hover/pos/collapsed state, delegates layout to useMapModel, motion to useLevelMotion, viewBox to useMapView, then renders MapSvg (which actually draws wedges/rings), a findings badge positioned over the hub, a WedgeTip tooltip, and MapCaveat for folded/hidden nodes. It doesn't draw SVG geometry itself — that's pushed into hooks and child components.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+### `SunburstView` — PREDICTED SOME
+- spec 3 · read at `b5279e085898` · commit `8e13753` · read by claude-sonnet-5 · via claude · when 2026-09-17T20:18:30Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: The main React component rendering the sunburst radial visualization: computes wedge/arc geometry per node from `root` across rings/depth, renders SVG paths with click handlers for select/drill/clear/up, colors wedges by `mode`, draws directory rim distribution bars and trap/clone marker dots, shows a central hub with repo stats/creature/findings badge, and animates between tree shapes via `morph` easing. Heavy use of memoization for layout and interaction state.
+- found: It's a thin orchestrator, not a monolithic renderer: it holds hover/pointer/collapsed-folder state, delegates layout entirely to useMapModel, animation/motion to useLevelMotion, viewbox fitting to useMapView, and actual SVG drawing to the MapSvg component. It composes these plus a findings badge overlay, a tooltip (WedgeTip), and a caveat/hidden-nodes notice (MapCaveat), and wires up click-to-clear, mousemove tracking, and fold/unfold handlers.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The extensive prop-doc comments explain rationale/history well but say little about the body's own hook-composition architecture (useMapModel/useLevelMotion/useMapView/MapSvg split), which a reader has to infer from the return statement.
 
 ## web/src/components/Tabs.tsx
 
@@ -2716,12 +2717,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 - note: File has no header doc at all — only a JSDoc directly above the exported useProjects function; the concept of 'following an agent' as the primary navigation model is the single biggest thing not guessable from the file name.
 
-### `useProjects` — LEGIBLE SOME
-- spec 3 · read at `6dbe01919e13` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:22:28Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: The central hook owning the list of known projects and which one is currently displayed. It polls the backend to follow projects an agent opens, handles sidebar clicks and hand-added repos, and exposes a switchTo that banks the outgoing project's view state (color mode, drill stack) and restores the incoming project's saved state rather than the hook owning that state itself. It also handles forgetting/resetting a project, updating scan/treeRev/error as those transitions happen, and reconciling agent reading state via keepReadings.
-- found: Matches my prediction's shape well: a views Map keyed by project holding {mode, stack}, switchTo banking/restoring it, a 1.5s poll that follows an agent's active project (distinguished from a sidebar click via a separate 'followed' variable so the two doors don't fight), refetches the tree on rescan via a revision/loading check, and forget/reset sharing a dropView helper that clears screen state. Also exposes select (sidebar click, tells the backend via selectProject) and scanKey, plus derived repoPath/activeProject. Missed many specific mechanisms: shownRev/loading gating for early cache reads, why dropView is shared but forget/reset call different backend commands, and pendingAdd's dedicated effect for hand-added repos following the same switchTo path.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: Nearly every line has a comment recording a specific past bug (stale closures, mismatched key vs path, selection surviving a switch) — this hook's comments are load-bearing history, not restatement, and should be read in full before editing any single piece.
+### `useProjects`
+- spec 3 · read at `7c940fd09a89` · commit `8e13753` · read by claude-sonnet-5 · via claude · when 2026-09-17T20:18:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Manages the list of known projects and which one is active: exposes a switchTo that banks the outgoing project's mode/stack/picked state and restores the incoming project's saved state via the passed setters; also handles adding a hand-added repo, a poll that follows an agent's active project and refreshes via scanRef/setScan/setTreeRev without recreation, and forgetting/resetting a project.
+- found: Manages the project list, active project, and a 1.5s poll that follows whichever project an agent has opened (distinguishing that from a user's own sidebar click via a `followed` var vs `shown` ref), refetching the tree/readings when the agent moves or the active project rescans. switchTo banks/restores per-project lens+drill state in a ref (not state, to avoid re-renders), while forget/reset/select/scanKey are the other doors that all funnel through dropView/switchTo for consistent clearing.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The doc comment mostly explains the store's existence/rationale at a high level; the fine mechanics (followed vs shown, pendingAdd path-matching by key not path, dropView shared by forget/reset) are only in inline comments within the body, which I did get but couldn't have predicted from the header docs alone.
 
 ## web/src/hooks/useReadings.ts
 
