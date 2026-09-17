@@ -605,7 +605,7 @@ function ProjectItem({
   onScan: (key: string) => void
   /** Stop a running trace on this project. */
   onStopTrace: (key: string) => void
-  /** A trace is running on another project. One walks at a time — see `trace` in `App` —
+  /** A trace is running on another project. One walks at a time — see `replay` in `hooks/useHistory.ts` —
    *  and a button that reports that when pressed is a worse way of saying it than not being
    *  there. */
   blocked: boolean

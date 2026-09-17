@@ -122,12 +122,10 @@ fn main() {
     // which is `None` on an unread body rather than falling back to a proxy score.
     let scan = match sanity_lib::scan::scan(
         &path,
-        &sanity_lib::surprise::HeuristicModel,
         &tick,
-        &|_, _: &sanity_lib::surprise::Reading| {},
         &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
-        sanity_lib::scan::Memos { scores: &sanity_lib::cache::Cache::ephemeral(), scans: &scans },
+        &scans,
         sanity_lib::scan::Fidelity::Ordering,
         depth,
     ) {

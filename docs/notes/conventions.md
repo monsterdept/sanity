@@ -151,8 +151,7 @@
   note said nothing at all. Same property this file exists for, one size down: the user finds
   out from a launch that got slower, and by then it has happened. `PARSE_VERSION` is not in the
   cache list — it is already declared, and its cache consequence is what the output-neutral
-  verdict says. `cache.rs::FORMAT_VERSION` is not either: only `Cache::ephemeral` is reachable,
-  so bumping it costs nobody anything and a gate that fires over a dead cache gets skipped.
+  verdict says.
 - **A `#[serde(default)]` field on a cached record IS a format change.** It is the exact
   annotation that lets a stale record load as though it were current, so adding one without
   bumping `FORMAT_VERSION` is not a small omission — it is the whole failure. `file_doc` went

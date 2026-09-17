@@ -20,6 +20,13 @@
 //!   already installed and authenticated; it does not run inference. What `OllamaModel` was
 //!   deleted to avoid was configuring an ENDPOINT, and none of this configures one.
 //!
+//! **Not every verb talks to that backend.** `status`, `check` and `trace` ask it, because
+//! they report or change what it is holding — what is out with readers this second, the
+//! depth the open map is traced to. `findings`, `callers`, `decide` and `refresh` scan
+//! in-process instead: what they answer is the tree, the readings in `.sanity/` and the rules
+//! beside them, all on disk, and an answer that depended on whether the app happened to be
+//! open would be two answers. See `survey`.
+//!
 //! **`sanity study` used to live here and is gone.** It opened a repo and printed a
 //! sentence to paste at an agent, from the design where the agent WAS the reader. The role
 //! split ended that: a session with no `SANITY_ROLE` gets the human tools — open, check,
@@ -1547,12 +1554,10 @@ fn read_repo(
     let scans = crate::scancache::ScanCache::open(repo);
     let scan = crate::scan::scan(
         repo,
-        &crate::surprise::HeuristicModel,
         &|_| {},
-        &|_, _: &crate::surprise::Reading| {},
         &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
-        crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+        &scans,
         // Ordering, like `refresh`: the proxy scores decide nothing this prints.
         crate::scan::Fidelity::Ordering,
         // And no git, for the same reason one step further: what this prints is reading
@@ -1625,7 +1630,7 @@ fn read_verb(path: &str, endpoint: &str) -> Result<Value, i32> {
 /// knowing what they bought.
 ///
 /// It opens the repo first, because there has to be something to land the history ON.
-fn trace(path: &str, want: Want) -> i32 {
+fn trace(path: &str, rung: Rung) -> i32 {
     let repo = match resolve(path) {
         Ok(r) => r,
         Err(e) => {
@@ -1670,15 +1675,15 @@ fn trace(path: &str, want: Want) -> i32 {
         return 1;
     }
     println!();
-    let depth = match want {
-        Want::Budget => "budget",
-        Want::Exactly(depth) => depth.tag_str(),
+    let depth = match rung {
+        Rung::Budget => "budget",
+        Rung::Exactly(depth) => depth.tag_str(),
     };
     println!(
         "Reading {}…",
-        match want {
-            Want::Budget => "as much history as fits the budget".to_string(),
-            Want::Exactly(depth) => rung_name(depth).to_lowercase(),
+        match rung {
+            Rung::Budget => "as much history as fits the budget".to_string(),
+            Rung::Exactly(depth) => rung_name(depth).to_lowercase(),
         }
     );
     let body = serde_json::json!({ "project": key, "depth": depth });
@@ -1816,7 +1821,7 @@ pub fn status(path: &str) -> i32 {
 /// the CATALOG and this is a question about the repo.
 pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
     let Survey { path, facts, rules, traced, read, declined, .. } =
-        match survey(path, Want::of(edits, blame)) {
+        match survey(path, Rung::of(edits, blame)) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -1846,7 +1851,7 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
 fn callers(path: &str, key: &str) -> i32 {
     // Files, as it always was: a caller list reads no history, and pricing blame to print one
     // would be paying for a question nobody asked.
-    let Survey { facts, links, .. } = match survey(path, Want::Exactly(crate::trace::Depth::Files)) {
+    let Survey { facts, links, .. } = match survey(path, Rung::Exactly(crate::trace::Depth::Files)) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -1932,27 +1937,38 @@ struct Survey {
     declined: Option<(crate::trace::Depth, f32)>,
 }
 
-/// How deep a survey reads history.
+/// How deep a verb reads history: a rung somebody named, or as far as the budget goes.
+///
+/// A depth REQUEST, not a list of what to return — every survey returns the same fields.
 #[derive(Clone, Copy)]
-enum Want {
+enum Rung {
     /// As deep as fits [`crate::trace::BUDGET`], priced on what is not already cached.
     Budget,
     /// This rung, whatever it costs — somebody typed the flag.
     Exactly(crate::trace::Depth),
 }
 
-impl Want {
+impl Rung {
     /// `--edits` and `--blame` name a rung; neither leaves it to the budget.
-    fn of(edits: bool, blame: bool) -> Want {
+    fn of(edits: bool, blame: bool) -> Rung {
         match (edits, blame) {
-            (true, _) => Want::Exactly(crate::trace::Depth::Edits),
-            (_, true) => Want::Exactly(crate::trace::Depth::Lines),
-            _ => Want::Budget,
+            (true, _) => Rung::Exactly(crate::trace::Depth::Edits),
+            (_, true) => Rung::Exactly(crate::trace::Depth::Lines),
+            _ => Rung::Budget,
         }
     }
 }
 
-fn survey(path: &str, want: Want) -> Result<Survey, i32> {
+/// Everything a findings verb needs, from one scan: the facts per subject, the rules for this
+/// repo, how deep history was read, and the call graph those facts were folded from.
+///
+/// **In process — a scan of its own, not a call to the backend.** See [`findings`] for why:
+/// nothing a finding says is live, so it must not depend on whether the app is open.
+///
+/// `rung` is how deep git is read. Named, it is scanned in; left to the budget, the tree is
+/// scanned untraced first — blame is priced per file, and there are no files to price until
+/// the tree exists — then deepened rung by rung to what [`crate::trace::affordable`] allows.
+fn survey(path: &str, rung: Rung) -> Result<Survey, i32> {
     let path = match std::fs::canonicalize(path) {
         Ok(p) => p,
         Err(e) => {
@@ -1961,17 +1977,15 @@ fn survey(path: &str, want: Want) -> Result<Survey, i32> {
         }
     };
     let scans = crate::scancache::ScanCache::open(&path);
-    // **The log walk by default, not per-line blame.** Blame is what `budgets.md` measures at
-    // 206 seconds of a 214-second cold ceph scan, and worse on a repo with 59,000 files; a
-    // verb whose first use is "what is worth looking at here" cannot open with that. The log
-    // gives every rule an answer at file resolution, which is what `score_dir` hands a
-    // function anyway wherever blame could not read it — and the two deeper rungs are there
-    // to be asked for. Named here rather than inline because `blocked` has to know which rung
-    // was taken: `headcount` is blame's alone, and a rule asking for it on a log-traced repo
+    // **Never blame for free.** Blame is what `budgets.md` measures at 206 seconds of a
+    // 214-second cold ceph scan, and worse on a repo with 59,000 files; a verb whose first use
+    // is "what is worth looking at here" cannot open with that unless it is already cached,
+    // which is what the budget prices. The rung reached is carried out because `blocked` has
+    // to know it: `headcount` is blame's alone, and a rule asking for it on a log-traced repo
     // must say so rather than finding nothing.
-    let forced = match want {
-        Want::Budget => None,
-        Want::Exactly(depth) => Some(depth),
+    let forced = match rung {
+        Rung::Budget => None,
+        Rung::Exactly(depth) => Some(depth),
     };
     // `Ordering` fidelity: every reading clause is answered from `.sanity/` or not at all —
     // see `findings::Field::Surprise`, which is `None` on an unread body rather than falling
@@ -1979,12 +1993,10 @@ fn survey(path: &str, want: Want) -> Result<Survey, i32> {
     // prints.
     let scan = match crate::scan::scan(
         &path,
-        &crate::surprise::HeuristicModel,
         &|_| {},
-        &|_, _: &crate::surprise::Reading| {},
         &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
-        crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+        &scans,
         crate::scan::Fidelity::Ordering,
         // Untraced when the budget decides, because blame is priced per file and there are no
         // files to price until the tree exists. The deepening below lands the same fields an
@@ -1998,7 +2010,7 @@ fn survey(path: &str, want: Want) -> Result<Survey, i32> {
         }
     };
     let mut scan = scan;
-    let (want, declined) = match forced {
+    let (reached, declined) = match forced {
         Some(depth) => (depth, None),
         None => {
             let (depth, declined) = crate::trace::affordable(&path, &scan, &scans);
@@ -2021,7 +2033,7 @@ fn survey(path: &str, want: Want) -> Result<Survey, i32> {
     // `links::retest_tree`. The app does this when a reading arrives; a headless verb has to
     // do it once, on the way past, or every CLI answer is the structural half only.
     crate::links::retest_tree(&mut scan, &reports);
-    let traced = crate::findings::Traced::of(&scan.stats, want);
+    let traced = crate::findings::Traced::of(&scan.stats, reached);
     let facts = crate::findings::subjects(&scan.root, &reports, traced);
     let rules = crate::findings::rules_for(&path, &facts);
     let read = !reports.is_empty();
@@ -2049,7 +2061,7 @@ fn decide(
     blame: bool,
 ) -> i32 {
     let Survey { path, facts, rules, traced, read, .. } =
-        match survey(path, Want::of(edits, blame)) {
+        match survey(path, Rung::of(edits, blame)) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -2512,12 +2524,10 @@ pub fn refresh(path: &str) -> i32 {
     let scans = crate::scancache::ScanCache::open(&path);
     let scan = match crate::scan::scan(
         &path,
-        &crate::surprise::HeuristicModel,
         &|_| {},
-        &|_, _: &crate::surprise::Reading| {},
         &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
-        crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+        &scans,
         // Ordering, matching an open. The proxy scores decide nothing that is written here —
         // a shard holds readings, and a reading is an agent's — so paying for the all-pairs
         // term would buy a number this verb does not print.
@@ -2637,12 +2647,10 @@ fn export_of(
     let scans = crate::scancache::ScanCache::open(path);
     let mut scan = crate::scan::scan(
         path,
-        &crate::surprise::HeuristicModel,
         &|_| {},
-        &|_, _: &crate::surprise::Reading| {},
         &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
-        crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+        &scans,
         crate::scan::Fidelity::Ordering,
         crate::trace::Depth::Untraced,
     )
@@ -2998,7 +3006,7 @@ pub fn main(args: &[String]) -> i32 {
         Verb::Init { path, harness, model, show } => {
             init(&path, harness.as_deref(), model.as_deref(), show)
         }
-        Verb::Trace { path, edits, blame } => trace(&path, Want::of(edits, blame)),
+        Verb::Trace { path, edits, blame } => trace(&path, Rung::of(edits, blame)),
         Verb::Check { path, model, readers, limit, detach } => {
             check(&path, model.as_deref(), readers, limit, detach)
         }
@@ -3090,15 +3098,10 @@ mod tests {
         // Both functions read against the bodies they have now.
         let scan = crate::scan::scan(
             &repo,
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos {
-                scores: &crate::cache::Cache::ephemeral(),
-                scans: &crate::scancache::ScanCache::ephemeral(),
-            },
+            &crate::scancache::ScanCache::ephemeral(),
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Untraced,
         )

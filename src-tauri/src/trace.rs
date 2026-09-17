@@ -1152,15 +1152,13 @@ mod tests {
     }
 
     fn scan_of(repo: &Path, depth: Depth) -> crate::scan::Scan {
-        let (scores, scans) = crate::scan::Memos::ephemeral();
+        let scans = crate::scancache::ScanCache::ephemeral();
         crate::scan::scan(
             repo,
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos { scores: &scores, scans: &scans },
+            &scans,
             crate::scan::Fidelity::Full,
             depth,
         )
@@ -1336,15 +1334,12 @@ mod tests {
         // that scans into an ephemeral cache and blames into a real one banks nothing for a
         // reason that has nothing to do with the bug.
         let scans = crate::scancache::ScanCache::open(dir.path());
-        let (scores, _) = crate::scan::Memos::ephemeral();
         let mut scan = crate::scan::scan(
             dir.path(),
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos { scores: &scores, scans: &scans },
+            &scans,
             crate::scan::Fidelity::Full,
             Depth::Untraced,
         )
@@ -1525,9 +1520,8 @@ mod tests {
         let _home = crate::agentapi::tests::data_home();
         let dir = repo();
         let resolved_at = |depth: Depth| {
-            let (scores, scans) = crate::scan::Memos::ephemeral();
+            let scans = crate::scancache::ScanCache::ephemeral();
             let mut scan = scan_of(dir.path(), Depth::Untraced);
-            let _ = (scores, &scans);
             let (reached, resolved, considered) = deepen(
                 dir.path(),
                 &mut scan,

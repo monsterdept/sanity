@@ -22,7 +22,7 @@ import type { ColorMode } from './colorMode'
  *
  * Markup is deliberately small: a paragraph per string, `- ` for a bullet, `1. ` for a numbered
  * item, `*italic*`, `**bold**` and `` `code` ``. `{slots}` are filled at export from the
- * repository being described — see `methodVars` and `lensVars` in `report.ts`.
+ * repository being described — see `methodVars` and `lensVars` in `report/vars.ts`.
  *
  * `{?surprise text}` prints `text` only when the report has a Predictability page, and `{!surprise text}`
  * only when it has none; `readings` stands for any of the four lenses a reading paints. **A

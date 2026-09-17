@@ -272,7 +272,7 @@ function DetailView({
    *  replayed wedge is a body from another one — see `LensPane`. */
   replaying?: boolean
   /** Show the function at this position, wherever it is. What every `→` in the lens sections
-   *  spends — see `jumpTo` in `App`, which has to fetch the file's ring before it can select
+   *  spends — see `jumpTo` in `hooks/useNavigation.ts`, which has to fetch the file's ring before it can select
    *  anything inside it. */
   onJump?: (path: string, line: number) => void
 }) {

@@ -1154,286 +1154,322 @@ export function colorFor(
     if (REPLAY[mode] !== 'live') return null
   }
 
-  if (mode === 'surprise') {
-    if (!s || !isAnalyzed(node)) return null
-    const share = showsShare(node)
-    const t = share ? s.hotShare : s.surprise
-    // The fill is calibrated and the label is not, and that split is the whole point:
-    // `shareRamp` decides where 9% lands on the color bar, the label says 9%. Ramping
-    // the printed number too would report the calibration as if it were the reading.
-    // A function a reader read is named, not numbered — its scale has four steps and a
-    // printed 62 claims otherwise. A container keeps its percentage: that one is a
-    // roll-up of many readings in surprise space, where every digit is earned.
+  return PAINTERS[mode](node, views, ranks)
+}
+
+type Painted = (Paint & { label: string }) | null
+type Ranks = Map<string, number> | undefined
+
+/** One lens's answer for one wedge — see `colorFor`, which asks the replay first. A table
+ *  rather than a chain of `if (mode === …)`, so a lens added to `ColorMode` without a painter
+ *  is a type error instead of silently falling through to the category palette. */
+const PAINTERS: Record<ColorMode, (node: Node, views: Views | undefined, ranks: Ranks) => Painted> = {
+  surprise: paintSurprise,
+  legible: paintLegible,
+  docs: paintDocs,
+  composition: paintComposition,
+  traps: paintTraps,
+  callers: paintCallers,
+  reach: paintReach,
+  clones: paintClones,
+  churn: paintChurn,
+  tangle: paintTangle,
+  age: paintAge,
+  blame: (node, views, ranks) => paintCategory(node, 'blame', views, ranks),
+  language: (node, views, ranks) => paintCategory(node, 'language', views, ranks),
+}
+
+function paintSurprise(node: Node): Painted {
+  const s = node.score
+  if (!s || !isAnalyzed(node)) return null
+  const share = showsShare(node)
+  const t = share ? s.hotShare : s.surprise
+  // The fill is calibrated and the label is not, and that split is the whole point:
+  // `shareRamp` decides where 9% lands on the color bar, the label says 9%. Ramping
+  // the printed number too would report the calibration as if it were the reading.
+  // A function a reader read is named, not numbered — its scale has four steps and a
+  // printed 62 claims otherwise. A container keeps its percentage: that one is a
+  // roll-up of many readings in surprise space, where every digit is earned.
+  return {
+    ...ramped(share ? shareRamp(t) : t),
+    label: share
+      ? // The threshold this counts is `some` or `none`: the lines a reader did not predict.
+        `${Math.round(t * 100)}% unpredicted`
+      : (() => {
+          const w = readingWords(node)
+          return w ? `predicted: ${w.predicted}` : `${Math.round(t * 100)}°`
+        })(),
+  }
+}
+
+function paintLegible(node: Node): Painted {
+  // Containers roll up, exactly as they do under surprise.
+  //
+  // An earlier version left them neutral, on the argument that half a subtree being
+  // unreadable is not "somewhat readable". That was wrong for the same reason it would be
+  // wrong for surprise: nobody asks a directory to have a legibility, they ask HOW MUCH OF
+  // IT is hard to read — and that is a share, which aggregates honestly. Leaving the inner
+  // rings gray also threw away the one thing the map can say that a list cannot, which is
+  // where the unreadable code CLUSTERS.
+  if (showsShare(node)) {
+    const share = opaqueShare(node)
+    if (share === null) return null
     return {
-      ...ramped(share ? shareRamp(t) : t),
-      label: share
-        ? // The threshold this counts is `some` or `none`: the lines a reader did not predict.
-          `${Math.round(t * 100)}% unpredicted`
-        : (() => {
-            const w = readingWords(node)
-            return w ? `predicted: ${w.predicted}` : `${Math.round(t * 100)}°`
-          })(),
+      ...ramped(shareRamp(share), 'legible'),
+      // Not `tangled`, which is the Complexity rule "Tangled for its size".
+      label: `${Math.round(share * 100)}% hard to follow`,
     }
   }
+  const g = node.agentStale ? undefined : legibleOf(node.agent)
+  if (!g) return null
+  return { ...ramped(GRADE_SURPRISE[g], 'legible'), label: `legible: ${g}` }
+}
 
-  if (mode === 'legible') {
-    // Containers roll up, exactly as they do under surprise.
-    //
-    // An earlier version left them neutral, on the argument that half a subtree being
-    // unreadable is not "somewhat readable". That was wrong for the same reason it would be
-    // wrong for surprise: nobody asks a directory to have a legibility, they ask HOW MUCH OF
-    // IT is hard to read — and that is a share, which aggregates honestly. Leaving the inner
-    // rings gray also threw away the one thing the map can say that a list cannot, which is
-    // where the unreadable code CLUSTERS.
-    if (showsShare(node)) {
-      const share = opaqueShare(node)
-      if (share === null) return null
-      return {
-        ...ramped(shareRamp(share), 'legible'),
-        // Not `tangled`, which is the Complexity rule "Tangled for its size".
-        label: `${Math.round(share * 100)}% hard to follow`,
-      }
-    }
-    const g = node.agentStale ? undefined : legibleOf(node.agent)
-    if (!g) return null
-    return { ...ramped(GRADE_SURPRISE[g], 'legible'), label: `legible: ${g}` }
-  }
-
-  if (mode === 'docs') {
-    const derived = views?.derivable ?? VIEWS_DEFAULT.derivable
-    // Opacity's twin, and deliberately built the same way: both are a reader's four-step
-    // grade on a function and a share of graded lines on a container.
-    //
-    // The one difference is the DIRECTION, and it is the whole reason the lens is worth
-    // having. Every other ramp brightens toward more of what it measures; this one paints
-    // the GAP, so bright is what nobody has explained. The map's invariant is not "more is
-    // brighter", it is "bright is what you have to do something about" — and a Docs map
-    // that glowed where the docs already are would send you to the finished half.
-    // A FILE answers for its own header first. It is the only container that has one, and
-    // a reader has now graded it — so averaging its functions here would report on the
-    // file's contents while the lens is asking about the file's description of itself. The
-    // functions inside it are still each painted by their own grade, which is the same
-    // split Blame draws: a file's band is its own last author, not a mixture of its
-    // functions'. A directory has no header, so it stays the share.
-    if (node.kind === 'file') {
-      const own = docGrade(node, derived)
-      // `header: none` rather than "covers none": the word is a rung on a ladder, and a
-      // sentence built round it has to bend for the bottom one.
-      if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header: ${own}` }
-      // A file nobody has read yet is gray, not an average of its functions. Its own header
-      // is the thing this lens asks a file about, and guessing it from the contents would
-      // be the map answering a question nobody put to it.
-      return null
-    }
-    if (showsShare(node)) {
-      const share = undocShare(node, derived)
-      if (share === null) return null
-      const n = Math.round(share * 100)
-      // LINEAR, not `shareRamp`. That curve is `min(1, share/0.25)^0.7` and its band is a
-      // measured claim about HOT share, where a quarter of a directory being hot is extreme
-      // and exactly one directory in tonepoet saturated. Documentation is not distributed
-      // like that: half the directories in a normal repo are 40–100% undescribed, so every
-      // one of them pinned to the ramp's brightest stop and the ring stopped being a ranking —
-      // which is the failure `shareRamp`'s own doc warns about, inherited by reusing its
-      // constants in a place nobody measured them for. A share of files is already 0..1 on
-      // its own terms and wants no curve; `0` still maps to `0`, so a fully described
-      // directory reads as fine.
-      return { ...ramped(share, 'docs'), label: `${n}% undescribed` }
-    }
-    const g = docGrade(node, derived)
-    if (!g) return null
-    return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${g}` }
-  }
-
-  if (mode === 'composition') {
-    // **What a body IS, which is answerable — not what a test covers, which is not.**
-    //
-    // Four kinds and a neutral. `null` is nothing having placed it, and it is emphatically
-    // not "code": where test code cannot be told apart — C++ has no marker for one — a body
-    // might be either, and reporting it as hand-written would make every C++ repo look
-    // entirely yours.
-    //
-    // The evidence rides in the label because the tiers are not equal: a generator's own
-    // `DO NOT EDIT` banner and a directory somebody named `generated` are both true and only
-    // one of them is a fact.
-    if (node.kind !== 'func') return null
-    const k = node.codeKind
-    if (!k) return null
-    const fill = KIND_FILL[k.kind]
-    return { fill, stop: fill, ink: inkOn(fill), label: `${k.kind} (${k.how})` }
-  }
-  if (mode === 'traps') {
-    // Two states and an absence, not a ramp: a trap is a boolean and shading it would
-    // invent degrees of danger nobody reported. Read-and-clear is drawn in the structural
-    // neutral rather than left gray, because "a reader looked and found nothing" and
-    // "nobody has looked" are opposite facts and this is the one lens where confusing them
-    // would read as an all-clear.
-    // `kind === 'func'` and not merely "has a reading": a FILE has one too, and `trap` is
-    // one of the two fields `FILE_ASK` tells a reader to leave unset on it. Read as a leaf
-    // it came back `no traps reported` — an all-clear over a question nobody asked, printed
-    // in the same words a reader's real all-clear uses. It counts its contents instead.
-    // A reading whose trap answer predates the current question is treated as no answer at
-    // all, on the same rule the legible lens follows — and it matters more here, because the
-    // other reading of a dated answer is `no trap reported`, which is an all-clear. Grey
-    // says nobody has looked under today's question, which is what happened.
-    if (node.kind === 'func' && node.agent && !node.agentStale && !node.agent.trapDated) {
-      const trap = trapOf(node.agent)
-      const fill = trap ? 'var(--trap)' : 'var(--structure)'
-      return { fill, stop: fill, ink: inkOn(fill), label: trap ? 'trap' : 'no trap reported' }
-    }
-    // A container gets no reading row at all — see `saysNothing`, which is where the card
-    // decides to stay quiet rather than print a swatch over a value that does not exist.
+function paintDocs(node: Node, views: Views | undefined): Painted {
+  const derived = views?.derivable ?? VIEWS_DEFAULT.derivable
+  // Opacity's twin, and deliberately built the same way: both are a reader's four-step
+  // grade on a function and a share of graded lines on a container.
+  //
+  // The one difference is the DIRECTION, and it is the whole reason the lens is worth
+  // having. Every other ramp brightens toward more of what it measures; this one paints
+  // the GAP, so bright is what nobody has explained. The map's invariant is not "more is
+  // brighter", it is "bright is what you have to do something about" — and a Docs map
+  // that glowed where the docs already are would send you to the finished half.
+  // A FILE answers for its own header first. It is the only container that has one, and
+  // a reader has now graded it — so averaging its functions here would report on the
+  // file's contents while the lens is asking about the file's description of itself. The
+  // functions inside it are still each painted by their own grade, which is the same
+  // split Blame draws: a file's band is its own last author, not a mixture of its
+  // functions'. A directory has no header, so it stays the share.
+  if (node.kind === 'file') {
+    const own = docGrade(node, derived)
+    // `header: none` rather than "covers none": the word is a rung on a ladder, and a
+    // sentence built round it has to bend for the bottom one.
+    if (own) return { ...ramped(DOC_GAP[own], 'docs'), label: `header: ${own}` }
+    // A file nobody has read yet is gray, not an average of its functions. Its own header
+    // is the thing this lens asks a file about, and guessing it from the contents would
+    // be the map answering a question nobody put to it.
     return null
   }
-
-  if (mode === 'callers') {
-    if (showsShare(node)) {
-      const share = calledShare(node)
-      if (share === null) return null
-      return { ...ramped(share, 'callers'), label: `${Math.round(share * 100)}% called` }
-    }
-    // Bands, not a scale and not two states — see `CALLER_BANDS`.
-    if (node.callers == null) return null
-    // The exact count on the wedge, the band in the key: "no in-repo caller" and "1 caller"
-    // are different situations and the tooltip is where that fits. **"No in-repo caller"
-    // rather than "nothing calls it"** — the resolver does not cross a language family, does
-    // not follow dynamic dispatch and never sees a test harness, so the second sentence is a
-    // claim about the world made from evidence about this repo.
-    return {
-      ...ramped(bandOf(CALLER_BANDS, node.callers).t, 'callers'),
-      label:
-        node.callers === 0
-          ? 'no in-repo caller'
-          : `${node.callers} caller${node.callers === 1 ? '' : 's'}`,
-    }
+  if (showsShare(node)) {
+    const share = undocShare(node, derived)
+    if (share === null) return null
+    const n = Math.round(share * 100)
+    // LINEAR, not `shareRamp`. That curve is `min(1, share/0.25)^0.7` and its band is a
+    // measured claim about HOT share, where a quarter of a directory being hot is extreme
+    // and exactly one directory in tonepoet saturated. Documentation is not distributed
+    // like that: half the directories in a normal repo are 40–100% undescribed, so every
+    // one of them pinned to the ramp's brightest stop and the ring stopped being a ranking —
+    // which is the failure `shareRamp`'s own doc warns about, inherited by reusing its
+    // constants in a place nobody measured them for. A share of files is already 0..1 on
+    // its own terms and wants no curve; `0` still maps to `0`, so a fully described
+    // directory reads as fine.
+    return { ...ramped(share, 'docs'), label: `${n}% undescribed` }
   }
+  const g = docGrade(node, derived)
+  if (!g) return null
+  return { ...ramped(DOC_GAP[g], 'docs'), label: `docs: ${g}` }
+}
 
-  if (mode === 'reach') {
-    if (showsShare(node)) {
-      const share = reachingShare(node)
-      if (share === null) return null
-      return { ...ramped(share, 'reach'), label: `${Math.round(share * 100)}% call out` }
-    }
-    if (node.calls == null) return null
-    return {
-      ...ramped(bandOf(REACH_BANDS, node.calls).t, 'reach'),
-      label:
-        node.calls === 0
-          ? 'calls nothing in this repo'
-          : `calls ${node.calls} function${node.calls === 1 ? '' : 's'}`,
-    }
-  }
+function paintComposition(node: Node): Painted {
+  // **What a body IS, which is answerable — not what a test covers, which is not.**
+  //
+  // Four kinds and a neutral. `null` is nothing having placed it, and it is emphatically
+  // not "code": where test code cannot be told apart — C++ has no marker for one — a body
+  // might be either, and reporting it as hand-written would make every C++ repo look
+  // entirely yours.
+  //
+  // The evidence rides in the label because the tiers are not equal: a generator's own
+  // `DO NOT EDIT` banner and a directory somebody named `generated` are both true and only
+  // one of them is a fact.
+  if (node.kind !== 'func') return null
+  const k = node.codeKind
+  if (!k) return null
+  const fill = KIND_FILL[k.kind]
+  return { fill, stop: fill, ink: inkOn(fill), label: `${k.kind} (${k.how})` }
+}
 
-  if (mode === 'clones') {
-    // **A container says nothing here, exactly as it does under Traps.** A clone is a
-    // flashpoint: one body, findable, checkable. It is not a quantity, so it does not
-    // accumulate, and a directory tinted by its share was answering a question the lens does
-    // not ask — "how cloned is this region" — in the visual language of the ones that do.
-    //
-    // It was built, and it is worth recording what it cost before somebody rebuilds it. The
-    // mix ran `in oklch`, which interpolates HUE along the shorter arc: `--clone` sits at
-    // H 308 and the neutral at H 81, 133° apart the short way round through RED. Every
-    // partly-copied file came out apricot and a half-copied one came out pink, so the whole
-    // map read as though it had a warm lens nobody had chosen. `in oklab` fixed the colour —
-    // see `flash` above, where a cyan flash mixed toward the ground went visibly GREEN for
-    // the same reason — and fixing it is what made the real problem visible: even correct,
-    // the tint was a share where the lens has only marks.
-    if (showsShare(node)) return null
-    // Grey is "not compared", never "unique" — a body under the token floor was never
-    // measured, and saying it has no copy would be the map answering a question nobody
-    // asked of it. See `MIN_SHAPE_TOKENS`.
-    if (node.comparable == null) return null
-    if (node.cloneSize == null) {
-      return {
-        fill: 'var(--structure)',
-        stop: 'var(--structure)',
-        ink: inkOn('var(--structure)'),
-        label: 'no clone in this repo',
-      }
-    }
-    return {
-      fill: 'var(--clone)',
-      stop: 'var(--clone)',
-      ink: inkOn('var(--clone)'),
-      label: `1 of ${node.cloneSize} clones`,
-    }
+function paintTraps(node: Node): Painted {
+  // Two states and an absence, not a ramp: a trap is a boolean and shading it would
+  // invent degrees of danger nobody reported. Read-and-clear is drawn in the structural
+  // neutral rather than left gray, because "a reader looked and found nothing" and
+  // "nobody has looked" are opposite facts and this is the one lens where confusing them
+  // would read as an all-clear.
+  // `kind === 'func'` and not merely "has a reading": a FILE has one too, and `trap` is
+  // one of the two fields `FILE_ASK` tells a reader to leave unset on it. Read as a leaf
+  // it came back `no traps reported` — an all-clear over a question nobody asked, printed
+  // in the same words a reader's real all-clear uses. It counts its contents instead.
+  // A reading whose trap answer predates the current question is treated as no answer at
+  // all, on the same rule the legible lens follows — and it matters more here, because the
+  // other reading of a dated answer is `no trap reported`, which is an all-clear. Grey
+  // says nobody has looked under today's question, which is what happened.
+  if (node.kind === 'func' && node.agent && !node.agentStale && !node.agent.trapDated) {
+    const trap = trapOf(node.agent)
+    const fill = trap ? 'var(--trap)' : 'var(--structure)'
+    return { fill, stop: fill, ink: inkOn(fill), label: trap ? 'trap' : 'no trap reported' }
   }
+  // A container gets no reading row at all — see `saysNothing`, which is where the card
+  // decides to stay quiet rather than print a swatch over a value that does not exist.
+  return null
+}
 
-  if (mode === 'churn') {
-    // **The gate is `lastTouchedDays`, and it used to be `ageDays`.** The two are null
-    // together on the live map — both come from the same blame range or the same missing
-    // path — so this asked "does this repo have history" through whichever one was handy.
-    // It stopped being handy the moment Age started PAINTING `ageDays`: a replay stand-in
-    // for a file the story never saw arrive now reports a null birth and a real touch date,
-    // which is the truth about it and which under the old gate would have silently switched
-    // Churn off over the folded half of every frame.
-    if (!s || s.lastTouchedDays === null) return null
-    const w = views?.churn ?? VIEWS_DEFAULT.churn
-    // **Nothing painted until the timeline has been walked.** Every count is zero until then,
-    // and zero is a finding — nobody has touched this — which is the one thing it must not be
-    // read as here. Said once, on the lens, beside the button that runs the walk; the map goes
-    // to the structural neutral, exactly as it does for a repo with no git at all.
-    if (!w.measured) return null
-    return {
-      ...ramped(s.churn[w.at], 'churn'),
-      // **One quantity now, at both resolutions, and the label no longer has to disambiguate.**
-      // It read `traces to 4 commits` on a function and `27 commits in 90d` on its file,
-      // because blame and the log walk were answering different questions under one ramp. Both
-      // are the same question off the timeline: commits that CHANGED this, inside the window.
-      //
-      // The window is named from the repo's own ladder, never as a constant — see `ChurnView`.
-      label: churnLabel(s.commits[w.at], w.windows[w.at]),
-    }
+function paintCallers(node: Node): Painted {
+  if (showsShare(node)) {
+    const share = calledShare(node)
+    if (share === null) return null
+    return { ...ramped(share, 'callers'), label: `${Math.round(share * 100)}% called` }
   }
-
-  if (mode === 'tangle') {
-    // **`null` is a grammar nobody taught, and it must not read as simple code.** It comes
-    // straight through from `parse::branch_kinds`, which returns no table rather than an empty
-    // one for exactly this reason. Grey, like Callers on a language whose calls never resolve.
-    if (!s?.tangle) return null
-    const read = views?.tangle ?? VIEWS_DEFAULT.tangle
-    const at = read === 'raw' ? 1 : 0
-    return {
-      ...ramped(s.tangle[at], 'tangle'),
-      label: tangleLabel(s.cognitive),
-    }
-  }
-
-  if (mode === 'age') {
-    const view = views?.age ?? AGE_DEFAULT
-    // Null under one reading and not the other is an ordinary state rather than an edge: a
-    // replayed file that predates the window has been touched and was never seen to arrive.
-    // The wedge goes uncoloured for the reading it cannot answer and keeps its colour under
-    // the other, which is the whole doctrine — absence is stated, never filled in.
-    const d = s ? ageOf(s, view.read) : null
-    if (d === null) return null
-    return {
-      ...ramped(ageRamp(d, view.span), 'age'),
-      label: ageLabel(d, view.read),
-    }
-  }
-
-  const key = catKey(node, mode, views?.blame ?? VIEWS_DEFAULT.blame)
-  if (!key) return null
-  // Uncommitted lines are a state, never a slot — see `UNCOMMITTED`.
-  if (mode === 'blame' && !isAuthor(key)) {
-    return {
-      fill: 'var(--unanalyzed)',
-      stop: 'var(--unanalyzed)',
-      ink: inkOn('var(--unanalyzed)'),
-      label: 'uncommitted lines',
-    }
-  }
-  const rank = ranks?.get(key)
-  const slot = rank === undefined ? OTHER : slotColor(rank)
+  // Bands, not a scale and not two states — see `CALLER_BANDS`.
+  if (node.callers == null) return null
+  // The exact count on the wedge, the band in the key: "no in-repo caller" and "1 caller"
+  // are different situations and the tooltip is where that fits. **"No in-repo caller"
+  // rather than "nothing calls it"** — the resolver does not cross a language family, does
+  // not follow dynamic dispatch and never sees a test harness, so the second sentence is a
+  // claim about the world made from evidence about this repo.
   return {
-    fill: slot,
-    stop: slot,
-    ink: inkOn(slot),
-    // The label names the value even when the color is "Other", so identity is never
-    // carried by color alone — which is what makes the 14.3 CVD margin legal.
-    label: key,
+    ...ramped(bandOf(CALLER_BANDS, node.callers).t, 'callers'),
+    label:
+      node.callers === 0
+        ? 'no in-repo caller'
+        : `${node.callers} caller${node.callers === 1 ? '' : 's'}`,
   }
+}
+
+function paintReach(node: Node): Painted {
+  if (showsShare(node)) {
+    const share = reachingShare(node)
+    if (share === null) return null
+    return { ...ramped(share, 'reach'), label: `${Math.round(share * 100)}% call out` }
+  }
+  if (node.calls == null) return null
+  return {
+    ...ramped(bandOf(REACH_BANDS, node.calls).t, 'reach'),
+    label:
+      node.calls === 0
+        ? 'calls nothing in this repo'
+        : `calls ${node.calls} function${node.calls === 1 ? '' : 's'}`,
+  }
+}
+
+function paintClones(node: Node): Painted {
+  // **A container says nothing here, exactly as it does under Traps.** A clone is a
+  // flashpoint: one body, findable, checkable. It is not a quantity, so it does not
+  // accumulate, and a directory tinted by its share was answering a question the lens does
+  // not ask — "how cloned is this region" — in the visual language of the ones that do.
+  //
+  // It was built, and it is worth recording what it cost before somebody rebuilds it. The
+  // mix ran `in oklch`, which interpolates HUE along the shorter arc: `--clone` sits at
+  // H 308 and the neutral at H 81, 133° apart the short way round through RED. Every
+  // partly-copied file came out apricot and a half-copied one came out pink, so the whole
+  // map read as though it had a warm lens nobody had chosen. `in oklab` fixed the colour —
+  // see `flash` above, where a cyan flash mixed toward the ground went visibly GREEN for
+  // the same reason — and fixing it is what made the real problem visible: even correct,
+  // the tint was a share where the lens has only marks.
+  if (showsShare(node)) return null
+  // Grey is "not compared", never "unique" — a body under the token floor was never
+  // measured, and saying it has no copy would be the map answering a question nobody
+  // asked of it. See `MIN_SHAPE_TOKENS`.
+  if (node.comparable == null) return null
+  if (node.cloneSize == null) {
+    return {
+      fill: 'var(--structure)',
+      stop: 'var(--structure)',
+      ink: inkOn('var(--structure)'),
+      label: 'no clone in this repo',
+    }
+  }
+  return {
+    fill: 'var(--clone)',
+    stop: 'var(--clone)',
+    ink: inkOn('var(--clone)'),
+    label: `1 of ${node.cloneSize} clones`,
+  }
+}
+
+function paintChurn(node: Node, views: Views | undefined): Painted {
+  const s = node.score
+  // **The gate is `lastTouchedDays`, and it used to be `ageDays`.** The two are null
+  // together on the live map — both come from the same blame range or the same missing
+  // path — so this asked "does this repo have history" through whichever one was handy.
+  // It stopped being handy the moment Age started PAINTING `ageDays`: a replay stand-in
+  // for a file the story never saw arrive now reports a null birth and a real touch date,
+  // which is the truth about it and which under the old gate would have silently switched
+  // Churn off over the folded half of every frame.
+  if (!s || s.lastTouchedDays === null) return null
+  const w = views?.churn ?? VIEWS_DEFAULT.churn
+  // **Nothing painted until the timeline has been walked.** Every count is zero until then,
+  // and zero is a finding — nobody has touched this — which is the one thing it must not be
+  // read as here. Said once, on the lens, beside the button that runs the walk; the map goes
+  // to the structural neutral, exactly as it does for a repo with no git at all.
+  if (!w.measured) return null
+  return {
+    ...ramped(s.churn[w.at], 'churn'),
+    // **One quantity now, at both resolutions, and the label no longer has to disambiguate.**
+    // It read `traces to 4 commits` on a function and `27 commits in 90d` on its file,
+    // because blame and the log walk were answering different questions under one ramp. Both
+    // are the same question off the timeline: commits that CHANGED this, inside the window.
+    //
+    // The window is named from the repo's own ladder, never as a constant — see `ChurnView`.
+    label: churnLabel(s.commits[w.at], w.windows[w.at]),
+  }
+}
+
+function paintTangle(node: Node, views: Views | undefined): Painted {
+  const s = node.score
+  // **`null` is a grammar nobody taught, and it must not read as simple code.** It comes
+  // straight through from `parse::branch_kinds`, which returns no table rather than an empty
+  // one for exactly this reason. Grey, like Callers on a language whose calls never resolve.
+  if (!s?.tangle) return null
+  const read = views?.tangle ?? VIEWS_DEFAULT.tangle
+  const at = read === 'raw' ? 1 : 0
+  return {
+    ...ramped(s.tangle[at], 'tangle'),
+    label: tangleLabel(s.cognitive),
+  }
+}
+
+function paintAge(node: Node, views: Views | undefined): Painted {
+  const s = node.score
+  const view = views?.age ?? AGE_DEFAULT
+  // Null under one reading and not the other is an ordinary state rather than an edge: a
+  // replayed file that predates the window has been touched and was never seen to arrive.
+  // The wedge goes uncoloured for the reading it cannot answer and keeps its colour under
+  // the other, which is the whole doctrine — absence is stated, never filled in.
+  const d = s ? ageOf(s, view.read) : null
+  if (d === null) return null
+  return {
+    ...ramped(ageRamp(d, view.span), 'age'),
+    label: ageLabel(d, view.read),
+  }
+}
+
+function paintCategory(
+  node: Node,
+  mode: 'blame' | 'language',
+  views: Views | undefined,
+  ranks: Ranks,
+): Painted {
+const key = catKey(node, mode, views?.blame ?? VIEWS_DEFAULT.blame)
+if (!key) return null
+// Uncommitted lines are a state, never a slot — see `UNCOMMITTED`.
+if (mode === 'blame' && !isAuthor(key)) {
+  return {
+    fill: 'var(--unanalyzed)',
+    stop: 'var(--unanalyzed)',
+    ink: inkOn('var(--unanalyzed)'),
+    label: 'uncommitted lines',
+  }
+}
+const rank = ranks?.get(key)
+const slot = rank === undefined ? OTHER : slotColor(rank)
+return {
+  fill: slot,
+  stop: slot,
+  ink: inkOn(slot),
+  // The label names the value even when the color is "Other", so identity is never
+  // carried by color alone — which is what makes the 14.3 CVD margin legal.
+  label: key,
+}
 }
 
 /** Category → slot index, biggest first by lines. Computed once per scan so every wedge
@@ -1470,7 +1506,7 @@ export interface Bucket {
  * **It said `no git history`, which is a claim about the REPO made from a per-function
  * null.** On ceph — 123,000 commits, the log open in the panel beside it — 94% of `src`
  * drew as a repo with no git in it. The two absences are opposite statements and the app
- * already knows the difference: `locks` in `App.tsx` asks whether the trace has been read
+ * already knows the difference: `useLocks` in `hooks/useLens.ts` asks whether the trace has been read
  * BEFORE it says a folder has no history, with a comment saying exactly why that order
  * matters. A band that hardcodes the second one contradicts the lens's own explanation and
  * the header above it at the same time.

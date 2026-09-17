@@ -550,6 +550,96 @@ impl AppState {
         true
     }
 
+    /// A repo somebody asked to see, in the sidebar BEFORE its scan starts. Returns its name.
+    ///
+    /// **An open is the one window in which the user has nothing to look at.** An agent calls
+    /// `sanity_open` and goes silent for as long as the scan takes, and the window's own Open
+    /// used to publish only once the scan returned — so a long scan was indistinguishable from
+    /// a hang, and a picker that handed back a parent directory said nothing for minutes.
+    /// `restoring` already describes exactly this state, a project whose scan has not landed,
+    /// with a progress bar, and it is display-only, so nothing downstream mistakes the row for
+    /// a project that can be queued or reported against.
+    ///
+    /// **Off the declined list the moment the scan starts.** A repo whose scan was over budget
+    /// sits in `awaiting` with a row of its own, and `restoring` also renders a row — so asking
+    /// for it there put the same project on screen twice under one name. The question has been
+    /// answered; the row that asks it goes.
+    pub fn pend(&mut self, key: &str, root: &Path) -> String {
+        let name =
+            root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| key.into());
+        self.restoring.retain(|k| k.key != key);
+        self.awaiting.remove(key);
+        self.restoring.push(crate::reports::KnownProject {
+            key: key.to_string(),
+            repo: root.to_string_lossy().to_string(),
+            name: name.clone(),
+            touched: 0,
+            files: None,
+            scan_ms: None,
+            trace_depth: None,
+            harness: None,
+            model: None,
+        });
+        name
+    }
+
+    /// Off the pending list, however the scan turned out. A row left reading forever is the
+    /// same failure as no row at all, and the failure paths are exactly where it would be
+    /// easiest to forget — so callers settle before the success path decides anything.
+    pub fn settle(&mut self, key: &str) {
+        self.restoring.retain(|k| k.key != key);
+        self.restoring_progress.remove(key);
+    }
+
+    /// Land a scan somebody asked for as the project, whichever door it came through.
+    ///
+    /// **One place, because two doors built it twice and the copies drifted.** The window's
+    /// Open and an agent's `sanity_open` are the same event — there is one list of projects,
+    /// however it got filled — and each did it by hand. The window's copy never recorded the
+    /// depth its scan had been traced to, so a repo opened from the app claimed `Untraced`
+    /// over a tree holding the commit log: findings asked for a trace the map already had, and
+    /// Trace offered to walk the log again. `trace` is what [`scan_asked`] actually did.
+    ///
+    /// `reports` come from [`load_reports`] against this same tree, reloaded from `.sanity/`
+    /// rather than carried over, the way `restore` and the watcher land a tree: the store is
+    /// the source, and it may have moved underneath the process — a pull, a hand edit. Loaded
+    /// by the caller because an agent's open answers with counts over them before they move.
+    ///
+    /// **Leases are dropped.** Ids no longer move when a function does — see
+    /// `assessment::key_of` — so a lease is not a claim on a line. It is a claim taken against
+    /// a BODY this rescan may have replaced: the reader is out reading text that has changed,
+    /// and its report would be stamped with the hash of code it never saw. Releasing costs one
+    /// duplicate reading; keeping it costs a reading that describes nothing and says it is
+    /// current.
+    ///
+    /// Returns whether the view moved — see [`AppState::focus`].
+    pub fn publish_asked(
+        &mut self,
+        key: &str,
+        repo: PathBuf,
+        scan: Scan,
+        trace: TraceState,
+        reports: HashMap<String, Report>,
+        focus: bool,
+    ) -> bool {
+        // **Through `Project::rescan`, so a reopen cannot quietly destroy a run.** Building a
+        // Project from scratch with `run: None` detached a live wave from the only handle that
+        // could stop it: `sanity check` posts `/open` before `/check`, the guard then saw no
+        // run and started a second one, and the first went on spawning readers nothing could
+        // reach.
+        let name =
+            repo.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| key.into());
+        let mut project = Project::rescan(self.projects.get(key), repo, name, scan, reports);
+        project.trace = trace;
+        project.leased.clear();
+        project.recent_files.clear();
+        self.projects.insert(key.to_string(), project);
+        // It has a map now, so a declined row's question has been answered — see `pend`.
+        self.awaiting.remove(key);
+        self.touch(key);
+        self.focus(key, focus)
+    }
+
     /// Somebody is looking at this project now.
     ///
     /// **It focuses and does not `touch`, which is the whole of it being a selection rather
@@ -780,7 +870,7 @@ const OUTSTANDING_SHOWN: usize = 10;
 /// it when readings were LOADED: a launch, an open and a watcher's rescan all drew the
 /// structural half only, while `survey` and `export-data` load and then retest. So the window
 /// and the export disagreed about the same repo until the next test classification arrived.
-fn load_reports(repo: &Path, scan: &mut Scan) -> HashMap<String, Report> {
+pub(crate) fn load_reports(repo: &Path, scan: &mut Scan) -> HashMap<String, Report> {
     let reports = crate::assessment::load(repo, scan);
     crate::links::retest_tree(scan, &reports);
     reports
@@ -2091,20 +2181,6 @@ pub fn reader_prompt(n: usize) -> String {
     )
 }
 
-/// Open a repo, and add it to what Sanity is holding.
-///
-/// It used to end "…and make it what the window is showing", which is no longer the
-/// default and was never quite defensible: an open is a claim about what the caller is
-/// working on, not about what the person at the window wants to look at. The project
-/// appears in the sidebar with its own progress either way, so nothing becomes invisible;
-/// see [`AppState::focus`] for when the view does move.
-///
-/// Sanity does the structural work — walking, tree-sitter, git churn — because that is a
-/// second of Rust and would be thousands of tokens of agent time. The agent supplies the
-/// part only it can: judgement about whether the code reads the way its name implies.
-///
-/// Scored with the offline proxy only, so every wedge starts gray. Nothing claims to have
-/// been understood until something actually reads it.
 /// Which repo an `/open` is about, given what the human has already added.
 ///
 /// **The rule is that a person names a project and an agent never does**, and everything
@@ -2163,6 +2239,76 @@ fn resolve_open(state: &Shared, asked: Option<&str>) -> Result<PathBuf, serde_js
     }
 }
 
+/// The scan an OPEN gets, from the window or from an agent: the parse, then the commit log.
+///
+/// **An agent's open is an ASK, so it is not gated** — the agent named this repo and is waiting
+/// on the answer. What no open is, is a blank cheque for depth 2: blame is per-file work on a
+/// scale nothing here can predict — an hour on kibana — so it stays an explicit request of its
+/// own, the same for a human and for an agent.
+///
+/// **The window's open is `budgeted`, because the window has already told the person so.**
+/// Adding a repo whose log is over [`crate::trace::BUDGET`] puts up a dialog saying the map
+/// arrives without its history lenses and the row carries a Trace button — and pressing Add
+/// then walked the log anyway, 47 seconds on linux, under a dialog that had just promised
+/// otherwise. Over budget, the map lands untraced with the price on the row, which is what the
+/// launch restore already does through the same [`crate::trace::go`].
+///
+/// The scan cache is persistent, unlike the rest of what an open rebuilds. The rescan on every
+/// open is deliberate and stays — staleness is judged against the CURRENT tree — but
+/// re-deriving a parse and a blame for a file nobody touched is the same work producing the
+/// same answer, and on PrusaSlicer that was 51.5s of a 51.5s open. See `scancache`.
+///
+/// Ordering fidelity: in the app the proxy is only ever a queue sort key, `Source::Proxy` is
+/// refused a color, and the all-pairs term cost 27 of tonepoet's 34 seconds to produce a value
+/// nobody sees. See `scan::Fidelity`.
+pub fn scan_asked(
+    root: &Path,
+    on_progress: &(dyn Fn(crate::scan::Progress) + Sync),
+    on_shape: &(dyn Fn(&[crate::scan::ShapeFile]) + Sync),
+    cancel: &std::sync::atomic::AtomicBool,
+    budgeted: bool,
+) -> anyhow::Result<(Scan, TraceState)> {
+    let scans = crate::scancache::ScanCache::open(root);
+    let mut scan = crate::scan::scan(
+        root,
+        on_progress,
+        on_shape,
+        cancel,
+        &scans,
+        crate::scan::Fidelity::Ordering,
+        crate::trace::Depth::Untraced,
+    )?;
+    if budgeted {
+        if let crate::trace::Go::Ask(estimate) = crate::trace::go(root) {
+            let trace = TraceState { pending: Some(estimate), ..Default::default() };
+            return Ok((scan, trace));
+        }
+    }
+    on_progress(crate::scan::Progress::phase("reading the commit log"));
+    let (depth, _, _) =
+        crate::trace::deepen(root, &mut scan, crate::trace::Depth::Files, &scans, cancel, &|_| {}, &|_| {});
+    // Banked again with its history in it — `scan` stored an untraced tree before the walk.
+    // See `treecache::redraw`.
+    if depth != crate::trace::Depth::Untraced {
+        crate::treecache::redraw(root, &scan);
+    }
+    Ok((scan, TraceState { depth, ..Default::default() }))
+}
+
+/// Open a repo, and add it to what Sanity is holding.
+///
+/// It used to end "…and make it what the window is showing", which is no longer the
+/// default and was never quite defensible: an open is a claim about what the caller is
+/// working on, not about what the person at the window wants to look at. The project
+/// appears in the sidebar with its own progress either way, so nothing becomes invisible;
+/// see [`AppState::focus`] for when the view does move.
+///
+/// Sanity does the structural work — walking, tree-sitter, git churn — because that is a
+/// second of Rust and would be thousands of tokens of agent time. The agent supplies the
+/// part only it can: judgement about whether the code reads the way its name implies.
+///
+/// Scored with the offline proxy only, so every wedge starts gray. Nothing claims to have
+/// been understood until something actually reads it.
 async fn open_project(
     State(state): State<Shared>,
     Json(req): Json<OpenRequest>,
@@ -2200,99 +2346,24 @@ async fn open_project(
     // to 8.6s. It was not affordable before, which is most of why it worked this way.
     let reopened = lock(&state).projects.contains_key(&key);
 
-    // In the sidebar NOW, before the scan, not after it.
-    //
-    // **This is the only window in which the user has nothing to look at.** The agent calls
-    // `sanity_open` and then goes silent for as long as the scan takes — no tool output, no
-    // chat, nothing — and until this existed the app was silent with it: an empty project
-    // list and an onboarding screen still saying "ask your agent to study a project", which
-    // is precisely the instruction they had just followed. The one moment somebody most
-    // needs to see the machine working was the one moment it showed them nothing.
-    //
-    // `restoring` already describes exactly this state — a project whose scan has not landed
-    // yet, with a progress bar — and it is display-only, so nothing downstream mistakes it
-    // for a project that can be queued or reported against.
-    {
-        let mut s = lock(&state);
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| key.clone());
-        s.restoring.retain(|k| k.key != key);
-        s.restoring.push(crate::reports::KnownProject {
-            key: key.clone(),
-            repo: path.to_string_lossy().to_string(),
-            name,
-            touched: 0,
-            files: None,
-            scan_ms: None,
-            trace_depth: None,
-            harness: None,
-            model: None,
-        });
-    }
+    // In the sidebar NOW, before the scan, not after it — see `AppState::pend`.
+    let name = lock(&state).pend(&key, &path);
 
     let scan_path = path.clone();
     let started = Instant::now();
     let scanned = tokio::task::spawn_blocking(move || {
-        // Persistent, unlike the score cache beside it. The rescan on every open is
-        // deliberate and stays — but re-deriving a parse and a blame for a file nobody
-        // touched is the same work producing the same answer, and on PrusaSlicer that was
-        // 51.5s of a 51.5s open. See `scancache`.
-        let scans = crate::scancache::ScanCache::open(&scan_path);
-        let mut scan = crate::scan::scan(
-            &scan_path,
-            &crate::surprise::HeuristicModel,
-            &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
-            &|_| {},
-            &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
-            crate::scan::Fidelity::Ordering,
-            crate::trace::Depth::Untraced,
-        )?;
-        // **An open is an ASK, so it is not gated** — a person picked this repo or an agent
-        // named it, and either way somebody is waiting on the answer and meant to be. What it
-        // is not is a blank cheque for depth 2: blame is per-file work on a scale nothing here
-        // can predict — an hour on kibana — so it stays an explicit request of its own, the
-        // same for a human and for an agent. `sanity_open` reports what that would cost.
-        crate::trace::deepen(
-            &scan_path,
-            &mut scan,
-            crate::trace::Depth::Files,
-            &scans,
-            &std::sync::atomic::AtomicBool::new(false),
-            &|_| {},
-            &|_| {},
-        );
-        Ok::<_, anyhow::Error>(scan)
+        scan_asked(&scan_path, &|_| {}, &|_| {}, &std::sync::atomic::AtomicBool::new(false), false)
     })
     .await;
     let scan_ms = started.elapsed().as_millis() as u64;
 
-    // Off the pending list however this turned out, before anything can return. A row left
-    // reading forever is the same failure as no row at all, and the failure paths are
-    // exactly where it would be easiest to forget.
-    let settled = |state: &Shared| {
-        let mut s = lock(state);
-        s.restoring.retain(|k| k.key != key);
-        s.restoring_progress.remove(&key);
-    };
-    let mut scan = match scanned {
+    lock(&state).settle(&key);
+    let (mut scan, trace) = match scanned {
         Ok(Ok(s)) => s,
-        Ok(Err(e)) => {
-            settled(&state);
-            return Json(serde_json::json!({ "ok": false, "error": e.to_string() }));
-        }
-        Err(e) => {
-            settled(&state);
-            return Json(serde_json::json!({ "ok": false, "error": e.to_string() }));
-        }
+        Ok(Err(e)) => return Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        Err(e) => return Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
     };
-    settled(&state);
 
-    let name =
-        path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| key.clone());
     let Counts { kept: functions, excluded, oversize } = count_funcs(&scan);
     // Files are readings too, and this response is what the protocol tells an orchestrator
     // to size the job from — so it has to be the whole job, not the function half of it.
@@ -2301,24 +2372,16 @@ async fn open_project(
     // Before `scan` is handed to the project, like `shape` above it.
     let unscanned = unscanned_of(&scan);
 
-    let mut s = lock(&state);
-    // Reloaded from `.sanity/` against the fresh tree rather than carried over from the
-    // old Project. In-memory reports are keyed by node id, and node ids embed `@line` —
-    // carrying them across a rescan would orphan every reading in a file where anything
-    // moved. `load_reports` resolves the durable `key_of` entries onto the new ids, which
-    // is the same thing `restore` does and the only correct way to cross a rescan.
     let reports = load_reports(&path, &mut scan);
     // The index ships to strangers, and `save` only rewrites it when a reading lands — so
     // a FINISHED repo keeps whatever prose its last reading was written with, forever. An
     // open is the moment we certainly have both the repo and its readings in hand, so it
     // is where an out-of-date index gets caught. It refreshes, never creates: opening a
     // repo with no assessment must not leave a `.sanity/` directory in somebody's tree.
+    //
+    // Before `publish_asked`, which stamps the file marks — so anything `refresh` wrote is
+    // already in them and cannot read as a change on the first tick.
     let index = crate::assessment::refresh(&path, &scan, &reports);
-    // The file marks are stamped inside `Project::rescan` below, which runs AFTER the scan
-    // and after `refresh` — so anything either of them wrote is already in the marks and
-    // cannot read as a change on the first tick. `refresh` only writes when the bytes differ,
-    // but "only sometimes fires a spurious rescan" is not a property worth having when the
-    // alternative is one stat walk.
     let probe_path = path.clone();
     let stale = count_stale(&scan, &reports);
     // Minus stale, like everywhere else. It was `reports.len()` raw — the same bug
@@ -2326,34 +2389,12 @@ async fn open_project(
     // driving the assessment was told 608, and the optimistic number was the one making
     // decisions about whether to keep going. `assessed` has one definition.
     let assessed = reports.len().saturating_sub(stale);
-    // **Through `Project::rescan`, so a reopen cannot quietly destroy a run.** This built a
-    // Project from scratch with `run: None`, and `sanity check` posts `/open` before
-    // `/check` — so opening a repo that was already being read detached the live wave from
-    // the only handle that could stop it. The guard then saw no run and started a second
-    // one, `p.run` became the new wave, and the first went on spawning readers that nothing
-    // could reach: stop from the window ended the CLI's run while the window's own kept
-    // going. Two construction sites for one struct is how the same bug arrives twice; there
-    // is one now.
-    let mut project = Project::rescan(s.projects.get(&key), path, name.clone(), scan, reports);
-    // What the open above actually traced to, and what the depth beyond it would cost — an
-    // open never takes depth 2 on its own, so this is where a caller learns what asking for it
-    // buys. See `open_project`'s scan.
-    project.trace = TraceState { depth: crate::trace::Depth::Files, ..Default::default() };
-    // Leases are the one thing a reopen SHOULD drop, and now for one reason rather than
-    // two. Ids no longer move when a function does — see `assessment::key_of` — so a lease
-    // is no longer a claim on a line. What it is is a claim taken against a BODY that this
-    // rescan may have replaced: the reader is out reading text that has changed, and its
-    // report would be stamped with the hash of code it never saw. Releasing costs one
-    // duplicate reading; keeping it costs a reading that describes nothing and says it is
-    // current.
-    project.leased.clear();
-    project.recent_files.clear();
-    project.last_agent = Some(Instant::now());
-    s.projects.insert(key.clone(), project);
-    // An open is an ask, so whatever the budget declined is now paid for — see `scan_now`.
-    s.awaiting.remove(&key);
-    s.touch(&key);
-    let showing = s.focus(&key, req.focus.unwrap_or(false));
+    let mut s = lock(&state);
+    let showing =
+        s.publish_asked(&key, path, scan, trace, reports, req.focus.unwrap_or(false));
+    if let Some(p) = s.projects.get_mut(&key) {
+        p.last_agent = Some(Instant::now());
+    }
     Json(serde_json::json!({
         "ok": true, "reopened": reopened, "project": key, "name": name,
         // Whether the window moved. It usually will not, and a caller that assumed it had
@@ -6053,28 +6094,6 @@ pub fn set_order(state: &Shared, keys: Vec<String>) {
     s.persist();
 }
 
-/// Rebuild the sidebar's projects, scanning each one.
-///
-/// `on_shape` streams each directory's files as they parse, so a window can draw the map
-/// assembling rather than a bar — see `Node::slim` and `lib/shape.ts`. A backend with no
-/// window passes a no-op: this module is the headless half and has never held an
-/// `AppHandle`, which is why the emitter arrives as an argument rather than being reached
-/// for.
-///
-/// `on_tick` is the same arrangement for progress. The restore wrote its counts into
-/// `restoring_progress` and stopped there, which the sidebar polls at 1.5s — a rate that is
-/// fine for a fraction and useless for `Progress::at`, where the whole point is that the
-/// wedge lights up as the scan reaches it. Adding a project goes through `commands.rs` and
-/// already emitted; a RELAUNCH went through here and did not, so the same repo lit up or
-/// stayed dark depending on which way it had arrived.
-///
-/// **Both carry the project key, because the window cannot work it out.** They did not, and
-/// the receiving side inferred the owner from the projects list — the one row that is
-/// `loading`. There is no such row: a restore publishes EVERY known project as loading up
-/// front, on purpose, so the sidebar fills in immediately. So the inferred owner was
-/// whichever unfinished project sorted first, it changed hands every time any of them
-/// settled, and the accumulated shape of the repo actually being scanned was thrown away
-/// mid-parse. A stream that names its subject cannot be guessed wrong.
 /// The window's shape stream, shared by the restore's lanes rather than owned by one.
 ///
 /// `Arc<dyn …>` and not a generic: two lanes run the same code over the same emitters, and a
@@ -6107,12 +6126,8 @@ fn drain(
         // Off the list whatever happens below — a row that cannot be scanned must stop
         // claiming to be moments away from appearing. It stays in the index, so it
         // comes back next launch if the volume does; it just isn't pending any more.
-        let settled = |s: &mut AppState| {
-            s.restoring.retain(|k| k.key != known.key);
-            s.restoring_progress.remove(&known.key);
-        };
         if !path.is_dir() {
-            settled(&mut lock(state));
+            lock(state).settle(&known.key);
             continue;
         }
         // The scan already counts what it is doing; the restore used to discard it and
@@ -6160,7 +6175,7 @@ fn drain(
         {
             let mut s = lock(state);
             s.awaiting.insert(known.key.clone(), priced);
-            settled(&mut s);
+            s.settle(&known.key);
             continue;
         }
         let scans = crate::scancache::ScanCache::open(&path);
@@ -6170,20 +6185,15 @@ fn drain(
         // see `trace`. What history costs is decided below, against a budget, per repo.
         let Ok(mut scan) = crate::scan::scan(
             &path,
-            &crate::surprise::HeuristicModel,
             &on_progress,
-            &|_, _: &crate::surprise::Reading| {},
             &|files: &[crate::scan::ShapeFile]| on_shape(&known.key, files),
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos {
-                scores: &crate::cache::Cache::ephemeral(),
-                scans: &scans,
-            },
+            &scans,
             // A queue sort key, not a number anyone sees — see `scan::Fidelity`.
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Untraced,
         ) else {
-            settled(&mut lock(state));
+            lock(state).settle(&known.key);
             continue;
         };
         // Banked from the scan that just ran, so the next launch prices this repo from its own
@@ -6197,36 +6207,18 @@ fn drain(
         if banks_over(pending.depth, known.trace_depth.as_deref()) {
             crate::reports::note_trace(&known.key, pending.depth.tag_str());
         }
-        let marks = stamp_marks(&path, &scan);
-        let mut s = lock(state);
-        settled(&mut s);
         let reports = load_reports(&path, &mut scan);
-        let probe_path = path.clone();
+        // Through `Project::rescan` like every other landing, with nothing to carry: a launch
+        // has no project yet. What a restore knows that a fresh one does not is the depth the
+        // budget reached and where the row sat in the sidebar. Built before the lock, because
+        // it stamps the file marks, which is a stat walk of the whole repo.
+        let mut project = Project::rescan(None, path, known.name.clone(), scan, reports);
+        project.trace = pending;
+        project.touched = known.touched;
+        let mut s = lock(state);
+        s.settle(&known.key);
         s.shallow.remove(&known.key);
-        s.projects.insert(
-            known.key.clone(),
-            Project {
-                reads: 0,
-                findings: None,
-                repo: path,
-                name: known.name.clone(),
-                scan,
-                reports,
-                trace: pending,
-                behind: false,
-                leased: HashMap::new(),
-                recent_files: HashMap::new(),
-                predictions: HashMap::new(),
-                revealed: HashMap::new(),
-                run: None,
-                events: Default::default(),
-                file_marks: marks,
-                marks: crate::watch::probe(&probe_path),
-                scanned: 1,
-                touched: known.touched,
-                last_agent: None,
-            },
-        );
+        s.projects.insert(known.key.clone(), project);
         // Restored in reverse order so the last one touched is the last one in, and
         // the window lands back where it was rather than on an arbitrary project.
         //
@@ -6271,6 +6263,28 @@ fn claim_next(wanted: &mut Option<String>, queue: &[crate::reports::KnownProject
     }
 }
 
+/// Rebuild the sidebar's projects, scanning each one.
+///
+/// `on_shape` streams each directory's files as they parse, so a window can draw the map
+/// assembling rather than a bar — see `Node::slim` and `lib/shape.ts`. A backend with no
+/// window passes a no-op: this module is the headless half and has never held an
+/// `AppHandle`, which is why the emitter arrives as an argument rather than being reached
+/// for.
+///
+/// `on_tick` is the same arrangement for progress. The restore wrote its counts into
+/// `restoring_progress` and stopped there, which the sidebar polls at 1.5s — a rate that is
+/// fine for a fraction and useless for `Progress::at`, where the whole point is that the
+/// wedge lights up as the scan reaches it. Adding a project goes through `commands.rs` and
+/// already emitted; a RELAUNCH went through here and did not, so the same repo lit up or
+/// stayed dark depending on which way it had arrived.
+///
+/// **Both carry the project key, because the window cannot work it out.** They did not, and
+/// the receiving side inferred the owner from the projects list — the one row that is
+/// `loading`. There is no such row: a restore publishes EVERY known project as loading up
+/// front, on purpose, so the sidebar fills in immediately. So the inferred owner was
+/// whichever unfinished project sorted first, it changed hands every time any of them
+/// settled, and the accumulated shape of the repo actually being scanned was thrown away
+/// mid-parse. A stream that names its subject cannot be guessed wrong.
 pub fn restore(
     state: Shared,
     on_shape: impl Fn(&str, &[crate::scan::ShapeFile]) + Send + Sync + 'static,
@@ -6613,12 +6627,10 @@ async fn watch_tick(state: &Shared) {
             let scans = crate::scancache::ScanCache::open(&scan_repo);
             let mut scan = crate::scan::scan(
                 &scan_repo,
-                &crate::surprise::HeuristicModel,
                 &|_| {},
-                &|_, _: &crate::surprise::Reading| {},
                 &|_| {},
                 &std::sync::atomic::AtomicBool::new(false),
-                crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
+                &scans,
                 crate::scan::Fidelity::Ordering,
                 crate::trace::Depth::Untraced,
             )?;
@@ -6746,15 +6758,10 @@ pub(crate) mod tests {
     fn project_of(dir: &std::path::Path) -> Project {
         let scan = crate::scan::scan(
             dir,
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos {
-                scores: &crate::cache::Cache::ephemeral(),
-                scans: &crate::scancache::ScanCache::ephemeral(),
-            },
+            &crate::scancache::ScanCache::ephemeral(),
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Lines,
         )
@@ -7122,6 +7129,35 @@ fn second() { println!(\"2\"); }\n",
         assert!(spared.exists(), "another repo's cache was taken along with this one's");
         // The repo itself is not this app's to delete, and neither is anything in it.
         assert!(dir.path().join("a.rs").exists(), "the repo is not ours to touch");
+    }
+
+    /// **An open records the depth it traced to, from either door.** The window's Open built
+    /// its project by hand and never set `trace`, so `Project::rescan`'s default stood: a repo
+    /// opened from the app claimed `Untraced` over a tree holding the commit log, findings
+    /// asked for a trace the map already had, and Trace offered to walk the log again.
+    #[test]
+    fn an_asked_open_lands_at_the_depth_it_was_traced_to() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let key = project_key(dir.path());
+        let mut state = AppState::default();
+        let mut held = project_of(dir.path());
+        held.leased.insert("a.rs#one".into(), Instant::now());
+        state.projects.insert(key.clone(), held);
+
+        state.pend(&key, dir.path());
+        assert_eq!(state.restoring.len(), 1, "the row is on screen before the scan lands");
+        state.settle(&key);
+        assert!(state.restoring.is_empty(), "and gone once it has, however it turned out");
+
+        let (scan, trace) = scan_asked(dir.path(), &|_| {}, &|_| {}, &Default::default(), true)
+            .expect("scans");
+        state.publish_asked(&key, dir.path().to_path_buf(), scan, trace, HashMap::new(), true);
+        let p = &state.projects[&key];
+        assert_eq!(p.trace.depth, crate::trace::Depth::Files, "an open reads the commit log");
+        assert!(p.leased.is_empty(), "a lease taken against the old body outlived the rescan");
+        assert_eq!(state.active.as_deref(), Some(key.as_str()));
     }
 
     /// **Reset is not Remove, and the difference is one row on screen.**
@@ -8583,15 +8619,10 @@ fn second() { println!(\"2\"); }\n",
 
         let mut scan = crate::scan::scan(
             &repo,
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos {
-                scores: &crate::cache::Cache::ephemeral(),
-                scans: &crate::scancache::ScanCache::ephemeral(),
-            },
+            &crate::scancache::ScanCache::ephemeral(),
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Untraced,
         )

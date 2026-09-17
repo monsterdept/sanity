@@ -305,15 +305,13 @@ mod reach_depth {
     #[ignore]
     fn how_far_do_tests_reach() {
         let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
-        let m = crate::scan::Memos::ephemeral();
+        let scans = crate::scancache::ScanCache::ephemeral();
         let scan = crate::scan::scan(
             std::path::Path::new(&repo),
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Untraced,
         )
@@ -379,15 +377,13 @@ mod retest_tests {
             "void helper() { int x = 1; }\nvoid covers() { helper(); }\n",
         )
         .expect("write");
-        let m = crate::scan::Memos::ephemeral();
+        let scans = crate::scancache::ScanCache::ephemeral();
         crate::scan::scan(
             dir,
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Untraced,
         )
@@ -553,16 +549,14 @@ pub(crate) mod tests {
     fn neighbours() {
         let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
         let repo = std::path::Path::new(&repo);
-        let m = crate::scan::Memos::ephemeral();
+        let scans = crate::scancache::ScanCache::ephemeral();
         let t = std::time::Instant::now();
         let scan = crate::scan::scan(
             repo,
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Lines,
         )
@@ -634,15 +628,13 @@ pub(crate) mod tests {
     fn wiring_audit() {
         let repo = std::env::var("REPO").expect("REPO=/path/to/repo");
         let repo = std::path::Path::new(&repo);
-        let m = crate::scan::Memos::ephemeral();
+        let scans = crate::scancache::ScanCache::ephemeral();
         let scan = crate::scan::scan(
             repo,
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             crate::scan::Fidelity::Ordering,
             // No git: this asks about the parse and the module systems, and blame is the
             // expensive half of a scan — 206s of a 214s cold ceph run, per `budgets.md`.

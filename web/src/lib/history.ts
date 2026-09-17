@@ -1504,7 +1504,7 @@ function scopeOf(hist: Tables, scope: string): Set<number> {
 
 /** Every language the timeline has ever held under one scope, most FILES first.
  *
- *  The tail of the language ranking — see `langRank` in `App.tsx`. Today's map decides the
+ *  The tail of the language ranking — see `langRank` in `hooks/useLens.ts`. Today's map decides the
  *  order of everything still present, and this supplies only what is not: a language a repo
  *  has since migrated away from, which has no wedge at HEAD to be ranked by and would
  *  otherwise open its own era in `other`. That is the failure the blame lens already

@@ -161,7 +161,7 @@ export interface SvgOptions {
   y: number
   side: number
   vars: Vars
-  /** Set every label in this ink — see `drawMap` in `report.ts`. */
+  /** Set every label in this ink — see `drawMap` in `report/figure.ts`. */
   labelInk?: string
   /** Leave off any label that would print smaller than this, in canvas pixels. */
   minLabel?: number

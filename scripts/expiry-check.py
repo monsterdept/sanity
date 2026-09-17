@@ -72,9 +72,7 @@ VERSIONS = {
 # FOR. What it has to do is reach the release note.
 #
 # `PARSE_VERSION` is deliberately absent: it is in `VERSIONS` already, and its cache
-# consequence is what the output-neutral verdict below is about. `cache.rs::FORMAT_VERSION` is
-# absent too — only `Cache::ephemeral` is reachable, so bumping it costs nobody anything, and a
-# gate that fires over a dead cache is one people learn to skip.
+# consequence is what the output-neutral verdict below is about.
 CACHES = {
     "src-tauri/src/trace.rs": [
         ("BANK_FORMAT", "the banked log walk", "a whole `git log` per repo"),

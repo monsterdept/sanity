@@ -166,7 +166,7 @@ console.log('absence — a band says what it knows, not what the repo is')
   for (const mode of ['age', 'churn'] as const) {
     const rows = bucketsFor(dir([file([func(100, null), func(50, null)])]), mode, undefined, walked)
     const absent = rows.find((b) => b.lines === 150)!
-    // The claim the map is not entitled to make. `locks` in App.tsx is where the repo-level
+    // The claim the map is not entitled to make. `useLocks` in hooks/useLens.ts is where the repo-level
     // answer lives, because only that surface can tell an untraced repo from a folder with
     // no git — and it says so once, beside the button that fixes it.
     check(

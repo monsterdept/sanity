@@ -1,13 +1,11 @@
 //! Walk a repo, parse it, score it, and hand back the tree the sunburst renders.
 
 use crate::blame::Blame;
-use crate::cache::{self, Cache};
 use crate::churn::History;
 use crate::heuristic::{self, Fingerprint};
 use crate::model::{Lang, Node, NodeKind, Provenance, Score, Source};
 use crate::parse::{self, FuncDef};
 use crate::scancache::{Look, ScanCache};
-use crate::surprise::{Hotspot, Item, Reading, SurpriseModel};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -347,21 +345,6 @@ pub struct Scan {
     /// quadratic accident `slim` documents, one level up.
     #[serde(skip)]
     pub links: std::sync::Arc<crate::links::Links>,
-}
-
-/// One function's score, the moment it is known.
-///
-/// Streamed so the map can color in as the model works rather than staying gray until
-/// the whole scan returns. On a repo where analysis takes twenty minutes, a picture that
-/// fills in is the difference between watching progress and watching a progress bar.
-/// Only the field that changed. `churn`, `age` and `documented` are properties of the
-/// code and its history, not of the instrument, so the frontend patches surprise onto
-/// the score it already has rather than being sent a whole replacement.
-#[derive(Debug, Clone, Serialize)]
-pub struct Scored {
-    pub id: String,
-    pub surprise: f32,
-    pub hotspots: Vec<Hotspot>,
 }
 
 /// Progress counts the unit the running phase works in, and NAMES that phase.
@@ -1006,38 +989,10 @@ fn rel(root: &Path, path: &Path) -> String {
         .join("/")
 }
 
-/// Lines of the file head handed to the model as context. Imports and top-level type
-/// declarations live here in every language sanity parses, and they are most of what
-/// tells a reader (or a model) what this file is even about.
+/// Lines of the file kept as its head. Imports and top-level type declarations live here in
+/// every language sanity parses, and they are most of what tells a reader what this file is
+/// even about — and where a generated file says so, which is what `edges::kind_of` reads.
 pub(crate) const CONTEXT_HEAD_LINES: usize = 40;
-
-/// Complete sibling functions shown to the model, and how much of each.
-///
-/// Two is enough to establish house style — the thing that lets a reader predict the
-/// eleventh command handler from the first two — without turning every prompt into a
-/// whole file and every scan into an hour of prompt evaluation.
-const CONTEXT_SIBLINGS: usize = 2;
-const CONTEXT_SIBLING_LINES: usize = 30;
-
-/// The two memos a scan carries, bundled because they are always passed together and
-/// separately because they answer different questions.
-///
-/// `scores` is keyed on a function's body and doc, since a score is a reading OF those.
-/// `scans` is keyed on a whole file, since a parse and a blame are readings of the file.
-/// They also differ in who fills them: `scores` only in the model path, `scans` on every
-/// scan. Passing two ephemerals is how the headless scanner stays reproducible.
-pub struct Memos<'a> {
-    pub scores: &'a Cache,
-    pub scans: &'a ScanCache,
-}
-
-impl Memos<'_> {
-    /// Neither memo persists. What `just scan` and the tests use — an experiment that can
-    /// answer from a file is not an experiment against the thing being measured.
-    pub fn ephemeral() -> (Cache, ScanCache) {
-        (Cache::ephemeral(), ScanCache::ephemeral())
-    }
-}
 
 struct ParsedFile {
     rel_path: String,
@@ -1091,46 +1046,6 @@ pub fn scope_of(root: &Path) -> Option<ignore::gitignore::Gitignore> {
     let mut b = ignore::gitignore::GitignoreBuilder::new(root);
     b.add(&path);
     b.build().ok()
-}
-
-/// Imports plus a couple of whole sibling bodies, for the model prompt.
-///
-/// Excludes the function being scored, obviously: showing a model the answer and then
-/// measuring whether it guessed the answer measures nothing at all.
-///
-/// **The NEAREST siblings, not the first two in the file.** It filtered out the function
-/// being scored and then took from the top, so every function past the second was handed the
-/// same opening pair of the file while the first two got a window that shifted around them —
-/// the context a function was scored against depended on where in the file it happened to
-/// sit, which is a property of the layout rather than of the code. A reader found it from
-/// the far end.
-///
-/// Adjacency is the point, and it is the same argument `PEER_WINDOW` makes on the MCP side:
-/// what establishes house style is the handlers either side of this one, the ones a person
-/// scrolling past would see. The opening two functions of a file are not that unless you are
-/// near the top of it.
-fn context_for(file: &ParsedFile, skip: usize) -> String {
-    let mut out = file.head.clone();
-    // Centered on the function, then clamped — so one near the top or the bottom still gets a
-    // full window, from whichever side has neighbors.
-    let half = CONTEXT_SIBLINGS / 2;
-    let start = skip.saturating_sub(half.max(1));
-    for f in file
-        .funcs
-        .iter()
-        .enumerate()
-        .skip(start)
-        .filter(|(i, _)| *i != skip)
-        .take(CONTEXT_SIBLINGS)
-        .map(|(_, f)| f)
-    {
-        out.push_str("\n\n");
-        out.push_str(&f.signature);
-        let body: String =
-            f.body.lines().take(CONTEXT_SIBLING_LINES).collect::<Vec<_>>().join("\n");
-        out.push_str(&body);
-    }
-    out
 }
 
 /// Parse one file, or take its parse from `cache` when nothing about it has changed.
@@ -1655,40 +1570,6 @@ pub fn file_surface(funcs: &[crate::parse::FuncDef]) -> String {
     funcs.iter().map(|f| f.signature.as_str()).collect::<Vec<_>>().join("\n")
 }
 
-/// One function queued for the model, with everything the call needs.
-struct Work<'a> {
-    priority: f32,
-    id: String,
-    func: &'a FuncDef,
-    peers: Vec<String>,
-    context: String,
-    proxy: f32,
-    cache_key: (String, u64),
-}
-
-/// Replace proxy surprise with the model's, marking those leaves analyzed.
-///
-/// `documented` is left alone: it is a property of the docs, not of the surprise, and
-/// the model path does not grade documentation — it only consumes it. The comment stack
-/// is in the prompt, so a doc that genuinely explains the body lowers this surprise
-/// directly rather than discounting it afterwards.
-fn apply_model_scores(node: &mut Node, upgrades: &std::collections::HashMap<String, Reading>) {
-    if node.kind == NodeKind::Func {
-        if let Some(reading) = upgrades.get(&node.id) {
-            if let Some(score) = node.score.as_mut() {
-                score.surprise = reading.surprise;
-                score.source = Source::Model;
-                score.analyzed_share = 1.0;
-            }
-            node.hotspots = reading.hotspots.clone();
-        }
-        return;
-    }
-    for c in &mut node.children {
-        apply_model_scores(c, upgrades);
-    }
-}
-
 /// Insert a file node at its path, creating intermediate directory wedges as needed.
 fn insert(root: &mut Node, rel_path: &str, node: Node) {
     let mut cur = root;
@@ -1741,32 +1622,32 @@ fn collapse_chains(node: &mut Node) {
     }
 }
 
+/// What [`ScanStats::model`] names: the only instrument a scan has. The readings that color the
+/// map arrive afterwards from readers over MCP, each carrying its own model.
+pub const HEURISTIC: &str = "heuristic (no model)";
+
 /// The whole pipeline. `on_progress` fires per directory — the app drives the mascot off
 /// it, so a scan of a big repo shows something moving rather than a frozen window.
-#[allow(clippy::too_many_arguments)]
 pub fn scan(
     root: &Path,
-    model: &dyn SurpriseModel,
     on_progress: &(dyn Fn(Progress) + Sync),
-    // Called with (function id, reading) the instant each score is known.
-    on_scored: &(dyn Fn(&str, &Reading) + Sync),
     // Called with one directory's files the instant they parse, so the window can draw the
     // repo taking shape instead of a bar. See [`ShapeFile`].
     on_shape: &(dyn Fn(&[ShapeFile]) + Sync),
-    // Set to stop the model pass early. Everything already scored is kept — with no
-    // length filter, being able to stop IS the cost control, so this is load-bearing
-    // rather than a convenience.
+    // Set to stop the parse, which is checked per directory. What it got through survives in
+    // `scans`; the tree does not — see the parse below.
     cancel: &AtomicBool,
-    memos: Memos<'_>,
+    // The parse and blame memo, keyed on a whole file. Pass `ScanCache::ephemeral()` for a
+    // run that must not answer from a file — what the headless tools and the tests do.
+    scans: &ScanCache,
     fidelity: Fidelity,
     // How much git to read, and whether to read any — see [`crate::trace::Depth`]. The two
     // long phases of a scan of a large repo are both git, and neither is needed to draw the
     // map: on ceph they are 210s of a 214s cold scan against 1.97s of parsing.
     depth: crate::trace::Depth,
 ) -> anyhow::Result<Scan> {
-    let Memos { scores: cache, scans } = memos;
     // **What each phase costs, when asked.** Every performance decision in this file — the
-    // ephemeral score cache, `Fidelity::Ordering`, the shape stream — rests on a measurement
+    // parse cache, `Fidelity::Ordering`, the shape stream — rests on a measurement
     // of one phase against the others, and those were taken on repos of a few hundred files.
     // `SANITY_TIMING=1` prints the same numbers for whatever you point it at.
     let timing = std::env::var_os("SANITY_TIMING").is_some();
@@ -1790,18 +1671,11 @@ pub fn scan(
     // **The answer, if last time's is still the answer.** See `treecache`: the signature is
     // what this scan depends on — every walked file's mtime and length, HEAD, the parse
     // version and the fidelity — and computing it costs the walk that has just happened.
-    //
-    // Only for the proxy. A model pass writes different scores into the same shape, and it
-    // streams them as it goes; handing it a finished tree would skip the very work it was
-    // asked to do.
-    let signature =
-        (!model.is_model()).then(|| crate::treecache::signature(root, &files, fidelity, depth));
-    if let Some(sig) = signature {
-        if let Some(cached) = crate::treecache::load(root, sig) {
-            on_progress(Progress::phase("reading the cached map"));
-            lap("cached");
-            return Ok(cached);
-        }
+    let signature = crate::treecache::signature(root, &files, fidelity, depth);
+    if let Some(cached) = crate::treecache::load(root, signature) {
+        on_progress(Progress::phase("reading the cached map"));
+        lap("cached");
+        return Ok(cached);
     }
 
     let scope = scope_of(root);
@@ -1962,7 +1836,6 @@ pub fn scan(
     // invalidated by anything — without this a cache would carry every file of every
     // branch anyone had ever checked out.
     scans.retain(&for_blame.iter().map(|(p, _)| p.clone()).collect());
-    let is_model = model.is_model();
 
     // Call edges, repo-wide, before anything is scored. It has to be one pass over every
     // file at once — a call in `web/src/App.tsx` resolves against a definition three
@@ -2080,112 +1953,6 @@ pub fn scan(
     // as it lands. The most consequential wedges color in within the first minutes, and
     // stopping early costs the least valuable results rather than an arbitrary
     // directory's worth. Total runtime stops being the number that matters.
-    if is_model {
-        // The proxy scores already live on the gray tree; read them back rather than
-        // recomputing, so the priority ordering and the model's fallback both use
-        // exactly the number the user is currently looking at.
-        let mut proxies: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
-        tree.visit(&mut |n| {
-            if n.kind == NodeKind::Func {
-                if let Some(sc) = n.score {
-                    proxies.insert(n.id.clone(), sc.surprise);
-                }
-            }
-        });
-
-        let mut work: Vec<Work> = Vec::new();
-        let mut cached: Vec<(String, Reading)> = Vec::new();
-        for parsed in &parsed_dirs {
-            for file in parsed {
-                let peer_names: Vec<String> = file.funcs.iter().map(|f| f.name.clone()).collect();
-                let ords = ordinals(&file.funcs);
-                for (i, func) in file.funcs.iter().enumerate() {
-                    let id = crate::assessment::key_of(&file.rel_path, &func.name, ords[i]);
-                    let ck =
-                        cache::key(&file.rel_path, &func.name, &func.body, func.doc.as_deref());
-                    // Already scored by this model, and unchanged since — reuse it.
-                    // Resuming an interrupted scan and rescanning a repo you edited two
-                    // files in are the same code path.
-                    if let Some(reading) = cache.get(&ck) {
-                        on_scored(&id, &reading);
-                        cached.push((id, reading));
-                        continue;
-                    }
-                    let proxy = proxies.get(&id).copied().unwrap_or(0.5);
-                    work.push(Work {
-                        // Ordered by the proxy's *intensity*, deliberately NOT by
-                        // intensity × lines. Weighting by size would push short
-                        // functions to the back of a queue that can run for hours, and a
-                        // three-line guard with an inverted comparison is exactly the
-                        // kind of thing this tool exists to surface. Size is already
-                        // visible — it is the width of the wedge — so the queue spends
-                        // its ordering budget on the axis the eye cannot read.
-                        priority: proxy,
-                        id,
-                        func,
-                        peers: peer_names.clone(),
-                        context: context_for(file, i),
-                        proxy,
-                        cache_key: ck,
-                    });
-                }
-            }
-        }
-        work.sort_by(|a, b| {
-            b.priority.partial_cmp(&a.priority).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let total = work.len();
-        if total == 0 {
-            // Everything was cached. Still emit one tick so the UI doesn't sit on a
-            // stale "0 / 0" from a previous run.
-            on_progress(Progress::at(0, 0));
-        }
-        let done = AtomicUsize::new(0);
-        let scored: Vec<(String, Reading)> = work
-            .par_iter()
-            .filter(|_| !cancel.load(Ordering::Relaxed))
-            .map(|w| {
-                let surprise = model.surprise(
-                    &Item {
-                        name: &w.func.name,
-                        signature: &w.func.signature,
-                        body: &w.func.body,
-                        peers: &w.peers,
-                        doc: w.func.doc.as_deref(),
-                        lines: w.func.body.lines().count(),
-                        context: &w.context,
-                    },
-                    w.proxy,
-                );
-                cache.put(&w.cache_key, &surprise);
-                // Emitted HERE, inside the parallel map, not after it. Reporting from
-                // the apply step meant nothing reached the UI until the whole scan
-                // finished — which on a repo this size is hours of a gray map with a
-                // moving progress bar, the exact thing streaming exists to prevent.
-                on_scored(&w.id, &surprise);
-                on_progress(Progress::counting(
-                    "scoring",
-                    "functions",
-                    done.fetch_add(1, Ordering::Relaxed) + 1,
-                    total,
-                ));
-                (w.id.clone(), surprise)
-            })
-            .collect();
-
-        // Cached scores land in the same map, so a resumed scan paints its recovered
-        // wedges in the very first frame instead of re-deriving them.
-        let upgrades: std::collections::HashMap<String, Reading> =
-            cached.into_iter().chain(scored).collect();
-        cache.flush();
-        apply_model_scores(&mut tree, &upgrades);
-        tree.aggregate();
-        // `aggregate` rebuilds every directory score from its children, which zeroes the
-        // commit counts again — so this has to follow EVERY aggregate, not just the first.
-        crate::trace::apply_dir_history(&mut tree, &history, edits);
-    }
-
     let mut functions = 0;
     tree.visit(&mut |n| {
         if n.kind == NodeKind::Func {
@@ -2223,17 +1990,15 @@ pub fn scan(
             // `trace::apply`, which fills this the same way when the trace arrives later.
             // Zero means "print no count" rather than "a repo with none".
             commits: history.total_commits_of("").unwrap_or(0) as usize,
-            model: model.label(),
+            model: HEURISTIC.into(),
             calls_resolved: wiring.resolved,
             calls_unresolved: wiring.unresolved,
         },
     };
     // Kept under the signature computed before the work started, so the next launch of this
     // repo — unchanged, which is the normal case — reads this instead of deriving it again.
-    // A cancelled model pass never gets here, which is right: half a pass is not an answer.
-    if let Some(sig) = signature {
-        crate::treecache::save(root, sig, &scan);
-    }
+    // A stopped parse never gets here, which is right: half a tree is not an answer.
+    crate::treecache::save(root, signature, &scan);
     lap("save");
     Ok(scan)
 }
@@ -2272,7 +2037,6 @@ mod tests {
     }
 
     use super::*;
-    use crate::surprise::HeuristicModel;
     use std::fs;
 
     fn fixture() -> tempfile::TempDir {
@@ -2429,7 +2193,8 @@ mod tests {
     fn a_scan_builds_the_neighbour_table_beside_its_tree() {
         let dir = fixture();
         let scan = run(dir.path());
-        assert_eq!(scan.links.len(), scan.stats.functions, "one entry per function the tree holds",);
+        assert_eq!(scan.links.len(), scan.stats.functions, "one entry per function the tree holds",
+    );
         let add = scan.links.at("src/deep/nest/a.rs", 2).expect("`add` starts on line 2");
         assert!(add.wired, "Rust resolves calls, so an empty list here is a real zero");
         assert!(add.callers.is_empty(), "nothing in the fixture calls it");
@@ -2446,15 +2211,13 @@ mod tests {
     fn the_streamed_shape_matches_the_tree_it_precedes() {
         let dir = fixture();
         let seen = std::sync::Mutex::new(Vec::<ShapeFile>::new());
-        let m = Memos::ephemeral();
+        let scans = ScanCache::ephemeral();
         let scanned = scan(
             dir.path(),
-            &HeuristicModel,
             &|_| {},
-            &|_, _: &Reading| {},
             &|files| seen.lock().unwrap().extend_from_slice(files),
             &AtomicBool::new(false),
-            Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             Fidelity::Ordering,
             crate::trace::Depth::Lines,
         )
@@ -2493,15 +2256,12 @@ mod tests {
         // The app's own memos: a persistent scan cache, so the second run of this measures
         // what a LAUNCH costs rather than what a first look costs.
         let scans = crate::scancache::ScanCache::open(std::path::Path::new(&repo));
-        let m = (crate::cache::Cache::ephemeral(), scans);
         let scan = scan(
             std::path::Path::new(&repo),
-            &HeuristicModel,
             &|_| {},
-            &|_, _: &Reading| {},
             &|_| {},
             &AtomicBool::new(false),
-            Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             Fidelity::Ordering,
             crate::trace::Depth::Lines,
         )
@@ -2556,15 +2316,13 @@ mod tests {
     fn ordering_fidelity_changes_the_score_and_nothing_else() {
         let dir = fixture();
         let full = run(dir.path());
-        let m = Memos::ephemeral();
+        let scans = ScanCache::ephemeral();
         let fast = scan(
             dir.path(),
-            &HeuristicModel,
             &|_| {},
-            &|_, _: &Reading| {},
             &|_| {},
             &AtomicBool::new(false),
-            Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             Fidelity::Ordering,
             crate::trace::Depth::Lines,
         )
@@ -2592,15 +2350,13 @@ mod tests {
     }
 
     fn run(dir: &Path) -> Scan {
-        let m = Memos::ephemeral();
+        let scans = ScanCache::ephemeral();
         scan(
             dir,
-            &HeuristicModel,
             &|_| {},
-            &|_, _: &Reading| {},
             &|_| {},
             &AtomicBool::new(false),
-            Memos { scores: &m.0, scans: &m.1 },
+            &scans,
             Fidelity::Full,
             crate::trace::Depth::Lines,
         )
@@ -2677,53 +2433,6 @@ mod tests {
         });
     }
 
-    /// The prompt's siblings are the ones beside it, not the ones at the top of the file.
-    ///
-    /// It took from the start after excluding the scored function, so everything past the
-    /// second function in a file was scored against the same opening pair — the context
-    /// depended on position in the file, which is a fact about layout and not about code.
-    #[test]
-    fn a_functions_context_is_its_neighbors() {
-        let funcs: Vec<crate::parse::FuncDef> = (0..8)
-            .map(|i| crate::parse::FuncDef {
-                name: format!("f{i}"),
-                signature: format!("fn f{i}()"),
-                body: format!("{{ {i} }}"),
-                doc: None,
-                owner: None,
-                in_cfg_test: false,
-                start_line: i as u32 * 3 + 1,
-                end_line: i as u32 * 3 + 2,
-                shape: None,
-                calls: Vec::new(),
-                cognitive: None,
-                locals: Vec::new(),
-                exported: None,
-            })
-            .collect();
-        let file = ParsedFile {
-            rel_path: "a.rs".into(),
-            lang: Lang::Rust,
-            funcs,
-            file_doc: None,
-            prints: Vec::new(),
-            head: String::new(),
-            hash: 0,
-            len: 0,
-            excluded: false,
-        };
-
-        let ctx = context_for(&file, 6);
-        assert!(ctx.contains("fn f5"), "the one before it: {ctx}");
-        assert!(!ctx.contains("fn f0"), "not the top of the file: {ctx}");
-        assert!(!ctx.contains("fn f6"), "and never itself: {ctx}");
-
-        // A function at the top still gets a full window, from the side that has neighbors.
-        let top = context_for(&file, 0);
-        assert!(top.contains("fn f1") && top.contains("fn f2"), "{top}");
-        assert!(!top.contains("fn f0"), "{top}");
-    }
-
     /// A function keeps its identity when the code above it moves.
     ///
     /// Ids used to carry `@line`, so adding an import re-minted every id below it. Nothing
@@ -2736,15 +2445,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ids = |src: &str| {
             std::fs::write(dir.path().join("a.rs"), src).unwrap();
-            let (cache, scans) = Memos::ephemeral();
+            let scans = ScanCache::ephemeral();
             let scan = scan(
                 dir.path(),
-                &crate::surprise::HeuristicModel,
                 &|_| {},
-                &|_, _: &crate::surprise::Reading| {},
                 &|_| {},
                 &std::sync::atomic::AtomicBool::new(false),
-                Memos { scores: &cache, scans: &scans },
+                &scans,
                 Fidelity::Ordering,
                 crate::trace::Depth::Lines,
             )
@@ -2776,15 +2483,13 @@ mod tests {
             "impl A { fn go(&self) -> u8 { 1 } }\nimpl B { fn go(&self) -> u16 { 2 } }\n",
         )
         .unwrap();
-        let (cache, scans) = Memos::ephemeral();
+        let scans = ScanCache::ephemeral();
         let scan = scan(
             dir.path(),
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            Memos { scores: &cache, scans: &scans },
+            &scans,
             Fidelity::Ordering,
             crate::trace::Depth::Lines,
         )

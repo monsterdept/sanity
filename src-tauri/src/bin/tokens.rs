@@ -19,7 +19,6 @@
 
 use sanity_lib::agentapi;
 use sanity_lib::scan;
-use sanity_lib::surprise::HeuristicModel;
 use std::path::PathBuf;
 
 /// Crude on purpose, and stated rather than hidden.
@@ -109,17 +108,15 @@ fn main() {
     // ── The variable part: the payload this repo would actually hand out ───────────
 
     println!("\nscanning {} …", path.display());
-    let memos = sanity_lib::scan::Memos::ephemeral();
+    let scans = sanity_lib::scancache::ScanCache::ephemeral();
     let scanned = match scan::scan(
         &path,
-        &HeuristicModel,
         &|_| {},
-        &|_, _: &sanity_lib::surprise::Reading| {},
         &|_| {},
         &std::sync::atomic::AtomicBool::new(false),
         // Both memos ephemeral: a headless run that answers from a file on disk is not a
         // run of the thing being measured. Same rule `just history` follows.
-        sanity_lib::scan::Memos { scores: &memos.0, scans: &memos.1 },
+        &scans,
         // Ordering fidelity: the all-pairs term changes the SCORES, and this tool weighs
         // payloads. Skipping it costs nothing here and makes a large repo finish.
         sanity_lib::scan::Fidelity::Ordering,

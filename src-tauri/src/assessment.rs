@@ -1585,15 +1585,10 @@ mod tests {
         std::fs::write(repo.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
         let scan = crate::scan::scan(
             repo.path(),
-            &crate::surprise::HeuristicModel,
             &|_| {},
-            &|_, _: &crate::surprise::Reading| {},
             &|_| {},
             &std::sync::atomic::AtomicBool::new(false),
-            crate::scan::Memos {
-                scores: &crate::cache::Cache::ephemeral(),
-                scans: &crate::scancache::ScanCache::ephemeral(),
-            },
+            &crate::scancache::ScanCache::ephemeral(),
             crate::scan::Fidelity::Ordering,
             crate::trace::Depth::Lines,
         )

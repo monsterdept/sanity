@@ -1,8 +1,6 @@
 //! The `invoke` surface. Frontend ↔ Rust is Tauri commands — no server, no sidecar.
 
-use crate::cache::Cache;
-use crate::scan::{self, Memos, Progress, Scan, Scored};
-use crate::surprise::HeuristicModel;
+use crate::scan::{self, Progress, Scan};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,39 +66,10 @@ pub async fn scan_repo(
 
     CANCEL.store(false, Ordering::Relaxed);
 
-    // In the sidebar BEFORE the work starts, not after it finishes.
-    //
-    // The project used to be published only once the scan returned, so a long scan was
-    // indistinguishable from a hang: the pane said "Walking the repo…", the sidebar stayed
-    // empty, and there was nothing on screen naming what was being read. When the path
-    // turned out to be wrong — a picker handing back a parent directory — nothing said so
-    // for minutes. `restoring` already exists to describe a project whose scan has not
-    // landed, with a progress bar; this is the same state arrived at from the other door.
+    // In the sidebar BEFORE the work starts, not after it finishes — see `AppState::pend`.
     let pending_key = crate::agentapi::project_key(&root);
     {
-        let mut s = crate::agentapi::lock(&state);
-        let name = root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| pending_key.clone());
-        s.restoring.retain(|k| k.key != pending_key);
-        // **Off the declined list the moment the scan starts.** A repo whose scan was over
-        // budget sits in `awaiting` with a row of its own, and `restoring` is a second list
-        // that also renders a row — so pressing Scan there put the same project on screen
-        // twice, the pending copy beside the declined one, under one name. The question has
-        // been answered; the row that asks it goes.
-        s.awaiting.remove(&pending_key);
-        s.restoring.push(crate::reports::KnownProject {
-            key: pending_key.clone(),
-            repo: root.to_string_lossy().to_string(),
-            name: name.clone(),
-            touched: 0,
-            files: None,
-            scan_ms: None,
-            trace_depth: None,
-            harness: None,
-            model: None,
-        });
+        let name = crate::agentapi::lock(&state).pend(&pending_key, &root);
         // On DISK before the work starts too, for the same reason it is in the sidebar
         // before the work starts — see `reports::remember`. `restoring` is memory only, and
         // the index was written by `touch` when the scan returned, so a repo whose first
@@ -114,8 +83,6 @@ pub async fn scan_repo(
     let progress_key = pending_key.clone();
     let scan_started = std::time::Instant::now();
     let mut scanned = tauri::async_runtime::spawn_blocking(move || {
-        let model = HeuristicModel;
-
         let emit = |p: Progress| {
             // Fed to the sidebar row as well as the pane, so the two agree about how far
             // along the same scan is.
@@ -126,33 +93,6 @@ pub async fn scan_repo(
             let _ = app
                 .emit("scan-progress", crate::scan::Tick { project: &progress_key, progress: &p });
         };
-        // Per-function scores go out as they land so the sunburst colors in live. The
-        // full tree still returns at the end — the stream is an accelerant, not the
-        // source of truth, so a dropped event costs a few seconds of gray rather than a
-        // permanently wrong wedge.
-        let scored = |id: &str, reading: &crate::surprise::Reading| {
-            let _ = app.emit(
-                "scan-score",
-                Scored {
-                    id: id.to_string(),
-                    surprise: reading.surprise,
-                    hotspots: reading.hotspots.clone(),
-                },
-            );
-        };
-        // Ephemeral, always. The persistent cache existed for the model path, where a
-        // scan ran for tens of minutes; the proxy recomputes the whole repo in about a
-        // second, and a cache that saves nothing is a file that can only disagree with
-        // the code.
-        let cache = Cache::ephemeral();
-        // The scan cache, by contrast, is persistent and worth having: what it memoises is
-        // the tree-sitter parse and `git blame`, which recompute to exactly the same answer
-        // for a file nobody touched and cost 51s an open on a large C++ tree.
-        let scans = crate::scancache::ScanCache::open(&root);
-        // Ordering fidelity: in the app this number is only ever a queue sort key. A
-        // proxy-scored function is `Source::Proxy`, which the UI refuses to color, so
-        // the all-pairs term would cost 27 of these 34 seconds to produce a value no
-        // user ever sees. See `scan::Fidelity`.
         // The repo's shape, streamed a directory at a time as it parses, so the window can
         // draw the map assembling instead of a bar that cannot move. The wedges arrive grey
         // and stay grey: a scan in progress has no reading to show, and the tree the scan
@@ -161,49 +101,17 @@ pub async fn scan_repo(
             let _ =
                 app.emit("scan-shape", crate::scan::ShapeBatch { project: &progress_key, files });
         };
-        let mut scan = scan::scan(
-            &root,
-            &model,
-            &emit,
-            &scored,
-            &shape,
-            &CANCEL,
-            Memos { scores: &cache, scans: &scans },
-            scan::Fidelity::Ordering,
-            crate::trace::Depth::Untraced,
-        )
-        .map_err(|e| e.to_string())?;
-        // **Somebody stood in front of the app and chose this repo**, so the commit log is
-        // not work nobody invited — the same reading `sanity_open` gets. Depth 2 is still an
-        // ask of its own, here as everywhere: an hour of `git blame` is not what pressing
-        // Open means. See `trace::go` for the work that IS gated.
-        emit(crate::scan::Progress::phase("reading the commit log"));
-        crate::trace::deepen(
-            &root,
-            &mut scan,
-            crate::trace::Depth::Files,
-            &scans,
-            &CANCEL,
-            &|_| {},
-            &|_| {},
-        );
-        Ok::<_, String>(scan)
+        crate::agentapi::scan_asked(&root, &emit, &shape, &CANCEL, true).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;
 
-    // Off the pending list however this turned out. A row that stays "reading…" forever is
-    // the failure this was added to prevent, wearing the opposite face — so it is cleared
-    // before the success path decides anything, not inside it.
-    {
-        let mut s = crate::agentapi::lock(&state);
-        s.restoring.retain(|k| k.key != pending_key);
-        s.restoring_progress.remove(&pending_key);
-    }
+    // Off the pending list however this turned out — see `AppState::settle`.
+    crate::agentapi::lock(&state).settle(&pending_key);
 
     // Banked so the next launch can price this repo from its own measurement rather than the
     // corpus default — see `reports::note_scan` and `scan::estimate`.
-    if let Ok(scan) = scanned.as_ref() {
+    if let Ok((scan, _)) = scanned.as_ref() {
         crate::reports::note_scan(
             &pending_key,
             scan.stats.files_scanned,
@@ -212,54 +120,26 @@ pub async fn scan_repo(
     }
 
     // Publish as a project so an MCP client can pull a work queue from the very scan the
-    // user is looking at. The window's own Open button and an agent's sanity_open land in
-    // the same place — there is one list of projects, however it got filled.
-    if let Ok(scan) = scanned.as_mut() {
-        let mut shared = crate::agentapi::lock(&state);
+    // user is looking at — see `AppState::publish_asked`.
+    if let Ok((scan, trace)) = scanned.as_mut() {
         let key = crate::agentapi::project_key(&root_for_state);
-        let key_path = root_for_state.clone();
-        let name = root_for_state
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| key.clone());
-        // Same source as the agent path: `.sanity` in the repo. This used to read the
-        // machine-local store, so opening a repo from the window and opening it from an
-        // agent disagreed about what had been read — the two doors into one project have
-        // to land on the same assessment.
-        let reports = shared
-            .projects
-            .get(&key)
-            .map(|p| p.reports.clone())
-            .unwrap_or_else(|| crate::assessment::load(&root_for_state, scan));
-        // **Applied to the fresh tree, whichever door the readings came through** — see
-        // `agentapi::load_reports`. A scan is the structural half only; without this the map
-        // this returns, and the project every finding is asked of, drew a reader's tests as
-        // dependents until the next test classification landed, where `export-data` did not.
-        crate::links::retest_tree(scan, &reports);
-        // Carried across rather than rebuilt, the same way `reports` above already is —
-        // see `Project::rescan` for what a fresh one destroys, and why a rescan being an
-        // ordinary event is the point.
-        let project = crate::agentapi::Project::rescan(
-            shared.projects.get(&key),
-            key_path.clone(),
-            name,
-            scan.clone(),
-            reports,
-        );
-        shared.projects.insert(key.clone(), project);
-        // Off the declined list, if it was on it: it has a map now, so the row's question has
-        // been answered and leaving it would show a Scan button over a scanned repo.
-        shared.awaiting.remove(&key);
-        shared.touch(&key);
+        let reports = crate::agentapi::load_reports(&root_for_state, scan);
         // Focused outright, unlike the agent and headless paths. This is the window's own
         // Open command — somebody stood in front of the app and chose this repo, which is
         // the one case where taking the view is what was asked for rather than something
         // done to a pane in use.
-        shared.focus(&key, true);
+        crate::agentapi::lock(&state).publish_asked(
+            &key,
+            root_for_state.clone(),
+            scan.clone(),
+            std::mem::take(trace),
+            reports,
+            true,
+        );
     }
     // Slim, like `project_scan` and for the same reason — the window asks for a file's
     // functions when it has somewhere to draw them.
-    scanned.map(|s| Scan { root: s.root.slim(), stats: s.stats, links: s.links })
+    scanned.map(|(s, _)| Scan { root: s.root.slim(), stats: s.stats, links: s.links })
 }
 
 /// Replay one repo's history, commit by commit.
@@ -1556,11 +1436,8 @@ pub fn sync_theme_menu(app: tauri::AppHandle, theme: String) {
 #[tauri::command]
 pub fn sync_theme_menu(_app: tauri::AppHandle, _theme: String) {}
 
-/// Stop the model pass. Everything scored so far is kept and returned.
-///
-/// With the length floor gone nothing is excluded from analysis, so this is how a scan
-/// is bounded: the queue is ordered by how promising each function looks, and the user
-/// stops when the picture has told them enough.
+/// Stop the scan that is running. What the parse got through is kept in the scan cache; the
+/// tree is not, because half a tree understates the repo.
 #[tauri::command]
 pub fn stop_scan() {
     CANCEL.store(true, Ordering::Relaxed);

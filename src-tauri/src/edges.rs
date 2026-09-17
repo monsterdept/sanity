@@ -772,52 +772,12 @@ fn convention_of(lang: Lang, path: &str) -> Option<Testness> {
     }
 }
 
-/// The file name without its directory or extension — what a module-qualified call spells./// The file name without its directory or extension — what a module-qualified call spells.
+/// The file name without its directory or extension — what a module-qualified call spells.
 fn stem_of(path: &str) -> &str {
     let file = path.rsplit_once('/').map_or(path, |(_, f)| f);
     file.split_once('.').map_or(file, |(stem, _)| stem)
 }
 
-/// Which definitions a call reaches, nearest tier first.
-///
-/// **Same file, then same directory, then the whole family** — and the tiers are not just a
-/// preference order, they carry different evidence. A name matched inside the file it is
-/// called from is about as certain as this method gets, and if the file defines it twice the
-/// two are genuinely both plausible. Across the repo nothing local vouches for the match, so
-/// only a name with exactly one definition anywhere is taken; past that it is a common word
-/// (`get`, `run`, `new`) and the honest answer is that we do not know.
-///
-/// **That guard was necessary and not sufficient, and the gap had a body count.** It fires on
-/// a name defined MORE than once. A name defined exactly once still took every call spelled
-/// like it, anywhere in the family — so `parse.rs`'s private `collect`, which one line in the
-/// repo calls, was credited with all 175 bodies that write `.collect()`. And the directory
-/// tier has the same hole one level down: `src-tauri/src` is forty files in one directory, so
-/// every `.len()` in the backend landed on whichever `len` happened to live next door. The ten
-/// most-called functions in this repo were `new`, `collect`, `path`, `len`, `is_empty` and
-/// `get` — the Rust standard library, ranked as though it were the code.
-///
-/// **So how a call was SPELLED decides which tiers it may use.** That is not the receiver's
-/// type, which no parse here can have; it is [`crate::parse::Via`], read off the page:
-///
-/// - **`f()`** vouches for nothing and needs nothing. The tiers are as they were.
-/// - **`A::f()` or `x.f()` where `A` names a type something in this repo is defined in.**
-///   The strongest evidence available, and it beats locality: the candidates are the ones
-///   with that owner, wherever they live.
-/// - **`m.f()` or `m::f()` where `m` names a module or a file here.** That is how Python and
-///   Go spell a call to a free function in another file, and how Rust spells `mem::swap`. The
-///   qualifier is checked and then spent; the tiers run as for a bare name.
-/// - **Anything else** — `xs.collect()`, `Vec::new()` — is a call through something this repo
-///   never defined. Two things follow, and both are facts about the language rather than
-///   guesses about the code: it cannot be reaching a FREE function, because no language here
-///   lets you call one through a value or a foreign type; and its own directory vouches for
-///   nothing, because the receiver is not local, so the middle tier is skipped. What is left
-///   is the file it was written in, or a name defined exactly once in the repo.
-///
-/// Returning several sites rather than picking one is deliberate. A guess would put a
-/// confident edge on the map where the parse has none, and the counts this feeds are already
-/// only ever read as "roughly how wired is this" — one extra candidate in a directory changes
-/// a caller count by one, where a wrong pick changes two functions' wiring and looks certain.
-#[allow(clippy::too_many_arguments)]
 /// Whether a definition can be NAMED from the file doing the calling.
 ///
 /// **A refusal on evidence, never a guess.** [`crate::parse::FuncDef::exported`] is `None`
@@ -873,6 +833,45 @@ struct Caller<'a> {
     mine: Option<&'a str>,
 }
 
+/// Which definitions a call reaches, nearest tier first.
+///
+/// **Same file, then same directory, then the whole family** — and the tiers are not just a
+/// preference order, they carry different evidence. A name matched inside the file it is
+/// called from is about as certain as this method gets, and if the file defines it twice the
+/// two are genuinely both plausible. Across the repo nothing local vouches for the match, so
+/// only a name with exactly one definition anywhere is taken; past that it is a common word
+/// (`get`, `run`, `new`) and the honest answer is that we do not know.
+///
+/// **That guard was necessary and not sufficient, and the gap had a body count.** It fires on
+/// a name defined MORE than once. A name defined exactly once still took every call spelled
+/// like it, anywhere in the family — so `parse.rs`'s private `collect`, which one line in the
+/// repo calls, was credited with all 175 bodies that write `.collect()`. And the directory
+/// tier has the same hole one level down: `src-tauri/src` is forty files in one directory, so
+/// every `.len()` in the backend landed on whichever `len` happened to live next door. The ten
+/// most-called functions in this repo were `new`, `collect`, `path`, `len`, `is_empty` and
+/// `get` — the Rust standard library, ranked as though it were the code.
+///
+/// **So how a call was SPELLED decides which tiers it may use.** That is not the receiver's
+/// type, which no parse here can have; it is [`crate::parse::Via`], read off the page:
+///
+/// - **`f()`** vouches for nothing and needs nothing. The tiers are as they were.
+/// - **`A::f()` or `x.f()` where `A` names a type something in this repo is defined in.**
+///   The strongest evidence available, and it beats locality: the candidates are the ones
+///   with that owner, wherever they live.
+/// - **`m.f()` or `m::f()` where `m` names a module or a file here.** That is how Python and
+///   Go spell a call to a free function in another file, and how Rust spells `mem::swap`. The
+///   qualifier is checked and then spent; the tiers run as for a bare name.
+/// - **Anything else** — `xs.collect()`, `Vec::new()` — is a call through something this repo
+///   never defined. Two things follow, and both are facts about the language rather than
+///   guesses about the code: it cannot be reaching a FREE function, because no language here
+///   lets you call one through a value or a foreign type; and its own directory vouches for
+///   nothing, because the receiver is not local, so the middle tier is skipped. What is left
+///   is the file it was written in, or a name defined exactly once in the repo.
+///
+/// Returning several sites rather than picking one is deliberate. A guess would put a
+/// confident edge on the map where the parse has none, and the counts this feeds are already
+/// only ever read as "roughly how wired is this" — one extra candidate in a directory changes
+/// a caller count by one, where a wrong pick changes two functions' wiring and looks certain.
 fn resolve(
     defs: &HashMap<&str, Vec<Def<'_>>>,
     call: &crate::parse::Call,

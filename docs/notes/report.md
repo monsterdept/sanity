@@ -3,7 +3,7 @@
 File → Export Report as PDF… (⇧⌘E) writes the project's analysis as a PDF built to stand on its
 own, like a paper. It opens with a cover (wordmark, abstract, methodology), then a contents page,
 one section per lens the repo can paint, and the findings: an overview, then each group of
-findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out and draws it,
+findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out and draws it (its sections under `lib/report/`),
 `lib/reportProse.ts` holds the words, `lib/vector/` writes the file, and `ReportDialog` asks for it.
 
 - **It comes in three forms (`Form`), and only the report is the paper.** Everything below is
@@ -154,7 +154,7 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   leave too little room for its widest label, it goes full width instead: no cell in a column
   table is ever cut, label or number. Nor is a bar's figure: its well is as wide as its widest
   figure (`barTextOf`), after a fixed one printed a one-author table's `100%` as `1···%`. `reportTables.ts` decides what is
-  in them; `report.ts` sets and draws them, running onto further pages with the header repeated
+  in them; `report/tables.ts` sets and draws them, running onto further pages with the header repeated
   and never splitting a row.
   - **Table 1 is the breakdown:** lines and functions per band, with a share bar in the band's
     colour (Language adds files). It replaced a sentence that was a table written as prose. It is

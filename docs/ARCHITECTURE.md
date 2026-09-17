@@ -21,7 +21,7 @@ your parser is long. Colour is the product.
 Feed a function its name, signature and neighbours; measure how surprised the model is by
 the body. Low surprise is scaffolding. High surprise is where the decisions are.
 
-The app scores with **`HeuristicModel`** — no model, no download, no network — and takes
+The app scores with an offline **proxy** — no model, no download, no network — and takes
 its real measurement from readers over MCP. The proxy's only surviving job is ORDERING: it
 decides which functions a reader is offered first. It never reaches the map, because
 `Source::Proxy` is refused a colour.
@@ -164,7 +164,7 @@ signature for one: a tree with no git in it cannot be made wrong by a commit.
 scan.rs       walk (ignore crate → .gitignore for free), group files by directory
 parse.rs      tree-sitter → functions with signatures and doc comments
 heuristic.rs  the offline proxy + the measured doc-coverage term
-surprise.rs   the SurpriseModel trait and the offline proxy behind it
+surprise.rs   what the model path proved before it was removed, and `Hotspot`
 churn.rs      one `git log` → the stability axis, banked and refreshed rather than rewalked
 blame.rs      one `git blame` per file → the same axis resolved to the function
 trace.rs      the depths, the budget, and the fold that lands history on a drawn map

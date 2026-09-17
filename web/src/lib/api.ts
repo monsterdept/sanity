@@ -2471,51 +2471,6 @@ export function toScan(w: WireScan): Scan {
   }
 }
 
-export interface Upgrade {
-  surprise: number
-  hotspots: Hotspot[]
-}
-
-/** Per-function readings as the model produces them. */
-export function onScanScore(cb: (id: string, u: Upgrade) => void): () => void {
-  const un = listen<{ id: string; surprise: number; hotspots: Hotspot[] }>('scan-score', (e) =>
-    cb(e.payload.id, { surprise: e.payload.surprise, hotspots: e.payload.hotspots ?? [] }),
-  )
-  return () => void un.then((f) => f())
-}
-
-/**
- * Apply streamed scores to a tree and roll the aggregates back up.
- *
- * Mirrors `Node::aggregate` in model.rs, and has to keep mirroring it — the two are the
- * same arithmetic reached from opposite ends, and if they drift the map will disagree
- * with itself depending on whether you watched it fill in or waited for the final tree.
- * The LOC-weighted mean and the analyzed-lines-only hot share are both load-bearing;
- * see the Rust for why.
- *
- * Returns a new root; nodes on the path to a change are cloned, the rest are shared.
- */
-export function applyScores(root: Node, scores: Map<string, Upgrade>): Node {
-  const visit = (node: Node): Node => {
-    if (node.children.length === 0) {
-      const up = scores.get(node.id)
-      if (up === undefined || !node.score) return node
-      // Patch surprise only. Churn, age and doc coverage are properties of the code and
-      // its history rather than of the instrument, so they survive the upgrade.
-      return {
-        ...node,
-        hotspots: up.hotspots,
-        score: { ...node.score, surprise: up.surprise, source: 'model', analyzedShare: 1 },
-      }
-    }
-    const children = node.children.map(visit)
-    // Nothing underneath changed — hand back the original so React can skip the subtree.
-    if (children.every((c, i) => c === node.children[i])) return node
-    return reaggregate(node, children)
-  }
-  return visit(root)
-}
-
 /**
  * Roll child scores up one level. Mirrors `Node::aggregate` in model.rs and has to keep
  * mirroring it — they are the same arithmetic reached from opposite ends, and if they

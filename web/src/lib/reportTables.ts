@@ -13,7 +13,7 @@ import {
 } from './colorMode'
 
 /**
- * What a lens's tables in a report hold. Data only — `report.ts` sets and draws them.
+ * What a lens's tables in a report hold. Data only — `report/tables.ts` sets and draws them.
  *
  * **Two per lens, and they are different kinds of claim.** Table 1 is the breakdown: lines and
  * functions per band, the same buckets the panel lists and the rims draw. It is complete on any
@@ -71,7 +71,7 @@ export const TRAPS_MAX = 40
 /** Names a cast's breakdown lists before counting the rest. */
 export const FULL_CAST = 12
 
-/** How many rows the tables may spend — narrowed by `report.ts` when a lens section would
+/** How many rows the tables may spend — narrowed by `report/lenses.ts` when a lens section would
  *  otherwise run past its two pages. `examples: 0` leaves Table 2 out. */
 export interface TableLimits {
   cast: number
@@ -633,6 +633,17 @@ function traps(w: Walked, top: number): Table | null {
 
 const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
 
+/** What a lens's Results are read off: its table data, the tree walked once, the function lines
+ *  its breakdown counts, and Table 2's first row — the extreme the Results name, so the page and
+ *  its table agree. */
+interface StoryInput {
+  m: ColorMode
+  ctx: TableContext
+  w: Walked
+  total: number
+  lead: () => Cell[] | undefined
+}
+
 /**
  * What a lens's map shows in this repository: a few sentences read off the same data as its
  * tables, set on the lens page under `STORY_HEADING`.
@@ -645,167 +656,186 @@ const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'
 export function lensStory(m: ColorMode, ctx: TableContext): string[] {
   if (m === 'tangle') return complexityStory(ctx)
   const w = walk(ctx.root)
-  /** Table 2's first row: the extreme the Results name, so the page and its table agree. */
-  const lead = (): Cell[] | undefined => examples(m, ctx, w, 1)?.rows[0]
-  const total = ctx.buckets.reduce((t, b) => t + b.lines, 0)
-  const said: string[] = []
-  switch (m) {
-    case 'composition': {
-      const kinds = ctx.buckets.filter((b) => !isAbsent(b) && b.lines > 0).sort((a, b) => b.lines - a.lines)
-      if (!kinds.length) break
-      said.push(
-        `Of the ${n(total)} function lines, ${listed(kinds.map((b) => `${shareOf(b.lines, total)} are ${b.key === 'code' ? 'code' : `${b.label} code`}`))}.`,
-      )
-      if (!kinds.some((b) => b.key === 'generated' || b.key === 'vendored' || b.key === 'header')) {
-        said.push('No generated, vendored or header code was identified.')
-      }
-      const top = lead()
-      if (top) {
-        said.push(`The largest share of non-code lines in a single file is ${top[1].text} code in ${chip(top[0].text)} (${top[3].text} lines).`)
-      }
-      const unplaced = linesWhere(ctx.buckets, isAbsent)
-      if (unplaced > 0) said.push(`A further ${n(unplaced)} lines are unplaced.`)
-      break
-    }
-    case 'language': {
-      const named = ctx.buckets.filter((b) => !isAbsent(b) && b.lines > 0).sort((a, b) => b.lines - a.lines)
-      if (!named.length) break
-      said.push(
-        `The ${n(total)} function lines are written in ${n(named.length)} language${named.length === 1 ? '' : 's'}: ${listed(named.map((b) => `${b.label} (${shareOf(b.lines, total)})`))}.`,
-      )
-      break
-    }
-    case 'clones': {
-      const groups = ctx.buckets.filter((b) => /^\d.*clones$/.test(b.label))
-      const members = groups.reduce((t, b) => t + b.count, 0)
-      const unique = ctx.buckets.filter((b) => b.key === 'unique' || b.label === 'no clone in this repo').reduce((t, b) => t + b.count, 0)
-      const small = linesWhere(ctx.buckets, (b) => b.label === 'too small to compare' || isAbsent(b))
-      said.push(
-        members > 0
-          ? `Of the ${n(members + unique)} functions large enough to compare, ${n(members)} belong to clone groups, holding ${shareOf(linesWhere(groups, () => true), total)} of function lines.`
-          : `None of the ${n(unique)} functions large enough to compare belongs to a clone group.`,
-      )
-      const top = lead()
-      if (top) said.push(`The largest group has ${top[0].text} members and ${top[1].text} lines in all.`)
-      if (small > 0) {
-        said.push(`Bodies below the 40-token floor, which were not compared, hold ${shareOf(small, total)} of function lines.`)
-      }
-      break
-    }
-    case 'callers':
-    case 'reach': {
-      const counted = ctx.buckets.filter((b) => !isAbsent(b))
-      const within = counted.reduce((t, b) => t + b.lines, 0)
-      if (within <= 0) break
-      const callers = m === 'callers'
-      const none = linesWhere(counted, (b) => (callers ? b.label === 'no in-repo caller' : b.label.startsWith('calls nothing')))
-      const six = linesWhere(counted, (b) => b.label === (callers ? '6+ callers' : 'calls 6+'))
-      said.push(
-        callers
-          ? `Of the ${n(within)} function lines in call-resolving languages, ${shareOf(none, within)} lie in bodies with no caller in this repository and ${shareOf(six, within)} in bodies with six or more.`
-          : `Of the ${n(within)} function lines in call-resolving languages, ${shareOf(six, within)} lie in bodies calling six or more functions defined here and ${shareOf(none, within)} in bodies calling none.`,
-      )
-      const top = lead()
-      if (top) {
-        said.push(
-          callers
-            ? `The most-called function is ${chip(top[0].text)}, with ${top[1].text} callers${top[2].text !== '—' ? `, ${top[2].text} of them outside tests` : ''}.`
-            : `The largest count is observed in ${chip(top[0].text)}, which calls ${top[1].text} functions defined here.`,
-        )
-      }
-      // Once, on Callers: the two lenses read the same edges, and Reach printed it word for word.
-      if (callers) said.push('{callsResolved}')
-      const unresolved = linesWhere(ctx.buckets, isAbsent)
-      if (unresolved > 0) said.push(`A further ${n(unresolved)} lines are in languages whose calls are not resolved.`)
-      break
-    }
-    case 'blame': {
-      said.push('{authorsCommits}')
-      const people = ctx.buckets.filter((b) => !isAbsent(b) && b.lines > 0).sort((a, b) => b.lines - a.lines)
-      const reading = ctx.views.blame === 'lines' ? 'most-lines' : 'newest-line'
-      if (people[0]) {
-        said.push(
-          `Under the ${reading} reading, ${shareOf(people[0].lines, total)} of function lines are attributed to ${people[0].label}${people[1] ? `, and ${shareOf(people[1].lines, total)} to ${people[1].label}` : ''}.`,
-        )
-      }
-      const uncommitted = linesWhere(ctx.buckets, (b) => b.key === ' uncommitted')
-      if (uncommitted > 0) said.push(`Uncommitted work accounts for ${shareOf(uncommitted, total)} of function lines.`)
-      const other = linesWhere(ctx.buckets, (b) => b.key === OTHER_KEY)
-      if (other > 0) said.push(`Authors beyond the color cap account for ${shareOf(other, total)}.`)
-      break
-    }
-    case 'age': {
-      said.push('{ageSpan}')
-      const recent = linesWhere(ctx.buckets, (b) => b.label === 'today' || b.label === 'this week')
-      const old = linesWhere(ctx.buckets, (b) => b.label === 'this quarter' || b.label === 'older')
-      said.push(
-        ctx.views.age.read === 'oldest'
-          ? `Under the oldest-line reading, ${shareOf(recent, total)} of function lines lie in bodies whose oldest surviving line is under a week old and ${shareOf(old, total)} in bodies holding a line 30 days old or more.`
-          : `Under the newest-line reading, ${shareOf(recent, total)} of function lines lie in bodies changed within the last week and ${shareOf(old, total)} in bodies unchanged for 30 days or more.`,
-      )
-      const undated = linesWhere(ctx.buckets, isAbsent)
-      if (undated > 0) said.push(`A further ${n(undated)} lines have no recorded history.`)
-      break
-    }
-    case 'churn': {
-      said.push('{churnWindows}')
-      const days = n(ctx.views.churn.windows[ctx.views.churn.at] ?? 0)
-      const busy = linesWhere(ctx.buckets, (b) => b.label === '10+ commits')
-      const still = linesWhere(ctx.buckets, (b) => b.label === 'no commits found')
-      said.push(
-        `Within the ${days}-day window, ${shareOf(busy, total)} of function lines lie in bodies changed by ten or more commits and ${shareOf(still, total)} in bodies with no recorded change.`,
-      )
-      const top = lead()
-      if (top) said.push(`The most frequently changed body is ${chip(top[0].text)}, with ${top[1].text} commits in the window.`)
-      break
-    }
-    case 'surprise':
-    case 'legible':
-    case 'docs': {
-      const bs = m === 'docs' ? functionsOnly(ctx.buckets, w, ctx.views) : ctx.buckets
-      const all = bs.reduce((t, b) => t + b.lines, 0)
-      const read = linesWhere(bs, (b) => ['none', 'some', 'most', 'full'].includes(b.key))
-      const none = linesWhere(bs, (b) => b.key === 'none')
-      const some = linesWhere(bs, (b) => b.key === 'some')
-      const noun = m === 'surprise' ? 'reading' : 'grade'
-      // **Shares of every function line, as the table beside them is.** They were shares of the
-      // lines read, so one page said 35% *quirky* and its table 28% of the same bucket; the
-      // coverage sentence after this is what says how much of the whole was read.
-      const whose = m === 'surprise' ? 'whose prediction was graded' : m === 'legible' ? 'graded' : 'whose documentation was graded'
-      if (read > 0) {
-        said.push(
-          `Of the ${n(all)} function lines, ${shareOf(none, all)} lie in bodies ${whose} *none* and ${shareOf(some, all)} in bodies ${whose} *some*${
-            m === 'docs' ? `, with derivable documentation counted as ${ctx.views.derivable === 'full' ? '*full*' : '*none*'}` : ''
-          }.`,
-        )
-      }
-      const expired = linesWhere(bs, (b) => b.key === ' expired')
-      const missing = all - read
-      if (missing > 0) {
-        said.push(
-          `No current ${noun} exists for ${shareOf(missing, all)} of function lines${expired > 0 ? `, including ${shareOf(expired, all)} whose reading is stale` : ''}.`,
-        )
-      }
-      const top = lead()
-      if (top) said.push(`The largest body graded *${top[1].text}* is ${chip(top[0].text)} (${top[2].text} lines).`)
-      break
-    }
-    case 'traps': {
-      const traps = ctx.buckets.find((b) => b.key === 'trap')?.count ?? 0
-      const clear = ctx.buckets.find((b) => b.key === 'clear')?.count ?? 0
-      const unread = linesWhere(ctx.buckets, isAbsent)
-      said.push(
-        `Readers reported ${n(traps)} trap${traps === 1 ? '' : 's'} among the ${n(traps + clear)} functions read under the current question.`,
-      )
-      if (unread > 0) said.push(`No current answer exists for ${shareOf(unread, total)} of function lines.`)
-      const top = lead()
-      if (top) said.push(`The longest body with a reported trap is ${chip(top[0].text)}.`)
-      break
-    }
-    default:
-      break
-  }
+  const story = STORIES[m]
+  const said = story
+    ? story({ m, ctx, w, total: ctx.buckets.reduce((t, b) => t + b.lines, 0), lead: () => examples(m, ctx, w, 1)?.rows[0] })
+    : []
   return said.length ? [said.join(' ')] : []
+}
+
+const STORIES: Partial<Record<ColorMode, (s: StoryInput) => string[]>> = {
+  composition: compositionStory,
+  language: languageStory,
+  clones: clonesStory,
+  callers: callStory,
+  reach: callStory,
+  blame: blameStory,
+  age: ageStory,
+  churn: churnStory,
+  surprise: gradedStory,
+  legible: gradedStory,
+  docs: gradedStory,
+  traps: trapsStory,
+}
+
+function compositionStory({ ctx, total, lead }: StoryInput): string[] {
+  const kinds = ctx.buckets.filter((b) => !isAbsent(b) && b.lines > 0).sort((a, b) => b.lines - a.lines)
+  if (!kinds.length) return []
+  const said = [
+    `Of the ${n(total)} function lines, ${listed(kinds.map((b) => `${shareOf(b.lines, total)} are ${b.key === 'code' ? 'code' : `${b.label} code`}`))}.`,
+  ]
+  if (!kinds.some((b) => b.key === 'generated' || b.key === 'vendored' || b.key === 'header')) {
+    said.push('No generated, vendored or header code was identified.')
+  }
+  const top = lead()
+  if (top) {
+    said.push(`The largest share of non-code lines in a single file is ${top[1].text} code in ${chip(top[0].text)} (${top[3].text} lines).`)
+  }
+  const unplaced = linesWhere(ctx.buckets, isAbsent)
+  if (unplaced > 0) said.push(`A further ${n(unplaced)} lines are unplaced.`)
+  return said
+}
+
+function languageStory({ ctx, total }: StoryInput): string[] {
+  const named = ctx.buckets.filter((b) => !isAbsent(b) && b.lines > 0).sort((a, b) => b.lines - a.lines)
+  if (!named.length) return []
+  return [
+    `The ${n(total)} function lines are written in ${n(named.length)} language${named.length === 1 ? '' : 's'}: ${listed(named.map((b) => `${b.label} (${shareOf(b.lines, total)})`))}.`,
+  ]
+}
+
+function clonesStory({ ctx, total, lead }: StoryInput): string[] {
+  const groups = ctx.buckets.filter((b) => /^\d.*clones$/.test(b.label))
+  const members = groups.reduce((t, b) => t + b.count, 0)
+  const unique = ctx.buckets.filter((b) => b.key === 'unique' || b.label === 'no clone in this repo').reduce((t, b) => t + b.count, 0)
+  const small = linesWhere(ctx.buckets, (b) => b.label === 'too small to compare' || isAbsent(b))
+  const said = [
+    members > 0
+      ? `Of the ${n(members + unique)} functions large enough to compare, ${n(members)} belong to clone groups, holding ${shareOf(linesWhere(groups, () => true), total)} of function lines.`
+      : `None of the ${n(unique)} functions large enough to compare belongs to a clone group.`,
+  ]
+  const top = lead()
+  if (top) said.push(`The largest group has ${top[0].text} members and ${top[1].text} lines in all.`)
+  if (small > 0) {
+    said.push(`Bodies below the 40-token floor, which were not compared, hold ${shareOf(small, total)} of function lines.`)
+  }
+  return said
+}
+
+/** Callers and Reach: the two ends of one call graph, read off the same edges. */
+function callStory({ m, ctx, lead }: StoryInput): string[] {
+  const counted = ctx.buckets.filter((b) => !isAbsent(b))
+  const within = counted.reduce((t, b) => t + b.lines, 0)
+  if (within <= 0) return []
+  const callers = m === 'callers'
+  const none = linesWhere(counted, (b) => (callers ? b.label === 'no in-repo caller' : b.label.startsWith('calls nothing')))
+  const six = linesWhere(counted, (b) => b.label === (callers ? '6+ callers' : 'calls 6+'))
+  const said = [
+    callers
+      ? `Of the ${n(within)} function lines in call-resolving languages, ${shareOf(none, within)} lie in bodies with no caller in this repository and ${shareOf(six, within)} in bodies with six or more.`
+      : `Of the ${n(within)} function lines in call-resolving languages, ${shareOf(six, within)} lie in bodies calling six or more functions defined here and ${shareOf(none, within)} in bodies calling none.`,
+  ]
+  const top = lead()
+  if (top) {
+    said.push(
+      callers
+        ? `The most-called function is ${chip(top[0].text)}, with ${top[1].text} callers${top[2].text !== '—' ? `, ${top[2].text} of them outside tests` : ''}.`
+        : `The largest count is observed in ${chip(top[0].text)}, which calls ${top[1].text} functions defined here.`,
+    )
+  }
+  // Once, on Callers: the two lenses read the same edges, and Reach printed it word for word.
+  if (callers) said.push('{callsResolved}')
+  const unresolved = linesWhere(ctx.buckets, isAbsent)
+  if (unresolved > 0) said.push(`A further ${n(unresolved)} lines are in languages whose calls are not resolved.`)
+  return said
+}
+
+function blameStory({ ctx, total }: StoryInput): string[] {
+  const said = ['{authorsCommits}']
+  const people = ctx.buckets.filter((b) => !isAbsent(b) && b.lines > 0).sort((a, b) => b.lines - a.lines)
+  const reading = ctx.views.blame === 'lines' ? 'most-lines' : 'newest-line'
+  if (people[0]) {
+    said.push(
+      `Under the ${reading} reading, ${shareOf(people[0].lines, total)} of function lines are attributed to ${people[0].label}${people[1] ? `, and ${shareOf(people[1].lines, total)} to ${people[1].label}` : ''}.`,
+    )
+  }
+  const uncommitted = linesWhere(ctx.buckets, (b) => b.key === ' uncommitted')
+  if (uncommitted > 0) said.push(`Uncommitted work accounts for ${shareOf(uncommitted, total)} of function lines.`)
+  const other = linesWhere(ctx.buckets, (b) => b.key === OTHER_KEY)
+  if (other > 0) said.push(`Authors beyond the color cap account for ${shareOf(other, total)}.`)
+  return said
+}
+
+function ageStory({ ctx, total }: StoryInput): string[] {
+  const recent = linesWhere(ctx.buckets, (b) => b.label === 'today' || b.label === 'this week')
+  const old = linesWhere(ctx.buckets, (b) => b.label === 'this quarter' || b.label === 'older')
+  const said = [
+    '{ageSpan}',
+    ctx.views.age.read === 'oldest'
+      ? `Under the oldest-line reading, ${shareOf(recent, total)} of function lines lie in bodies whose oldest surviving line is under a week old and ${shareOf(old, total)} in bodies holding a line 30 days old or more.`
+      : `Under the newest-line reading, ${shareOf(recent, total)} of function lines lie in bodies changed within the last week and ${shareOf(old, total)} in bodies unchanged for 30 days or more.`,
+  ]
+  const undated = linesWhere(ctx.buckets, isAbsent)
+  if (undated > 0) said.push(`A further ${n(undated)} lines have no recorded history.`)
+  return said
+}
+
+function churnStory({ ctx, total, lead }: StoryInput): string[] {
+  const days = n(ctx.views.churn.windows[ctx.views.churn.at] ?? 0)
+  const busy = linesWhere(ctx.buckets, (b) => b.label === '10+ commits')
+  const still = linesWhere(ctx.buckets, (b) => b.label === 'no commits found')
+  const said = [
+    '{churnWindows}',
+    `Within the ${days}-day window, ${shareOf(busy, total)} of function lines lie in bodies changed by ten or more commits and ${shareOf(still, total)} in bodies with no recorded change.`,
+  ]
+  const top = lead()
+  if (top) said.push(`The most frequently changed body is ${chip(top[0].text)}, with ${top[1].text} commits in the window.`)
+  return said
+}
+
+/** Predictability, Legibility and Docs: one grade scale, read by a reader. */
+function gradedStory({ m, ctx, w, lead }: StoryInput): string[] {
+  const said: string[] = []
+  const bs = m === 'docs' ? functionsOnly(ctx.buckets, w, ctx.views) : ctx.buckets
+  const all = bs.reduce((t, b) => t + b.lines, 0)
+  const read = linesWhere(bs, (b) => ['none', 'some', 'most', 'full'].includes(b.key))
+  const none = linesWhere(bs, (b) => b.key === 'none')
+  const some = linesWhere(bs, (b) => b.key === 'some')
+  const noun = m === 'surprise' ? 'reading' : 'grade'
+  // **Shares of every function line, as the table beside them is.** They were shares of the
+  // lines read, so one page said 35% *quirky* and its table 28% of the same bucket; the
+  // coverage sentence after this is what says how much of the whole was read.
+  const whose = m === 'surprise' ? 'whose prediction was graded' : m === 'legible' ? 'graded' : 'whose documentation was graded'
+  if (read > 0) {
+    said.push(
+      `Of the ${n(all)} function lines, ${shareOf(none, all)} lie in bodies ${whose} *none* and ${shareOf(some, all)} in bodies ${whose} *some*${
+        m === 'docs' ? `, with derivable documentation counted as ${ctx.views.derivable === 'full' ? '*full*' : '*none*'}` : ''
+      }.`,
+    )
+  }
+  const expired = linesWhere(bs, (b) => b.key === ' expired')
+  const missing = all - read
+  if (missing > 0) {
+    said.push(
+      `No current ${noun} exists for ${shareOf(missing, all)} of function lines${expired > 0 ? `, including ${shareOf(expired, all)} whose reading is stale` : ''}.`,
+    )
+  }
+  const top = lead()
+  if (top) said.push(`The largest body graded *${top[1].text}* is ${chip(top[0].text)} (${top[2].text} lines).`)
+  return said
+}
+
+function trapsStory({ ctx, total, lead }: StoryInput): string[] {
+  const traps = ctx.buckets.find((b) => b.key === 'trap')?.count ?? 0
+  const clear = ctx.buckets.find((b) => b.key === 'clear')?.count ?? 0
+  const unread = linesWhere(ctx.buckets, isAbsent)
+  const said = [
+    `Readers reported ${n(traps)} trap${traps === 1 ? '' : 's'} among the ${n(traps + clear)} functions read under the current question.`,
+  ]
+  if (unread > 0) said.push(`No current answer exists for ${shareOf(unread, total)} of function lines.`)
+  const top = lead()
+  if (top) said.push(`The longest body with a reported trap is ${chip(top[0].text)}.`)
+  return said
 }
 
 const shareOf = (x: number, of: number) => {
