@@ -3240,7 +3240,9 @@ mod tests {
         assert!(v["grammars"].as_u64().unwrap_or(0) > 0);
         let renders = v["renderCache"].as_str().expect("a render cache under the data dir");
         assert!(std::path::Path::new(renders).is_dir(), "made as a directory: {renders}");
-        assert!(renders.contains("/renders/") && renders.ends_with("-r1"), "{renders}");
+        let slot = std::path::Path::new(renders);
+        let kind = slot.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str());
+        assert!(kind == Some("renders") && renders.ends_with("-r1"), "{renders}");
     }
 
     /// **Factoring the stamping out changed nothing it stamps.** `agent_reports` now delegates
