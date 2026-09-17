@@ -239,6 +239,11 @@ const BLAME_MS_PER_FILE: f32 = 34.0;
 /// So a normal restart restores the depth instantly, an edited file or two costs a blame apiece,
 /// and a dropped cache asks rather than spending minutes at launch on work nobody re-requested.
 pub fn relines(scan: &Scan, scans: &crate::scancache::ScanCache, history: &History) -> bool {
+    blame_seconds(scan, scans, history) <= BUDGET.as_secs_f32()
+}
+
+/// What the blame the cache cannot serve would cost, in seconds — see [`relines`].
+fn blame_seconds(scan: &Scan, scans: &crate::scancache::ScanCache, history: &History) -> f32 {
     let mut missing = 0usize;
     scan.root.visit(&mut |n| {
         if n.kind != NodeKind::File {
@@ -249,7 +254,47 @@ pub fn relines(scan: &Scan, scans: &crate::scancache::ScanCache, history: &Histo
             missing += 1;
         }
     });
-    missing as f32 * BLAME_MS_PER_FILE / 1000.0 <= BUDGET.as_secs_f32()
+    missing as f32 * BLAME_MS_PER_FILE / 1000.0
+}
+
+/// The deepest rung a headless verb reads without being told a depth.
+///
+/// **The CLI's default, and it is the whole ladder unless the work says otherwise.** A person
+/// typing `sanity findings` wants every rule answering; a rung that stays dark on a repo where
+/// it would cost nothing is a header full of `trace required` on history that is sitting in
+/// the cache. So each rung is priced on what is LEFT — the log walk by [`estimate`], blame by
+/// the files the cache cannot serve, the timeline by `edits::estimate` — against the same
+/// [`BUDGET`] the launch gate spends, and the ladder stops at the first rung over it.
+///
+/// **Not the launch rule.** `trace_within_budget` never takes a deeper rung nobody had bought
+/// before; this does, because a verb somebody typed is an ask and a launch is not. What they
+/// did not ask for is minutes, and that is what the budget still refuses.
+///
+/// The second half is the rung that was declined and what it would have cost, so the verb can
+/// say which flag buys it. It walks the log to price blame, which the deepening that follows
+/// reads back from the bank rather than walking again.
+pub fn affordable(
+    repo: &std::path::Path,
+    scan: &Scan,
+    scans: &crate::scancache::ScanCache,
+) -> (Depth, Option<(Depth, f32)>) {
+    let log = estimate(repo);
+    if !log.fits {
+        return (Depth::Untraced, Some((Depth::Files, log.seconds)));
+    }
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let Some(history) = depth1(repo, &stop, &|_| {}) else {
+        return (Depth::Untraced, None);
+    };
+    let blame = blame_seconds(scan, scans, &history);
+    if blame > BUDGET.as_secs_f32() {
+        return (Depth::Files, Some((Depth::Lines, blame)));
+    }
+    let (edits, _, _) = crate::edits::estimate(repo);
+    if edits > BUDGET.as_secs_f32() {
+        return (Depth::Lines, Some((Depth::Edits, edits)));
+    }
+    (Depth::Edits, None)
 }
 
 /// Whether this repo's history may be read without asking, and how deep.

@@ -2490,7 +2490,7 @@ pub fn catalog() -> Vec<Rule> {
         // the note. `headcount` is the count of whose lines are standing, and these are the two
         // ends of it: nobody else has been here, and a lot of people have.
         //
-        // **Blocked without `sanity trace --lines`**, which is a rung most repos are not
+        // **Blocked without `sanity trace --blame`**, which is a rung most repos are not
         // traced to. That is stated rather than silent: `blocked` names the fix.
         rule(
             "sole-author",

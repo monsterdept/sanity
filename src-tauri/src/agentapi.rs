@@ -3490,7 +3490,9 @@ async fn stop(State(state): State<Shared>, Json(p): Json<StatusParams>) -> Json<
 struct TraceParams {
     #[serde(default)]
     project: Option<String>,
-    /// `files` or `lines`. Absent deepens by one step from wherever this repo is.
+    /// `files`, `lines` or `edits`. `budget` is as deep as fits `trace::BUDGET`, priced on what
+    /// is not already cached — the CLI's default. Absent deepens by one step from wherever this
+    /// repo is.
     #[serde(default)]
     depth: Option<String>,
 }
@@ -3516,20 +3518,25 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
         };
         (key.clone(), project.repo.clone(), project.trace.depth)
     };
-    let depth = match p.depth.as_deref() {
-        Some("files") => crate::trace::Depth::Files,
-        Some("lines") => crate::trace::Depth::Lines,
+    // `None` is the budget's to decide, and it can only decide once the scan is in hand —
+    // blame is priced per file.
+    let asked = match p.depth.as_deref() {
+        Some("files") => Some(crate::trace::Depth::Files),
+        Some("lines") => Some(crate::trace::Depth::Lines),
+        Some("edits") => Some(crate::trace::Depth::Edits),
+        Some("budget") => None,
         // One step on from wherever it is. A caller that says nothing gets the cheap half
         // first, which is also the half that makes the next estimate a measured one.
-        None => match at {
+        None => Some(match at {
             crate::trace::Depth::Untraced => crate::trace::Depth::Files,
             _ => crate::trace::Depth::Lines,
-        },
+        }),
         Some(other) => {
             return Json(serde_json::json!({
                 "ok": false,
                 "error": format!("unknown depth {other}"),
-                "hint": "depth is `files` (the commit log) or `lines` (per-line blame)",
+                "hint": "depth is `files` (the commit log), `lines` (per-line blame), `edits` \
+                         (the timeline) or `budget` (as deep as fits)",
             }));
         }
     };
@@ -3558,6 +3565,17 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
         tokio::task::spawn_blocking(move || {
             let scan = scan.as_mut()?;
             let scans = crate::scancache::ScanCache::open(&repo);
+            // **Never below the rung this map already holds.** Deepening to a shallower rung
+            // re-applies the trace without what was bought above it, so a budget that prices
+            // a changed repo's blame over ten seconds would strip per-function history off a
+            // map somebody paid for. The budget decides how much FURTHER to go.
+            let (depth, declined) = match asked {
+                Some(depth) => (depth, None),
+                None => {
+                    let (fits, declined) = crate::trace::affordable(&repo, scan, &scans);
+                    (fits.max(at), declined.filter(|(rung, _)| *rung > at))
+                }
+            };
             let traced_to =
                 crate::trace::deepen(
                     &repo,
@@ -3581,13 +3599,13 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
                         }
                     },
                 );
-            Some((scan.clone(), traced_to))
+            Some((scan.clone(), traced_to, depth, declined))
         })
         .await
         .ok()
         .flatten()
     };
-    let Some((scan, (reached, done, considered))) = traced else {
+    let Some((scan, (reached, done, considered), depth, declined)) = traced else {
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
 
@@ -3620,6 +3638,11 @@ async fn trace(State(state): State<Shared>, Json(p): Json<TraceParams>) -> Json<
         "depth": project.trace.depth,
         "stopped": stopped,
         "seconds": started.elapsed().as_secs_f32(),
+        // The rung the budget refused and its price, so the verb can name the flag that buys it.
+        "declined": declined.map(|(rung, seconds)| serde_json::json!({
+            "depth": rung.tag_str(),
+            "seconds": seconds,
+        })),
     }))
 }
 

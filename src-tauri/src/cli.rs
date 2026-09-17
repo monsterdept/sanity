@@ -1451,9 +1451,10 @@ fn project_header(v: &Value) {
     // it.** `untraced` is not "this repo has no history" — it is history nobody has paid for
     // yet, and the cost of paying is printed beside it so the next command is obvious.
     match v.get("trace_depth").and_then(|d| d.as_str()) {
+        Some("edits") => println!("  History read to the line, with every edit counted"),
         Some("lines") => println!("  History read to the line"),
         Some("files") => {
-            println!("  History read per file — `sanity trace --lines` for per-function")
+            println!("  History read per file — `sanity trace --blame` for per-function")
         }
         // **Absent is not `untraced`.** The offline answer — computed from the repo when no
         // backend is running — knows nothing about what a map is holding, and printing "history
@@ -1615,14 +1616,16 @@ fn read_verb(path: &str, endpoint: &str) -> Result<Value, i32> {
 
 /// Read this repo's history onto the map, because somebody asked.
 ///
-/// **The verb that spends what the budget declines.** A scan reads no git at all and a launch
-/// only reads as much as fits ten seconds — see `trace::go` — so on a large repo the map
-/// arrives with no age, churn or author in it, and this is how a person says go. Costs are
-/// printed rather than guarded: an explicit ask is permission, and the one thing this owes
-/// somebody is knowing what they bought.
+/// **The whole ladder by default, and the budget only where it would cost minutes.** A scan
+/// reads no git at all and a launch only restores what fits ten seconds — see `trace::go` — so
+/// on a large repo the map arrives with no age, churn or author in it, and this is how a person
+/// says go. Unflagged, every rung that fits the same ten seconds is read, priced on what is not
+/// already cached — see `trace::affordable`. `--edits` or `--blame` names a rung and spends
+/// whatever it costs: an explicit flag is permission, and the one thing this owes somebody is
+/// knowing what they bought.
 ///
 /// It opens the repo first, because there has to be something to land the history ON.
-pub fn trace(path: &str, lines: bool) -> i32 {
+fn trace(path: &str, want: Want) -> i32 {
     let repo = match resolve(path) {
         Ok(r) => r,
         Err(e) => {
@@ -1667,19 +1670,28 @@ pub fn trace(path: &str, lines: bool) -> i32 {
         return 1;
     }
     println!();
-    println!("Reading {} history…", if lines { "per-line" } else { "commit-log" });
-    let body = serde_json::json!({
-        "project": key,
-        "depth": if lines { "lines" } else { "files" },
-    });
+    let depth = match want {
+        Want::Budget => "budget",
+        Want::Exactly(depth) => depth.tag_str(),
+    };
+    println!(
+        "Reading {}…",
+        match want {
+            Want::Budget => "as much history as fits the budget".to_string(),
+            Want::Exactly(depth) => rung_name(depth).to_lowercase(),
+        }
+    );
+    let body = serde_json::json!({ "project": key, "depth": depth });
     match post(&ep, "/trace", body) {
         Ok(v) if v.get("ok").and_then(|x| x.as_bool()) == Some(true) => {
             println!();
             println!(
                 "  {} in {:.1}s{}",
                 match v.get("depth").and_then(|d| d.as_str()) {
+                    Some("edits") => "Every function has its own age, author and edit count",
                     Some("lines") => "Every function has its own age, churn and author",
-                    _ => "Every file has an age, a churn and an author",
+                    Some("files") => "Every file has an age, a churn and an author",
+                    _ => "No history read",
                 },
                 v.get("seconds").and_then(|x| x.as_f64()).unwrap_or(0.0),
                 if v.get("stopped").and_then(|x| x.as_bool()) == Some(true) {
@@ -1688,9 +1700,21 @@ pub fn trace(path: &str, lines: bool) -> i32 {
                     ""
                 },
             );
-            if !lines {
+            let declined = v.get("declined").and_then(|d| {
+                Some((
+                    crate::trace::Depth::from_tag(d.get("depth")?.as_str()?),
+                    d.get("seconds")?.as_f64()? as f32,
+                ))
+            });
+            if let Some((rung, seconds)) = declined {
                 println!();
-                println!("  `sanity trace --lines` resolves those to each function.");
+                println!(
+                    "  {} skipped: about {} against a {}s budget — `sanity trace --edits --blame`",
+                    rung_name(rung),
+                    duration(seconds),
+                    crate::trace::BUDGET.as_secs()
+                );
+                println!("  reads it anyway.");
             }
             println!();
             0
@@ -1703,6 +1727,24 @@ pub fn trace(path: &str, lines: bool) -> i32 {
             eprintln!("sanity: {e}");
             1
         }
+    }
+}
+
+/// A rung as a person reads it, in a sentence about skipping or reading it.
+fn rung_name(depth: crate::trace::Depth) -> &'static str {
+    match depth {
+        crate::trace::Depth::Edits => "The edit timeline",
+        crate::trace::Depth::Lines => "Per-line history",
+        _ => "The commit log",
+    }
+}
+
+/// An estimate, rounded the way `status` rounds one.
+fn duration(seconds: f32) -> String {
+    if seconds >= 60.0 {
+        format!("{:.0} min", seconds / 60.0)
+    } else {
+        format!("{:.0}s", seconds.max(1.0))
     }
 }
 
@@ -1773,7 +1815,8 @@ pub fn status(path: &str) -> i32 {
 /// view, per rule with its calibration and its marginal contribution; that is a question about
 /// the CATALOG and this is a question about the repo.
 pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
-    let Survey { path, facts, rules, traced, read, .. } = match survey(path, edits, blame) {
+    let Survey { path, facts, rules, traced, read, declined, .. } =
+        match survey(path, Want::of(edits, blame)) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -1784,7 +1827,7 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
         &rules,
         &crate::findings::archive(&path),
     );
-    list(&path, limit, &groups)
+    list(&path, limit, &groups, declined)
 }
 
 /// Who calls one function, named rather than counted.
@@ -1801,7 +1844,9 @@ pub fn findings(path: &str, limit: usize, edits: bool, blame: bool) -> i32 {
 /// A caller in another file is a claim that one file reaches into another, and for a body its
 /// language cannot export that claim is false by construction rather than merely unlikely.
 fn callers(path: &str, key: &str) -> i32 {
-    let Survey { facts, links, .. } = match survey(path, false, false) {
+    // Files, as it always was: a caller list reads no history, and pricing blame to print one
+    // would be paying for a question nobody asked.
+    let Survey { facts, links, .. } = match survey(path, Want::Exactly(crate::trace::Depth::Files)) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -1883,9 +1928,31 @@ struct Survey {
     /// counts a finding quotes are folded from these edges, so a verb that shows the pairs
     /// reads them from here rather than building a second graph that could disagree.
     links: std::sync::Arc<crate::links::Links>,
+    /// The rung the budget refused and what it would have cost — see [`crate::trace::affordable`].
+    declined: Option<(crate::trace::Depth, f32)>,
 }
 
-fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
+/// How deep a survey reads history.
+#[derive(Clone, Copy)]
+enum Want {
+    /// As deep as fits [`crate::trace::BUDGET`], priced on what is not already cached.
+    Budget,
+    /// This rung, whatever it costs — somebody typed the flag.
+    Exactly(crate::trace::Depth),
+}
+
+impl Want {
+    /// `--edits` and `--blame` name a rung; neither leaves it to the budget.
+    fn of(edits: bool, blame: bool) -> Want {
+        match (edits, blame) {
+            (true, _) => Want::Exactly(crate::trace::Depth::Edits),
+            (_, true) => Want::Exactly(crate::trace::Depth::Lines),
+            _ => Want::Budget,
+        }
+    }
+}
+
+fn survey(path: &str, want: Want) -> Result<Survey, i32> {
     let path = match std::fs::canonicalize(path) {
         Ok(p) => p,
         Err(e) => {
@@ -1902,10 +1969,9 @@ fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
     // to be asked for. Named here rather than inline because `blocked` has to know which rung
     // was taken: `headcount` is blame's alone, and a rule asking for it on a log-traced repo
     // must say so rather than finding nothing.
-    let want = match (edits, blame) {
-        (true, _) => crate::trace::Depth::Edits,
-        (_, true) => crate::trace::Depth::Lines,
-        _ => crate::trace::Depth::Files,
+    let forced = match want {
+        Want::Budget => None,
+        Want::Exactly(depth) => Some(depth),
     };
     // `Ordering` fidelity: every reading clause is answered from `.sanity/` or not at all —
     // see `findings::Field::Surprise`, which is `None` on an unread body rather than falling
@@ -1920,7 +1986,10 @@ fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
         &std::sync::atomic::AtomicBool::new(false),
         crate::scan::Memos { scores: &crate::cache::Cache::ephemeral(), scans: &scans },
         crate::scan::Fidelity::Ordering,
-        want,
+        // Untraced when the budget decides, because blame is priced per file and there are no
+        // files to price until the tree exists. The deepening below lands the same fields an
+        // inline trace would — `a_deferred_trace_lands_exactly_where_an_inline_one_did`.
+        forced.unwrap_or(crate::trace::Depth::Untraced),
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -1928,20 +1997,36 @@ fn survey(path: &str, edits: bool, blame: bool) -> Result<Survey, i32> {
             return Err(1);
         }
     };
+    let mut scan = scan;
+    let (want, declined) = match forced {
+        Some(depth) => (depth, None),
+        None => {
+            let (depth, declined) = crate::trace::affordable(&path, &scan, &scans);
+            let reached = crate::trace::deepen(
+                &path,
+                &mut scan,
+                depth,
+                &scans,
+                &std::sync::atomic::AtomicBool::new(false),
+                &|_| {},
+                &|_| {},
+            )
+            .0;
+            (reached, declined)
+        }
+    };
     let reports = crate::assessment::load(&path, &scan);
     // **A reading is applied here, not inside the scan.** `wire` answers from the parse and
     // the paths; what a reader said about which bodies are tests lands afterwards — see
     // `links::retest_tree`. The app does this when a reading arrives; a headless verb has to
     // do it once, on the way past, or every CLI answer is the structural half only.
-    let mut scan = scan;
     crate::links::retest_tree(&mut scan, &reports);
-    // `want` is never `Untraced` here, so `git` is true exactly as it was written out before.
     let traced = crate::findings::Traced::of(&scan.stats, want);
     let facts = crate::findings::subjects(&scan.root, &reports, traced);
     let rules = crate::findings::rules_for(&path, &facts);
     let read = !reports.is_empty();
     let links = scan.links.clone();
-    Ok(Survey { path, facts, rules, traced, read, links })
+    Ok(Survey { path, facts, rules, traced, read, links, declined })
 }
 
 /// Record what somebody decided about a finding — the CLI's copy of the three buttons.
@@ -1963,7 +2048,8 @@ fn decide(
     edits: bool,
     blame: bool,
 ) -> i32 {
-    let Survey { path, facts, rules, traced, read, .. } = match survey(path, edits, blame) {
+    let Survey { path, facts, rules, traced, read, .. } =
+        match survey(path, Want::of(edits, blame)) {
         Ok(s) => s,
         Err(code) => return code,
     };
@@ -2112,7 +2198,12 @@ fn clear(path: &str, key: &str, rule: Option<&str>) -> i32 {
 }
 
 /// The worklist itself, once the survey is in hand.
-fn list(path: &std::path::Path, limit: usize, groups: &[crate::findings::Group]) -> i32 {
+fn list(
+    path: &std::path::Path,
+    limit: usize,
+    groups: &[crate::findings::Group],
+    declined: Option<(crate::trace::Depth, f32)>,
+) -> i32 {
     // Merged by subject, widest first — the panel's order, from the same numbers. A flag does
     // not move a row: see `findings::live_hits`.
     #[derive(Default)]
@@ -2188,6 +2279,17 @@ fn list(path: &std::path::Path, limit: usize, groups: &[crate::findings::Group])
         for (i, part) in wrap(&line, 76).iter().enumerate() {
             println!("{}{part}", if i == 0 { "  " } else { "    " });
         }
+    }
+    // **Which rung the budget stopped at, and the flags that pay for it.** Without this the
+    // line above reads as a fact about the repo — "the timeline has not been walked" — when it
+    // is a fact about this invocation, which chose not to spend the time.
+    if let Some((rung, seconds)) = declined {
+        println!(
+            "    {} skipped: about {} against a {}s budget — `--edits --blame` reads it anyway",
+            rung_name(rung),
+            duration(seconds),
+            crate::trace::BUDGET.as_secs()
+        );
     }
     println!();
 
@@ -2794,10 +2896,14 @@ enum Verb {
         /// The repo. Defaults to where you are standing.
         #[arg(default_value = ".")]
         path: String,
-        /// Per-line blame as well, so age and churn resolve to the function rather than the
-        /// file. One `git blame` per file — minutes on a large repo, hours on a huge one.
+        /// The timeline, however long it takes. Without a flag, every rung that fits the ten-second
+        /// budget is read, priced on what is not already cached.
         #[arg(long)]
-        lines: bool,
+        edits: bool,
+        /// Per-line blame, however long it takes. One `git blame` per file — minutes on a large
+        /// repo, hours on a huge one.
+        #[arg(long)]
+        blame: bool,
     },
     /// View backend status and reading completion
     Status {
@@ -2892,7 +2998,7 @@ pub fn main(args: &[String]) -> i32 {
         Verb::Init { path, harness, model, show } => {
             init(&path, harness.as_deref(), model.as_deref(), show)
         }
-        Verb::Trace { path, lines } => trace(&path, lines),
+        Verb::Trace { path, edits, blame } => trace(&path, Want::of(edits, blame)),
         Verb::Check { path, model, readers, limit, detach } => {
             check(&path, model.as_deref(), readers, limit, detach)
         }
