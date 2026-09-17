@@ -5,11 +5,11 @@ on:
     tags:
       - "v*"
 
-# Both jobs need write access to releases — every build job pushes its
-# bundles directly to a draft release (bypassing upload-artifact's chunked
-# Azure Blob path, which has historically stalled on Mac runners, and keeping
-# bundles off the Actions artifact-storage quota), and the release job
-# promotes the draft to published.
+# All three jobs need write access to releases — `draft` creates the draft,
+# every build job pushes its bundles straight into it (bypassing
+# upload-artifact's chunked Azure Blob path, which has historically stalled on
+# Mac runners, and keeping bundles off the Actions artifact-storage quota), and
+# the release job promotes the draft to published.
 permissions:
   contents: write
 
@@ -18,7 +18,44 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # THE DRAFT IS MADE ONCE, HERE, BEFORE ANY BUILD CAN RACE TO MAKE ONE.
+  #
+  # It used to be made by whichever build job uploaded first: four jobs each
+  # pointed `softprops/action-gh-release` at the tag, and the action creates a
+  # release when it cannot find one. Two of them landing in the same second
+  # each created their own draft, each then found the other's and deleted its
+  # own as the duplicate, and both uploads failed on top of that — v0.30.1
+  # shipped a draft holding the DMG, the AppImage, the rpm and the deb and
+  # neither Windows installer, because macOS and Linux happened to finish
+  # minutes apart and the two Windows builds did not.
+  #
+  # A release that already exists is not created twice. The builds below find
+  # this one and upload into it, which is the only thing they ever needed to do.
+  draft:
+    runs-on: [self-hosted, linux, X64, krapow]
+    steps:
+      - name: Ensure the draft release exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No checkout here, so gh has no local .git to infer the repo from —
+          # the same reason the publish job at the bottom sets it.
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Idempotent: a re-run of this workflow finds the draft it made the
+          # first time, and `--generate-notes` is not asked for twice.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "draft already exists for $GITHUB_REF_NAME"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+
   build:
+    needs: draft
     strategy:
       fail-fast: false
       matrix:
@@ -342,14 +379,46 @@ jobs:
         shell: bash
         run: ls -lh artifacts/
 
+      # **Uploaded with retries, because the failure is GitHub's and transient.**
+      # `Error creating asset temp dir` and `Error saving asset` are the release
+      # service's own messages, not the action's — the action rethrows them and
+      # the job dies with a built, signed bundle sitting on the runner. Both
+      # Windows builds of v0.30.1 died that way, one on each message, seconds
+      # apart. An upload that can fail on the far side needs to be asked twice.
+      #
+      # `--clobber` so a retry after a half-made asset replaces it rather than
+      # colliding with itself. The draft is guaranteed by the `draft` job, so
+      # nothing here creates a release — this step only ever adds to one.
       - name: Push artifacts to draft release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          name: ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
-          files: artifacts/*
-          fail_on_unmatched_files: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Said plainly, because the alternative is `gh: command not found` at
+          # the end of a twenty-minute signed build. The krapow images are
+          # GitHub-hosted-equivalent and those ship the CLI on all three
+          # platforms, which is the assumption this step rests on.
+          command -v gh >/dev/null || { echo "::error::gh is not on PATH for ${{ matrix.platform }}"; exit 1; }
+          # What `fail_on_unmatched_files` was for: a platform that bundled
+          # nothing must fail here rather than let the release publish without it.
+          shopt -s nullglob
+          files=(artifacts/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no artifacts to upload"
+            exit 1
+          fi
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber; then
+              echo "uploaded ${#files[@]} file(s) on attempt $attempt"
+              exit 0
+            fi
+            echo "upload attempt $attempt failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::release asset upload failed after 5 attempts"
+          exit 1
 
       # Release builds are the biggest disk consumers and run rarely, so there's
       # no warm-cache value in keeping them. Reclaim the target dir after every
