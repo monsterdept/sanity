@@ -199,7 +199,8 @@ use std::path::{Path, PathBuf};
 ///    callers in files that cannot name it, and 11.4% of this repo's checkable cross-file edges
 ///    of that shape. Nothing about the records changed shape, so a warm repo would serve them
 ///    in silence.
-const VERSION: u32 = 30;
+/// 31: nodes carry `ncloc`, and Complexity's bands are judged against it.
+const VERSION: u32 = 31;
 
 /// The neighbour table as it is stored. Its own record rather than a field on [`Cached`]:
 /// the tree is written twice, whole and slim, and the slim copy exists to be small.

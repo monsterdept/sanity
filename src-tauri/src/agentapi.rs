@@ -979,6 +979,9 @@ pub struct Event {
 /// chat. As code it is merely a loop.
 #[derive(Debug, Clone)]
 pub struct Run {
+    /// Current readings the repo held when this run started — what its progress counts from,
+    /// so the window can say how far THIS run is, the way `sanity check` does.
+    pub from: usize,
     pub harness: String,
     pub model: String,
     /// How many readers are wanted in flight at once.
@@ -2989,6 +2992,7 @@ fn resync_file(root: &mut Node, repo: &Path, rel_path: &str) -> bool {
                 c.line = Some(d.start_line);
                 c.end_line = Some(d.end_line);
                 c.loc = d.loc();
+                c.ncloc = d.ncloc;
                 c.signature = Some(d.signature.clone());
                 c.doc = d.doc.clone();
                 c.owner = d.owner.clone();
@@ -3444,7 +3448,9 @@ pub fn start_run(state: &Shared, req: CheckRequest) -> serde_json::Value {
     {
         let mut st = lock(state);
         if let Some(p) = st.projects.get_mut(&key) {
+            let from = assessed(&p.scan, &p.reports);
             p.run = Some(Run {
+                from,
                 harness: harness.name().to_string(),
                 model: model.clone(),
                 width,
@@ -4566,6 +4572,19 @@ fn mangled(r: &Report) -> Option<&'static str> {
     None
 }
 
+/// Land one reading: `/report`, the end of predict → reveal → report.
+///
+/// **Refused before anything is stored** when the prose carries the rest of its own tool call
+/// (`mangled`), when a trap names no hazard, when no open project holds the id, or when the
+/// body was served in parts the reader has not all taken. Each refusal says `saved: false`
+/// and how to send it again, because the reader is the only party that can.
+///
+/// **What the reader sends is not what is stored.** Every field that is a fact about the
+/// reading rather than a judgement in it is stamped here and the caller's value is discarded:
+/// the body from the live scan, `expected` from the prediction recorded before the reveal,
+/// the spec, the paging, who and when, and the agent docs the reader was primed with. A
+/// reader that could set those could grade code it never saw, or revise its prediction after
+/// reading the answer.
 async fn report(
     State(state): State<Shared>,
     Json(req): Json<ReportRequest>,
@@ -5688,6 +5707,7 @@ impl ProjectList {
                     banked_models: model_tally(&p.reports),
                     recent_model: recent_model(p),
                     run: p.run.as_ref().map(|r| serde_json::json!({
+                        "from": r.from,
                         "harness": r.harness,
                         "model": r.model,
                         "readers": r.width,
@@ -6109,15 +6129,15 @@ type TickSink = std::sync::Arc<dyn Fn(&str, &crate::scan::Progress) + Send + Syn
 /// scan caches are per repo, the progress is keyed by project, and the only shared thing is
 /// `wanted`, which `claim_next` consumes only when this lane can serve it.
 ///
-/// `active` is the key the LAST session was looking at, passed in rather than read here so
-/// both lanes compare against the same value; which project the window actually lands on is
-/// decided once, by the caller, after both lanes have finished.
+/// **It never touches `active`.** `restore` names where the window is going before either lane
+/// starts, and corrects it once after both have finished if that repo never arrived. A lane
+/// naming it again as the project landed was a third decision, minutes late on a big repo, and
+/// it overrode whatever somebody had clicked in the meantime.
 fn drain(
     mut queue: Vec<crate::reports::KnownProject>,
     state: &Shared,
     on_shape: &(dyn Fn(&str, &[crate::scan::ShapeFile]) + Send + Sync),
     on_tick: &(dyn Fn(&str, &crate::scan::Progress) + Send + Sync),
-    active: Option<String>,
 ) {
     while !queue.is_empty() {
         // Whoever the window is waiting on goes next, if this lane holds them.
@@ -6219,17 +6239,6 @@ fn drain(
         s.settle(&known.key);
         s.shallow.remove(&known.key);
         s.projects.insert(known.key.clone(), project);
-        // Restored in reverse order so the last one touched is the last one in, and
-        // the window lands back where it was rather than on an arbitrary project.
-        //
-        // The window only switches when `active` is set, so choosing it is what makes
-        // a restore visible at all. Decided once, after the loop, against what
-        // actually came back: picking it per-iteration meant a recorded active whose
-        // repo had since been moved or deleted matched nothing, left `active` at None,
-        // and opened an empty window with a full sidebar behind it.
-        if active.as_deref() == Some(known.key.as_str()) {
-            s.active = Some(known.key.clone());
-        }
     }
 }
 
@@ -6399,8 +6408,7 @@ pub fn restore(
                 let state = state.clone();
                 let on_shape = on_shape.clone();
                 let on_tick = on_tick.clone();
-                let active = index.active.clone();
-                std::thread::spawn(move || drain(lane, &state, &*on_shape, &*on_tick, active))
+                std::thread::spawn(move || drain(lane, &state, &*on_shape, &*on_tick))
             })
             .collect();
         // Both, before the tail below: it decides which project the window lands on and
@@ -7131,6 +7139,35 @@ fn second() { println!(\"2\"); }\n",
         assert!(dir.path().join("a.rs").exists(), "the repo is not ours to touch");
     }
 
+    /// **A click during a launch outlives the restore.** `restore` names the last session's
+    /// project as `active` before any lane starts; a lane used to name it again when that
+    /// project's scan landed, which on a big repo is minutes later — so somebody who had
+    /// clicked another row in the meantime was pulled back to the old one.
+    #[test]
+    fn a_restore_lane_does_not_take_the_view_back() {
+        let _data = data_home();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let key = project_key(dir.path());
+        let state: Shared = Arc::new(Mutex::new(AppState::default()));
+        lock(&state).active = Some("somewhere-else".into());
+        let known = crate::reports::KnownProject {
+            key: key.clone(),
+            repo: dir.path().to_string_lossy().to_string(),
+            name: "t".into(),
+            touched: 0,
+            files: None,
+            scan_ms: None,
+            trace_depth: None,
+            harness: None,
+            model: None,
+        };
+        drain(vec![known], &state, &|_, _| {}, &|_, _| {});
+        let s = lock(&state);
+        assert!(s.projects.contains_key(&key), "the lane landed the project");
+        assert_eq!(s.active.as_deref(), Some("somewhere-else"), "and left the view where it was put");
+    }
+
     /// **An open records the depth it traced to, from either door.** The window's Open built
     /// its project by hand and never set `trace`, so `Project::rescan`'s default stood: a repo
     /// opened from the app claimed `Untraced` over a tree holding the commit log, findings
@@ -7470,6 +7507,7 @@ fn second() { println!(\"2\"); }\n",
         before.leased.insert("a.rs#one".into(), Instant::now());
         before.predictions.insert("a.rs#one".into(), "it prints".into());
         before.run = Some(Run {
+            from: 0,
             harness: "claude".into(),
             model: "sonnet".into(),
             width: 5,
@@ -8032,6 +8070,7 @@ fn second() { println!(\"2\"); }\n",
         std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
         let mut p = project_of(dir.path());
         p.run = Some(Run {
+            from: 0,
             harness: "claude".into(),
             model: "sonnet".into(),
             width: 5,
@@ -8680,7 +8719,7 @@ fn second() { println!(\"2\"); }\n",
 
         // A launch.
         let restored: Shared = Default::default();
-        drain(vec![known], &restored, &|_, _| {}, &|_, _| {}, None);
+        drain(vec![known], &restored, &|_, _| {}, &|_, _| {});
         assert_eq!(
             helper(&lock(&restored).projects.get(&key).expect("restored").scan),
             want,

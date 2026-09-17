@@ -1867,6 +1867,15 @@ export const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'hea
   vendored: 'var(--cat-5)',
 }
 
+/** Put one node's lines into the band this lens gives them — the single bucketing rule behind
+ *  the rim, the legend, the panel's breakdown and a report's tables.
+ *
+ *  Three shapes of node arrive, and only one of them is ordinary. A drawn node is banded by
+ *  its own value, or by its absence. A node `outOfScope` — under something `.sanityignore`
+ *  set aside — puts nothing: it is not this map's business. And a roll-up stand-in (`n.rest`) is not
+ *  a member of the distribution at all: it carries a tally of what it folded, and each entry
+ *  is put back through this same function, so a folded file and a drawn one cannot land in
+ *  different bands. See the comment below for why each simpler answer was wrong. */
 function contribute(
   n: Node,
   outOfScope: boolean,
@@ -2564,14 +2573,6 @@ export function bucketsFor(
     }
   }
 
-  /** The bucket key for "no author" / "no language", kept out of the namespace real keys
-   *  live in: an author genuinely called `unknown` must not land in the absence row.
-   *
-   *  Written as the ESCAPE, never as a literal NUL. It was a literal one, which made this
-   *  file BINARY to every tool that samples for a zero byte — `grep` and `rg` matched
-   *  nothing in it and said so only if asked, `git diff` refused to show it, and one editor
-   *  round-trip would have dropped the byte and folded the absence row into a real category
-   *  with nothing failing. Identical at runtime, legible in the source. */
   const walk = (n: Node, out: boolean) => {
     const outOfScope = out || n.excluded
     contribute(n, outOfScope, mode, ranks, view, put)

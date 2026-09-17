@@ -996,6 +996,7 @@ mod tests {
             end_line: 2,
             shape: None,
             cognitive: None,
+            ncloc: 0,
             in_cfg_test: false,
             calls: calls.iter().map(|c| free(c)).collect(),
             locals: Vec::new(),

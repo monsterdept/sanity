@@ -129,6 +129,14 @@ pub struct FuncDef {
     /// make loud. The lens paints grey on `None`, as Callers does on an unresolved language.
     #[serde(default)]
     pub cognitive: Option<u32>,
+    /// Lines of the definition holding code: not blank, not only comment, not the docstring.
+    ///
+    /// [`FuncDef::loc`] is the physical span and stays the map's width, because comments are
+    /// read and are part of the repo. This is the size Complexity is judged against: counted
+    /// against physical lines, writing an explanation made a body look less tangled, which is
+    /// documentation acting as a discount.
+    #[serde(default)]
+    pub ncloc: u32,
     /// The TOOLCHAIN says this body is test code — see [`crate::model::Tested::Contract`].
     ///
     /// Only what the compiler or the build tool decides lands here. In Rust that is
@@ -300,7 +308,9 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// entry holds the `Some(false)` those files were given, which is the value that refuses, so
 /// without this the fix reaches no repo that has already been scanned. No reading expires and
 /// [`PARSE_OUTPUT_STABLE_SINCE`] stays at 3: the text handed to a reader is untouched.
-pub const PARSE_VERSION: u32 = 14;
+/// 15 because `FuncDef` gained `ncloc`, and `end_line` stops counting the empty line some grammars
+/// end a definition on; the text handed to a reader is untouched.
+pub const PARSE_VERSION: u32 = 15;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -674,6 +684,11 @@ fn owner_of(node: TsNode, lang: Lang, src: &str) -> Option<String> {
 
 /// Python attaches its documentation *inside* the body, as the first statement.
 fn python_docstring(body: TsNode, src: &str) -> Option<String> {
+    python_docstring_node(body).map(|s| text(s, src).trim_matches(|c| c == '"' || c == '\'').trim().to_string())
+}
+
+/// The string node [`python_docstring`] reads.
+fn python_docstring_node(body: TsNode) -> Option<TsNode> {
     // The first named child that is not a COMMENT. Comments are named nodes in this
     // grammar, so a module opening `#!/usr/bin/env python3` put a comment in slot zero and
     // the docstring under it went unseen — every Python file with a shebang read as
@@ -688,8 +703,7 @@ fn python_docstring(body: TsNode, src: &str) -> Option<String> {
         i += 1;
     };
     let expr = if first.kind() == "expression_statement" { first.named_child(0)? } else { first };
-    (expr.kind() == "string")
-        .then(|| text(expr, src).trim_matches(|c| c == '"' || c == '\'').trim().to_string())
+    (expr.kind() == "string").then_some(expr)
 }
 
 fn strip_comment_markers(raw: &str) -> String {
@@ -1723,7 +1737,7 @@ pub fn forks_at(lang: Lang, src: &str, line: u32) -> Option<Forked> {
     Some(Forked {
         cognitive,
         start: node.start_position().row as u32 + 1,
-        end: node.end_position().row as u32 + 1,
+        end: last_line(node),
         forks,
     })
 }
@@ -1913,14 +1927,64 @@ fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
         doc,
         owner: owner_of(node, lang, src),
         start_line: node.start_position().row as u32 + 1,
-        end_line: node.end_position().row as u32 + 1,
+        end_line: last_line(node),
         calls,
         locals,
         exported,
         shape: shape_of(node, body_start, body_end),
         cognitive: cognitive_of(node, lang, src),
+        ncloc: ncloc_of(node, lang, src),
         in_cfg_test: under_cfg_test(node, lang, src),
     })
+}
+
+/// The 1-indexed last line a node has text on.
+///
+/// Some grammars — Fortran and Perl among them — end a definition at column 0 of the line
+/// after it, having taken the newline. That position is on a line holding none of the node,
+/// and counting it made every such function one line longer than it is.
+fn last_line(node: TsNode) -> u32 {
+    let (start, end) = (node.start_position(), node.end_position());
+    let row = if end.column == 0 && end.row > start.row { end.row - 1 } else { end.row };
+    row as u32 + 1
+}
+
+/// Lines of `root` with text left on them once comments and the docstring are taken out.
+///
+/// Read off the source rather than off the tokens: some grammars — Visual Basic's — emit no
+/// token for a keyword, so a line holding only `End Function` has no leaf to count. Comment
+/// kinds are matched by name: every grammar here names them `*comment*` except Haskell's
+/// `haddock`, surveyed off real parses across 33 languages. A docstring is a string node, so it
+/// is taken out by identity where [`extract`] takes it as the doc.
+fn ncloc_of(root: TsNode, lang: Lang, src: &str) -> u32 {
+    let docstring = match lang {
+        Lang::Python => body_node(root, lang).and_then(python_docstring_node),
+        Lang::Elisp => root.child_by_field_name("docstring"),
+        _ => None,
+    }
+    .map(|d| d.id());
+    let mut prose: Vec<(usize, usize)> = Vec::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.kind().contains("comment") || n.kind() == "haddock" || Some(n.id()) == docstring {
+            prose.push((n.start_byte(), n.end_byte()));
+            continue;
+        }
+        let mut cur = n.walk();
+        stack.extend(n.children(&mut cur));
+    }
+    prose.sort_unstable();
+    let (from, to) = (root.start_byte(), root.end_byte().min(src.len()));
+    let mut count = 0;
+    let mut at = from;
+    for line in src.get(from..to).unwrap_or("").split_inclusive('\n') {
+        let in_prose = |i: usize| prose.iter().any(|&(a, b)| a <= i && i < b);
+        if line.char_indices().any(|(k, c)| !c.is_whitespace() && !in_prose(at + k)) {
+            count += 1;
+        }
+        at += line.len();
+    }
+    count
 }
 
 /// How a call was SPELLED, which is the only thing a parse can honestly say about its receiver.
@@ -4088,6 +4152,25 @@ class Store {
         assert!(doc.ends_with('…'), "a truncated header says it was truncated");
     }
 
+    /// `ncloc` counts rows with code on them: comments, blank lines and a docstring are out, a
+    /// line with code and a trailing comment is in, and a string spanning lines is every line.
+    #[test]
+    fn ncloc_counts_the_lines_that_hold_code() {
+        let rust = "fn f() -> &'static str {\n    // why\n\n    let x = 1; // trailing\n    /* block\n       more */\n    \"two\n lines\"\n}\n";
+        let f = &parse_functions(Lang::Rust, rust)[0];
+        assert_eq!(f.loc(), 9);
+        assert_eq!(f.ncloc, 5, "signature, `let`, the two-line string, the brace");
+
+        let py = "def f():\n    \"\"\"Docs\n    over lines.\"\"\"\n    # note\n    return 1\n";
+        let f = &parse_functions(Lang::Python, py)[0];
+        assert_eq!(f.loc(), 5);
+        assert_eq!(f.ncloc, 2, "the def and the return; the docstring is the doc");
+
+        let ts = "function f() {\n  /** doc */\n  return 1\n}\n";
+        let f = &parse_functions(Lang::TypeScript, ts)[0];
+        assert_eq!((f.loc(), f.ncloc), (4, 3));
+    }
+
     #[test]
     fn python_docstrings_are_the_doc() {
         let src = "def go(n):\n    \"\"\"Runs the thing.\"\"\"\n    return n + 1\n";
@@ -4534,6 +4617,101 @@ extension Thing {
         assert!(broken.is_empty(), "grammars parsed the wrong chunks:\n{}", broken.join("\n"));
     }
 
+    /// One case per language: a function holding one comment line and one blank line.
+    ///
+    /// `ncloc` has to be the definition's non-blank lines less the one comment, in every grammar.
+    /// Comment kinds are matched by name, so a grammar that names its comments differently would
+    /// count them as code without failing anything else — this is where that shows.
+    #[test]
+    fn every_language_leaves_comments_and_blank_lines_out_of_ncloc() {
+        let cases: Vec<(Lang, &str, &str)> = vec![
+            (Lang::Rust, "add", "fn add(a: i32) -> i32 {\n    // c\n\n    a\n}\n"),
+            (Lang::TypeScript, "add", "function add(a: number) {\n  // c\n\n  return a\n}\n"),
+            (Lang::Tsx, "add", "function add(a: number) {\n  // c\n\n  return a\n}\n"),
+            (Lang::JavaScript, "add", "function add(a) {\n  // c\n\n  return a\n}\n"),
+            (Lang::Python, "add", "def add(a):\n    # c\n\n    return a\n"),
+            (Lang::Go, "add", "func add(a int) int {\n\t// c\n\n\treturn a\n}\n"),
+            (Lang::Swift, "add", "func add(a: Int) -> Int {\n  // c\n\n  return a\n}\n"),
+            (Lang::C, "add", "int add(int a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Cpp, "add", "int add(int a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Java, "add", "class A {\n  int add(int a) {\n    // c\n\n    return a;\n  }\n}\n"),
+            (Lang::Kotlin, "add", "fun add(a: Int): Int {\n  // c\n\n  return a\n}\n"),
+            (Lang::CSharp, "Add", "class A {\n  int Add(int a) {\n    // c\n\n    return a;\n  }\n}\n"),
+            (Lang::Ruby, "add", "def add(a)\n  # c\n\n  a\nend\n"),
+            (Lang::Php, "add", "<?php\nfunction add($a) {\n  // c\n\n  return $a;\n}\n"),
+            (Lang::Lua, "add", "function add(a)\n  -- c\n\n  return a\nend\n"),
+            (Lang::Elixir, "add", "defmodule M do\n  def add(a) do\n    # c\n\n    a\n  end\nend\n"),
+            (Lang::Scala, "add", "object O {\n  def add(a: Int): Int = {\n    // c\n\n    a\n  }\n}\n"),
+            (Lang::Dart, "add", "int add(int a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Zig, "add", "fn add(a: i32) i32 {\n    // c\n\n    return a;\n}\n"),
+            (Lang::ObjC, "add", "@implementation A\n- (int)add:(int)a {\n  // c\n\n  return a;\n}\n@end\n"),
+            (Lang::Shell, "add", "add() {\n  # c\n\n  echo hi\n}\n"),
+            (Lang::Sql, "add", "CREATE FUNCTION add(a int) RETURNS int AS $$\n-- c\n\nSELECT a\n$$ LANGUAGE sql;\n"),
+            (Lang::GdScript, "add", "func add(a: int) -> int:\n\t# c\n\n\treturn a\n"),
+            (Lang::GdShader, "fragment", "void fragment() {\n  // c\n\n  COLOR = vec4(1.0);\n}\n"),
+            (Lang::Haskell, "add", "add :: Int -> Int\nadd a =\n  -- c\n\n  a + 1\n"),
+            (Lang::Nix, "add", "{\n  add = a:\n    # c\n\n    a + 1;\n}\n"),
+            (Lang::PowerShell, "Add-Thing", "function Add-Thing {\n  # c\n\n  return 1\n}\n"),
+            (Lang::Solidity, "add", "contract C {\n  function add(uint a) public returns (uint) {\n    // c\n\n    return a;\n  }\n}\n"),
+            (Lang::R, "add", "add <- function(a) {\n  # c\n\n  a + 1\n}\n"),
+            (Lang::OCaml, "add", "let add a =\n  (* c *)\n\n  a + 1\n"),
+            (Lang::OCamlLex, "token", "rule token = parse\n  (* c *)\n\n  | \"a\" { A }\n"),
+            (Lang::Cmake, "add", "function(add a)\n  # c\n\n  message(${a})\nendfunction()\n"),
+            (Lang::Julia, "add", "function add(a)\n  # c\n\n  a + 1\nend\n"),
+            (Lang::Erlang, "add", "-module(m).\nadd(A) ->\n  % c\n\n  A + 1.\n"),
+            (Lang::Pascal, "Add", "function Add(a: Integer): Integer;\nbegin\n  // c\n\n  Add := a;\nend;\n"),
+            (Lang::Clojure, "add", "(defn add [a]\n  ; c\n\n  (+ a 1))\n"),
+            (Lang::FSharp, "add", "let add a =\n  // c\n\n  a + 1\n"),
+            (Lang::Groovy, "add", "def add(a) {\n  // c\n\n  return a\n}\n"),
+            (Lang::Elm, "add", "add : Int -> Int\nadd a =\n  -- c\n\n  a + 1\n"),
+            (Lang::Fortran, "add", "function add(a)\n  ! c\n\n  integer :: a\n  add = a\nend function add\n"),
+            (Lang::Starlark, "add", "def add(a):\n    # c\n\n    return a\n"),
+            (Lang::Verilog, "add", "module m;\nfunction integer add(input integer a);\n// c\n\nbegin add = a; end\nendfunction\nendmodule\n"),
+            (Lang::SystemVerilog, "add", "module m;\nfunction int add(input int a);\n  // c\n\n  return a;\nendfunction\nendmodule\n"),
+            (Lang::Gleam, "add", "pub fn add(a: Int) -> Int {\n  // c\n\n  a + 1\n}\n"),
+            (Lang::Odin, "add", "add :: proc(a: int) -> int {\n  // c\n\n  return a\n}\n"),
+            (Lang::Perl, "add", "sub add {\n  # c\n\n  return 1;\n}\n"),
+            (Lang::VisualBasic, "Add", "Module M\n  Function Add(a As Integer) As Integer\n    ' c\n\n    Return a\n  End Function\nEnd Module\n"),
+            (Lang::Elisp, "add", "(defun add (a)\n  ; c\n\n  (+ a 1))\n"),
+            (Lang::Qml, "add", "Item {\n  function add(a) {\n    // c\n\n    return a\n  }\n}\n"),
+            (Lang::Scheme, "add", "(define (add a)\n  ; c\n\n  (+ a 1))\n"),
+            (Lang::Racket, "add", "(define (add a)\n  ; c\n\n  (+ a 1))\n"),
+            (Lang::CommonLisp, "add", "(defun add (a)\n  ; c\n\n  (+ a 1))\n"),
+            (Lang::Cfml, "add", "function add(a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Glsl, "add", "int add(int a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Hlsl, "add", "int add(int a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Slang, "add", "int add(int a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Ada, "Add", "function Add(A : Integer) return Integer is\nbegin\n  -- c\n\n  return A;\nend Add;\n"),
+            (Lang::D, "add", "int add(int a) {\n  // c\n\n  return a;\n}\n"),
+            (Lang::Vhdl, "add", "architecture a of e is\n  function add(x: integer) return integer is\n  begin\n    -- c\n\n    return x;\n  end function;\nbegin\nend architecture;\n"),
+            (Lang::Zsh, "add", "add() {\n  # c\n\n  echo 1\n}\n"),
+            (Lang::Luau, "add", "function add(a)\n  -- c\n\n  return a\nend\n"),
+            (Lang::Prolog, "add", "add(A, B) :-\n  % c\n\n  B is A + 1.\n"),
+            (Lang::Jq, "add", "def add(a):\n  # c\n\n  a + 1;\n"),
+        ];
+        let mut broken = Vec::new();
+        for (lang, name, src) in cases {
+            match parse_functions(lang, src).into_iter().find(|f| f.name == name) {
+                None => broken.push(format!("{}: no `{name}`", lang.label())),
+                Some(f) => {
+                    if src.lines().nth(f.end_line as usize - 1).is_none_or(|l| l.trim().is_empty()) {
+                        broken.push(format!("{}: ends on a line with nothing on it", lang.label()));
+                    }
+                    let written = src
+                        .lines()
+                        .skip(f.start_line as usize - 1)
+                        .take(f.loc() as usize)
+                        .filter(|l| !l.trim().is_empty())
+                        .count() as u32;
+                    if f.ncloc != written - 1 {
+                        broken.push(format!("{}: ncloc {}, wanted {}", lang.label(), f.ncloc, written - 1));
+                    }
+                }
+            }
+        }
+        assert!(broken.is_empty(), "ncloc counted a comment or a blank line:\n{}", broken.join("\n"));
+    }
+
     /// A container must never become a wedge. Listing `class_declaration` alongside the
     /// method kinds parses, and quietly makes one chunk out of the entire class — every
     /// method's lines counted twice and the class's own score an average of its parts.
@@ -4547,5 +4725,3 @@ extension Thing {
         assert_eq!(fns.len(), 1);
     }
 }
-
-

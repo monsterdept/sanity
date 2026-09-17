@@ -230,7 +230,14 @@ export default function App() {
    *  grey. Why it is grey is the LOCK's job — the padlock on the chip, and the sentence in
    *  its tooltip beside the button that opens it. That is the one place a repo-level answer
    *  belongs, and `ColorKey` has been drawing it on the trigger all along; nothing could
-   *  reach that state to see it. */
+   *  reach that state to see it.
+   *
+   *  **Replaying or not.** It used to be pinned to `age` while a replay was on
+   *  screen, and the switcher greyed with it — right about the four lenses a reading
+   *  paints, and a blunt instrument for the rest, because a frame carries its own churn,
+   *  age and language and could always have painted them. What a replay can and cannot
+   *  show is `REPLAY`, one lens at a time; what it does about the ones it cannot is say so
+   *  in the map rather than change what you are standing in. */
   const viewMode: ColorMode = mode
 
   // The wedge the sunburst is currently rooted at, resolved by id every render so a
@@ -271,6 +278,8 @@ export default function App() {
     writeRule,
     removeRule,
     restoreRule,
+    saveBalance,
+    toStock,
     findingsForMap,
   } = useFindings({ activeKey, treeRev, assessed: activeProject?.assessed, historyOn })
   useLensKeys({ toggleHistory, finding, findingsOpen, helping, setFinding, mode, setMode })
@@ -475,6 +484,8 @@ export default function App() {
               onSaveRule={writeRule}
               onDeleteRule={removeRule}
               onResetRule={restoreRule}
+              onApplyBalance={saveBalance}
+              onStock={toStock}
               onDecide={decide}
               onUndecide={undecide}
               onClose={() => setFindingsOpen(false)}

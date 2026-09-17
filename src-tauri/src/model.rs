@@ -614,6 +614,10 @@ pub struct Node {
     /// Lines. For a function, its own extent; for a file or directory, the sum of its
     /// children — so a wedge is always exactly as wide as what it contains.
     pub loc: u32,
+    /// Lines holding code — see [`crate::parse::FuncDef::ncloc`]. Summed like `loc` on a
+    /// container. What Complexity is judged against; `loc` stays the width.
+    #[serde(default)]
+    pub ncloc: u32,
     /// 1-indexed first line, for functions.
     pub line: Option<u32>,
     /// 1-indexed last line, for functions. Paired with `line` so the code view can map a
@@ -1005,6 +1009,7 @@ impl Node {
             excluded: false,
             path: path.to_string(),
             loc: 0,
+            ncloc: 0,
             line: None,
             lang: None,
             last_author: None,
@@ -1059,6 +1064,7 @@ impl Node {
 
         if self.kind != NodeKind::Func {
             self.loc = self.children.iter().map(|c| c.loc).sum();
+            self.ncloc = self.children.iter().map(|c| c.ncloc).sum();
         }
         // Mine plus everyone below me, from the field that is never rewritten — see
         // `unparsed_here`, which is why running this twice lands on the same number.
@@ -1264,6 +1270,7 @@ impl Node {
             kind: self.kind,
             path: self.path.clone(),
             loc: self.loc,
+            ncloc: self.ncloc,
             line: self.line,
             end_line: self.end_line,
             // Survives slimming. A FILE carries its own extent and a file task is served

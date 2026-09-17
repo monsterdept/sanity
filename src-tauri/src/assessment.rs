@@ -559,8 +559,14 @@ fn walk_shards(dir: &Path, out: &mut HashMap<String, Report>) {
 /// Deliberately forgiving. This file is committed, so it will be hand-edited and it will
 /// be merged by hand after a conflict; a parser that rejects the whole file over one
 /// malformed bullet would throw away everyone else's work to punish one typo. An
-/// unrecognized line is skipped, and an entry missing its `expected`/`found` is dropped
-/// on its own.
+/// unrecognized line is skipped, and an entry with neither `expected` nor `found` is dropped
+/// on its own — one with either is kept.
+///
+/// Three tiers: `## path` names the file, `### name` (with an ordinal suffix for a repeated
+/// name) the entry, and under it the prose bullets and one `·`-separated metadata line. That
+/// line is most of the work — spec, paging, body hash, commit, model, harness, when, by,
+/// cold or warm, priming, position and every grade — and each segment is recognised by its
+/// own prefix, so a segment this build does not know is skipped rather than fatal.
 pub(crate) fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
     let mut file = String::new();
     let mut cur: Option<(String, Report)> = None;

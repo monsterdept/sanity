@@ -145,10 +145,9 @@ fn main() {
     let traced = findings::Traced::of(&scan.stats, depth);
     let facts = findings::subjects(&scan.root, &reports, traced);
 
-    // **The repo's own thresholds, the same ones the window uses.** `rules_for` calibrates
-    // and saves on first sight; after that the numbers are settled and this tool reports what
-    // the panel reports. `--raw` runs the shipped catalog instead, which is what you want when
-    // asking what a rule DOES rather than what this repo currently says.
+    // **The repo's own thresholds, the same ones the window uses** — the shipped catalog as
+    // this repo's `catalog.md` amends it. `--raw` runs the shipped catalog alone, which is what
+    // you want when asking what a rule DOES rather than what this repo currently says.
     let mut rules: Vec<Rule> = if bare {
         Vec::new()
     } else if raw {

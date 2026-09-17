@@ -465,6 +465,7 @@ pub(crate) mod tests {
             .collect(),
             shape,
             cognitive: None,
+            ncloc: 0,
             in_cfg_test: false,
             locals: Vec::new(),
             exported: None,

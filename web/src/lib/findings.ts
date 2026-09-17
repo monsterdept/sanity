@@ -6,6 +6,8 @@ export interface FindingItem {
   /** The rules that raised it, in lockstep with `says` — index `i` is the same rule in both. */
   rules: FindingGroup[]
   says: Say[][]
+  /** Per rule, in the same lockstep: whether that rule's reading is out of date. */
+  stale: boolean[]
   /** Flagged under ANY of its rules: the tile is the thing somebody committed to. */
   flagged: boolean
 }
@@ -35,8 +37,10 @@ export function mergeFindings(groups: FindingGroup[] | null): FindingItem[] {
       if (at) {
         at.rules.push(g)
         at.says.push(l.says)
+        at.stale.push(l.stale)
         at.flagged = at.flagged || l.flagged
-      } else by.set(l.key, { finding: l, rules: [g], says: [l.says], flagged: l.flagged })
+      } else
+        by.set(l.key, { finding: l, rules: [g], says: [l.says], stale: [l.stale], flagged: l.flagged })
     }
   }
   // Widest, then key — the same order the backend ranks each rule by, applied again here

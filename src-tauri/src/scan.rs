@@ -1346,6 +1346,7 @@ fn score_dir(
                         ),
                         path: file.rel_path.clone(),
                         loc: func.loc(),
+                        ncloc: func.ncloc,
                         line: Some(func.start_line),
                         lang: Some(file.lang),
                         last_author,
@@ -1360,7 +1361,7 @@ fn score_dir(
                             // Calibrated against the other bodies this size in this repo —
                             // see `tangle::Bands`. `None` where the grammar has no branch
                             // table, which is not the same claim as a body that never forks.
-                            tangle: func.cognitive.map(|c| bands.ramp(func.loc(), c)),
+                            tangle: func.cognitive.map(|c| bands.ramp(func.ncloc, c)),
                             cognitive: func.cognitive,
                             // A function's lifetime count would be `git log -L`, a process
                             // apiece — see `Score::all_commits`, which is `None` here for
@@ -1501,6 +1502,7 @@ fn score_dir(
                     bytes: Some(file.len.try_into().unwrap_or(u32::MAX)),
                     path: file.rel_path.clone(),
                     loc: 0, // filled by aggregate()
+                    ncloc: 0,
                     line: None,
                     lang: Some(file.lang),
                     last_author: file_trace.last_author(),
@@ -1892,7 +1894,7 @@ pub fn scan(
             .iter()
             .flatten()
             .flat_map(|f| f.funcs.iter())
-            .filter_map(|f| f.cognitive.map(|c| (f.loc(), c))),
+            .filter_map(|f| f.cognitive.map(|c| (f.ncloc, c))),
     );
 
     let scored = AtomicUsize::new(0);

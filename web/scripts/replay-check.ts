@@ -120,7 +120,7 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
     // function leaving, which `del` already does. Deliberately NOT emitted for every `set` —
     // a third of these functions are in an imaginary language nobody taught the parser, so
     // the absence is exercised alongside the presence.
-    const cog: [number, number][] = []
+    const cog: [number, number, number][] = []
     const touched = new Set<number>()
     const n = 1 + Math.floor(r() * 12)
     for (let k = 0; k < n; k++) {
@@ -131,7 +131,7 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
         set.push([f, r() < 0.02 ? 0 : 3 + Math.floor(r() * 300)])
         // A score of ZERO is a score — most short bodies never fork — so it has to be
         // reachable, and distinguishable from the language that was never counted.
-        if (f % 3 !== 0) cog.push([f, r() < 0.3 ? 0 : Math.floor(r() * 60)])
+        if (f % 3 !== 0) cog.push([f, r() < 0.3 ? 0 : Math.floor(r() * 60), Math.floor(r() * 300)])
         born(f)
         touched.add(table[f].path)
       } else if (live.length > 0) {
@@ -141,7 +141,7 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
           died(pick)
         } else {
           set.push([pick, 3 + Math.floor(r() * 300)])
-          if (pick % 3 !== 0) cog.push([pick, r() < 0.3 ? 0 : Math.floor(r() * 60)])
+          if (pick % 3 !== 0) cog.push([pick, r() < 0.3 ? 0 : Math.floor(r() * 60), Math.floor(r() * 300)])
         }
         touched.add(table[pick].path)
       }
@@ -175,7 +175,9 @@ function synth(seed: number, files: number, funcs: number, commits: number): Fak
     baseRead: base.slice(0, 20).map(([f]) => [f, 0x12] as [number, number]),
     // Pre-window scores, which `fold` banks and a checkpoint has to carry — the field whose
     // absence draws the oldest and largest part of a repo as a language nobody counted.
-    baseCog: base.filter(([f]) => f % 3 !== 0).map(([f]) => [f, f % 37] as [number, number]),
+    baseCog: base
+      .filter(([f]) => f % 3 !== 0)
+      .map(([f]) => [f, f % 37, (f * 7) % 250] as [number, number, number]),
     // Enough medians to exercise both arms of `tangleRamp`: the top band is `null`, so a body
     // over 199 lines falls back to the raw count.
     tangleBands: { median: [0, 2, 4, 9, 18, null] },

@@ -62,7 +62,7 @@ export interface Tables {
   baseRead?: [number, number][]
   /** The cognitive scores the repo already held when the window opens — `baseRead`'s twin
    *  for Complexity, and absent for the same reasons. */
-  baseCog?: [number, number][]
+  baseCog?: [f: number, cognitive: number, ncloc: number][]
   /** What a normal cognitive score is for a body of each size in THIS repo, one median per
    *  size band and `null` for a band nothing landed in — see `tangle::Bands`.
    *
@@ -103,11 +103,11 @@ export interface Delta {
   read?: [number, number][]
   /** Functions whose reading this commit dropped. */
   unread?: number[]
-  /** `[func index, cognitive score]` for the bodies this commit rewrote — see
+  /** `[func index, cognitive score, ncloc]` for the bodies this commit rewrote — see
    *  `HistoryCommit::cog`. Its own array rather than a third slot in `set`, because a
    *  language with no branch table has no score and a sentinel in there would be a number
    *  the fold could mistake for one. */
-  cog?: [number, number][]
+  cog?: [f: number, cognitive: number, ncloc: number][]
   files: number[]
 }
 

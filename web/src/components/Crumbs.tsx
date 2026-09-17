@@ -77,14 +77,16 @@ export function Crumbs({
         })}
       </ol>
 
-      <button
-        type="button"
-        onClick={onUp}
-        disabled={!onUp}
-        className="shrink-0 rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] disabled:opacity-40 disabled:hover:bg-transparent"
-      >
-        ↑ Up
-      </button>
+      {/* Absent at the top: `onUp` is undefined there, and a button with nowhere to go is clutter. */}
+      {onUp && (
+        <button
+          type="button"
+          onClick={onUp}
+          className="shrink-0 rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+        >
+          ↑ Up
+        </button>
+      )}
     </nav>
   )
 }

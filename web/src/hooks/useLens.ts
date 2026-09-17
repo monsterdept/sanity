@@ -151,6 +151,17 @@ export function useLensChoices() {
   }
 }
 
+/** Which lenses have nothing in them, and what would change that — see `Locked`.
+ *
+ *  **A lens with nothing to show is locked, not shown empty.** The first shape of this was
+ *  a dimmed tab and a banner over the map; the second was the switcher greyed wholesale
+ *  during a replay. Both made the user press something to find out. A lock is legible
+ *  before the click, and its colour says whether a button exists that opens it.
+ *
+ *  Decided here because the answers come from three places — the project's readings, the
+ *  repo's git history, this language's wiring — and the order matters: a replay's limits
+ *  are true whatever the repo holds, so they are asked first.
+ */
 export function useLocks({
   replaying,
   tree,
@@ -166,23 +177,6 @@ export function useLocks({
   readingRev: number
   scan: Scan | null
 }) {
-  /** The lens, replaying or not. **It used to be pinned to `age` while a replay was on
-   *  screen**, and the switcher greyed with it — right about the four lenses a reading
-   *  paints, and a blunt instrument for the rest, because a frame carries its own churn,
-   *  age and language and could always have painted them. What a replay can and cannot
-   *  show is `REPLAY`, one lens at a time; what it does about the ones it cannot is say so
-   *  in the map rather than change what you are standing in. */
-  /** Which lenses have nothing in them, and what would change that — see `Locked`.
-   *
-   *  **A lens with nothing to show is locked, not shown empty.** The first shape of this was
-   *  a dimmed tab and a banner over the map; the second was the switcher greyed wholesale
-   *  during a replay. Both made the user press something to find out. A lock is legible
-   *  before the click, and its colour says whether a button exists that opens it.
-   *
-   *  Decided here because the answers come from three places — the project's readings, the
-   *  repo's git history, this language's wiring — and the order matters: a replay's limits
-   *  are true whatever the repo holds, so they are asked first.
-   */
   const locks = useMemo(
     () =>
       locksFor({

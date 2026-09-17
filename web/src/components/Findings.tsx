@@ -19,6 +19,7 @@ import {
   setAsideCount,
 } from '../lib/findings'
 import { middleTruncate, monoAdvance } from '../lib/label'
+import { BalanceSheet } from './BalanceSheet'
 import { Tabs } from './Tabs'
 
 /** The colour of one lens, for a swatch beside the finding it helped raise.
@@ -636,6 +637,8 @@ export function Findings({
   onSaveRule,
   onDeleteRule,
   onResetRule,
+  onApplyBalance,
+  onStock,
   onClose,
   onPick,
   onDecide,
@@ -656,6 +659,10 @@ export function Findings({
   onSaveRule: (rule: RuleEdit) => Promise<void>
   onDeleteRule: (id: string) => Promise<void>
   onResetRule: (id: string) => Promise<void>
+  /** Save the thresholds ticked in a balance, as `[rule id, value]`. */
+  onApplyBalance: (thresholds: [string, number][]) => Promise<void>
+  /** Remove this repo's rule changes. */
+  onStock: () => Promise<void>
   onClose: () => void
   onPick: (hit: Hit) => void
   onDecide: (key: string, rule: string, verdict: Verdict, reason: string) => void
@@ -685,6 +692,8 @@ export function Findings({
    *  file that holds one, and the second save would be written against a rule set the first
    *  had already moved. */
   const [draft, setDraft] = useState<Draft | null>(null)
+  /** The balance sheet is open at the top of the rules view. */
+  const [balancing, setBalancing] = useState(false)
   /** The backend's refusal, shown verbatim. It is written to be read. */
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -866,17 +875,28 @@ export function Findings({
               // button that makes another one while one is being written would throw the first
               // away without saying so.
               (!draft || draft.id !== '') && (
-                <button
-                  type="button"
-                  disabled={!grammar}
-                  onClick={() => {
-                    setDraft(blankDraft())
-                    setFormError(null)
-                  }}
-                  className="rounded border border-[var(--border)] px-2 py-[3px] text-[11px] text-[var(--muted-foreground)] hover:border-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
-                >
-                  Add Rule
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {!balancing && projectKey && (
+                    <button
+                      type="button"
+                      onClick={() => setBalancing(true)}
+                      className="rounded border border-[var(--border)] px-2 py-[3px] text-[11px] text-[var(--muted-foreground)] hover:border-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    >
+                      Balance
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!grammar}
+                    onClick={() => {
+                      setDraft(blankDraft())
+                      setFormError(null)
+                    }}
+                    className="rounded border border-[var(--border)] px-2 py-[3px] text-[11px] text-[var(--muted-foreground)] hover:border-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
+                  >
+                    Add Rule
+                  </button>
+                </div>
               )
             ) : ignored.length > 0 ? (
               // The way into the drawer, and out of it, said as the sentence it is. Absent when
@@ -919,6 +939,14 @@ export function Findings({
             {/* **A new rule opens at the top, under the button that made it.** A form that
                 opened at the bottom of a catalog of sixteen would open off screen, and the
                 first thing it did would be to scroll away from the thing just pressed. */}
+            {balancing && projectKey && (
+              <BalanceSheet
+                projectKey={projectKey}
+                onApply={(thresholds) => onApplyBalance(thresholds).then(() => setBalancing(false))}
+                onStock={() => onStock().then(() => setBalancing(false))}
+                onClose={() => setBalancing(false)}
+              />
+            )}
             {draft && draft.id === '' && (
               <div className="mb-3 rounded-md border border-[var(--border)] px-3 py-2.5">
                 <RuleForm
@@ -1213,7 +1241,7 @@ export function Findings({
                   : 'Nothing in this repo matches the rules.'}
               </p>
             )}
-            {items.map(({ finding, rules, says, flagged }) => {
+            {items.map(({ finding, rules, says, stale, flagged }) => {
               const at = finding.key
               const lenses = [...new Set(rules.flatMap((r) => r.lenses))]
               return (
@@ -1343,6 +1371,19 @@ export function Findings({
                           style={{ color: 'var(--foreground)' }}
                         >
                           {r.title}
+                          {stale[i] && (
+                            <span
+                              title="The reading this rests on is of code that has changed since. Read it again to bring it current."
+                              className="ml-2 rounded px-1.5 py-[1px] align-[1px] text-[9px] font-normal uppercase"
+                              style={{
+                                letterSpacing: '0.1em',
+                                background: 'color-mix(in oklch, var(--foreground) 8%, transparent)',
+                                color: 'var(--muted-foreground)',
+                              }}
+                            >
+                              stale
+                            </span>
+                          )}
                         </h4>
                         <p
                           className="pt-1 text-[12.5px] text-[var(--muted-foreground)]"

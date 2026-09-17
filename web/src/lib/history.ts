@@ -360,6 +360,9 @@ interface Frame {
    *  back is a new body, and inheriting the old score would be a number from a story that
    *  no longer runs through here. */
   cog: Uint32Array
+  /** func index → lines of code in the body AT this commit — what `cog` is banded against. Set
+   *  and cleared with `cog`. */
+  nc: Uint32Array
   /** The frame's own "now". */
   ts: number
   /** Which commit this frame stands at; -1 is the opening state. */
@@ -390,6 +393,7 @@ function blank(hist: Tables): Frame {
     funcAuthor: new Int32Array(n).fill(NO_AUTHOR),
     graded: new Uint16Array(n).fill(NO_GRADE),
     cog: new Uint32Array(n).fill(NO_COG),
+    nc: new Uint32Array(n),
     hits: new Uint32Array(n * CHURN_MEMORY),
     hitLen: new Uint8Array(n),
     pathLive: new Uint32Array(hist.paths.length),
@@ -418,7 +422,10 @@ function opening(hist: Tables): Frame {
   // about when anything happened — it is a fact about the body sitting there when the story
   // opens — so it is carried rather than left absent, exactly as `baseRead` is. Dropped, the
   // oldest and usually largest part of a repo would draw as a language nobody counted.
-  for (const [f, n] of hist.baseCog ?? []) frame.cog[f] = n
+  for (const [f, n, nc] of hist.baseCog ?? []) {
+    frame.cog[f] = n
+    frame.nc[f] = nc
+  }
   for (const [f, loc] of hist.base) {
     frame.loc[f] = loc
     frame.live[f] = 1
@@ -575,6 +582,7 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): boolea
       frame.funcAuthor[f] = NO_AUTHOR
       frame.graded[f] = NO_GRADE
       frame.cog[f] = NO_COG
+      frame.nc[f] = 0
       frame.hitLen[f] = 0
     }
     for (const [f, packed] of c.read ?? []) frame.graded[f] = packed
@@ -582,7 +590,10 @@ function advance(frame: Frame, hist: Tables, deltas: Deltas, to: number): boolea
     // No `uncog`: the only thing that withdraws a score is the function leaving, which `del`
     // above already clears. A reading can be withdrawn while its function stays — somebody
     // deletes a shard — and complexity has no such second source to lose.
-    for (const [f, n] of c.cog ?? []) frame.cog[f] = n
+    for (const [f, n, nc] of c.cog ?? []) {
+      frame.cog[f] = n
+      frame.nc[f] = nc
+    }
     for (const p of c.files) {
       frame.author[p] = who
       frame.pathTs[p] = c.ts
@@ -679,6 +690,7 @@ interface Checkpoint {
   /** The complexity scores — see `Frame.cog`, and `pathTs` for what a field left out of here
    *  comes back as. */
   cog: Uint32Array
+  nc: Uint32Array
   hitLen: Uint8Array
   hits: Uint32Array
   pathLive: Uint32Array
@@ -739,6 +751,7 @@ function freeze(frame: Frame): Checkpoint {
     funcAuthor: frame.funcAuthor.slice(),
     graded: frame.graded.slice(),
     cog: frame.cog.slice(),
+    nc: frame.nc.slice(),
     hitLen: frame.hitLen.slice(),
     hits,
     pathLive: frame.pathLive.slice(),
@@ -783,6 +796,7 @@ function thaw(cp: Checkpoint): Frame {
     funcAuthor: cp.funcAuthor.slice(),
     graded: cp.graded.slice(),
     cog: cp.cog.slice(),
+    nc: cp.nc.slice(),
     hits,
     hitLen: cp.hitLen.slice(),
     pathLive: cp.pathLive.slice(),
@@ -810,6 +824,7 @@ function weigh(cp: Checkpoint): number {
     cp.funcAuthor.byteLength +
     cp.graded.byteLength +
     cp.cog.byteLength +
+    cp.nc.byteLength +
     cp.hitLen.byteLength +
     cp.hits.byteLength +
     cp.pathLive.byteLength +
@@ -1103,7 +1118,7 @@ function scoreInto(
     s.tangle = null
   } else {
     s.cognitive = cog
-    s.tangle = tangleRamp(bands, frame.loc[f], cog)
+    s.tangle = tangleRamp(bands, frame.nc[f], cog)
   }
   // Written every time, including to null: these Score objects are POOLED and reused frame
   // to frame, so a field left alone keeps the last function's answer.
@@ -1713,7 +1728,7 @@ export function frameTree(
     fileKind[ks] += loc
     const score = frame.cog[f]
     if (score !== NO_COG) {
-      const [w0, w1] = tangleRamp(bands, loc, score)
+      const [w0, w1] = tangleRamp(bands, frame.nc[f], score)
       const cw = Math.max(loc, 1)
       fileCog[def.path] += score
       fileTan0[def.path] += w0 * cw

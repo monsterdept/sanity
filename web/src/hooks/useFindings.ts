@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  applyBalance,
   decideFinding,
   deleteRule,
   projectDecisions,
   projectReport,
   resetRule,
   saveRule,
+  stockRules,
   undecideFinding,
   type Decision,
   type FindingGroup,
@@ -182,6 +184,23 @@ export function useFindings({
     [activeKey],
   )
 
+  const saveBalance = useCallback(
+    (thresholds: [string, number][]) => {
+      if (!activeKey) return Promise.reject(new Error('no project'))
+      return applyBalance(activeKey, thresholds).then(() => {
+        setArchiveAt((n) => n + 1)
+      })
+    },
+    [activeKey],
+  )
+
+  const toStock = useCallback(() => {
+    if (!activeKey) return Promise.reject(new Error('no project'))
+    return stockRules(activeKey).then(() => {
+      setArchiveAt((n) => n + 1)
+    })
+  }, [activeKey])
+
   /** How many rules are actually asking something here — the number at six o'clock on the
    *  dial, and the denominator the count at twelve is missing without it.
    *
@@ -232,6 +251,8 @@ export function useFindings({
     writeRule,
     removeRule,
     restoreRule,
+    saveBalance,
+    toStock,
     findingsForMap,
   }
 }

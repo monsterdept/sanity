@@ -184,7 +184,9 @@ pub struct HistoryCommit {
     pub set: Vec<(u32, u32)>,
     /// Functions this commit removed.
     pub del: Vec<u32>,
-    /// Cognitive complexity this commit gave a function, as `(func index, score)`.
+    /// Cognitive complexity this commit gave a function, as `(func index, score, ncloc)`.
+    /// `ncloc` rides here rather than in `set` because it is only read against a score — see
+    /// `tangle::Bands`.
     ///
     /// **Emitted at exactly the same moment as `set`, and it has to be its own array rather
     /// than a third slot in that tuple.** A language with no branch table has no score, and a
@@ -197,7 +199,7 @@ pub struct HistoryCommit {
     /// `set` — which is the case `files` exists for — so the two arrays are the same length
     /// only by coincidence.
     #[serde(default)]
-    pub cog: Vec<(u32, u32)>,
+    pub cog: Vec<(u32, u32, u32)>,
     /// Readings this commit wrote or changed, as `(func index, packed grades)`.
     ///
     /// **`.sanity/` is committed, so a repo's readings are in its history like anything
@@ -242,7 +244,7 @@ pub struct HistoryScan {
     /// The cognitive scores as they stood at the opening frame, for the same reason
     /// `base_read` exists.
     #[serde(default)]
-    pub base_cog: Vec<(u32, u32)>,
+    pub base_cog: Vec<(u32, u32, u32)>,
     /// What a normal cognitive score is for a body of each size IN THIS REPO — see
     /// `tangle::Bands`.
     ///
@@ -388,6 +390,9 @@ struct FuncAt {
     /// It costs no extra parse. `parse_functions` already computes it for the live map, and
     /// the walk was throwing it away.
     cognitive: Option<u32>,
+    /// This version's lines of code — see `parse::FuncDef::ncloc`. Zero after a resume, like
+    /// `cognitive` is `None`.
+    ncloc: u32,
     /// What this version is — see [`place`]. Handed to `Funcs::intern`, which keeps the
     /// latest one on the function.
     kind: u8,
@@ -527,7 +532,8 @@ fn functions_of(path: &str, lang: Lang, src: &str, placing: &Placing) -> FileSta
             let hash = Some(std::hash::Hasher::finish(&h));
             let cognitive = f.cognitive;
             let kind = place(file_kind, lang, path, &f, &placing.declared);
-            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner, hash, cognitive, kind }
+            let ncloc = f.ncloc;
+            FuncAt { key, loc: f.loc(), ord, name: f.name, owner: f.owner, hash, cognitive, ncloc, kind }
         })
         .collect()
 }
@@ -1082,6 +1088,7 @@ impl Replayer {
                 // old side of the diff is never asked for it.
                 hash: None,
                 cognitive: None,
+                ncloc: 0,
                 kind: def.kind,
             };
             r.state.entry(path).or_default().push(at);
@@ -1121,7 +1128,7 @@ impl Replayer {
                 let fi = self.funcs.intern(pi, &path, f);
                 self.out.base.push((fi, f.loc));
                 if let Some(c) = f.cognitive {
-                    self.out.base_cog.push((fi, c));
+                    self.out.base_cog.push((fi, c, f.ncloc));
                 }
             }
             self.state.insert(path, state_of);
@@ -1280,7 +1287,7 @@ impl Replayer {
                     // hash moved is a body whose complexity may have moved, and nothing else
                     // can change it. A language with no branch table emits nothing here ever.
                     if let Some(c) = f.cognitive {
-                        frame.cog.push((fi, c));
+                        frame.cog.push((fi, c, f.ncloc));
                     }
                 }
             }
@@ -1318,13 +1325,14 @@ impl Replayer {
         // was born before the window and never touched inside it has a complexity, and a fold
         // that dropped it would draw the oldest and largest part of a repo as a language
         // nobody taught the parser.
-        let mut cog: BTreeMap<u32, u32> = self.out.base_cog.iter().copied().collect();
+        let mut cog: BTreeMap<u32, (u32, u32)> =
+            self.out.base_cog.iter().map(|&(f, c, n)| (f, (c, n))).collect();
         for c in self.out.commits.drain(..extra) {
             for (f, loc) in c.set {
                 base.insert(f, loc);
             }
-            for (f, n) in c.cog {
-                cog.insert(f, n);
+            for (f, c, n) in c.cog {
+                cog.insert(f, (c, n));
             }
             for f in c.del {
                 base.remove(&f);
@@ -1333,7 +1341,7 @@ impl Replayer {
             self.out.base_ts = c.ts;
         }
         self.out.base = base.into_iter().collect();
-        self.out.base_cog = cog.into_iter().collect();
+        self.out.base_cog = cog.into_iter().map(|(f, (c, n))| (f, c, n)).collect();
         self.out.truncated += extra;
     }
 
@@ -1345,7 +1353,7 @@ impl Replayer {
             self.state
                 .values()
                 .flatten()
-                .filter_map(|f| f.cognitive.map(|c| (f.loc, c))),
+                .filter_map(|f| f.cognitive.map(|c| (f.ncloc, c))),
         );
         self.out
     }
@@ -1923,7 +1931,8 @@ fn is_ancestor(repo: &Path, sha: &str) -> bool {
 /// every replayed body as unplaced. It is `#[serde(default)]`, so a stored timeline would load
 /// with every body unplaced and, being EXTENDED, place only the functions later commits
 /// happened to touch: a repo that looks half-classified for no reason anyone could see.
-const CACHE_VERSION: u32 = 7;
+/// 8 because `cog` and `base_cog` carry each version's `ncloc`, which Complexity bands against.
+const CACHE_VERSION: u32 = 8;
 
 #[derive(Serialize, Deserialize)]
 struct Cached {
@@ -2259,26 +2268,27 @@ mod tests {
     /// assigned in the order the walk meets them, so a resumed walk and a fresh one can
     /// number the same repo differently and still describe it identically.
     #[allow(clippy::type_complexity)]
-    fn shape(h: &HistoryScan) -> (Vec<String>, usize, Vec<(String, u32, Option<u32>)>) {
+    fn shape(h: &HistoryScan) -> (Vec<String>, usize, Vec<(String, u32, Option<(u32, u32)>)>) {
         let mut live: BTreeMap<u32, u32> = h.base.iter().copied().collect();
         // **Folded here too, or the field is untested exactly where it can be wrong.** Every
         // caller of `shape` compares a resumed walk against a fresh one, and a frame array
         // that `fold` forgets to bank comes back EMPTY on the resumed side — which reads as a
         // language nobody counted rather than as a failure. See `CACHE_VERSION`.
-        let mut cog: BTreeMap<u32, u32> = h.base_cog.iter().copied().collect();
+        let mut cog: BTreeMap<u32, (u32, u32)> =
+            h.base_cog.iter().map(|&(f, c, n)| (f, (c, n))).collect();
         for c in &h.commits {
             for (f, loc) in &c.set {
                 live.insert(*f, *loc);
             }
-            for (f, n) in &c.cog {
-                cog.insert(*f, *n);
+            for &(f, c, n) in &c.cog {
+                cog.insert(f, (c, n));
             }
             for f in &c.del {
                 live.remove(f);
                 cog.remove(f);
             }
         }
-        let mut alive: Vec<(String, u32, Option<u32>)> = live
+        let mut alive: Vec<(String, u32, Option<(u32, u32)>)> = live
             .into_iter()
             .map(|(f, loc)| {
                 let def = &h.funcs[f as usize];
@@ -2326,7 +2336,7 @@ mod tests {
             .iter()
             .position(|f| f.name == "f" && h.paths[f.path as usize] == "src.rs")
             .expect("the Rust function is interned") as u32;
-        assert_eq!(h.commits[0].cog, vec![(rs, 0)], "flat at the first commit");
+        assert_eq!(h.commits[0].cog, vec![(rs, 0, 4)], "flat at the first commit");
         // The size did not move and the score did. `set` reports the body CHANGED — it is
         // emitted off the hash, not off the line count — so what this pins is that the two
         // arrays disagree about the number, not about whether anything happened.
@@ -2335,7 +2345,7 @@ mod tests {
             "same four lines: {:?}",
             h.commits[1].set
         );
-        assert_eq!(h.commits[1].cog, vec![(rs, 3)], "and the rewrite reports its forks");
+        assert_eq!(h.commits[1].cog, vec![(rs, 3, 4)], "and the rewrite reports its forks");
 
         // Elixir parses and its functions are drawn; `branch_kinds` has no table for it,
         // because its `if` and `case` are macros the grammar reports as calls. It must
@@ -2347,7 +2357,7 @@ mod tests {
             .expect("the Elixir function is interned") as u32;
         assert!(h.commits[0].set.iter().any(|(f, _)| *f == ex), "it is live and sized");
         assert!(
-            !h.commits.iter().any(|c| c.cog.iter().any(|(f, _)| *f == ex)),
+            !h.commits.iter().any(|c| c.cog.iter().any(|(f, _, _)| *f == ex)),
             "no table means no claim, not a claim of zero"
         );
 
@@ -2747,7 +2757,7 @@ pub struct Tables {
     pub base_read: Vec<(u32, u16)>,
     /// The complexity scores it already held, and the medians they are read against — see
     /// `HistoryScan::base_cog` and `HistoryScan::tangle_bands`.
-    pub base_cog: Vec<(u32, u32)>,
+    pub base_cog: Vec<(u32, u32, u32)>,
     pub tangle_bands: crate::tangle::Bands,
     pub base_ts: i64,
     pub head: String,

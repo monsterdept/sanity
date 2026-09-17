@@ -220,12 +220,12 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
         // slot that is supposed to be quiet. A wave has a stop, a count and a fraction, and all
         // three of those are things this pill already knows how to be.
         key: 'read',
-        fill: [total > 0 ? p.assessed / total : 0],
+        fill: [runFraction(p, total)],
         verb: 'Stop',
         act: 'stop-read',
         note: p.run?.stopping
           ? `${p.run.live} exiting`
-          : `${p.run?.live ?? 0} reading · ${compact(p.assessed)} of ${compact(total)}`,
+          : `${p.run?.live ?? 0} reading · ${runCount(p, total)}`,
       }
     : !scanned
       ? {
@@ -260,6 +260,23 @@ export function phasesOf(p: ProjectSummary, replayBlocked = false): Phase[] {
           }
 
   return [scan, trace, read]
+}
+
+/** This run's progress as `sanity check` prints it: readings landed since the run started, out
+ *  of those plus everything still unread or stale. */
+function runOf(p: { assessed: number; run: { from: number } | null }, total: number) {
+  const done = Math.max(0, p.assessed - (p.run?.from ?? p.assessed))
+  return { done, target: done + Math.max(0, total - p.assessed) }
+}
+
+function runCount(p: { assessed: number; run: { from: number } | null }, total: number): string {
+  const { done, target } = runOf(p, total)
+  return `${done.toLocaleString('en-US')}/${target.toLocaleString('en-US')}`
+}
+
+function runFraction(p: { assessed: number; run: { from: number } | null }, total: number): number {
+  const { done, target } = runOf(p, total)
+  return target > 0 ? done / target : 0
 }
 
 /** The trace pill, which carries three depths in three chambers.

@@ -145,8 +145,7 @@ actually wrote. A repo that has changed nothing has no `catalog.md` at all.
 **A deviation records what it deviated FROM.** `; was: func: repo_age >= 1095 and touched >=
 1825 and loc >= 100` is the shipped rule the number was tuned against. When a release changes
 which fields a rule asks about, the saved number is answering a question that no longer
-exists, and it is dropped rather than left overriding — the rule comes back unspoken-for and
-is calibrated against the repo like one being met for the first time.
+exists, and it is dropped rather than left overriding — the rule runs as shipped.
 
 **Shape, not value.** Comparing numbers would void somebody's tuning every time a shipped
 default moved, and that tuning is the entire point. What cannot survive is a threshold whose
@@ -159,14 +158,13 @@ Trusting them wholesale was tried for exactly one run and is worse than useless:
 had never been tuned against, so the stale number got certified by the mechanism built to catch
 it. Judging the line itself gets every legacy case right. It costs the one case nothing on disk
 can distinguish — a hand-edited set of clauses from before provenance existed loses the edit and
-gets the shipped rule back, calibrated — and of the two ways to be wrong, handing back a current
-rule beats defending a dead one.
+gets the shipped rule back — and of the two ways to be wrong, handing back a current rule beats
+defending a dead one.
 
-This does not loosen the anti-percentile rule above; it is what makes it work. Calibration
-still runs once and sticks, and what makes a number settled is that it lands in `catalog.md`
-and is read back. A rule calibration declines to move writes nothing, comes back unspoken-for,
-and is calibrated again next scan — which is only ever true of a rule already producing a list
-short enough to work down.
+**Nothing but a person writes a threshold.** Calibration suggests — the bench's `calibrated`
+column, the editor's hint beside a clause — and a number reaches `catalog.md` only when somebody
+saves it. A rule nobody changed runs as shipped, on every repo. So a shipped number that is
+wrong across repos is fixed in the catalog, and the bench is where that shows.
 
 ## Two tiers, and the tiering is the product
 
@@ -910,8 +908,27 @@ bug: the clause is true of everything, the rule quietly becomes single-lens, and
 on showing two lenses. The editor refuses to save a clause no subject can fail, and says which
 clause and why.
 
-"Recalibrate" is delete-the-saved-value: the next open computes and saves a fresh one, exactly
-as a repo with no `catalog.md` does. One code path, not two.
+Reset puts the shipped rule back — not a calibrated one — and a repo with no `catalog.md` runs
+every rule as shipped.
+
+### Balancing the whole set
+
+A repo runs the shipped rules until somebody changes one, so tuning is something a person asks
+for. **Balance** is that ask for every rule at once: the rules view, and `sanity findings
+balance [--target N] [--apply]`, propose thresholds that bring the list toward N findings and
+save only what is ticked.
+
+- **Counted by subject**, as the list shows it: a body three rules raise is one finding.
+- **Each step tightens the rule whose next bar takes the most subjects off the list**; between
+  rules that take none, the one whose hits are most often found elsewhere goes first.
+- **Only tighter, never past a rule's last hit**, and only the calibrated clause — never a
+  repo-wide gate or a reader's grade. A rule whose findings are all raised elsewhere is shown
+  as such and kept: **more rules with sharper conjunctions, not fewer broad ones.** A second
+  rule on the same subject is a more precise sentence about it, not noise.
+- **Back to stock** removes the repo's changes.
+
+A balance that wants to move a shipped number a long way on several repos is evidence the
+shipped number is wrong, and that is fixed in the catalog.
 
 ### The number to tune on is marginal contribution
 
@@ -1119,13 +1136,9 @@ dead with the laptop. A threshold somebody chose for a repo is a decision about 
 a preference of the person who happened to open it, and `.sanity/` has one home with no
 fallback and no mirror.
 
-That is already how it behaves and it is worth stating as a requirement rather than leaving as
-an implementation detail: `rules_for` writes the file the first time a repo is opened, because
-calibration deviates from the shipped numbers the moment it runs. Every later edit writes
-through `save_rules`, which reads its own write back before anything believes it.
-
-**The cost is that opening a repo makes an untracked file**, which is the same cost `.sanity/`
-already imposes for readings, and the same answer applies: they are yours to commit. What is
+An edit writes through `save_rules`, which reads its own write back before anything believes
+it. Opening a repo writes no `catalog.md`; the generated `rules/README.md` is written only where
+the repo already has a `.sanity/`, and is yours to commit like the readings beside it. What is
 not acceptable is the alternative — a local override that makes one person's map disagree with
 everybody else's, with nothing in the repo to explain why.
 

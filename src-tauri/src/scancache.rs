@@ -116,7 +116,8 @@ use crate::parse::FuncDef;
 /// `#[serde(default)]`, so a version-10 entry loads it `None` on every function, and `None` is
 /// the one value that refuses nothing: a warm repo would go on reporting 11.4% of its
 /// cross-file edges against bodies the compiler would not let it reach.
-const FORMAT_VERSION: u32 = 11;
+/// 12 because `FuncDef` gained `ncloc`, which a version-11 entry would load as zero.
+const FORMAT_VERSION: u32 = 12;
 
 /// Stand-in oid for "not touched inside the churn window". See the module docs.
 const ANCIENT: &str = "-";
@@ -842,6 +843,7 @@ mod tests {
             end_line: 1,
             shape: None,
             cognitive: None,
+            ncloc: 0,
             in_cfg_test: false,
             calls: Vec::new(),
             locals: Vec::new(),
@@ -924,6 +926,7 @@ mod tests {
                 "in_cfg_test",
                 "locals",
                 "name",
+                "ncloc",
                 "owner",
                 "shape",
                 "signature",

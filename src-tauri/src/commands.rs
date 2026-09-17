@@ -847,7 +847,6 @@ pub fn project_report(
     state: tauri::State<'_, crate::agentapi::Shared>,
     key: String,
 ) -> crate::findings::ProjectReport {
-    let started = std::time::Instant::now();
     let mut st = crate::agentapi::lock(&state);
     let Some(p) = st.projects.get(&key) else { return Default::default() };
 
@@ -862,50 +861,26 @@ pub fn project_report(
     let at = crate::agentapi::FindingsAt::of(p);
     if let Some((was, report)) = &p.findings {
         if *was == at {
-            said(&key, "cached", started);
             return report.clone();
         }
     }
 
-    // What the map itself knows: whether anybody has read the log yet — see `Traced::of`.
-    // **This repo's own thresholds, not the catalog's shipped ones.** A shipped constant is
-    // wrong nearly everywhere — `loc >= 200` is eight findings on htop and 2,292 on kibana — so
-    // the numbers are calibrated against the repo the first time it is asked and then saved
-    // and left alone. Saved is what makes the list drainable; see `findings::rules_for`. The
-    // archive is read from the repo on every ask rather than held in state: a cached copy is
-    // how the panel comes to disagree with `.sanity/` about what has been dismissed.
+    // What the map itself knows: whether anybody has read the log yet — see `Traced::of`. The
+    // rules are the shipped ones as this repo's `catalog.md` amends them — see
+    // `findings::rules_for`. The archive is read from the repo on every ask rather than held in
+    // state: a cached copy is how the panel comes to disagree with `.sanity/` about what has
+    // been dismissed.
     // One assembly shared with `sanity export-data` — see `findings::project_report`.
     let traced = crate::findings::Traced::of(&p.scan.stats, p.trace.depth);
     let fresh = crate::findings::project_report(&p.repo, &p.scan.root, &p.reports, traced);
 
-    // Stored against the key it was taken at, which is re-read rather than reused: computing
-    // the report may have WRITTEN `catalog.md`, since `rules_for` calibrates and saves on
-    // first sight. Keeping the earlier key would mark the cache stale the moment it was
-    // filled, and every switch would pay again.
+    // Stored against the key as it stands after computing, so a key read before cannot mark the
+    // cache stale the moment it is filled.
     if let Some(p) = st.projects.get_mut(&key) {
         p.findings = Some((crate::agentapi::FindingsAt::of(p), fresh.clone()));
     }
-    said(&key, "computed", started);
     fresh
 }
-
-/// What a report cost, on stderr, in a dev build only.
-///
-/// **Because "the switch is slow" is not a measurement and neither is a guess about why.**
-/// Two quadratic passes and a per-clause sort hid in here for a week behind reasoning that
-/// sounded right, and the bench written to catch them could not see them. A line per call
-/// says which project, whether it was served or computed, and how long it took — which is the
-/// difference between fixing this and fixing something else.
-///
-/// `debug_assertions` because it is a development instrument: a shipped build should not
-/// narrate itself, and `just dev` is where somebody is watching.
-#[cfg(debug_assertions)]
-fn said(key: &str, how: &str, at: std::time::Instant) {
-    eprintln!("findings: {key} {how} in {:?}", at.elapsed());
-}
-
-#[cfg(not(debug_assertions))]
-fn said(_key: &str, _how: &str, _at: std::time::Instant) {}
 
 /// The pin for one finding, as the code stands right now — see [`crate::findings::pin_of`].
 ///
@@ -969,7 +944,7 @@ pub fn delete_rule(
     crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
 }
 
-/// Put a rule back the way the catalog ships it, and re-suggest its threshold.
+/// Put a rule back the way the catalog ships it.
 #[tauri::command]
 pub fn reset_rule(
     state: tauri::State<'_, crate::agentapi::Shared>,
@@ -982,13 +957,52 @@ pub fn reset_rule(
     let Some(fresh) = shipped.iter().find(|r| r.id == id) else {
         return Err("that rule is not one of sanity's own".into());
     };
-    let tuned = crate::findings::calibrated(std::slice::from_ref(fresh), &facts);
     match live.iter().position(|r| r.id == id) {
-        Some(at) => live[at] = tuned[0].clone(),
+        Some(at) => live[at] = fresh.clone(),
         // Silenced, and being reset — which is how a rule comes back on.
-        None => live.push(tuned[0].clone()),
+        None => live.push(fresh.clone()),
     }
     crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// A proposal for the whole rule set, aimed at `target` findings — see [`crate::findings::balance`].
+/// Writes nothing.
+#[tauri::command]
+pub fn balance_rules(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    target: usize,
+) -> Result<crate::findings::Balance, String> {
+    let (repo, facts, _) = project_facts(&state, &project)?;
+    let rules = crate::findings::rules_for(&repo, &facts);
+    Ok(crate::findings::balance(&rules, &facts, &crate::findings::archive(&repo), target))
+}
+
+/// Save the thresholds somebody ticked in a balance, by rule id.
+#[tauri::command]
+pub fn apply_balance(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+    thresholds: Vec<(String, f32)>,
+) -> Result<(), String> {
+    let (repo, facts, _) = project_facts(&state, &project)?;
+    let mut live = crate::findings::rules_for(&repo, &facts);
+    for (id, value) in thresholds {
+        let rule = live.iter_mut().find(|r| r.id == id).ok_or("no rule by that id")?;
+        let at = rule.calibrated;
+        rule.clauses[at].value = value;
+    }
+    crate::findings::save_rules(&repo, &live).map_err(|e| e.to_string())
+}
+
+/// Every rule as sanity ships it: the repo's changes, and its own rules, are gone.
+#[tauri::command]
+pub fn stock_rules(
+    state: tauri::State<'_, crate::agentapi::Shared>,
+    project: String,
+) -> Result<(), String> {
+    let (repo, _, _) = project_facts(&state, &project)?;
+    crate::findings::save_rules(&repo, &crate::findings::catalog()).map_err(|e| e.to_string())
 }
 
 /// The three things every rule write needs, read under one lock.

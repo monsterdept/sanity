@@ -2168,6 +2168,60 @@ fn verdict_note(v: crate::findings::Verdict) -> &'static str {
 /// deciding. No scan is needed — this is an edit to the archive, keyed by strings the archive
 /// already holds, so it works on a repo whose rules no longer raise the finding at all. That
 /// is the case it is most needed in.
+/// Print a balance of this repo's rules, and save it with `--apply` — see [`crate::findings::balance`].
+fn balance(path: &str, target: usize, apply: bool, stock: bool) -> i32 {
+    let Survey { path, facts, rules, .. } = match survey(path, Rung::Budget) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let rules = if stock { crate::findings::catalog() } else { rules };
+    let b = crate::findings::balance(&rules, &facts, &crate::findings::archive(&path), target);
+    println!("{}  {} findings → {} (aiming for {})\n", path.display(), b.before, b.after, b.target);
+    println!("  {:<46} {:>16} {:>14} {:>12}", "rule", "threshold", "findings", "only it");
+    for r in &b.rules {
+        if r.hits_before == 0 {
+            continue;
+        }
+        let bar = match r.to {
+            Some(to) => format!("{} {} → {}", r.field, trim(r.from), trim(to)),
+            None => format!("{} {}", r.field, trim(r.from)),
+        };
+        let idle = if r.only_after == 0 { "  all also raised elsewhere" } else { "" };
+        println!(
+            "  {:<46} {:>16} {:>6} → {:<5} {:>4} → {:<4}{idle}",
+            r.title, bar, r.hits_before, r.hits_after, r.only_before, r.only_after
+        );
+    }
+    if !apply {
+        println!("\n  Nothing written. `--apply` saves these thresholds to .sanity/rules/catalog.md.");
+        return 0;
+    }
+    let mut live = rules;
+    for r in &b.rules {
+        let Some(to) = r.to else { continue };
+        if let Some(rule) = live.iter_mut().find(|l| l.id == r.id) {
+            let at = rule.calibrated;
+            rule.clauses[at].value = to;
+        }
+    }
+    match crate::findings::save_rules(&path, &live) {
+        Ok(()) => {
+            println!("\n  Saved to .sanity/rules/catalog.md.");
+            0
+        }
+        Err(e) => {
+            eprintln!("sanity: could not save the rules: {e}");
+            1
+        }
+    }
+}
+
+/// A threshold as a person would write it: no trailing zeros.
+fn trim(v: f32) -> String {
+    let s = format!("{v:.2}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
 fn clear(path: &str, key: &str, rule: Option<&str>) -> i32 {
     let path = match std::fs::canonicalize(path) {
         Ok(p) => p,
@@ -2314,7 +2368,7 @@ fn list(
     for (key, row) in rows.iter().take(limit) {
         println!("  {}{}", if row.flagged { "⚑ " } else { "" }, key);
         for (g, f) in &row.said {
-            println!("    {}", g.title);
+            println!("    {}{}", g.title, if f.stale { "  [stale]" } else { "" });
             let mut para = crate::findings::flat(&f.says);
             if !g.background.is_empty() && said_once.insert(g.id.as_str()) {
                 para.push(' ');
@@ -2840,6 +2894,23 @@ enum Decide {
         #[arg(long, value_name = "ID")]
         rule: Option<String>,
     },
+    /// Propose thresholds that bring the whole list toward N findings
+    Balance {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+        /// How many findings the list should hold, counted once each however many rules raise
+        /// them.
+        #[arg(long, value_name = "N", default_value_t = 20)]
+        target: usize,
+        /// Save the proposal to `.sanity/rules/catalog.md`. Without it nothing is written.
+        #[arg(long)]
+        apply: bool,
+        /// Balance the rules as sanity ships them, ignoring this repo's `catalog.md` — for
+        /// asking whether a shipped threshold is right.
+        #[arg(long, conflicts_with = "apply")]
+        stock: bool,
+    },
 }
 
 /// What all three verdicts need. One struct, so they cannot drift into taking different flags.
@@ -3025,10 +3096,13 @@ pub fn main(args: &[String]) -> i32 {
                 Decide::Clear { key, path, rule } => {
                     return clear(path, key, rule.as_deref());
                 }
+                Decide::Balance { path, target, apply, stock } => {
+                    return balance(path, *target, *apply, *stock);
+                }
             };
             let (Decide::Snooze(d) | Decide::Allow(d) | Decide::Flag(d) | Decide::Wrong(d)) = &what
             else {
-                unreachable!("clear returned above")
+                unreachable!("clear and balance returned above")
             };
             decide(&d.path, &d.key, d.rule.as_deref(), verdict, &d.reason, d.edits, d.blame)
         }

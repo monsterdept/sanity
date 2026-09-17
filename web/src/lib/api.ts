@@ -1203,6 +1203,8 @@ export interface ProjectSummary {
   recent_model: string | null
   /** The wave in progress, if any. */
   run: {
+    /** Current readings the repo held when this run started — see `runProgress`. */
+    from: number
     harness: string
     model: string
     readers: number
@@ -1434,6 +1436,9 @@ export interface Finding {
    *  in it, or a `0` where a measurement should be, is the map claiming something nobody
    *  measured — so the engine drops the tailored sentence whole rather than half-filling it. */
   says: Say[]
+  /** This rule asked a reader's grade, and the reading is of code that has since changed. The
+   *  finding stands on the last reading anybody made, and says so. */
+  stale: boolean
 }
 
 /** One run of a rendered sentence. Mirrors `findings::Span`. */
@@ -1605,9 +1610,47 @@ export function deleteRule(project: string, id: string): Promise<void> {
   return invoke<void>('delete_rule', { project, id })
 }
 
-/** Put a built-in back the way it ships, and re-suggest its threshold. */
+/** Put a built-in back the way it ships. */
 export function resetRule(project: string, id: string): Promise<void> {
   return invoke<void>('reset_rule', { project, id })
+}
+
+/** One rule's part in a balance — see `findings::BalanceRow`. `to` is null where the balance
+ *  leaves the rule alone. */
+export interface BalanceRow {
+  id: string
+  title: string
+  field: string
+  op: string
+  from: number
+  to: number | null
+  hitsBefore: number
+  hitsAfter: number
+  onlyBefore: number
+  onlyAfter: number
+}
+
+/** Thresholds that bring the list toward `target` findings, counted once each. Nothing is
+ *  written until `applyBalance`. */
+export interface Balance {
+  target: number
+  before: number
+  after: number
+  rules: BalanceRow[]
+}
+
+export function balanceRules(project: string, target: number): Promise<Balance> {
+  return invoke<Balance>('balance_rules', { project, target })
+}
+
+/** Save the thresholds somebody ticked, as `[rule id, value]`. */
+export function applyBalance(project: string, thresholds: [string, number][]): Promise<void> {
+  return invoke<void>('apply_balance', { project, thresholds })
+}
+
+/** Every rule as sanity ships it: this repo's changes and its own rules are removed. */
+export function stockRules(project: string): Promise<void> {
+  return invoke<void>('stock_rules', { project })
 }
 
 /** Record what somebody decided about a finding.
