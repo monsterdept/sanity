@@ -45,7 +45,7 @@
   the release, not in the tap — the tap holds no hand-written file to keep in step. A
   direct download gets the app's own "Install `sanity` command" instead, which symlinks
   into `/usr/local/bin` or `~/.local/bin`. **Never tell anyone to put `Contents/MacOS` on their
-  PATH** — `sanity-history`, `sanity-sample` and `sanity-tokens` live there
+  PATH** — `sanity-findings`, `sanity-history`, `sanity-sample` and `sanity-tokens` live there
   too — and never an alias, which no script can see.
 - **The app draws no creature.** It had one in the middle of the map, behind a picker that
   also offered a balance wheel and an eye; the question settled on the circles, so the picker,
@@ -107,7 +107,9 @@
   `name_chars` is per language for the same reason `skip_fields` is. **What is left
   unwired is a decision, not a queue**: SQL, jq, VHDL, Verilog and SystemVerilog either have
   no call worth the name, or expose only some of their call forms, or wire themselves through
-  a different graph entirely — module instantiation is not a call — and a table
+  a different graph entirely — module instantiation is not a call; OCamlLex's grammar hands
+  its rule actions over as one unparsed `ocaml` node, so there is no call in the tree to read
+  — and a table
   written on hope matches nothing while reading as though it were covered.
 - **`body_span` returns bytes, not a node, because some languages have no body node.**
   Julia, Fortran, the lisps and Visual Basic hang their statements straight off the

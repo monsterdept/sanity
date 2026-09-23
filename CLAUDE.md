@@ -27,6 +27,10 @@ alternative was built and thrown away, and the note is the only record of that.
 | [findings.md](docs/notes/findings.md) | Multi-lens findings, the rule grammar, decisions, the rules editor |
 | [conventions.md](docs/notes/conventions.md) | Stack, commands, languages, cache versioning, release gates |
 
+Plans live apart from the notes: `docs/plans/done/` is shipped work, `docs/plans/open/` is
+decided-but-unbuilt. A note describes the product as it is; a plan never does. When an open plan
+ships, move it to `done/` and update [docs/README.md](docs/README.md).
+
 ## The metric is the product
 
 Anyone can draw a treemap of LOC. The second encoding is what makes this worth building:
@@ -71,11 +75,12 @@ the map went on looking like a map.
   175 bodies that write `.collect()`, and the ten most-called functions in this repo were the
   Rust standard library. What a parse can honestly add is how the call was SPELLED, never what
   the receiver was — `Via`, and `edges::resolve` spends it. **Read [wiring.md](docs/notes/wiring.md)
-  before touching `resolve`**: a receiver this repo cannot NAME reaches nothing, `self` is the
-  one it can, and the fully strict rule that refuses every receiver was built and measured at
-  180 functions losing their last caller — live code drawn as dead. Refusing an edge is cheap;
-  inventing an absence is not. **A change to `resolve` moves `treecache::VERSION`**: nothing
-  about the records changes shape, so a warm tree serves the old call graph in silence.
+  before touching `resolve`**: a receiver this repo cannot NAME reaches nothing past its own
+  file, `self` is the one it can, and the fully strict rule that refuses every receiver was
+  built and measured at 180 functions losing their last caller — live code drawn as dead.
+  Refusing an edge is cheap; inventing an absence is not. **A change to `resolve` moves
+  `treecache::VERSION`**: nothing about the records changes shape, so a warm tree serves the
+  old call graph in silence.
 - **A test is a caller and it is not a dependent, and who says so has levels.** `callers` is
   every call site and is what the lens paints; `dependents` is what the load-bearing rules
   ask, and a finding that says *a change here has to be checked against all 13* is false when
@@ -137,9 +142,9 @@ the map went on looking like a map.
 
 These are the ones with a body count. Each is written up in its note.
 
-- **Never key anything durable on a node id.** Node ids embed `@line`. `key_of(path, name,
-  ord)` is what keys a reading. A migration that keyed on node ids destroyed a project's
-  readings.
+- **Never key anything durable on a node id.** `key_of(path, name, ord)` is what keys a
+  reading. A function's node id is `key_of` today, but node ids used to embed `@line`, and a
+  migration that keyed on them destroyed a project's readings — key on `key_of` by name.
 - **Never gate a destructive step on a write returning `Ok`.** Read the result back and
   check it. That same migration deleted its source because `Ok` looked like proof.
 - **There is no migrator, ever. `sanity refresh <repo>` is the whole mechanism** — the store

@@ -72,6 +72,12 @@ not a special case.
 
 Cap the conjunction at two clauses. Three is the first number that needs precedence rules.
 
+[Built differently on both counts. A clause names a raw threshold — `loc >= 200`, not a lens
+band — because the number is what calibration moves and what `catalog.md` saves (see the next
+section). The cap is four subject clauses (`MAX_CLAUSES`), and a repo-wide gate such as `repo_headcount`
+does not count against it; *What the form allows, and what it refuses* records why the
+precedence argument was retracted.]
+
 ## Calibration is an authoring aid, never a runtime behaviour
 
 **A percentile rule can never be satisfied, and a badge that cannot reach zero is wallpaper
@@ -184,6 +190,10 @@ the read button on it, carrying the same unread remainder `rings.md` describes: 
 read. Without it, a list built from three readings out of forty functions is coverage off a
 filtered list, which is the failure `work_left` exists to prevent.
 
+[As built, the announcement is at the foot of the list rather than the head, and it carries no
+read button: one line per missing input, *N of M rules inactive (need)*, beside the count of
+matches already set aside.]
+
 The tiering is not a limitation. It is the on-ramp:
 
 > open → findings appear for free → several say *read this* → the read button is there with
@@ -204,6 +214,10 @@ A list that only navigates is the sunburst with worse typography. Every row carr
   The list is then a reading ORDER, which is the job the proxy already exists to do.
 - **Open in the editor.**
 - **Dismiss, with a reason.**
+
+[Two of the four are built: a tile flies the map to its subject, and it carries the verdict
+buttons, with a reason asked for everything but a flag. **Read it** and **Open in the editor**
+are not built.]
 
 ## Dismissal is pinned to the body hash
 
@@ -226,6 +240,10 @@ The reasons people type are the most interesting thing this feature will produce
 A first scan of ceph is not four thousand problems. It is a baseline. The mascot's badge
 counts findings that are NEW since the list was last opened; the cold start sets the waterline
 at zero and says so.
+
+[Not built that way. The hub's dial counts what is STANDING — distinct subjects the list
+shows, with blocked rules and decided findings left out — above the number of rules running.
+It drains through decisions rather than through a waterline.]
 
 The list underneath is ranked and deep, and on a large repo it stays deep — that is honest,
 a big repo has a lot to look at. What must drain is the badge.
@@ -254,6 +272,11 @@ migrator, because `sanity refresh` is the whole mechanism.
 
 **3. New rule.** Population, then two clauses, then a title and a "so what" sentence the
 author writes. It is two dropdowns and a band picker.
+
+[As built: the list is one tile per SUBJECT, widest first, with the sentence of every rule that
+raised it — not grouped by rule. The settings row shows the rule's count and its share of the
+repo rather than switching itself off; *A rule can be irrelevant to a repo* records why. The
+form takes one to four clauses of field, operator and number.]
 
 **Built third, and FIRST.** It is last in the order somebody discovers these and first in
 the order they get built, because it is not primarily a user feature — it is the instrument
@@ -332,7 +355,9 @@ percentile version threw away: fix the twenty and the count drops and stays down
 percentile rule hands you a fresh 5% forever.
 
 Twenty is a guess at "a list a person reads to the bottom" and is worth arguing. What is
-not a guess is that it has to be a count.
+not a guess is that it has to be a count. [It was argued down: the editor's per-rule
+suggestion now aims at eight (`findings::TARGET`), because the rules share one list. The
+bench's per-rule `--target` and Balance's whole-list target still default to twenty.]
 
 ### A rule can be irrelevant to a repo, and the catalog should say so
 
@@ -367,11 +392,13 @@ human reason in the commit message and `git blame` pointing at who made it — b
 than a generated sentence.
 
 **And the measurements above are from a harness, not from anything shipping.** Neither rule
-they describe is in the catalog — see *Two rules the bench measured cannot be expressed*. None
-of the sixteen that ship has a clause a repo cannot vary: every one is a distribution with a
-spread, which is what calibration works on, and it is why sanity's whole catalog produces
-forty-nine findings rather than 40% of anything. The share is built for a case that does not
-occur yet, on the argument that it is one number and it will.
+they describe ships under that name — see *Two rules the bench measured cannot be expressed*.
+When this was written, none of the sixteen that shipped had a clause a repo cannot vary: every
+one was a distribution with a spread, which is what calibration works on, and it is why
+sanity's whole catalog produced forty-nine findings rather than 40% of anything. The blame
+rules that shipped since can ask such a clause — `headcount <= 1` is true of everything on a
+one-author repo — and those that do are gated on the repo (`repo_headcount >= 4` or `>= 6`)
+or on the file (`file_headcount >= 6`), so they find nothing where too few people have been in.
 
 ### Doc presence is not a clause, and the numbers are why
 
@@ -418,11 +445,13 @@ have — cut it, or find the clause that makes it disagree with its neighbour.
 
 The same number is worth showing in the settings row, beside the match count. "412 findings, 9
 of them only this rule finds" is the sentence somebody needs to decide whether to keep it.
+[It was shown there and later taken off the row — see *Build order*. The bench prints it, and
+so does Balance, as *only it*.]
 
 A rule that cannot pass on all five repos is not a default. It stays in the catalog, off,
 which costs nothing — the catalog is where opinions go to be optional.
 
-Blame's clause carries a caution rather than a veto: `TODO.md` records that Blame reports
+Blame's clause carries a caution rather than a veto: `docs/plans/open/blame-ownership.md` records that Blame reports
 who touched a line LAST, which a formatter sweep rewrites wholesale. The rule is therefore
 named **Last hand alone** and not *Ownership*, because "one person owns this" is the exact
 claim that note refuses to make. A count of who holds the most standing lines is the second
@@ -585,8 +614,11 @@ the tier 2 overfitting this note already warns about, one repo further along.
 ### Two rules the bench measured cannot be expressed, and are not in the catalog
 
 **Built, and neither is called what the bench called it.** The reduction below landed and the
-hold was lifted; what ships is `one-pair-of-hands` and `many-hands-knotty`, and neither names
-a person. The section is kept because the reason they were absent is the reason they have the
+hold was lifted; what shipped was `one-pair-of-hands` and `many-hands-knotty`, and neither names
+a person. They have since been renamed `sole-author` and `crowded-and-knotty`: `sole-author`
+asks `dependents` rather than `callers` and is gated on `repo_headcount >= 4`, and both use
+`ncloc` for the size guard. Three more blame rules ship beside them — `sole-author-coordinator`,
+`alone-in-shared-code` and `lone-file`. The section is kept because the reason they were absent is the reason they have the
 shape they do.
 
 "Last hand alone" and "Many hands" were in the throwaway harness because it read blame
@@ -595,7 +627,7 @@ directly. They were absent from `catalog()`, and the reason was not the one it l
 **The data exists per line and is thrown away on the way to a node.** `FileBlame` holds every
 line of a file with the index of whoever last touched it, and `FileBlame::range` already
 slices a function's lines — but it MAXES that slice, taking the newest line's author, where
-these rules need it COUNTED. So a `Node` carries one name and no headcount. `TODO.md` puts it
+these rules need it COUNTED. So a `Node` carries one name and no headcount. `docs/plans/open/blame-ownership.md` puts it
 exactly: not a second measurement, a second reduction, the same slice counted instead of
 maxed. It needs no new pass and it must not use `range_detail`, which shells out per function
 and is for one function at a time in the panel, not for a hundred and fifty thousand.
@@ -604,7 +636,7 @@ and is for one function at a time in the panel, not for a hundred and fifty thou
 want a tool that has both blame and this new metric. Better be sure before we build it."* What
 answered it was the distinction: they are not a second metric, they are two more reductions of
 the one blame already reads, and the count's value is as a CLAUSE rather than as a colouring.
-`TODO.md` carries that argument.
+`docs/plans/open/blame-ownership.md` carries that argument.
 
 **What shipped, and the one measurement that decided its shape.**
 
@@ -633,11 +665,13 @@ in them; the rule asked and the answer was no. What would be silence is `one-pai
 firing there — which it does, 26 and 18 — while its headcount clause narrows nothing, because
 one pair of hands is true of everything on a repo with one pair of hands. That is the case
 *A rule can be irrelevant to a repo* is about, and it is why the share sits under the count.
+[The `repo_headcount >= 4` gate that `sole-author` now carries closes this: on a solo repo the
+rule finds nothing.]
 
 **`Node::last_author` is not a substitute, and the reason is sharper than it first looks.**
 Blame records who touched each line LAST, so a function rewritten wholesale reads as new and
 everyone whose lines were replaced is gone — not diminished, gone. A rule built on it would
-say "one person owns this" while measuring "one person edited the newest line". `TODO.md`
+say "one person owns this" while measuring "one person edited the newest line". `docs/plans/open/blame-ownership.md`
 refuses the word Ownership for the same reason; the honest pair is "last touched by" and "most
 lines here", a timestamp and a headcount, neither of them authorship.
 
@@ -664,10 +698,13 @@ picture of a biased sample. It is the same failure the rim histogram was caught 
 would be worse here, because a finding is a claim about a specific named function.
 
 Scan time also means findings persist, survive a window that was never opened, and can be
-reported by the CLI and over MCP beside `sanity_check`.
+reported by the CLI and over MCP beside `sanity_check`. [Of those, only the CLI was built:
+`sanity findings` computes its own list in process. Findings are not persisted, and no MCP
+tool reports them.]
 
 **Computed on demand, and deliberately not cached** — which is where the build went a
-different way from the paragraph this one replaces. That paragraph planned to cache findings
+different way from the paragraph this one replaces. [A report is cached now, keyed on its
+inputs — see *There IS a cache now*.] That paragraph planned to cache findings
 with the scan and invalidate them on a rule edit; what it missed is that a rule set is an
 input no cache can see, exactly as the parser is, so the version would have to move every time
 somebody dragged a threshold. `report` runs per ask off the in-memory scan instead, which
@@ -696,7 +733,8 @@ mirror.
 says of itself that it answers "what is the state of my projects"; a finding count per
 `ProjectSummary` is that question with one more term in it, and it needs no new store —
 each project computes its own and hands over an integer. The mascot badge and the sidebar
-row are then the same number at two zoom levels.
+row are then the same number at two zoom levels. [Not built: `ProjectSummary` carries no
+finding count and the sidebar row shows none. The count is only in the hub.]
 
 **Rules: shipped defaults, per-project overrides, and nothing in between.** The catalog is
 code, in the binary. A project's `.sanity/` holds only what it has CHANGED — a rule turned
@@ -740,7 +778,7 @@ fetches one function's story for the panel.
 
 Offer it on the finding, only when every clause is replayable, and say nothing at all when one
 is not. A "since when" that quietly means "since when, ignoring the surprise clause" is the
-same partial answer wearing a smaller hat.
+same partial answer wearing a smaller hat. [Not built.]
 
 ### Directory rules are the rim spoken aloud, and the rim says it better
 
@@ -767,9 +805,9 @@ with it.** Not before, and not by widening a band clause to cover a case it does
 ## The rules editor
 
 **Built.** The store speaks the grammar, `Field` and `Op` are enumerable, the commands exist,
-the rules are a third view in the panel, and a row opens into a form that writes back. What is
-left is one piece of *Three surfaces* — relevance, which is described under *Where it lives*
-and is a sentence about a repo rather than a control.
+the rules are a third view in the panel, and a row opens into a form that writes back. The
+last piece of *Three surfaces* — relevance — landed as the share under each row's count, which
+is described under *Where it lives* and is a sentence about a repo rather than a control.
 
 The four blockers below were the point of writing this up before starting: the dropdowns are
 an afternoon and none of the afternoon is the hard part. They are kept as a record of what had
@@ -781,7 +819,7 @@ to move, and each now says how it moved.
   so every rule that could exist was one compiled into the binary and a rule read out of
   `.sanity/` could not be constructed at all. This was the whole blocker and everything else
   was small beside it.
-  *Done: the fields are `String`. Not `Cow<'static, str>` — the catalog is fifteen rules of
+  *Done: the fields are `String`. Not `Cow<'static, str>` — the catalog was fifteen rules of
   four short strings, which is noise beside a walk of every subject, and `Cow` would have put
   a borrow-or-own decision at every use site to save it.*
 - **`saved_rules` was `id -> f32`.** One number per rule, the calibrated clause's threshold.
@@ -816,6 +854,10 @@ recognises is skipped rather than shifting the rest.
 - `hot-paths`; func: callers >= 20 and commits >= 4; floor 10; title: Hot paths;
   so what: widely depended on, and moving
 ```
+
+[`floor` has since become a clause: a `floor N` segment is still read, as `loc >= N`, and is
+no longer written. A built-in whose expression was changed is written with a `was:` segment
+naming the shipped rule it was tuned against — see *The file holds what the repo CHANGED*.]
 
 **`.sanity/` now has one file at the top and three directories under it** — `README.md`, then
 `readings/`, `rules/` and `findings/`. The reason is in `assessments.md`: a shard is named
@@ -897,6 +939,10 @@ This is the part to get right before any of it ships, and the answer is already 
 The row shows the number and, beside it, what the repo would suggest: *257 — about 8 findings
 here; median 11, longest 3,161.* Pressing the suggestion takes it. That is
 `calibrate(rule, facts, TARGET)` and `spread(facts, pop, field)`, both of which exist.
+[As built there is nothing to press. In the grid, hovering a clause's field names its lens,
+the median here and, on the calibrated clause, the bar this repo would suggest; in the form,
+each clause shows the median, 95th percentile, largest value and subject count under it. A
+suggestion is taken by typing it, or for every rule at once through *Balance*.]
 
 **The suggestion may only tighten.** `calibrated()` already refuses to loosen and the note
 records why: a fossil is five years, and a repo whose eighth-oldest trap is six days old does
@@ -934,7 +980,9 @@ shipped number is wrong, and that is fixed in the catalog.
 
 Every row carries **hits** and **only** — how many findings this rule produces, and how many
 of them no other enabled rule already found. `marginal` exists and takes the precomputed hit
-sets, so the whole grid is one pass.
+sets, so the whole grid is one pass. [The grid's rows no longer show `only` — see *Build
+order*; each carries its hits and their share of the repo. `only` is still computed, by
+`Marginal`, and printed by `just findings` and in the Balance sheet's *only it* column.]
 
 **Hit count is the wrong number and this note has the receipts.** "Long and undocumented"
 scored 3,455 on kibana and was worthless, because 18 of its top 20 were already in "Giant
@@ -942,19 +990,25 @@ function". A row that showed only its hit count would have kept it. And the pair
 rules are toggled — turning one off raises its neighbours' contribution — which is exactly
 what makes the grid an instrument rather than a list of settings.
 
-**It is also repo-shaped, which the editor is the only place to see.** "Giant function"
+**It is also repo-shaped, which only a per-repo view can show.** "Giant function"
 contributes 0 of 8 on htop and 2,180 of 2,292 on kibana. A default set tuned centrally would
-have cut the rule doing most of the work on the largest repo tried. The editor is where a
-person finds that out about their own repo.
+have cut the rule doing most of the work on the largest repo tried. The bench and the Balance
+sheet are where a person finds that out about their own repo.
 
 ### What the form allows, and what it refuses
 
-Population, then one to three clauses, a title and an impact line. Two dropdowns and a
-number, three times over.
+Population, then one to four clauses, a title and an impact line. Two dropdowns and a
+number, four times over. [The cap counts subject clauses: a repo-wide gate such as
+`repo_headcount` or `repo_age` is not one of them. It was three until two shipped rules,
+`undocumented-declaration` and `load-bearing-untested`, carried four subject clauses — three
+lenses and the size guard — which `apply_edit` and `Rule::parse` both refused, so tuning or
+renaming either one dropped it from `catalog.md` on the next read. The cap is `MAX_CLAUSES`,
+four, and `every_shipped_rule_survives_a_round_trip_through_the_catalog` holds the catalog to
+it.]
 
 It refuses, on purpose and with a reason each:
 
-- **No fourth clause, and the cap is a choice rather than a consequence.** It was argued here
+- **No fifth clause (no fourth, when this was written), and the cap is a choice rather than a consequence.** It was argued here
   as being about precedence — that a grammar needing precedence rules is a query language —
   and **that argument is wrong and is retracted.** Precedence is a real argument against OR,
   and it is why there is no OR; it caps conjunction at nothing, because `a and b and c and d`
@@ -981,7 +1035,7 @@ It refuses, on purpose and with a reason each:
   already ORs rules together, because a subject three rules flagged is ONE tile with three
   sentences. So OR is a compression of the rule list, never an extension of its reach, and the
   compression only pays where the normal form blows up: `(A or B) and (C or D)` is four rules.
-  Nothing in a catalog of sixteen rules of one to three clauses is close.
+  Nothing in a catalog of twenty-five rules of at most four clauses is close.
 
   **The question is therefore not what can be asked, but whether anything cares that one
   expression is one rule rather than two.** In the panel nothing does: the unit of address is
@@ -1013,7 +1067,11 @@ It refuses, on purpose and with a reason each:
   in a language with `==` as well.
 - **No new fields — with one exception, and it is written down.** The field list is the lens
   list, `headcount` apart: it is the count of whose lines are standing, and blame paints
-  NAMES rather than counts, so there is nothing to colour. It earns the exception by being
+  NAMES rather than counts, so there is nothing to colour. [No longer the only one. `read`,
+  `under_test`, `file_headcount` and `repo_headcount` have no lens behind them either, and
+  `file_loc`, `file_funcs`, `repo_age`, `dependents`, `doc_present`, `header` and `ncloc`
+  joined the list since — each a new scope or a new reduction of something a lens already
+  measures. `Field` holds the list.] It earns the exception by being
   the only shape a rule about people may take — a rule that named somebody would be a rule
   about what a thing is CALLED, which the bullet below refuses. The picker is built from
   `Field::ALL` rather than from a copy kept in the frontend — a second list is one list plus a
@@ -1029,8 +1087,9 @@ It refuses, on purpose and with a reason each:
 
 A user rule gets a title and a so-what. `says` — the tailored paragraph with `{{token}}` holes
 — is optional, and **validated at save against the same invariant the catalog test enforces**:
-a token may only name `name`, `path`, `median`, `threshold`, `age_years`, or a field the
-rule's own clauses guarantee. `render` already falls back to `so_what` when it cannot fill a
+a token may only name `name`, `path`, `median`, `threshold`, `loc`, `ncloc`, `funcs`, or a
+field the rule's own clauses guarantee — and `age_years`, `touched_years` and `window` count as
+the fields they are read from (`age`, `touched`, `commits`). `render` already falls back to `so_what` when it cannot fill a
 token, silently and correctly; silently is right at runtime and wrong at authoring time, where
 it would mean somebody writes a sentence that never appears and is never told. Refuse the
 save, name the token.
@@ -1043,7 +1102,7 @@ which reads `.sanity/rules/catalog.md`; `subjects` walks the in-memory scan; `re
 ranks, subtracts decisions and counts marginal contribution.
 
 That covers everything derived from the call and not just the list: the totals, `only`, the
-`blocked` reasons, the ignored count, the rules grid and the number on the creature. They come
+`blocked` reasons, the ignored count, the rules grid and the number in the hub. They come
 from one `ProjectReport`, which is why they cannot disagree about a repo — and they are one
 command for that reason as much as for the walk it saves.
 
@@ -1111,11 +1170,11 @@ a tree arriving is a different repo, or the same one rebuilt; a new object for t
 happens several times a minute. The window asks on three scalars now — the tree arriving, how
 many readings have landed, and the counter a rule edit or a decision bumps.
 
-**A dev build prints what each report cost and whether it was one.** `debug_assertions` only,
+**A dev build printed what each report cost and whether it was one.** `debug_assertions` only,
 because a shipped build should not narrate itself — but two quadratic passes and a per-clause
 sort hid on this path behind reasoning that sounded right, and the line that says
-`computed in 1.31s` against `cached in 84µs` is the difference between fixing this and fixing
-something else.
+`computed in 1.31s` against `cached in 84µs` was the difference between fixing this and fixing
+something else. [The print has since been removed.]
 
 ### What is still true, and what is still not built
 
@@ -1158,13 +1217,14 @@ handed to the store by an agent over MCP that has no commit of its own to be bla
 is not this situation.
 
 **What this does need is for the file to be a pure function of its contents**, or blame stops
-being the record. It nearly is: `save_archive` groups by subject through a `BTreeMap`, so
-subjects are in a stable order however they were added. Within one subject they are not —
+being the record. It is: `save_archive` groups by subject through a `BTreeMap`, so subjects
+are in a stable order however they were added. Within one subject they were not —
 `decide` retains-and-pushes onto the end of a `Vec`, so re-deciding one rule on a subject that
-has two moves the OTHER one's line as well. Both lines rewrite, both get blamed on the newer
-commit, and the untouched decision loses the provenance that is the whole point.
+had two moved the OTHER one's line as well. Both lines rewrote, both got blamed on the newer
+commit, and the untouched decision lost the provenance that is the whole point.
 
-Sorting each subject's decisions by rule id before writing fixes it, and it is two lines. It
+Sorting each subject's decisions by rule id before writing fixes it, and it is two lines — now
+in `save_archive`. It
 is worth doing whether or not the editor ever gets built: a store that reshuffles itself
 cannot be reviewed in a diff, and being reviewable in a diff is why it is Markdown in the repo
 rather than JSON in a cache.
@@ -1197,15 +1257,16 @@ Three changes came out of it, and the first two are not rules at all.
   would be a different catalog, not a subset of this one.
 - **A Rust unit test needed the parser.** It lives in the file it tests, so no path says so,
   and `#[test]` is a SIBLING of the function rather than part of it. The enclosing module is
-  the one signal that reaches the tree, so `mod_item` is an owner now and `PARSE_VERSION` is
-  8. That costs a re-parse and not a re-blame, which is exactly why the parse version sits on
+  the one signal that reaches the tree, so `mod_item` is an owner now and `PARSE_VERSION` moved
+  to 8. That costs a re-parse and not a re-blame, which is exactly why the parse version sits on
   each cache entry — see `scancache`.
 - **A giant body with no branching is data.** The literals that survived the path rules —
   1,920 lines of saved-object types, 1,879 of i18n strings — are single objects with nothing
   to follow, and nobody is going to split them up. Giant function gained
   `cognitive >= 10`: a low bar, and deliberately not "tangled", which is a different rule
   asking whether the complexity is explained by the length. This one only asks whether there
-  is control flow at all.
+  is control flow at all. [Since replaced: `giant-function` is now `loc >= 200 and tangle >=
+  0.25 and read < 1`, and `giant-illegible` carries the read half.]
 
 Afterwards the same list reads: a fleet service, a heap-snapshot CLI, an ML chart provider, a
 graph workspace, a canvas layout module, two route registrations. **Eight of ten**, with two
@@ -1230,7 +1291,7 @@ finding is not: it is the tree, the readings and the rules, all on disk. An endp
 a second answer, and findings that depended on whether the app happened to be open.
 
 **And the CLI decides, because a worklist you cannot answer is a report.** `sanity findings
-snooze | allow | flag | clear <KEY>` are the three buttons in the panel and the one that
+snooze | allow | wrong | flag | clear <KEY>` are the four buttons in the panel and the one that
 takes them back, named for what they do rather than for what the archive stores — `Verdict`
 keeps its own words. The KEY is the line the list already prints: `key_of` is `path#name`, so
 copying a finding out of the list is how you address it, and nothing has to be looked up.
@@ -1252,25 +1313,27 @@ the archive. Those two are the only columns here that are about the RULE rather 
 `hits` and `only` measure how much a rule speaks and how much of that nothing else says, and
 neither can tell you whether a word of it was worth reading. `wrong` is the number that has to
 reach zero. `never` is information about calibration and not a defect — dismissing a true
-finding is what that verdict is FOR, and `crowded-file` sitting at seven on this repo is the
-mechanism working rather than failing. That is a question about the catalog, where the verb asks a question
+finding is what that verdict is FOR, and `crowded-file` sitting at seven on this repo, when
+this was written, was the mechanism working rather than failing. That is a question about the catalog, where the verb asks a question
 about the repo, and they are deliberately not the same output.
 
 ### Where it lives
 
 **A third view inside the Findings panel**, beside `findings` and `ignored` — not a separate
-settings window. The counts are the reason: `hits` and `only` are meaningless except next to
+settings window. The counts are the reason: `hits` and its share are meaningless except next to
 the list they change, and a person tuning a threshold wants to press back and look. The panel
 already carries a two-view toggle and a header that names the count; this is a third entry in
 both.
 
-Built as: the tabs name the three views and carry their counts, a header under them names the
-one on screen and holds its single action — `Add Rule` on the rules view, the way into the
-ignored drawer on the other two — and a rule row opens into the form in place. In place rather
+Built as: two tabs, Findings and Rules, each carrying its count; a header under them names the
+view on screen and holds its actions — `Balance` and `Add Rule` on the rules view, and on the
+findings view the way into the ignored drawer, which is the third view — and a rule row opens
+into the form in place. In place rather
 than in a sheet, because the numbers a threshold is being judged against are the rows above
 and below it.
 
-Relevance surfaces here as the share under each row's count, and as the `turn off` beside it —
+Relevance surfaces here as the share under each row's count, and as the `turn off` in the form
+the row opens into —
 see *A rule can be irrelevant to a repo*, which is also where the version that turned rules off
 by itself is argued down.
 
@@ -1297,7 +1360,7 @@ care went — and because two of them cost something the plan did not predict.
 7. **The form.**
 
 **Step 3 had a bill nobody costed: a second list of fields.** The picker cannot read `Field`
-directly, so `rule_grammar` sends it — and the moment there are two lists, the copy nobody
+directly, so `rule_grammar` sent it (it is the `grammar` half of `project_report` now) — and the moment there are two lists, the copy nobody
 compiles is the one still offering a field that has been renamed. That is not hypothetical:
 `legible` became `illegible` the same week, because its value is `Grade::surprise()` and high
 means *harder to read*, so the name said the opposite of the number. The guard is a test that
@@ -1322,7 +1385,7 @@ forever), and `floor` stopped being a field and became a clause.
   thing that crosses. A rule somebody found useful on one repo is the obvious thing to want to
   carry, and an export/import is the obvious mechanism — and both are how a catalog becomes a
   plugin directory nobody curates.
-- **Does the editor need a preview?** The grid's `hits` and `only` update live, which may be
+- **Does the editor need a preview?** The grid's `hits` and share update live, which may be
   the whole of it; a top-five list under the form would be better and is another surface to
   keep honest.
 - **What happens to a `catalog.md` written by a newer version?** The dropping discipline says an

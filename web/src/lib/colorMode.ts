@@ -858,7 +858,7 @@ export interface Views {
  *  lines were replaced is gone — not diminished, gone. `touched` is a timestamp with a name on
  *  it; `lines` is who holds what is STANDING, robust to a one-line-per-file sweep and no help
  *  at all against a reformat. Real authorship over time is `git log -L`, refused on cost. See
- *  `TODO.md`, where the three reductions are named.
+ *  `docs/plans/open/blame-ownership.md`, where the three reductions are named.
  *
  *  The third reduction — how many people's lines are here — is not a reading, because it is a
  *  COUNT and this lens paints names. It is a findings field instead: see `Field::Headcount`. */

@@ -98,6 +98,9 @@ runs unasked is the estimated WORK, never the size of the repo.
   and a branch switch on linux must not start a minute of `git log`.
   Depth 2 is nobody's automatic: it is per-file work at a scale nothing can predict, and
   **a rate cannot be sampled** — thirty files gave 2ms against ceph's measured 34ms.
+  A verb somebody typed with no depth named — `sanity trace`, `sanity findings`, an MCP trace
+  with no `depth` — is an ask, and climbs the whole ladder as far as `trace::affordable` says
+  fits: each rung priced on what is LEFT, stopping at the first one over budget.
 - **Applying a trace is a second fold, on the pattern readings already follow.** `trace::apply`
   fills the git fields on a finished tree, re-aggregates and re-credits the containers. It is
   idempotent, and `FileTrace` is the ONE definition both the scan and the deferred path use —
@@ -199,7 +202,7 @@ runs unasked is the estimated WORK, never the size of the repo.
   every row, which is what lets a list be compared at a glance; weighting by measured seconds
   moves them per repo and makes the first chamber 2% wide on ceph. The boundaries were drawn for
   a while and removed: the note line one row down already says which step is running, in words.
-  **One press buys the whole column.** `chaseTrace` walks scan → blame → replay, asking
+  **One press buys the whole column.** `chaseTrace` walks log → blame → replay, asking
   `phasesOf` what comes next rather than re-deriving the ladder, and the guards are keyed per
   PROJECT — a single slot made a chain on kibana silently swallow the press on every other row.
   **Two numbers that get divided must be counted in one place.** The Trace pill divided files
@@ -272,8 +275,8 @@ runs unasked is the estimated WORK, never the size of the repo.
   big repo occupies every thread and the newcomer's tasks are never scheduled to even ask.
 - **`behind` is the one state where a map is knowingly out of date.** The watcher takes the scan
   budget as well, so a large repo that moved is kept as it was, flagged, and offered a rescan —
-  small repos are repaired within a tick and never reach it. The scan dial draws full and
-  HATCHED, which is the map's own mark for "true when it was taken".
+  small repos are repaired within a tick and never reach it. The Scan pill draws full and
+  HATCHED and offers `Rescan`, which is the map's own mark for "true when it was taken".
 - **The add dialog explains, and the checkbox hides the EXPLANATION rather than the choice.**
   A repo over budget arrives with its history unread whether or not somebody has ticked "don't
   explain this again", and its row still says so. That is what makes the checkbox safe to tick.

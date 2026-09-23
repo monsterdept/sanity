@@ -256,6 +256,11 @@ thinking-off pass ran through a 60-line proxy that sets it on every `/v1/message
 
 ## What this makes stale
 
+All of the fixes above — the `ollama` harness, the per-reader handout cap, the restore that
+skips a loaded project — live on the `ollama-reader` branch. `main` has none of them: it has four
+harnesses (`Claude`, `Codex`, `OpenCode`, `Agy`), one `BATCH` of ten, and a restore that
+inserts over whatever is loaded. So the list below is what goes stale if that branch merges.
+
 - `CLAUDE.md` and `docs/notes/metric.md` say local models were tried as readers and found
   lacking. For qwen3.8 with thinking, on which functions a map calls surprising, that is no
   longer what was measured. It is still true of speed.
@@ -289,7 +294,7 @@ thinking-off pass ran through a 60-line proxy that sets it on every `/v1/message
 
 - Readings: `~/sanity-ab/{sonnet-a,sonnet-b,qwen,qwen38-fast,qwen38-nothink,qwen38-off}/widdlbox/.sanity/`.
   `qwen38` holds 15 readings from an abandoned pass with prompt reuse broken; unused.
-- Code: branch `ollama-reader`, not merged — `src-tauri/src/harness.rs`, `mcp.rs`,
+- Code: branch `ollama-reader`, not merged and not pushed to `origin` — `src-tauri/src/harness.rs`, `mcp.rs`,
   `agentapi.rs`, `web/src/components/ReadDialog.tsx`. Clippy and rustfmt were not run on it.
 - The comparison scripts and the thinking-off proxy were written in session scratch space and
   are not in the repo.

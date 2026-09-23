@@ -2964,7 +2964,7 @@ mod kinds {
             (Lang::Shell, "f() {\n if [ a ]; then z; fi\n}\n"),
             (Lang::Perl, "sub f { if ($a) { z(); } }\n"),
             // A METHOD, because `func_kinds` matches `method_definition` for Objective-C and
-            // a plain C function in a `.m` is found by nothing. See `todo.md`.
+            // a plain C function in a `.m` is found by nothing. See `docs/plans/open/backlog.md`.
             (Lang::ObjC, "@implementation K\n- (void)f {\n  if (a) { z(); }\n}\n@end\n"),
             (Lang::GdScript, "func f():\n\tif a:\n\t\tz()\n"),
             (Lang::Julia, "function f()\n if a\n z()\n end\nend\n"),

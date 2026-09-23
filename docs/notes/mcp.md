@@ -19,7 +19,8 @@ When a field is added to `Report`, add it to the schema in the same commit.
   them.** At one function per reader, `tools/list` is loaded once per FUNCTION, so an
   `inputSchema` description stopped being editorial and became a per-reading charge.
   Measured on this repo it was 86% of a reader's input floor against 8% for the code it
-  exists to read — and 800 of those tokens described three tools a reader never calls.
+  exists to read — and 800 of those tokens described three tools a reader never calls,
+  which `SANITY_ROLE=reader` now withholds from a reader's `tools/list` entirely.
   Two rules fall out. **The wire carries the rule; the source carries the reason** — the
   arguments behind the rules live in doc comments and here, where they cost nothing per
   reading, and what ships is what a reader must DO plus the one clause that makes it
@@ -40,19 +41,21 @@ When a field is added to `Report`, add it to the schema in the same commit.
   whatever now sits at those lines, and grades the two against each other. That is not a
   weak reading, it is a reading about nothing, and nothing in it says so. A reader found
   it from the far end, reporting that the range it was handed held unrelated constants.
-  `resync_changed` runs at the top of `queue` — mtime AND length, because two writes in
+  `resync_changed` runs at the top of `queue` and `reveal` — mtime AND length, because two writes in
   one second can share an mtime. It refreshes positions, signature, docs and body hash;
-  it does **not** touch node ids (they embed `@line`, they would all move, and re-keying
-  the reports map is the shape of the migration that once destroyed a project's readings),
-  and it does **not** add functions written since the scan, because those need scoring
-  against every peer in the file. Those arrive on the next `sanity_open`.
+  it does **not** touch node ids (they are `key_of(path, name, ord)` and hold no line, so
+  there is nothing to re-key — re-keying the reports map is the shape of the migration that
+  once destroyed a project's readings), and it does **not** add functions written since the
+  scan, because those need scoring against every peer in the file. Those arrive on the next
+  rescan — `sanity_open`, or the file watcher once no reading is out.
 - **Never report coverage off a lease-filtered list.** `done`/`remaining` did, so 34
   functions out with readers read as finished under "every function has an up-to-date
-  reading". `work_left` returns `(remaining, in_flight)`: remaining ignores leases and
+  reading". `work_left` returns `remaining` and `in_flight` apart: remaining ignores leases and
   only falls when a reading lands. An instrument that overstates its own coverage is worse
   than one that measures nothing.
 - **Coldness is the queue's job, not the reader's.** `interleave_by_file` round-robins
-  across files, because scores cluster by file (distinctiveness is file-local) and a
+  across files within a handout, and `spread_across_files` rests a file just drawn from
+  across handouts, because scores cluster by file (distinctiveness is file-local) and a
   reader handed 25 from one file is recalling after the first. `cold` is self-reported and
   should be a check, not the mechanism.
 - **Ten functions per reader, and the number is the edge of what was measured.** It was
@@ -107,8 +110,8 @@ When a field is added to `Report`, add it to the schema in the same commit.
   comment, and `predicted` is made *from* it — the comment stack reaches the reader before
   it opens anything, which is why documenting a repo drains the map. Hashing only the body
   left a documentation grade reading as current when the text it graded was gone.
-  `reading_hash(doc, body)` is what `node.body` holds now; it collapses whitespace across
-  both, so a reflow expires nothing.
+  `reading_hash(file_doc, doc, body)` is what `node.body` holds now; it collapses whitespace
+  across all three, so a reflow expires nothing.
 - **`.sanityignore` scopes the repo, and the tool must never decide what goes in it.**
   Whether `tests-unit/` is noise or the most interesting thing here is a judgement about a
   specific codebase, and the tool provider cannot know it. **So there are no defaults —
@@ -165,7 +168,7 @@ When a field is added to `Report`, add it to the schema in the same commit.
   meanwhile served its real repo, so one server described two subjects in one run. It was
   caught only because the number happened to be absurd. `active_project()` is gone with it:
   a shortcut past `for_client` is an invitation to reopen the hole in the next endpoint.
-  The window's project remains the fallback for a caller that supplies no key, and every
+  The last repo opened is the fallback for a caller that supplies no key (see below), and every
   response names what it answered about (`project`, `repo`) so a mismatch is visible
   anyway. **The key is never in the tool schema** — a model cannot forget, garble or
   compact away what it never carries, and the schema is priced per reading.
@@ -212,9 +215,11 @@ When a field is added to `Report`, add it to the schema in the same commit.
   it. Nothing retracted before, so a file always existed, so `mcp.rs` chose its error text by
   file existence and told readers a quit app was "usually TRANSIENT, retry five times". The
   discriminator is a probe now. Errors must say what to do, and that one said the opposite.
-  The CLI's read verbs are formatters over `/status` and `/summary` and compute nothing;
-  anything they needed that an endpoint lacks belongs in the endpoint, or it is two
-  implementations of one answer and the unwatched one goes wrong.
+  The CLI's read verbs are formatters over `/status` and `/summary`; with no backend
+  answering, or one that has not opened the repo, they build the same payload in-process
+  from the functions the endpoints call (`offline_counts`, `aggregate_of`) rather than
+  starting one. Anything they needed that an endpoint lacks belongs in the endpoint, or it
+  is two implementations of one answer and the unwatched one goes wrong.
 - **Opening a repo is not a claim on the window.** `touch` (history) and `focus` (the
   view) were one call, so any open retargeted the pane — including a headless run in
   another repo, and including the second of two agents working two repos at once, which is

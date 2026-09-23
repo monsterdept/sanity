@@ -28,7 +28,7 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
     longer than the paper it summarizes — and a findings grid is a list to read down, which is what
     the brief and the report are for. The one findings slide keeps the map, the count and the
     letters; it carries no grid. **The map is the full height of every
-    slide's body**, on the left; the words go beside it, and the key and caption go to the foot of
+    slide's body**, on the right; the words go beside it, and the key and caption go to the foot of
     that column rather than under the map, where they shortened it. The first deck set two whole
     essay sections at slide size, which made the words the larger half of every slide. The first
     sentence of each came next and made teasers ("Three states are drawn."), so each essay carries
@@ -86,7 +86,8 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   reader checking the method against the code, and the contents page names it.
 - **The prose is its own, and not the lens reference.** `LensHelp` is a lookup for somebody
   already on the map. A report is read by somebody who has never seen the app, so each lens gets
-  an essay (Definition, Instrument, Reading the map, Interpretation, Limitations) and the cover
+  an essay (Definition, Reading the map, Interpretation, Limitations, with Results after the
+  Definition and the Instrument in the appendix) and the cover
   gets a methods section. **Every sentence was checked against the code, not the notes**, and
   several notes turned out to be behind it. Change a measurement and the essay describing it is
   now an unchecked claim: read it in the same edit. The markup is small on purpose: `- `,
@@ -195,8 +196,8 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   covered the window while it ran, and could not run without one. **Every figure is laid out at
   one density** (`FIGURE_PX`) whatever size it prints at, so a report, a brief and a deck share
   their figures; a label that would print under 4.5pt is left off at draw time. The hub is the
-  window's own (the circles, by default), drawn at rest.
-- **A figure is rendered once per commit, not once per page.** `figureOf` keeps each within a
+  window's own (the circles), drawn at rest.
+- **A figure is rendered once per commit, not once per page.** `figureCache` keeps each within a
   build; `just render` also keeps them on disk under the CLI's `renders` cache slot, keyed on the
   export's bytes rather than the sha, since a dirty tree is another repository at the same sha.
 - **A lens with nothing to show gets no page, and nor does a lens with one value.** A grey map

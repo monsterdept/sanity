@@ -114,7 +114,7 @@ pub struct RangeHistory {
     /// **Not `owner`, and not `author`.** Blame reports who touched each line LAST, so a
     /// body rewritten wholesale reads as new and everyone whose lines were replaced is gone
     /// — not diminished, gone. This measures who holds what is STANDING, which is robust to
-    /// a one-line-per-file sweep and no help at all against a reformat. See `TODO.md`.
+    /// a one-line-per-file sweep and no help at all against a reformat. See `docs/plans/open/blame-ownership.md`.
     pub main_author: String,
     /// How many people's lines are standing here.
     ///

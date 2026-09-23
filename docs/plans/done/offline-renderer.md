@@ -1,6 +1,7 @@
 # An offline renderer for PDF and movie export
 
-**Status:** built for the PDF exports (report, brief, deck) on `report-consistency`. The movie
+**Status:** built for the PDF exports (report, brief, deck) on `report-consistency`, since merged
+to `main`. The movie
 draws its frames from the same markup, but still rasterizes and encodes in the window. This note began as a proposal; what follows says what was built,
 what the proposal got wrong, and what is still open.
 
@@ -16,7 +17,7 @@ Four reasons accumulated, and the last two are why it was built when it was.
   which holds only the function rings it has drawn — and a report's own zoomed pages fetched more.
   A report and a brief of one commit, exported twelve seconds apart, named different most-complex
   functions and counted 84 and then 99 unread. The same fault was in the window's own key and
-  panel counts. See [notes/report.md](notes/report.md).
+  panel counts. See [notes/report.md](../../notes/report.md).
 - **The files were pictures.** Every page was a canvas encoded as JPEG: a 42-page report was 32MB,
   could not be searched or copied from, and blurred at any zoom. The export also covered the window
   while it re-rooted the live map for every figure.

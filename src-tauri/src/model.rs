@@ -664,7 +664,7 @@ pub struct Node {
     /// a four-hundred-line function makes somebody its last toucher while they hold one line.
     /// Not `owner` and not `author` — blame reports who touched each line LAST, so a body
     /// rewritten wholesale reads as new and everyone whose lines were replaced is gone rather
-    /// than diminished. This says who holds what is STANDING. See `TODO.md`.
+    /// than diminished. This says who holds what is STANDING. See `docs/plans/open/blame-ownership.md`.
     ///
     /// Beside `last_author` for the same reason: metadata about the code, kept out of `Score`
     /// so that stays `Copy`.

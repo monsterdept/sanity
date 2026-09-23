@@ -1,124 +1,178 @@
 # Sanity
 
-**DaisyDisk for code comprehension.** Your repo as concentric rings: width is lines,
-colour is how much of it nobody saw coming.
+**Your repo as a map.** Sanity draws a codebase as a DaisyDisk-style sunburst: the
+repo at the center, directories and files as rings around it, and every function on the rim.
+The width of a wedge is its size in lines, and its color is whichever question you are asking.
 
 Generating code got cheap, so understanding it became the bottleneck. Sanity is for the
-person who can build anything and no longer knows what they've built.
+person who can build anything and no longer knows what they have built.
 
 ```
-just setup            # once
-just scan ../slooth   # headless — the fastest way to see if the metric says anything
-just dev              # the app
+brew install --cask monsterdept/tap/sanity
 ```
 
-`setup` installs the frontend deps and the Tauri CLI, and assumes Rust and Node are already
-there. macOS and Windows need nothing else; on Linux, the WebKit and GTK dev packages have to
-come from your package manager first — `.github/workflows/release.yml` lists them.
+Or download it for macOS, Linux or Windows from <https://sanity.monster>.
 
-## What the colours mean
+## Thirteen lenses
 
-A wedge is hot when its body is **surprising** — when little of it is predictable from
-its own name, signature and **documentation**.
+A lens is one question, painted across the whole map. They come in four groups, ordered by
+what an answer costs. The first group answers the moment a repo opens, and the last needs a
+reading.
 
-```
-temperature = surprise
-```
+| Group | Lens | What it asks | Needs |
+|---|---|---|---|
+| **Code shape** | Complexity | How complex is it for its size? | nothing but the scan |
+| | Composition | Is it hand-written, a test, generated, vendored or a header? | |
+| | Language | What is it written in? | |
+| | Clones | Is it a copy of something else? | |
+| **Interconnectivity** | Callers | How many things call it? | a language whose calls are read |
+| | Reach | How much does it call out to? | |
+| **Activity** | Blame | Who committed to it last? | git history |
+| | Age | How long since anyone touched it? | |
+| | Churn | How much has it changed lately? | |
+| **Assessment** | Predictability | How much could a reader predict? | readings |
+| | Legibility | What was reading it actually like? | |
+| | Docs | What has nobody explained? | |
+| | Traps | What will bite whoever edits it next? | |
 
-So the red drains as you document, and the tool has a finish line without ever touching
-your code.
+Click a wedge to drill in. The side panel explains what the lens says about it, and it shows
+the code.
 
-The explanation term is *measured*, not counted. `// increments the counter` over a
-subtle retry loop cools nothing, because the comment says only what the signature already
-said. `// upstream returns 200 with an error in the body` cools a lot. Comment volume
-can't game it.
+Sanity parses 63 languages with tree-sitter, including Rust, TypeScript, Python, Go, Swift,
+C, C++, Java, Kotlin, C#, Ruby, PHP, Elixir, Scala, Zig, Haskell and shell. A file in any other
+language still takes its place on the map. It just has no functions on the rim, because
+Sanity did not read it.
 
-Surprise on its own can't tell a subtle algorithm from a mess, so git history supplies a
-second axis:
+## The metric: predictability
+
+Anyone can draw a treemap of lines of code. The lens that makes this worth building is
+**Predictability**:
+
+> Boilerplate is code a model can predict from its context.
+
+A coding agent is shown a function's name, signature, neighbors and comments, **but not its
+body**, and writes down what it expects the function to do. Then it opens the file and
+reports the gap. A predictable body is scaffolding. A surprising one is where the decisions
+are.
+
+Documentation is part of the context the reader predicts from. A comment that really
+explains a surprising body makes it predictable, so the wedge cools on the next reading.
+`// increments the counter` over a subtle retry loop cools nothing. A stale comment makes the
+wedge hotter, because the reader predicts what the comment describes and the body does
+something else. Comment volume can't game it. And a reader records whether a comment could
+have been written from the code alone. By default, a comment like that doesn't count as
+documentation on the Docs lens, so running a model over the repo can't turn the map green.
+
+Surprise alone can't tell a subtle algorithm from a mess, so git history supplies a second
+axis:
 
 |  | **Stable** | **Churning** |
 |---|---|---|
-| **Surprising** | Crown jewel — document, don't touch | Trouble — the mess |
-| **Predictable** | Bloat, if there's a lot of it | Quiet — ignore |
+| **Surprising** | Crown jewel: document it, don't touch it | Trouble: the mess |
+| **Predictable** | Bloat, if there is a lot of it | Quiet: ignore it |
 
-## `just scan`
+## Findings
 
-The headless scorer, and the honest one — it prints a temperature histogram before the
-rankings. A healthy repo shows a long cold tail and a thin hot end. If every bucket is
-full or everything piles into one, the metric is measuring nothing and the rankings are
-decoration.
+A single lens shows you extremes. The useful signals are the combinations the eye can't
+hold at once: big and baffling, load-bearing and unread, documented and still hot, clones
+whose copies have drifted apart. **Findings** are rules over the lenses, such as
+`func: dependents >= 20 and read < 1`. Each repo can tune the catalog in the rules editor.
+Each finding gets a verdict: it needs doing, it is fine for now (which expires when the code
+changes), it is always fine, or it is a false positive (which expires when the rule
+changes). The rules and the verdicts are both committed to the repo.
 
-```
-$ just scan ../tally
-/Users/rturk/projects/tally — 49 files, 467 functions, 9788 lines · heuristic (no model)
-  42% of lines are hot
+## History
 
-TEMPERATURE SPREAD
-    0-10  ██████████████████████████████████ 128
-   10-20  █████████████                      50
-   ...
-   90-100 ████                               16
+Sanity reads the repo's git history onto the map in stages. A quick log walk gives age,
+churn and authors per file. Per-line blame refines that down to each function. The full
+replay regrows the map one commit at a time.
 
-HOTTEST — surprising and nothing explains why
-    74°  assess                        255L  trouble     src-tauri/src/dashboards.rs:433
-    64°  run_entry                     159L  trouble     src-tauri/src/runtime.rs:313
-    71°  check                          82L  trouble     src-tauri/src/standards.rs:61
-```
+**History** plays that replay back. Scrub to any commit and the rings grow, shrink and
+recolor as the code did. Most lenses keep working during a replay, including the
+reading lenses: `.sanity/` is committed, so a frame shows what the repo knew about itself at
+that commit. A replay can be exported as an MP4 movie.
 
-Run it on something you wrote. If the hot list isn't roughly what you'd have named
-yourself, the metric is wrong and no amount of sunburst polish saves it.
+## Readings live in the repo, in `.sanity/`
 
-## Languages
+A reading takes minutes of an agent's time and can't be recomputed, so Sanity doesn't
+keep it in an app-support folder on one laptop. Readings are committed to the repo they
+describe, at `.sanity/`, as Markdown meant to be read: open `.sanity/readings/*.md` and it
+reads like notes from a code review.
 
-Rust, TypeScript, TSX, JavaScript, Python, Go, Swift, C, C++, Java, Kotlin, C#, Ruby, PHP,
-Lua, Elixir, Scala, Dart, Zig, Objective-C, shell and SQL. Files in other languages still appear as
-wedges — they just have no inner ring and no score, which is honest: we didn't read them.
+- **One file per top-level directory**, ordered by position in the source, so two people
+  reading one repo don't produce merge conflicts.
+- **Readings expire.** Each one records a hash of the body and comments it was made against.
+  When the code moves, the reading is marked stale, its wedge stops being colored and gets a
+  hatch instead, and it goes to the front of the queue for re-reading.
+- **Anyone with the repo can extend anyone's assessment.** A reading names who took it,
+  with which model and which agent, as provenance rather than ownership.
 
-## Where the real reading comes from
+`.sanity/rules/` holds the findings catalog, and `.sanity/findings/decisions.md` holds the verdicts on
+findings.
 
-The app itself needs nothing installed: it scores with an offline proxy that is honest
-about being a proxy. The measurement worth having arrives from a **reading** — an agent
-handed a function's name, signature and neighbours writes down what it expects, then opens
-the file and reports the gap. Those readings are committed to the repo at `.sanity/`, and
-they expire when the code moves out from under them.
+## Who does the reading
 
-Sanity runs the readers itself — one process per reader, started outside the repo, without
-your project settings, and with no tools but the three it takes a reading with. That is
-what makes a reading a prediction rather than a recollection, and it is why a run is
-started by a person rather than by the agent you happen to be talking to: a session that
-has been working in the repo already knows the answers.
-
-You need a coding agent installed and signed in — `claude`, `codex`, `opencode` or `agy`.
-Then either add the repo in the app and press Read, or:
-
-```
-sanity init --harness claude --model sonnet   # whichever agent and model you want reading
-sanity check                                  # --readers N, --limit N, --detach
-sanity status
-sanity summary
-```
+Sanity runs the readers. You need a coding agent installed and signed in: Claude Code,
+Codex, OpenCode or Antigravity. Each reader is a separate process, started outside the repo
+without your project settings, and given only the tools it takes a reading with. That is what
+makes a reading a prediction rather than a recollection. A session that has been working in
+the repo already knows the answers.
 
 **Which model reads is part of the measurement.** A smaller model is surprised by more, so
-the reader is the scale; mixing two over one repo gives you one map on two scales with
-nothing on screen saying which wedge is which. Every reading records the model and harness
-that took it.
+the model is the scale. Sanity records the model and agent behind every reading, and a repo
+should be read by one model throughout.
 
-Registering `sanity mcp` with a chat client is optional and does not change any of the
-above. It buys an agent the ability to open a project and read back the same status and
-summary you get from the CLI. What it never buys is a reading taken by that agent: its
+Sanity itself never calls a model and needs no API key or endpoint. Until a repo has been
+read, an offline heuristic decides which functions are offered to readers first. It never
+colors the map.
+
+## The CLI
+
+The same binary runs without a window:
+
+```
+sanity init --harness claude --model sonnet   # pick the agent and model that read this repo
+sanity check                                  # start a reading pass (--readers N, --limit N, --detach)
+sanity status                                 # what is out with readers, and how much is read
+sanity summary                                # what the readers found
+sanity findings                               # what is worth looking at, and why
+sanity trace                                  # read git history onto the map (--blame, --edits)
+sanity callers src/lib.rs#parse               # who calls one function, by name
+sanity export-data                            # everything the report reads, as JSON
+sanity refresh                                # rewrite .sanity/ in the current format
+```
+
+`sanity` with no arguments opens the window. `sanity mcp` is a stdio MCP server that lets a
+chat agent open a project and read back its status and summary. It can't take readings. Its
 context is full of the repo, so anything it graded would be recall.
 
-`just scan . --local <weights>` scores with a local model instead, no server involved —
-built with `--features local-metal` (or `local-vulkan`). That path exists for working on
-the metric, not for daily use; the app names whichever instrument produced the picture
-you're looking at.
+## Export
 
-## Building
+- **PDF**, in three forms: a **report** that stands alone like a paper (cover, methodology,
+  a section per lens, findings grouped by where they are on the map), a shorter **brief**,
+  and a 16:9 **deck**. File → Export Report as PDF… (⇧⌘E). The PDFs are vector and
+  searchable, and use embedded fonts.
+- **Movie**: the History replay as an MP4.
+- **Data**: `sanity export-data` writes everything the report is built from as JSON, and
+  `just render <repo>` draws the PDFs from it without opening a window.
 
-`just check` type-checks. `just test` is exactly what CI runs, in CI's order — if it
-passes, CI passes. `just release <version>` tags and pushes; CI builds macOS arm64, Linux
-x86-64 and Windows x86-64/arm64, signs and notarizes the Mac bundle, and attaches
-everything to a GitHub release. `just publish <version>` distributes it.
+## Building from source
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the metric, what it refuses to
-claim, and what isn't built yet.
+```
+just setup    # once: frontend deps and the Tauri CLI (assumes Rust and Node)
+just dev      # the app
+just cli status ../some-repo
+```
+
+Linux needs the WebKit and GTK development packages from your package manager first.
+`.github/workflows/release.yml` lists them.
+
+`just check` type-checks. `just test` runs exactly what CI runs, in the same order, so if it
+passes, CI passes. `just release <version>` tags and pushes. CI then builds macOS arm64, Linux
+x86-64 and Windows x86-64/arm64, signs and notarizes the Mac bundle, and attaches everything to
+a GitHub release. `just publish <version>` distributes it.
+
+## Further reading
+
+[docs/](docs/README.md) indexes the rest: the architecture, one note per area, and the plans,
+both finished and open.

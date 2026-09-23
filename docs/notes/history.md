@@ -5,13 +5,18 @@
 `history.rs` grows the same rings one commit at a time. It is a second *view*, not a
 second metric, and the line between those is the whole design.
 
-- **Surprise is not replayed, and the lens switcher is disabled to say so.** A
-  temperature is a reading taken against the code as it is NOW; stamping it onto the same
+- **A frame paints what the repo knew about itself at that commit, and nothing it did not.**
+  A temperature is a reading taken against a body; stamping TODAY's reading onto the same
   function's 2019 body would be the map claiming a measurement nobody took — the same sin
-  as a stale reading keeping its colour. What a frame is coloured by is recency, *as of
-  that frame's own date*, which is a fact about the commit stream and the only thing this
-  module reads. Greyed rather than hidden: remove the switcher and the rings are recoloured
-  with nothing on screen saying by what.
+  as a stale reading keeping its colour. That rule used to be read as "Surprise is not
+  replayed": the replay was pinned to Age and the lens switcher greyed to say so. But
+  `.sanity/` is committed, so the readings that existed at a commit are in the history like
+  everything else, and `history.rs` now folds each version of each shard as it walks, joined
+  to the functions by `assessment::key_of`. So the four reading lenses replay, and so do
+  Complexity, Composition, Language, Blame, Churn and Age; the switcher stays live. What
+  cannot be replayed is `REPLAY` in `colorMode.ts` — Clones, Callers and Reach, marked
+  `cost` — and those lock one lens at a time with `replayNote`'s sentence, rather than the
+  whole switcher changing what you are standing in.
 - **The end of the replay is the live map.** A story that arrives somewhere other than where
   you already were is not the same repo told forwards, and for a long time it was not: blame
   ranked one way replaying and another way standing still, so opening History recoloured the
@@ -56,7 +61,8 @@ second metric, and the line between those is the whole design.
   people in eleven colours over a picture where every one of them was the shared neutral — the
   key and the map disagreeing about the same wedge, with the key sounding more authoritative.
   Unranked is `other`, which is what the movie key had always done one surface over.
-- **Complexity IS replayed, and it is the only lens off the parse that is.** The walk already
+- **Complexity IS replayed, and it was the first lens off the parse that was** (Composition
+  followed — see below). The walk already
   re-parses every version of every file a commit touched — that is how it finds the functions
   — and `parse_functions` computes the cognitive count on the way past, which the walk was
   throwing away. So a frame banks `cog`, one score per function per commit, for no extra
@@ -139,7 +145,7 @@ second metric, and the line between those is the whole design.
   `just replay-check` folds a synthetic timeline to the same commit three ways and compares
   the trees field by field, and asserts on `cost` that the seek folded a bounded remainder,
   because a seek that thawed nothing is correct and slow and no comparison of trees can see
-  it. Read `docs/backward-scrubbing.md` before touching any of it.
+  it. Read `docs/plans/done/backward-scrubbing.md` before touching any of it.
 - **Drilling narrows the timeline, and that is a VIEW, not a second fold.** A directory's
   transport and log list only the commits that touched it — otherwise the scrub bar spends
   most of its length on commits that change nothing on screen. But the rings are still
@@ -215,7 +221,8 @@ second metric, and the line between those is the whole design.
   still drawing today. The lens, the sort order, the legend and `morph` were keyed on it, so
   pressing History repainted the live map in Age's greens and then repainted it again as the
   replay's first frame. `replaying` (the request AND a frame to show) is the key for all of
-  them, so it happens once.
+  them, so it happens once. (The lens is no longer switched at all — see the first rule; the
+  per-lens locks key on `replaying` instead.)
 - **Morphing starts from the picture on screen.** `geo` seeds a wedge the chase has never
   heard of at zero angular width so it OPENS rather than appearing — right for a file that
   shows up mid-replay, and catastrophic for the frame morphing is switched on, when the chase
@@ -305,7 +312,7 @@ second metric, and the line between those is the whole design.
   `unitsPerPx`, so density is a property of how large the map is being drawn and nothing
   else — an export that reasons about the pane it was staged from is the same picture
   upscaled. The export lays the markup out at the map's own side in the
-  file (`mapSide`), so a 4000px movie shows the files a 1000px one culls.
+  file (`mapSide`), so a 2160p movie shows the files a 720p one culls.
   **The fold has a threshold too, and it is SQUARED where the ring's is linear.** `minLoc`
   rolls a function up before a node is ever built, so the layout can only draw what the fold
   supplied. A wedge's share of the ring is an angle and falls in proportion to the width;
@@ -316,10 +323,13 @@ second metric, and the line between those is the whole design.
   all 25,600.
   **The codec ladder is H.264 then H.265, and the size is why.** VideoToolbox's H.264
   encoder stops around 8.9 million luma samples — fine for the 16:9 shapes that number was
-  written for, brutal for a square, where it lands at about 2985 a side. So 2160² passes,
-  3072² would not, and 4000² is sixteen million samples and never had a chance; no bitrate
-  or profile negotiates that down. `preflight` tries each codec in turn and returns the one
-  that actually encoded ten frames. The fallback is STATED in the dialog rather than silent:
+  written for, brutal for a square, where it lands at about 2985 a side. The frames were
+  square then, so 2160² passed, 3072² would not, and 4000² was sixteen million samples and
+  never had a chance; no bitrate or profile negotiates that down. The frame is 16:9 now
+  (`ASPECT`, with the repo's name, key and signature in the margins) and the sizes are
+  720p–2160p (`SIZES`), which all fit under the H.264 limit on this machine — but the limit is
+  the encoder's, so `preflight` still tries each codec in turn and returns the one that
+  actually encoded ten frames. The fallback is STATED in the dialog rather than silent:
   an `.mp4` that turns out to be H.265 is a different thing to hand somebody.
   **A refusal is the app's own sentence, never the encoder's.** What reached the person when
   4000² failed was WebCodecs' own words — a paragraph about "this browser", naming a profile
@@ -346,7 +356,7 @@ second metric, and the line between those is the whole design.
   prefers quantizer-based rate control) was tried first on the same evidence and did NOT fix
   it. It is kept because the quantizer path is the newer and thinner one, but it is not the
   cause. The stage display is what turned "it froze" into a line naming the encoder.
-  The MP4 is one of the two things the window writes — the other is a report, see
+  The MP4 is one of the two exports the window writes — the other is a report, see
   [report.md](report.md). `save_movie` takes a path from a native save dialog, refuses anything
   that is not `.mp4`, and the bytes cross the IPC base64 because the alternative shape for a
   byte array is a JSON array of numbers.

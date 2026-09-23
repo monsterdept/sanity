@@ -168,7 +168,7 @@ export interface Node {
   mainAuthor: string | null
   /** How many people's lines are standing in this body. `null` without per-line blame, never
    *  0 — which would be a claim that nobody wrote it. Not painted by any lens; it is a
-   *  findings field. See `TODO.md`. */
+   *  findings field. See `docs/plans/open/blame-ownership.md`. */
   headcount: number | null
   /** The comment attached to this node: a function's own doc, or a FILE's module header.
    *

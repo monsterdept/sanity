@@ -13,7 +13,7 @@ have to re-root, and it is why depth past legibility is not a camera problem. Th
 
 Three things came out of it and are on main:
 
-- **The count is the reader's, within a bounded range** (`lib/rings.ts`, 3–16, default 5).
+- **The count is the reader's, within a bounded range** (`lib/rings.ts`, 3–12, default 5).
   It passes the test the reader batch size failed: the consequence of changing it is visible
   immediately, in the picture, so a person has something to base the choice on. A batch size
   hides its consequences in a corpus months later, which is why that slider was built and
@@ -28,6 +28,13 @@ Three things came out of it and are on main:
   claim that sixteen reads on any given repo: that judgement is the reader's, which is the
   point of the control, and the ceiling is what keeps it a judgement rather than a number
   box. Depth still buys rings and not ANGLE, so it is still not a substitute for drilling.
+
+  Sixteen went with the control it rested on. The ring width slider is no longer offered —
+  `SPACING_DEFAULT` fixes `width` at 1, which puts the hub back at a fixed 62 and every band
+  back at `(340 − 62) / rings` — and a ceiling justified by a slider nobody can reach is a
+  number with no argument behind it. The top is twelve now: a judgement about where the outer
+  band stops being worth drawing on a repo deep enough to fill it, not the eight that came
+  before.
 - **`minAngleAt` — the cull threshold is per RING.** An angle is not a width: the arc a span
   subtends is `r × angle`, so the old single threshold measured at `R_OUTER` was letting the
   innermost ring draw wedges four times under a pixel. Wrong in the safe direction, and less
@@ -174,12 +181,17 @@ Three things came out of it and are on main:
   author are facts about a file, so the fold could already total them; a band is a fact about a
   FUNCTION, and there was nothing at file resolution to total. So the frame keeps `pathTs` and
   a `pathHits` ring per path — stamped in the same loop that already writes `author[p]`, from
-  the same list of paths a commit touched, one write per file per commit. The tally then
-  carries `[days, commits, churn, lines]` per folded file, RAW: a band is `colorMode`'s answer
-  and a ramp needs a span the fold has never heard of, so the fold reports what it measured
-  and `contribute` bands it by calling itself — one definition of a band rather than two.
-  The churn ramp rides in the tally rather than being recomputed where it is read, because its
-  saturation is the replay's own; without it the bucket has a band and no mean, and a ramped
+  the same list of paths a commit touched, one write per file per commit — and a per-path
+  birth date beside them for Age's oldest-line reading. The tally then carries a `TimeRow`
+  per folded file — `[touched, born, lines]` and a commit count per churn window,
+  `TIME_STRIDE` numbers in all — RAW: a band is `colorMode`'s answer and a ramp needs a span
+  the fold has never heard of, so the fold reports what it measured and `contribute` bands it
+  by calling itself — one definition of a band rather than two.
+  The churn ramp is derived where it is read, from those commit counts and
+  `churnSaturation`, which `api.ts` owns and the live map shares. It used to ride in the tally
+  because its saturation was the replay's own; once a repo picks its own windows the two
+  halves have to agree about what saturates one, and one owner makes deriving the
+  single-source version. Without a ramp the bucket has a band and no mean, and a ramped
   bucket with no mean draws an EMPTY fill, which is a segment nobody can see rather than an
   error anybody can.
   **A checkpoint carries both new arrays, and that is the part with teeth.** A field left out
@@ -187,6 +199,9 @@ Three things came out of it and are on main:
   directory with no age at all, rather than one that failed to thaw. `replay-check` renders
   `folded` into its fingerprint for exactly this: drop the two arrays from `thaw` and it fails
   at the first seek past a checkpoint.
+  Composition and Complexity took the same road since: the tally carries lines by kind, and a
+  `TangleRow` per file — the file's own LOC-weighted answer, what `Node::aggregate` gives a
+  file on the live map — banded by `contribute` calling itself, as `time` is.
   Callers, Reach, Clones and the reading lenses still say nothing about a roll-up. There is
   nothing at file resolution to answer them with, and a band invented for a fold is a reading
   nobody took.
@@ -224,11 +239,11 @@ Three things came out of it and are on main:
   there, once, beside the button that answers it. `ScanStats::withoutHistory` stays unwired on
   purpose: it would take a sixth parameter through `contribute`, `bucketsFor` and
   `histogramsFor` to say something the lens says better.
-  Two things the measurement turned up on the way and neither is fixed: the traced tree is
-  never written to disk — `treecache::save` runs only inside `scan()`, before `deepen` — so
-  the stored map is untraced by construction and every launch re-derives what somebody already
-  paid for; and `slim()` on an already-slim tree returns EMPTY columns rather than the ones it
-  has, because `Cols::of` reads children a slim file no longer holds.
+  Two things the measurement turned up on the way, both since fixed and written up above: the
+  traced tree was never written to disk — `treecache::save` runs only inside `scan()`, before
+  `deepen` — until `redraw` banked the drawable half once a trace lands; and `slim()` on an
+  already-slim tree returned EMPTY columns, because `Cols::of` reads children a slim file no
+  longer holds, until `slim` was made idempotent.
     **Surprise is the one lens whose pane breakdown is not `bucketsFor`** — it is `Spread`,
   counted in `summarize` by FUNCTION rather than by line, because its rows are lists somebody
   clicks. The rim reproduces its categories, colours and order and differs in exactly one

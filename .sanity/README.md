@@ -23,14 +23,14 @@ one and read it like notes from a code review.
 ## Seeing it as a map
 
 Sanity draws this repo as a sunburst with every file and function represented,
-colored by predictability, legibility, doc coverage, churn, and four other
+colored by predictability, legibility, doc coverage, churn, and nine other
 dimensions. Open the app to visualize these readings.
 
 ```
 brew install --cask monsterdept/tap/sanity
 ```
 
-Or download it for macOS or Windows from <https://sanity.monster>.
+Or download it for macOS, Linux or Windows from <https://sanity.monster>.
 
 ## Updating this assessment
 

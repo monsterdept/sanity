@@ -13,8 +13,8 @@ readings (1.4 MB) parse in 30ms, once, on open.
   mirror "for safety": a user who cannot tell which copy they are looking at is worse off
   than one who lost a file.
 - **The migration that replaced it destroyed a project's readings. Read this before
-  writing another one.** It matched legacy entries by node id; node ids embed `@line`;
-  the lines had moved. So it wrote almost nothing, that write returned `Ok`, and the code
+  writing another one.** It matched legacy entries by node id; node ids then embedded
+  `@line`; the lines had moved. So it wrote almost nothing, that write returned `Ok`, and the code
   deleted the source because `Ok` looked like proof. Two rules fall out: never key
   anything durable on a node id (that is what `key_of` is for), and never gate a
   destructive step on a write returning `Ok` — read the result back and check it.
@@ -27,9 +27,9 @@ readings (1.4 MB) parse in 30ms, once, on open.
   already. Nothing a source tree can be called reaches a subdirectory.
   **A shard name is a path, not a segment.** `shard_file` maps `src-tauri` to
   `readings/src-tauri.md` and would map `src-tauri/src` to `readings/src-tauri/src.md`; every
-  segment is sanitised on its own, and a segment of nothing but dots is refused because `..`
-  is a direction rather than a name and the link list is fed to `remove_file`. `src-tauri.md`
-  is 1.1MB on this repo, so a bigger one will want finer shards: when it does, `shard_of`
+  segment is sanitised on its own, and a segment of nothing but dots is flattened to dashes
+  (`..` becomes `--`) because `..` is a direction rather than a name and the link list is fed
+  to `remove_file`. `src-tauri.md` is 1.3MB on this repo, so a bigger one will want finer shards: when it does, `shard_of`
   returns a deeper prefix and nothing else moves.
   **The move itself was `git mv`, not the app.** Reading the old flat layout and writing the
   new one is what the no-migrator rule prescribes and it is what the code does — but done
@@ -150,8 +150,9 @@ readings (1.4 MB) parse in 30ms, once, on open.
   `report` handler puts it in `ok`/`error`/`hint` so the agent stops. Silently diverting
   to a hidden file is how a reading looks saved and isn't.
 
-- **Keys are `key_of(path, name, ord)`, never the node id.** Node ids carry `@line` and
-  would orphan every reading the moment somebody adds an import. `path#name` alone is
+- **Keys are `key_of(path, name, ord)`, never a line.** Node ids used to carry `@line`,
+  which would orphan every reading the moment somebody adds an import; a function's node id
+  is now `key_of` itself. `path#name` alone is
   NOT unique — Swift files hold a dozen `init`s, Rust files hold same-named methods in
   different `impl` blocks — so the second twin takes `#2`, the third `#3`, by position in
   the file. Assuming uniqueness cost 91 functions and two false expiries on one real
@@ -195,9 +196,11 @@ readings (1.4 MB) parse in 30ms, once, on open.
   directory behind is a surprise where people run `git status`.
 - **Never let a reader see `.sanity/` before it predicts.** Being told what the last
   reader found is recall, not prediction — the same contamination `cold` exists to
-  expose. The MCP descriptions say so; keep them saying it. A reader Sanity launched
-  cannot reach it at all, which is the point of launching them — but the rule stays
-  written down, because a hand-driven session still can and the descriptions are the only
+  expose. The MCP descriptions say so; keep them saying it. A reader Sanity launched is
+  never told where the repo is and runs from a directory outside it, which is the point of
+  launching them; a Claude reader is also held to the sanity tools by `--allowedTools`,
+  while Codex, opencode and Antigravity readers are isolated by where they run rather than
+  by what they may touch. The rule stays written down, because a hand-driven session still can and the descriptions are the only
   thing standing there.
 - **The repo's own brief is the contamination `cold` cannot see, and it is recorded in two
   halves.** A host that injects `CLAUDE.md` into every subagent hands each reader a
@@ -214,14 +217,14 @@ readings (1.4 MB) parse in 30ms, once, on open.
   **`sanity check` fixes this rather than warning about it**, and that is the one part of
   the priming problem that got solved instead of measured. Sanity launches each reader
   itself, from a directory outside the repo and with the project's own settings excluded
-  (`--setting-sources user` on Claude, `--ignore-user-config` and `-C` on Codex), so the
+  (`--setting-sources user` on Claude, a private `CODEX_HOME` and `-C` on Codex), so the
   brief cannot reach a reader's context at all. The remedy used to be a launch flag a human
   had to know about; now it is how readers are started.
-  **The warning survives in `/open` only**, and its audience has narrowed to one: somebody
-  who has deliberately set `SANITY_ROLE=reader` in their own MCP config and is driving
-  readings from a session they built. That is the last way a reading gets taken that Sanity
-  did not launch. It went from `sanity study` with the verb; it is not shown to readers at
-  all, because a reader's context is built before it can call anything, so telling it costs
+  **The warning survives in `/open` only**, and its audience has narrowed to one: an
+  orchestrator driving readings from a session it built rather than through `sanity check`.
+  That is the last way a reading gets taken that Sanity did not launch. It went from `sanity
+  study` with the verb; it is not shown to readers at all — a `SANITY_ROLE=reader` shim
+  refuses `sanity_open` — because a reader's context is built before it can call anything, so telling it costs
   tokens and changes nothing. It is a warning and never a refusal — whether the priming
   matters is a judgement about a specific repo. `primed` is still asked either way, because
   a reader is the only party that can see its own context.
@@ -243,7 +246,7 @@ readings (1.4 MB) parse in 30ms, once, on open.
   which is the honest shape.
 - Nothing is user-scoped. `by:` is provenance to read, not ownership; anyone with the
   repo extends anyone's assessment.
-- **A stale reading must not colour its wedge.** `applyAgentReports` drops its score and
+- **A stale reading must not colour its wedge.** `readInto` (behind `applyAgentReports`) drops its score and
   the wedge falls back to the proxy; a hatch (`#stale-hatch`) marks it, and the reading
   stays in the panel as history. Keeping the old colour would be the same sin as a term
   claiming confidence it hasn't got. `node.proxyScore` exists only so this is reversible

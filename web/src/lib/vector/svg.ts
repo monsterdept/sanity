@@ -8,7 +8,7 @@ import { IDENTITY, multiply, parseSvgPath, VPath, type Matrix, type Surface } fr
  * **A translation of the markup the map renders, never a second drawing of the map.** Every
  * decision about a wedge — its arc, its color, whether its label fits — was made by the map's own
  * code, and what arrives here is its output: paths, circles, lines, text, text along arcs, and the
- * stale and fold hatches as patterns. This reads exactly that set (see `docs/offline-renderer.md`)
+ * stale and fold hatches as patterns. This reads exactly that set (see `docs/plans/done/offline-renderer.md`)
  * and throws on an element it does not know, because an element silently dropped is a wedge
  * silently missing.
  *

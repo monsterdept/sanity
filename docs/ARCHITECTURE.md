@@ -14,6 +14,12 @@ which the user already has in abundance, but judgement about their own work.
 Size is the axis everyone copies and the axis that tells you nothing — you already know
 your parser is long. Colour is the product.
 
+The map wears one lens at a time: thirteen of them in four families — code shape
+(Complexity, Composition, Language, Clones), interconnectivity (Callers, Reach), activity
+(Blame, Age, Churn) and assessment (Predictability, Legibility, Docs, Traps). Width is lines
+under every one of them. Predictability is the lens this document is about: its color is
+surprise, and it is the reason the others are worth having.
+
 ## The metric
 
 > Boilerplate is code a model can predict from its context.
@@ -22,13 +28,15 @@ Feed a function its name, signature and neighbours; measure how surprised the mo
 the body. Low surprise is scaffolding. High surprise is where the decisions are.
 
 The app scores with an offline **proxy** — no model, no download, no network — and takes
-its real measurement from readers over MCP. The proxy's only surviving job is ORDERING: it
+its real measurement from readers: coding-agent CLIs it launches itself, one process per
+reader (`harness.rs`, `agentapi::run_wave`), each of which reaches Sanity over MCP and
+commits to what it expects before it is shown the body. The proxy's only surviving job is ORDERING: it
 decides which functions a reader is offered first. It never reaches the map, because
 `Source::Proxy` is refused a colour.
 
-The heuristic is an honest **proxy** and the UI names whichever ran. It exists because a
-tool that shows nothing until you install a 4GB model is a tool nobody sees the point of.
-It mixes four terms (`heuristic.rs`):
+The heuristic is an honest **proxy**. It was built so a map had color before anyone
+installed a 4GB model; now that the proxy is refused a color, a wedge nobody has read shows
+as unread, and the proxy's four terms only decide the order of the queue (`heuristic.rs`):
 
 1. **Distinctiveness** — how unlike its siblings the body is, by Jaccard overlap of
    token 3-gram shingles. The strongest term, because the dominant form of boilerplate in a real
@@ -70,9 +78,9 @@ forced decoding, beyond the overlap number: the cobra command definitions that s
 96-98° in every earlier attempt dropped off the ranking entirely, and heat decoupled from
 length — a 24-line function at 93° outranked a 107-line one at 50°.
 
-Its cost was one decode step per token of every body scored, which is why `min_lines`
-survives on the trait and why the persistent score cache exists. Nothing writes that cache
-today.
+Its cost was one decode step per token of every body scored, which is why it wanted a
+persistent score cache. The `SurpriseModel` trait, its `min_lines` and that cache were
+removed with it.
 
 ## Temperature, and why the map drains
 
@@ -81,8 +89,8 @@ temperature = surprise
 ```
 
 It was `surprise × (1 − explained)` and that was double-counting. Documentation now
-reaches the **instrument** rather than the arithmetic: the model is given the comment
-stack a reader would have, and an agent is handed the docs before it predicts. A comment
+reaches the **instrument** rather than the arithmetic: a reader is handed the comment
+stack — the function's doc and its file's header — before it predicts. A comment
 that genuinely explains the body makes the body predictable, so the surprise term has
 already fallen — discounting it a second time charged for the same thing twice, and
 showed the user two bars that were the same number on every undocumented wedge.
@@ -100,7 +108,8 @@ surprise goes **up**. Stale docs read hot, which is what makes the map self-inva
 rather than merely drainable.
 
 `documented` survives as a separate, reported number — how well the docs cover what the
-code does, graded by the reader that read both. It is shown, not folded into the colour,
+code does, graded by the reader that read both. It is shown — on its own Docs lens and in
+the panel — not folded into the surprise color,
 because "surprising and undocumented" and "surprising but well covered" are different
 situations and only one of them is anyone's fault.
 
@@ -110,8 +119,11 @@ A model-written comment must not cool a wedge. If the model could produce the ex
 from the code alone, the explanation was already latent in the code — cooling it is
 circular. Without that rule, someone runs an LLM over the repo, everything turns green,
 and the map is a liar. `Provenance` has no variant with weight for model-authored text,
-and `Source` (a comment already in the file, author unknown) is discounted because
-increasingly an agent wrote it.
+and `Source` (a comment already in the file, author unknown) is weighted below `Human`
+because increasingly an agent wrote it — though with temperature equal to surprise, nothing
+applies those weights to the map today. The guard that does act is a question: the reader
+records whether a doc could have been written from the code alone (`derivable`), and a
+derivable doc does not count as documentation on the Docs lens.
 
 What this **cannot** do is verify truth. A confidently wrong comment still cools a wedge;
 surprise-reduction measures explanatory fit, not correctness. The mitigation is that the
@@ -130,6 +142,9 @@ repo):
 | **Surprising** | Crown jewel — document, don't touch | Trouble — the mess |
 | **Predictable** | Bloat (if bulky) / Quiet | Bloat / Quiet |
 
+The map wears one lens at a time, so it never draws this table as a verdict; the
+conjunctions are what findings ask (`findings.rs`, [findings.md](notes/findings.md)).
+
 No git history means no second axis, and the UI says so rather than showing a
 confident-looking half-verdict.
 
@@ -142,7 +157,7 @@ depths, each about ten times the last (`trace.rs`):
 |---|---|---|---|---|
 | 1 · the log walk | age, churn, commits, authors — per FILE | 6.5s | 17.5s | 56s |
 | 2 · per-line blame | the same four facts per FUNCTION | 206s | — | — |
-| 3 · the replay | the timeline (`history.rs`) | minutes | — | — |
+| 3 · the timeline | how many times each function actually changed (`history.rs`, `edits.rs`) | minutes | — | — |
 
 Depth 2 is **resolution, not the axis**: a function takes its own history where blame could
 read it and its file's otherwise, which is what `score_dir` has always done for untracked
@@ -167,11 +182,18 @@ heuristic.rs  the offline proxy + the measured doc-coverage term
 surprise.rs   what the model path proved before it was removed, and `Hotspot`
 churn.rs      one `git log` → the stability axis, banked and refreshed rather than rewalked
 blame.rs      one `git blame` per file → the same axis resolved to the function
+history.rs    the repo replayed commit by commit — the timeline, and History mode
+edits.rs      how many times each function changed, counted off the timeline (Churn)
 trace.rs      the depths, the budget, and the fold that lands history on a drawn map
+tangle.rs     cognitive complexity, calibrated against the size of the body (Complexity)
 edges.rs      call sites → who calls whom, and how far the call travels
 clones.rs     normalised bodies → which functions are copies of each other
 links.rs      the two above, kept, so the panel can answer "which fourteen"
 model.rs      the tree, LOC-weighted aggregation, temperature
+findings.rs   rules over two lenses at once → the findings list
+assessment.rs `.sanity/` — readings as committed Markdown
+agentapi.rs   the reading queue, and the waves of readers `harness.rs` spawns
+mcp.rs        `sanity mcp`, the server a reader (or your own agent) talks to
 ```
 
 Two decisions worth knowing:
@@ -263,19 +285,23 @@ contamination the cold/warm flag exists to expose.
 
 ## Not built yet
 
-Named here so the gaps don't read as oversights:
+The contrastive summary used to head this list and is built, by readers rather than by the
+model-backed scorer it was waiting for: a reader's prediction is stamped before the body is
+served, and the panel shows it as **Expected** beside **Found** — *"expected a thin wrapper
+that forwards to the client; found a hand-rolled backoff that swallows one error class."*
+See [readers.md](notes/readers.md) and [panel.md](notes/panel.md).
 
-- **The contrastive summary.** *"Expected a thin wrapper that forwards to the client;
-  found a hand-rolled backoff that swallows one error class."* This is the payoff for the
-  whole perplexity approach — you can only write that sentence if you know what the model
-  expected — and it needs the model-backed scorer.
+The rest are named here so the gaps don't read as oversights:
+
 - **The interview loop.** Asking "why is this like this?" and banking the answer at
   `Provenance::Human`. The only thing that legitimately cools the map all the way.
 - **Non-code views.** Decision tables, side-effect inventories, prose that follows
   execution. Pseudocode is deliberately *not* the plan: it's usually just code with worse
   syntax, and the hard part was never syntax — it's holding the branching and the state.
 - **The diff view.** Two scans, before and after. "Your agent added 11k lines here and
-  you have never opened a file in it."
+  you have never opened a file in it." History replays the repo commit by commit and flashes
+  what each commit added or changed, but nothing compares two points and says what is new
+  since you last looked.
 - **A call graph worth drawing.** `edges.rs` resolves by name within one language family,
   which is enough for two scalars per function and for the neighbour lists `links.rs` serves
   — and is not a dependency graph. Types, imports and overload resolution are what would

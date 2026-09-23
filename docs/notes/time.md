@@ -19,14 +19,16 @@ question churn cannot answer. Pulled apart they are two independent readings; fu
 qualifier. Both framings are legitimate, they want different numbers, and that is most of why
 what we built satisfies neither.
 
-Three jobs, then, and only the one nobody sees is done:
+Three jobs, then, and when this note was written only the one nobody sees was done:
 
 1. **Qualify surprise** — needs them fused. Built, consumed only by the headless scorer,
    deleted with it.
-2. **Find hotspots** — needs churn alone, meaning frequency. Not built; what ships measures
-   something else.
-3. **Find dusty code** — needs age, crossed with something that is not churn. Not built, and
-   inverting the ramp does not get there.
+2. **Find hotspots** — needs churn alone, meaning frequency. Not built then; what shipped
+   measured something else. **Built since** — see *Churn: resolved*.
+3. **Find dusty code** — needs age, crossed with something that is not churn. Inverting the
+   ramp does not get there. Only partly built: the findings rules `fossil` and `fossil-trap`
+   cross untouched-for-years with size and with a reader's trap mark; see *Where this leaves
+   it*.
 
 ## What they are for
 
@@ -146,7 +148,8 @@ because it was wrong. If it comes back it comes back as its own lens with its ow
 
 ## What they measured, and how that read
 
-- **Age paints recency, and it is the rejected reading exactly.** `--age-4`, the brightest
+- **Age paints recency by default, and it is the rejected reading exactly.** (It can now paint the
+  oldest line instead — see *Where this leaves it*.) `--age-4`, the brightest
   stop, is the RECENT end; `RAMP_ENDS` reads `['old', 'recent']`; `AGE_BANDS` is documented
   "most recent first"; and the house rule is that the loud end leads. Every one of those is
   consistent with the others, which is why nobody noticed — the lens is a well-built answer to
@@ -162,7 +165,7 @@ because it was wrong. If it comes back it comes back as its own lens with its ow
   rewritten last week or has sat untouched since 2014. That is a real reading — how many hands
   are layered in the code in front of you — and it is not the hotspot the purpose asks for.
 - **Both naive readings exist as fields already.** `Score::age_days` is "days since the code
-  first appeared" and the panel prints it as *First seen*; `Score::all_commits` is "every
+  first appeared" and the hover tooltip prints it as *First seen* (`WedgeTip.tsx`); `Score::all_commits` is "every
   commit that has ever touched this path". So "how old is the oldest part" and "how many times
   has this changed" are named quantities sitting beside the ones the lenses paint. A field
   called `age_days` means what a person means by age; the lens called Age does not.
@@ -197,12 +200,13 @@ because it was wrong. If it comes back it comes back as its own lens with its ow
   read; old AND heavily called is load-bearing and unexamined; old AND undocumented is the
   handover risk. Three different worries, all three already measured, and none of them crossed
   with age anywhere.
-  **Which runs into the fact that this app has no way to cross two lenses at all.** The banner
+  **Which ran into the fact that this app had no way to cross two lenses at all.** The banner
   that named the quadrants was removed for explaining an enum's vocabulary to somebody who had
   never been shown it, and the four-dial row for being the same four answers a screen earlier.
-  The panel and the tooltip both follow the current lens. So the only crossing a user can
-  perform is to switch lenses and remember — which works, and works only because nothing moves
-  between them, and is nowhere stated as a thing you can do.
+  The panel and the tooltip both follow the current lens. So the only crossing a user could
+  perform was to switch lenses and remember. Findings are that crossing now — a rule is clauses
+  over several lenses' fields (`findings.rs`, see [findings.md](findings.md)) — but of the three
+  age worries above, only a trap crossed with age ships as a rule (`fossil-trap`).
 - **Renaming fixes the vocabulary and none of the readings.** Age → Recency would be honest and
   would free the word for a lens that means it, but the purpose above still has nothing painting
   it.
@@ -217,9 +221,13 @@ it gives exactly "how many times has this function changed, ever" — the freque
 purpose asks for — and the same pass gives the distinct authors behind a function, which is the
 contention half of that purpose and is currently measured nowhere at all.
 
-That walk is expensive once and cached (`history::read_cached`). Today it is built only when
-somebody opens History, so the number the live map wants is already being computed behind a
-feature that exists for something else.
+That walk is expensive once and cached (`history::read_cached`). When this was written it was
+built only when somebody opened History, so the number the live map wanted was already being
+computed behind a feature that exists for something else. `edits.rs` now reads that same
+stored timeline for Churn (`Depth::Edits`), and walks just the churn window's commits when none
+is stored. The authors half is
+still unused: `Node::headcount`, the one per-function count of people, comes from blame — people
+with lines STANDING — not from the timeline's record of who changed it.
 
 **Contention is not churn and should not be folded into it.** How often a thing changes and how
 many people change it are different questions with different answers — a file one person rewrites
@@ -239,9 +247,11 @@ weekly is not the coordination problem a file six teams touch quarterly is.
    so a body rewritten wholesale has nothing left saying when it was written. `oldest line` is a
    fact; when this code first appeared is not one we hold.
 
-   **The crossing is still open.** Old AND surprising, old AND heavily called, old AND
-   undocumented are three different worries, all three measured, and none of them crossed with
-   age anywhere. This app still has no way to cross two lenses at all, and that is the thing to
+   **The crossing is still mostly open.** Old AND surprising, old AND heavily called, old AND
+   undocumented are three different worries, all three measured, and none of them ships as a
+   rule crossed with age. The mechanism exists now — findings rules can name `age` or `touched`
+   beside `surprise`, `callers` or `docs`, and a person can write one in the rules editor — but
+   the shipped catalog crosses age only with a trap (`fossil-trap`). Those rules are the thing to
    build next — not a third reading of age.
 
 Neither was a rename, and neither was started by adjusting a ramp direction and calling it done.

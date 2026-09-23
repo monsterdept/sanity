@@ -1439,14 +1439,14 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
          ## Seeing it as a map\n\
          \n\
          Sanity draws this repo as a sunburst with every file and function represented,\n\
-         colored by predictability, legibility, doc coverage, churn, and four other\n\
+         colored by predictability, legibility, doc coverage, churn, and nine other\n\
          dimensions. Open the app to visualize these readings.\n\
          \n\
          ```\n\
          brew install --cask monsterdept/tap/sanity\n\
          ```\n\
          \n\
-         Or download it for macOS or Windows from <https://sanity.monster>.\n\
+         Or download it for macOS, Linux or Windows from <https://sanity.monster>.\n\
          \n\
          ## Updating this assessment\n\
          \n\

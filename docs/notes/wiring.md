@@ -62,14 +62,29 @@ an impl and the code using it sit together. That argument fails exactly where it
 a big file that uses a common method name it also defines. `parse.rs` defines a test-only `walk`
 and writes `cursor.walk()` throughout, and the finding read *19 call sites depend on this*. A
 blind reviewer caught it by reading the body, which is the only way it was ever going to be
-caught. So a receiver this repo cannot name now reaches nothing at all.
+caught. So a receiver this repo cannot name was made to reach nothing at all.
+
+**And the file tier came back, for methods only, because closing it cost the thing it was
+closed to protect.** Every method of `impl Environment for ManagedEnvironment` read as untested
+while the tests calling `env.install(…)` sat beside them in the same file — and whether that
+call resolved at all depended on whether some file in the repo happened to be named `env.rs`,
+which would make the receiver a module name and reopen every tier. `cursor.walk()` is now
+refused where it belongs, in `wire`: a body outside `#[cfg(test)]` cannot call one inside it,
+which is a fact about what the compiler builds rather than a guess about a receiver. So a call
+through a receiver this repo cannot name may land on a METHOD in its own file, and past that
+file it reaches nothing — repo-uniqueness is evidence about a name, and none at all about a
+type.
 
 What the file tier was really standing in for is `self`, and `self` deserves better than
 locality: it is the one receiver whose type is not a lookup, because the body doing the calling
 is defined in something and that something is what `self` means. `this` and `Self` are the same
 word elsewhere. Handled by name, it beats locality the way a named owner does — and it is why
-closing the file tier costs 54 functions their last caller rather than the 180 the fully strict
+closing the file tier cost 54 functions their last caller rather than the 180 the fully strict
 rule cost.
+
+`super::f()` and `crate::f()` are the other exception, the other way round: they name a SCOPE,
+not a receiver, and resolve as a bare name. Read as an unnameable receiver they were thrown
+away, and `super::thing()` is how a Rust unit test calls the thing it tests.
 
 **`Via::Dot(None)` is the case that kept the bug alive through the first attempt.**
 `xs.iter().collect()` has a receiver with no name to check, because it ends in a paren. Read
@@ -117,10 +132,12 @@ conventions we bothered to encode — our own diligence, presented as a property
 `Tested` keeps the level, the way `Provenance` keeps four variants rather than two:
 
 - **Contract** — the repo's author wrote it down. `#[cfg(test)]` is a declaration to the
-  compiler, `_test.go` one to the go tool, a `jest` key in `package.json` one to jest. All
-  three are somebody saying which code is a test, and reading a declaration is not guessing.
-  **A contract answers both ways**: Rust's silence is a real `false`, which is exactly what
-  lets a Rust repo skip the reader question entirely.
+  compiler (and `tests/` beside `src/` is cargo's), `_test.go` one to the go tool. Both are
+  somebody saying which code is a test, and reading a declaration is not guessing. Only Rust
+  and Go have one: a `jest` key in `package.json` is read, but only as evidence that a runner
+  exists — it says a repo has tests, not which code they are — so the JS family is answered by
+  convention or a reader. **A contract answers both ways**: Rust's silence is a real `false`,
+  which is exactly what lets a Rust repo skip the reader question entirely.
 - **Reader** — a reader read the body and said so. Asked ONLY where no contract exists,
   because paying a sentence per reading to be told what the compiler already said buys
   nothing. It is the only source that can see a fixture living in a production file, which
@@ -133,6 +150,10 @@ conventions we bothered to encode — our own diligence, presented as a property
 Contract beats Reader beats Convention, and the order is what the evidence is worth: a
 contract is a fact about what ships, a reader actually read the body, a convention only ever
 saw the path.
+
+`Tested` carries a fourth variant, `Parsed`, and it is not a fourth level of this ladder: it
+is how a file is known to be plain code — it went through a real grammar and nothing marked it
+otherwise — and it answers what a file IS rather than whether a body is a test.
 
 **Absence is not a level.** `None` means nobody has said, and it must never render as "not a
 test". C++ has no contract at all — googletest is a library, not a build rule — so on ceph
@@ -182,7 +203,8 @@ and miscounting a dependent prints a sentence that is false. Worth unifying behi
 function with a tier argument; not worth forcing to one threshold.
 
 `findings::in_a_test_module` asked whether an owner chain ran through a module named
-`tests`. The findings population asks `Node::tested` now, which is strictly more, and the
+`tests`. It is still defined, as the one thing that can answer from an owner alone, and
+nothing calls it. The findings population asks `Node::tested` now, which is strictly more, and the
 44 functions that left this repo's population are the ones a name could never have seen:
 eight `#[cfg(test)]` modules called something else — `slot_tests`, `real`, `languages`,
 `kinds`, `complexity` among them. A blind reviewer had already been taken in by that gap,
@@ -191,8 +213,8 @@ when all three are test modules.
 
 ## What `dependents` costs, which is not nothing
 
-`dependents` is `None` wherever `is_test` has no answer, and the three rules that gate on it
-then do not match those subjects at all. That is the same silence `callers` has always had on a
+`dependents` is `None` wherever `is_test` has no answer, and the rules that gate on it — seven
+of the built-in set — then do not match those subjects at all. That is the same silence `callers` has always had on a
 language whose calls nobody taught it to follow — but it is a WIDER silence, and the widening
 is a real cost paid for the sentence being true.
 

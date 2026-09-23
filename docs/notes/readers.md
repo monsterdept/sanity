@@ -31,18 +31,19 @@ right when it was written:
   toggle, the selection clears, and a directories-only panel with no selection confirms the
   folder you are BROWSING — so the guard fired constantly at people who had pointed at a
   repo. Nothing about scanning needs git; churn and blame degrade to "no history", which
-  the app already says out loud. The CPU hazard is now unguarded and wants a size warning
-  rather than a rule that refuses folders somebody meant to pick. `docs/bugs/` holds the
-  repro: list view fails, icon and column do not.
+  the app already says out loud. The CPU hazard gets a warning instead of a rule: a folder
+  that is not itself a repo has the repos directly inside it counted, and one holding more than
+  one asks before it is scanned (`That folder holds N repos`, with `Scan it anyway`).
+  `docs/bugs/` holds the repro: list view fails, icon and column do not.
 - **"Do not read `.sanity/`" and "read only the lines you were given."** Both were rules
   addressed to a model, and readers improvised around them three times. They are now absent
   capabilities: source arrives from `sanity_reveal`, and a Claude reader is launched with
   `--allowedTools` naming the three sanity tools and nothing else.
 
 **What Sanity buys with the spawn is isolation it can guarantee instead of ask for.**
-Readers run outside the repo (`cwd`), without project settings (`--setting-sources user`,
-`--ignore-user-config`), and with only their own tool surface. That last one is why
-`SANITY_ROLE` exists: the process creating the connection knows what it is for, so a reader
+Readers run outside the repo (`cwd`), without project settings (`--setting-sources user` on
+Claude, a private `CODEX_HOME` on Codex), and with only their own tool surface. That last one
+is why `SANITY_ROLE` exists: the process creating the connection knows what it is for, so a reader
 is offered `next`/`reveal`/`report` and never loads the orchestrator's tools. Measured, that
 took the per-reader fixed prefix from 2,752 tokens to 2,208.
 

@@ -16,6 +16,11 @@ callers unless you have read `parse.rs`, and a repo whose language is unsupporte
 repo with no functions in it. The literal node-kind matching exists to make that loud in a test;
 it is silent in the window.
 
+**Built since, mostly.** The lens help has a Languages tab (`LensHelp.tsx`'s `Languages`, fed by
+`parse::language_support`) listing every language with its extensions and whether Callers ·
+Reach and Complexity can read it. What it still does not say is which extensions are refused
+and why — MATLAB and V appear nowhere in the window.
+
 ## Complexity counts eleven languages of sixty-three
 
 `parse::branch_kinds` has tables for Rust, TypeScript, TSX, JavaScript, Python, Go, C, C++,
@@ -40,8 +45,8 @@ a twelve-way dispatch, which is the cyclomatic mistake this formula exists to av
 The rest are mostly small or single-construct languages. Adding one is a list of node kinds plus
 a line in the test.
 
-It shares a root with the item above it: the app cannot say what it can and cannot read, so a
-grey wedge is indistinguishable from a simple one until you have read `parse.rs`.
+It shares a root with the item above it. The Languages tab now says which languages have no
+branch table, so a grey wedge can be told from a simple one without reading `parse.rs`.
 
 ## Two holes in `func_kinds` — closed
 
@@ -77,8 +82,9 @@ session one was missed, and every one of those failures drew a picture that look
 | `contributeCols`'s guard | may a ring-less file answer at all | its lines missing from the rim |
 
 `STANDS_IN` is a `Record<ColorMode, boolean>` now, so a thirteenth lens fails the build. The
-other three are still `if` chains that fall through to a default. They should be records too —
-the work is small and the failure mode is that nothing fails.
+other three were `if` chains that fell through to a default. **Built since:** all four are
+records over `ColorMode` in `colorMode.ts` — `STANDS_IN`, `BUCKET_ORDER` (what `bandLabels`
+became), `RAMP_OF` behind `rampOf`, and `FROM_COLS` as `contributeCols`'s guard.
 
 ## Complexity: built, and what the first attempt got wrong
 
@@ -126,6 +132,10 @@ yellow-green and it moves the whole cool half: chips 13.3 → 12.4, hot 13.5 →
 recoloured under anybody who had learned them. Standing Complexity outside the ordering costs
 one menu row whose colour does not continue the run, and nothing else — every margin is exactly
 what it was for eleven. That is what shipped, at 329°.
+
+**Superseded.** With thirteen lenses in four families the menu puts the assessment lenses last,
+the wheel wraps from the trap's pink into Complexity's arc, and Complexity sits ON the wheel at
+337° by the ordering rule rather than by exemption (`index.css`, `--tangle-*`).
 
 **A thirteenth ramp costs about two points, which is not the same as having no home.** This
 said the wheel was full and that was written from counting gaps by eye — the same way 313° got

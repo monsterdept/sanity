@@ -47,8 +47,10 @@ are two more reductions of the list blame already reads, and the third one's val
 findings CLAUSE rather than as a colouring.
 
 What shipped: `RangeHistory` gained `main_author` and `headcount`, `Node` carries both
-(`treecache` VERSION 16), Blame has a `most lines` reading beside `last touched`, and the
-catalog has `one-pair-of-hands` and `many-hands-knotty`. Everything below is kept as the
+(`treecache` VERSION 16), Blame has a `most lines` reading beside `newest line` (first
+shipped as `last touched`; `Rings.tsx`'s `BlameReading` says why it was renamed), and the
+catalog has `sole-author` and `crowded-and-knotty` (first shipped as `one-pair-of-hands` and
+`many-hands-knotty`). Everything below is kept as the
 reasoning, and each claim now says how it landed.
 
 Two things were established while deciding the hold, and both survived it:
@@ -144,11 +146,11 @@ orders blame by `b.lines` while the row printed `b.count`, which is why the colu
 1,819 · 1,019 · 985 · 216 · 86 · 309. It shows lines now; the count moved to the row's tooltip.
 **The wider inconsistency is still open**: this app counts lines in some places and functions
 or files in others, and the standing decision was to explain that rather than force one unit
-everywhere. The help window exists — `LensHelp` — but it is a lens reference and nothing else,
-deliberately: it was scoped to the eleven entries because carrying the drawing, the passes and
-the controls too pushed the row somebody opened it for below the fold. So the units
-explanation has a window and still has no home in it, and giving it one is a question about
-that scope rather than about building a window.
+everywhere. The help window exists — `LensHelp` — but it is a lens reference, deliberately: it was scoped
+to the lens entries (eleven then, thirteen now, plus a Languages tab) because carrying the
+drawing, the passes and the controls too pushed the row somebody opened it for below the fold.
+So the units explanation has a window and still has no home in it, and giving it one is a
+question about that scope rather than about building a window.
 
 ---
 
@@ -165,9 +167,11 @@ lights 96% of the map is saying nothing loudly.
 **So Age needs a partner, not a direction**, and the candidates are already measured: old and
 surprising is code nobody remembers how to read; old and heavily called is load-bearing and
 unexamined; old and undocumented is the handover risk. Which one it should be is the
-decision, and it runs into the same missing capability the help entry hits — nothing here can
-cross two lenses. Reasoning, purposes and what Churn needs alongside it are in
-`docs/notes/time.md`.
+decision. It used to run into a missing capability too — nothing here could cross two lenses —
+and the findings catalog has since supplied that: `fossil-trap` is untouched-for-years AND a
+reader's trap. None of the three pairings above is a rule yet, and the lens itself still paints
+recency (its readings are `newest line` and `oldest line`). Reasoning, purposes and what Churn
+needs alongside it are in `docs/notes/time.md`.
 
 ---
 
@@ -207,6 +211,13 @@ kind of number this app exists not to print.
 ---
 
 # TODO — the map is silent about what it could not read
+
+**Built since.** The walk counts what it drops by extension (`scan::Unscanned`, with
+`unparsed: [{ext, files}]` kept apart from `not_code` and `skipped`); `sanity_open` returns it
+as `unscanned`, capped at twelve rows with the remainder counted; every node carries a rolled-up
+`unparsed`, and the map's corner caveat (`MapCaveat.tsx`) says how many files under the current
+drill could not be parsed. The threshold-triggered banner below is the part not built. The
+record of why it is shaped this way follows.
 
 Found while fixing a Windows CI failure, by grep and by measurement rather than by
 reading — kept above the assessment pass below so that section's claim about its own
@@ -260,7 +271,7 @@ ring was ever fetched. The LIST is folded from function NODES, and a large repo 
 without any.
 
 **What decides whether it can answer is the viewport, which has nothing to do with the
-question.** Function rings are asked for by the effect at `Sunburst.tsx:1596`, whose test is
+question.** Function rings are asked for by `useWantRings` in `Sunburst.tsx`, whose test is
 `tilingOf` — deliberately the same predicate the render pass takes, so a file is asked about
 exactly when a tiling would be drawn for it and never when it would not. That is right for
 the map and wrong for the panel: it makes the list empty on kibana and complete on htop, so
