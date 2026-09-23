@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-1128 of 1128 read · 264 unpredicted
+1128 of 1128 read · 260 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1259,17 +1259,19 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns null if f is undefined, else f.file or f.func directly (fields named exactly that, not a nested `.spread` lookup) based on pop.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `RuleForm` — PREDICTED SOME
-- spec 3 · read at `0e91e7505618` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:20:03Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Renders the editable form UI for a rule draft — dynamically generating field/operator/value pickers from the grammar (via fieldsFor/spreadFor), showing the current draft state, any error message from a failed save attempt, disabling controls while busy, and wiring Save/Cancel/Delete/Reset buttons to their callbacks; it doesn't validate the rule itself (per the docs) but does show a warning when pinned > 0 since saving would affect existing filed decisions.
-- found: Renders the full rule-editing form: title, a population selector (function/file) that drops clauses the new population can't answer, up to three field/op/value clauses built from the grammar with per-clause distribution stats (median/95th/max) shown beneath each, an impact/so-what field, an optional report-text template, a warning shown only when clause fields actually changed and pinned decisions exist, an error message, and save/cancel/reset(for built-ins)/delete(or turn-off) buttons.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
+### `RuleForm`
+- spec 3 · read at `80366ecb83e0` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A React form rendering a draft rule: one row per clause with field/operator/threshold selects and inputs populated from the grammar (only offering valid options), calling set on change. Shows the error string, a pinned-count warning that changing clauses brings back fine-for-now decisions, and Save/Cancel/Delete/Reset buttons disabled while busy.
+- found: Controlled form for a rule draft: title, population select (dropping clauses the new population can't answer), clause rows with field/op/value and a distribution hint, an add-clause button capped at MAX_CLAUSES, impact and report text, a warning when changed clause fields would bring back pinned decisions, error line, and save/cancel/reset/delete buttons.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: Inline comments carry the design rationale well; the doc says only that validation lives in apply_edit, while the population-switch clause dropping and the pinned-decision warning are undocumented above the function.
 
-### `Findings` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · served in 2 parts · read at `6134e19d3fcf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:46Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Findings is the main panel component rendering the findings/rules drawer — it groups findings by rule (not by function) into one tile per issue, shows a footer stating which rules couldn't run or were ignored, and disables/replaces its content with a note when replaying is true since findings are a claim about HEAD. It also hosts a rules-editing tab (via RuleForm, sections, fieldsFor) letting the user save/delete/reset rules and apply balance thresholds, switching between the "findings" and "rules" views based on the ask prop, and wiring onPick/onDecide/onUndecide for per-finding actions against the archive.
-- found: A large panel component with three internal views (findings, ignored, rules) switched by a single view state and driven by the `ask` prop. The findings view merges findings per-subject into tiles with lens-colored rails/chips, per-rule sentences, a stale badge, a measured column for middle-truncated paths, and four verdict buttons (flag/fine-for-now/fine-always/false-positive) that open an optional reason input and fire onDecide/onUndecide for every rule that raised the tile; a footer reports ignored-match counts and rules that couldn't run. The rules view lists editable rule cards (opening RuleForm on click) plus an add-rule button and a BalanceSheet toggle, wired to onSaveRule/onDeleteRule/onResetRule/onApplyBalance/onStock with busy/error state, while the ignored view lists archived non-flag decisions with an undo action.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+### `Findings` — LEGIBLE SOME
+- spec 3 · served in 2 parts · read at `aa2f6eb8c302` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:00Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A large React component rendering a slide-out panel with two tabs (findings and rules). Holds local state for tab, filters, expanded tiles, draft rule forms; renders finding tiles with pick/decide/undecide actions, an archive drawer of decisions, a replay note, a footer of unaskable rules, and a rules editor using RuleForm with save/delete/reset/balance callbacks. Returns null or hidden when not open.
+- found: About 1000-line panel component: three views (findings, ignored drawer, rules) with a Tabs switch, Escape and ask-driven tab handling, a ResizeObserver measuring column width for mid-truncated directories, rule draft save/delete/reset with number validation and backend errors shown verbatim, balance sheet, merged finding tiles with lens rule, per-rule sentences, and flag/snooze/false-positive verdict buttons with an optional reason field, plus a footer listing ignored and inactive rules.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The component mixes rule editing, the ignored drawer and finding tiles in one body; the doc covers the philosophy but not the three-view structure or the per-rule verdict fan-out.
 
 ## web/src/components/HistoryBar.tsx
 
@@ -2308,11 +2310,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recursive walk: returns 1 for a file node, otherwise sums countFiles over children in a for loop.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `WedgeTip` — LEGIBLE SOME
-- spec 3 · read at `04e0f8577de4` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:52:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A React component rendering the hover tooltip card for a wedge: positions itself near (x,y) within box, flipping across the pointer near an edge; shows the node's name/path and the current mode's reading/swatch with never-read as "not measured yet" and expired as "stale"; conditionally shows the folded-directory `share` number and the `slice` breakdown for the rim segment under the pointer.
-- found: Renders the hover card: computes the color/label via colorFor, distinguishes unread/stale/too-large states, shows a function's name+path:line or a directory/file's path differently, shows the rim slice breakdown and mode-specific extras (churn/age raw counts), estimates its own height to decide whether to flip across the pointer near an edge, and appends fold/drill-in hints for directories.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+### `WedgeTip`
+- spec 3 · read at `930406303069` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:48Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React tooltip card positioned at the pointer (x,y), flipping across it near the pane edges using box. It shows the node's name/path, kind, line counts, and a colour swatch for the reading (per mode/views), with text for never-read ("not measured yet") and stale states. If slice is set it leads with the rim segment info; if folded it shows the share and an unfold hint.
+- found: Tooltip card: computes swatch colour, unread/stale/too-big states per lens, elided path (function name first), optional rim slice section, lens-specific extras (churn/age), loc/files/functions line, stale warning, and fold/drill hints; flips across pointer near pane edges using an estimated height.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ## web/src/components/Wordmark.tsx
 
@@ -7281,111 +7283,114 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/vector/svg.ts
 
 ### the file itself
-- spec 3 · read at `59c6057adf99` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:02:01Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Parses the map's rendered SVG markup (as a lightweight element tree, via parseSvg) and replays it onto a vector Surface/PDF canvas via drawSvg, translating each SVG primitive (paths, shapes, circles/lines, text — including text-along-arc via pointAt/baseline — and hatch patterns) into Surface draw calls. Supporting helpers parse transforms/props and inherit them down the tree (parseTransform, propsOf, inherit, flatten), build font strings and letter-spacing for text (fontString, spacingOf), decode entities (unescape), and name patterns (patternName); it deliberately throws on any unrecognized element/attribute rather than silently dropping it, since the SVG is a closed, known vocabulary produced by the map's own code.
-- found: A hand-rolled SVG parser (parseSvg, regex-based) and renderer (drawSvg) that walks the map's rendered SVG tree, resolving inherited presentation properties (inherit/propsOf/Style), and translates each known element (path/circle/ellipse/rect/line/text, including text-on-path via flatten/pointAt) into Surface draw calls, plus a separate patternTo-PDF-tiling-pattern translator (patternName) that emits raw PDF content-stream ops. It throws on unrecognized tags exactly as documented, and multiplies group opacity down rather than compositing groups.
-- predicted: full · documented: most · derivable: no · legible: not judged · trap: no
+- spec 3 · read at `5bb45bb6d08f` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:35Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: The file parses the map's SVG markup into an element tree (parseSvg), tracks inherited style and transforms, and draws shapes, text and text-on-path onto a Surface abstraction (drawSvg), throwing on unknown elements. Helpers cover unescaping, number parsing, fonts, baseline, path flattening and point lookup along a path, and hatch pattern names.
+- found: SVG-to-Surface translator for PDF output: parses markup, resolves transforms and inherited style, draws shapes/text/text-on-path, converts hatch patterns to PDF tiling patterns, and throws on unknown elements. Header covers intent and the opacity-multiplication caveat but not the pattern handling, minLabel, or labelInk.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: I had already read parseSvg, flatten and inherit from this file earlier in this run, so this reading is warm.
 
 ### `unescape`
-- spec 3 · read at `fc1e046004f0` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Reverses XML/SVG entity escaping in string `s`: replaces &amp;, &lt;, &gt;, &quot;, &apos; with their literal characters, and likely handles numeric character references (&#NN; / &#xHH;) too, since this text came from SVG markup and needs to become plain text for measurement/drawing.
-- found: Regex-replaces named and numeric (decimal/hex) XML entities with their literal characters, looking named ones up case-insensitively in an ENTITIES table and leaving unrecognized named entities untouched.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `parseSvg` — TRAP
-- spec 3 · read at `0850f3151a7e` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Parses raw SVG markup (from renderToStaticMarkup) into the internal El tree by walking tags with a lightweight parser (regex/manual, since input is guaranteed well-formed), extracting attributes and recursing into children, delegating per-element conversion to helpers like propsOf/shape/text, and throwing on unrecognized tags.
-- found: Uses a single regex to tokenize the markup into comments, close-tags, open-tags(+attrs), and text runs, maintaining a stack of El nodes; on a close-tag token it unconditionally pops the stack without checking the tag name matches, and attribute values are parsed with a second regex and unescaped. At the end it returns the first `svg` child found among root's children, throwing only if none exists — it does not throw on unrecognized element tags itself (contrary to what the file doc implies, that check must live elsewhere, e.g. in `shape`).
-- predicted: most · documented: some · derivable: no · legible: full · trap: yes
-- note: Closing tags are popped blindly without verifying they match the currently open tag, so mismatched/malformed markup silently produces a wrong tree instead of erroring.
-
-### `parseTransform`
-- spec 3 · read at `2d112e3ae002` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:29:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Parses an SVG transform attribute string containing one or more functions (translate, rotate, scale, matrix, skewX/skewY) and multiplies them together in order into a single combined Matrix, returning the identity matrix if the input is undefined or empty.
-- found: Regex-scans the transform string for matrix/translate/scale/rotate/skewX/skewY calls, builds each as a 2x3 matrix (rotate supports the 3-arg 'about a point' form via translate-rotate-translate), and multiplies them together in order, defaulting to identity.
+- spec 3 · read at `42ebd6aabb1a` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:15Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Decodes XML entities in a string: replaces &lt; &gt; &quot; &apos; and numeric refs, with &amp; handled last so it doesn't double-decode. Likely a chain of .replace calls.
+- found: Decodes XML entities in one regex pass: numeric decimal/hex refs via fromCodePoint, named ones via an ENTITIES table lookup, and unknown names left as-is. A single pass means no double-decoding; fromCodePoint can throw on an out-of-range numeric ref.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The one-line file-level doc for this function ('A transform attribute as one matrix') just restates the signature/name, not the rotate-about-a-point handling.
+- note: The ENTITIES table is defined elsewhere in the file and is not among the handed peers; the function has no doc of its own.
 
-### `propsOf` — PREDICTED SOME
-- spec 3 · read at `a56327a39a54` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:43:15Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Extracts an element's SVG attributes into a plain Record<string, string>, parsing the raw attribute list/string of the parsed El into key-value pairs.
-- found: Copies el.attrs into a record, then parses the inline `style` attribute's `prop: value;` declarations and merges them in as top-level keys too, so style-set and attribute-set properties are indistinguishable to callers.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+### `parseSvg`
+- spec 3 · read at `a9e9f7d6967c` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A small hand-rolled tokenizer/stack parser: scans the markup with a regex for tags, pushes an El on open, pops on close, handles self-closing tags, collects text nodes (unescaped) as children, parses attributes via propsOf, and returns the root element. Assumes well-formed input.
+- found: Regex-driven stack parser: tokenizes comments, close tags, open/self-closing tags with attrs, and text; builds El tree under a synthetic root, skips comments and top-level text, tolerates stray close tags, and returns the first svg child or throws if none.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `parseTransform` — TRAP
+- spec 3 · read at `f5f824ec73cc` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Parses an SVG transform string (possibly several functions like translate(...) rotate(...) scale(...)) with a regex loop, multiplying each into an accumulated 6-number matrix starting from identity. Returns identity for undefined; throws on unknown transform functions.
+- found: Regex-loops over transform functions (matrix, translate, scale, rotate with optional centre, skewX, skewY), builds each as a 6-number matrix and multiplies into an accumulator from identity. Undefined or empty returns identity. Unrecognised text is silently skipped rather than thrown on.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: yes
+- note: The file doc says unknown elements throw, but this silently ignores unknown transform syntax, and a malformed matrix or scale argument list yields undefined/NaN entries with no error.
+
+### `propsOf`
+- spec 3 · read at `680a36d7cdea` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Collects an element's attributes into a string-keyed record, probably merging the inline style attribute (parsing "a:b;c:d" declarations) over the plain attributes so style properties become props. Returns the flat object.
+- found: Copies attrs, then overlays inline style declarations (split on ';' and first ':') so style wins over attributes.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Docs cover the file only; nothing says style overrides attributes or that values containing ';' (e.g. url(data:...)) would be split.
 
 ### `inherit`
-- spec 3 · read at `a9f3f6b713f6` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:45Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Computes the effective Style for `el` by starting from `parent`'s style and overriding with el's own attributes (fill, stroke, font, etc. via propsOf/el's props) where present, falling back to the parent's value otherwise, and multiplying el's own opacity into the parent's already-accumulated opacity rather than replacing it, since SVG group opacity compounds down the tree.
-- found: Merges el's own SVG presentation attributes onto a copy of the parent style, overriding fill/stroke/font/text properties where present, and multiplying el's opacity into the parent's accumulated opacity rather than replacing it.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `bb3ec112974c` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:18Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Computes a child element's effective Style from its parent's: copies parent style and overrides with the element's own attributes (fill, stroke, stroke-width, font props, etc.), multiplying group opacity with the parent's rather than replacing it.
+- found: Copies parent style, multiplies opacity, and overrides fill/stroke/dash/font/anchor/baseline/letter-spacing from the element's props.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Position 5 by my count, but I did not run item 5 as a fresh one; cold=false because I had seen this file's parseSvg/flatten earlier in this run.
 
-### `drawSvg` — PREDICTED SOME
-- spec 3 · read at `42520debcf2d` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:09Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Main recursive walker over the parsed SVG element tree: for each child it merges inherited style/transform/opacity, dispatches by tag (path, circle, line, text, g, hatch patterns) to draw onto the Surface using the other helpers (shape, textOf, flatten, pointAt), recurses into groups multiplying opacity, and throws on an unrecognized element type.
-- found: Computes a base transform from the SVG viewBox to fit/center it into the given square (o.side/o.x/o.y), indexes all elements by id for later pattern-fill lookups, then recursively walks the tree merging inherited style and CTM transform, skipping defs/pattern/clippath, recursing into containers, and converting path/circle/ellipse/rect/line into VPath shapes drawn via `shape`, dispatching text via `text`, and throwing on any other tag.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+### `drawSvg`
+- spec 3 · read at `8cd2ce424c67` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:14Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Walks the parsed SVG tree recursively from the root, tracking a transform matrix and inherited style; for g it recurses with multiplied opacity, for path/circle/line/rect it calls shape, for text it calls text, collects pattern defs, and throws on unknown elements. Options supply vars, scale/offset.
+- found: Computes a viewBox-fit base matrix into a side-by-side square, indexes elements by id, installs surface.patternFill to resolve patterns lazily (cleared afterward), then walks the tree with matrix/style inheritance, dispatching path/circle/ellipse/rect/line/text and throwing on unknown tags.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `num`
-- spec 3 · read at `c34bbac7dd21` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:52:53Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A tiny helper that parses an SVG attribute string into a number, returning 0 (or similar safe default) when the value is undefined or not parseable — used to coerce attribute strings like "12.5" into numbers.
-- found: Parses a string to a float, defaulting to 0 for undefined, NaN, or falsy results (including -0 or actual 0).
+- spec 3 · read at `cbed6226fb43` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Converts an optional attribute string to a number, returning 0 when undefined (or NaN), likely via parseFloat.
+- found: parseFloat of an optional attribute, with undefined and NaN both becoming 0.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `shape` — PREDICTED SOME
-- spec 3 · read at `63da45bd7b68` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:39Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Paints an already-built VPath onto the Surface using Style s: resolves fill/stroke as either a solid color or a url(#id) pattern reference via patternName, multiplies opacities (group * fill/strokeOpacity), sets stroke width and dash, and issues fill/stroke calls on the surface with the path transformed by matrix m. The _scale param likely affects stroke-width or dash scaling.
-- found: Sets the surface's CTM to m, then paints the path via the surface's canvas-like API: fill (with fillRule) if fill isn't none, using opacity*fillOpacity as alpha, then stroke (with lineWidth and dash) if stroke isn't none, using opacity*strokeOpacity. save/restore bracket it. _scale is unused in this body.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-- note: fill/stroke are set directly as surface.fillStyle/strokeStyle strings here — pattern-name (url(#id)) resolution must happen earlier when Style is built, not in this function; _scale is a dead/unused parameter in this body.
-
-### `fontString`
-- spec 3 · read at `529b74d625a1` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds a CSS/canvas font shorthand string from a Style object's font-related fields (e.g. style, weight, size, family), combining them into something like "italic bold 12px sans-serif" for use with a canvas context's font property or similar text measurement.
-- found: Builds a canvas font shorthand string by concatenating fontWeight, fontSize (px), and fontFamily only — no fontStyle field involved.
+### `shape`
+- spec 3 · read at `73bb28e1e8d2` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:14Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Fills and/or strokes a vector path on the surface: applies matrix m to the path, then if style has a fill (colour or pattern, with opacity) calls surface.fill, and if it has a stroke calls surface.stroke with width, dash, etc. _scale is unused.
+- found: Saves surface state, sets the transform to m, fills the path if fill is not none (opacity times fill-opacity, fill rule), strokes if stroke is set and width is positive (opacity times stroke-opacity, dash), then restores. The scale param is unused.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
+### `fontString`
+- spec 3 · read at `495a89f762e7` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:27Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds a CSS font shorthand string from a Style, e.g. `${weight} ${size}px ${family}`, with maybe a style/italic prefix. Used for canvas ctx.font.
+- found: Returns a CSS font shorthand: weight, size in px, then family. It has no italic or style component.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm: I had read unescape in this file at position 3.
+
 ### `spacingOf`
-- spec 3 · read at `a962fa46b282` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:29:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Extracts a letter-spacing value from the Style object (e.g. a letterSpacing field possibly given as a string like "2px") and parses/converts it to a plain numeric pixel value, defaulting to 0 if not present.
-- found: Parses s.letterSpacing: returns 0 for 'normal' or empty, converts em units by multiplying by fontSize, otherwise parses a raw px number (defaulting to 0 on NaN).
+- spec 3 · read at `ff12c476e5b0` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:00Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Reads the letter-spacing from a Style and returns it as a number in pixels, parsing a string like "1.5px" and returning 0 when absent or "normal".
+- found: Parses letterSpacing: 0 for empty/normal, em values scaled by fontSize, otherwise parseFloat (px assumed) with NaN falling back to 0.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `textOf`
-- spec 3 · read at `347da76b5bf0` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:00:28Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Extracts an SVG text element's textual content, likely joining its child text nodes, and passes the result through the unescape peer to decode XML entities, returning the plain string content.
-- found: Joins the element's children, keeping only the string (text-node) children and discarding element children, concatenated with no separator. No unescaping happens here.
+- spec 3 · read at `39f20375a86a` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Recursively concatenates the text content of an element's children (strings and nested elements like tspan/textPath), returning the flattened string, possibly unescaping entities.
+- found: Joins only the direct string children of an element; nested elements are dropped, not recursed into. I predicted recursion.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `text` — LEGIBLE SOME
-- spec 3 · read at `cb0b8f7257b5` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Renders an SVG text element (or textPath) onto the surface: resolves text content and font settings via textOf/fontString/spacingOf/baseline helpers, applies the transform matrix and style, and if it references a path in byId (for text curving along an arc), uses pointAt to position glyphs along that path rather than drawing straight text.
-- found: Draws either straight text or text-along-a-path. For straight text: computes scale/alpha/color, skips if below minLabel size or transparent/none fill, shapes the string, computes width for anchor-based x offset, draws glyphs in one call. For along-path text: resolves the referenced path element by id (throwing if missing), flattens it to a polyline, shapes the string, walks each glyph cluster along the path computing position/tangent angle via pointAt, and draws each glyph individually with a rotation matrix derived from the tangent, offsetting by half-advance and baseline shift perpendicular to the tangent.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: The doc block describes the file's overall translation/throw-on-unknown-element philosophy, but doesn't mention the specific per-glyph tangent-following math or the minLabel culling this function implements.
+- spec 3 · read at `5b515e0f446f` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Draws an SVG text element on the surface: resolves font spec and fill from style, reads text content via textOf, applies the baseline shift and text-anchor, and either draws straight text at x/y under the matrix or, if it has a textPath child, looks up the referenced path in byId and draws the text along it via pointAt. Applies letter spacing and opacity.
+- found: Draws SVG text: skips labels below minLabel or invisible, then either draws straight text with anchor offset, or for a textPath looks up the target path (throws if missing), flattens it, and places each glyph cluster individually along the curve with tangent rotation, startOffset, anchor and letter spacing.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+- note: Function has no doc; skipping labels under minLabel and throwing on a missing path target are not signalled by the signature.
 
 ### `baseline`
-- spec 3 · read at `3288fe374f65` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:20:40Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Converts an SVG `dominant-baseline`/similar attribute value (e.g. "middle", "central", "hanging", "auto") into a numeric vertical offset to add to a text element's y-position, using metrics from the font spec (like ascent/descent or font size), since the vector Surface has no native baseline alignment the way a browser's SVG renderer does.
-- found: Converts dominant-baseline keywords to a y-offset using font metrics: central/middle uses half the cap-height, hanging/text-before-edge uses the ascent, and everything else (alphabetic/auto) is 0 — all scaled by size/unitsPerEm.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `449d7e5bd3e3` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Maps an SVG dominant-baseline/alignment-baseline string b to a vertical offset in pixels using the font spec's size/metrics: e.g. 'middle' or 'central' returns about a third of the size, 'hanging' returns the ascent, default alphabetic returns 0.
+- found: Returns baseline shift: half cap-height scaled to size for central/middle, ascent scaled for hanging/text-before-edge, else 0.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: File doc covers the module, not this function; sign convention of the returned offset is not stated.
 
 ### `flatten`
-- spec 3 · read at `255888554028` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:29:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Walks the path's segments (lines, arcs, and/or bezier curves), sampling curved segments into multiple intermediate points, and builds an array of points each annotated with the cumulative distance traveled along the path so far — used later for placing text along an arc/path.
-- found: Builds a polyline from a path's M/L/C segments, sampling cubic beziers at 24 steps, tracking cumulative arc-length distance `s` at each point; stops after the first subpath (breaks on a second M).
+- spec 3 · read at `dcf471a56ebc` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:03Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Walks the path's commands (move, line, arc/curve, close), approximating curves by sampling into short segments, and emits points with cumulative arc length d for placing text along the path. Starts with d=0 and accumulates hypot distances.
+- found: Flattens a path to a polyline with cumulative length s: M starts (a second M stops the walk, so only the first subpath), L pushes a point, C is sampled at 24 steps of a cubic Bézier. Other ops are ignored.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `pointAt`
-- spec 3 · read at `0379cea125c6` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: pointAt walks along a polyline poly (a list of points, likely with precomputed cumulative arc-lengths) to find the point at arc-length (or fraction) s, linearly interpolating between the two bracketing points to return x, y, and the tangent angle of that segment — used for laying text along an arc/path.
-- found: Handles a degenerate 0/1-point poly, then scans forward to find the bracketing points a/b whose cumulative arc-length (.s) straddle s, linearly interpolates x/y between them, and returns the tangent angle via atan2.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `9c1c17c8f8ac` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:19Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Given a flattened polyline whose points carry cumulative arc length s, finds the segment containing distance s (clamped to the ends), linearly interpolates x/y, and returns the position with the segment's tangent angle via atan2.
+- found: Linear scan for the segment containing arc length s, interpolates the point and returns the segment's atan2 tangent angle; degenerate polyline returns first point with angle 0; s beyond the ends extrapolates on the last or first segment rather than clamping.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `patternName`
-- spec 3 · read at `cb2f7aa37971` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:05Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Resolves a <pattern> element's cell geometry and transform (combining element transform with patternTransform), renders its child content into the Surface as a registered tiling pattern, and returns the pattern's name/id string for use as a fill reference. Likely caches by a key derived from the pattern element to avoid re-registering identical patterns (e.g. for stale/fold hatches).
-- found: Computes the pattern cell's placement matrix, then recursively walks the pattern's child elements (line/rect/path/circle/g), builds each as a VPath transformed into place, hand-emits raw PDF content-stream operators (m/l/c/h, fill/stroke with alpha via graphics state) into an `ops` array, and finally calls surface.page.pattern({bbox, xstep, ystep, matrix, ops}) which registers the tiling pattern and returns its PDF resource name.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: No caching here — dedup, if any, would have to live in surface.page.pattern; this function always rebuilds the ops string.
+### `patternName` — PREDICTED SOME
+- spec 3 · read at `418ecc11a5bb` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:07Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Registers a pattern element on the surface as a tiling pattern: reads its width/height and patternTransform, draws child shapes into a cell via the surface, and returns the registered pattern's name. Likely caches by pattern id so it registers once, and resolves CSS vars through vars.
+- found: Validates pattern size, computes the placement matrix, walks child g/line/rect/path/circle elements emitting raw PDF content-stream ops (with ExtGState alpha and colors), throws on unknown tags, and registers a tiling pattern on the page returning its name. No id-based caching.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
 
 ## web/src/lib/zoom.ts
 

@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1279 of 1279 read · 232 unpredicted
+1282 of 1282 read · 231 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1350,10 +1350,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 
 ### `render_index`
-- spec 3 · read at `09a34c4beacc` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:54:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds the top-level Markdown index file for the assessment store — given the repo name and a list of shards (each with counts, likely total functions and per-grade tallies), it renders a summary table/list with one row per shard (name + counts) plus a heading naming the repo, producing the human-facing coverage overview that links out to per-shard files.
-- found: Renders the full top-level index.md content: a per-shard Markdown table (with an optional 'dated' column shown only if any shard has a dated>0 reading) plus totals row, embedded in a large fixed prose README-style body explaining the assessment format, the app, and how to update it.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `e5fdb9d2386e` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds the top-level index markdown for the .sanity directory: a title with repo name, totals summed across shards, and a table with one row per shard (name plus five counts) linking to each shard file. Returns the assembled string.
+- found: Builds the .sanity index markdown: a per-shard table with totals row, where the "dated" column appears only if any shard has dated readings, followed by a large fixed boilerplate explanation (what readings are, install/update instructions, commit advice).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The conditional dated column must stay in sync with the shard headers, which is only stated in a comment; the file doc covers the store, not this function.
 
 ### `git`
 - spec 2 · read at `15b063d45267` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:30Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3498,10 +3499,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/edits.rs
 
 ### the file itself
-- spec 3 · served in 2 parts · read at `25fe4b6fb516` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:55:30Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: This file implements "Edits", the third-generation churn instrument: it walks git history once to count, per function (not per file, and not just alive-commit count like blame.rs), how many times that function changed within each of several nested time windows (a "ladder" of window lengths). It provides: a `gather`/`plan`/`estimate` pipeline to walk the log and build an `Edits` struct with per-function/per-path counts across the window ladder; `At<'_>` as a query handle giving per-function/per-path access plus `rates()` to normalize counts into 0..1 saturation via `saturation_for`; `slot`/`day_of`/`within`/`windows_for` helpers for bucketing commit dates into windows; directory-level rollup logic (counting a commit once per directory even if it touched many files inside); and `load`/`save` using bincode to cache the computed result to disk so this expensive git-log walk isn't repeated on every scan. Tests (named as prose invariants) pin down edge cases like rewritten files, narrow windows, young repos, and directory de-duplication.
-- found: Third-generation churn instrument: counts per-function and per-path (file/directory) edits by walking the timeline's commit set (function bodies diffed by hash, catching in-place rewrites blame misses), storing edit DATES bucketed by day rather than tallies so any window can be re-derived without a second walk. The window ladder itself scales proportionally to repo age (windows_for) rather than being fixed, capped at 180 days. Provides plan/estimate (priced via measured per-repo commit rate) to avoid surprising the user with a slow walk, gather() which reuses a full timeline scan if one exists or does a bounded walk otherwise, and load/save via bincode caching keyed on HEAD+windows. At<'_> is the query handle giving per-function/path counts across all four windows plus rates() normalization.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- spec 3 · served in 2 parts · read at `08e25c70acd7` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:39Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Per-function edit counting from git history: gather() walks commits over a window (planned via Plan/windows_for/span_days), attributing diff hunks to functions, producing an Edits table keyed by path and function with counts and last-changed day. Caches results to disk (config/load/save, remember), handles staleness and saturation, with directory-level counts and tests plus one real-repo test.
+- found: Per-function and per-path edit counts kept as day-bucketed timestamps from the history timeline, not hunks. It offers a repo-age-scaled ladder of four windows, a per-window saturation, a disk-cached store keyed on HEAD, a walk-cost estimate, and gather(), which reuses a stored full timeline or does a bounded walk. Tests cover blame contrast, staleness and windows.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: The header covers the why (churn.rs and blame.rs history, timestamps not counts) but says nothing of the young-repo window ladder, the cost estimate or the cache-reuse logic that fill most of the file.
 
 ### `windows_for`
 - spec 3 · read at `d31f22d2a2dc` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:51:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -3615,12 +3617,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns self.windows[3], the last (widest) of the four window sizes.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `estimate`
-- spec 3 · read at `337eadaaaeee` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:43Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Prices the edits walk without running it, by checking whether the on-disk edits store already covers the repo's current HEAD (cost 0.0 if so) or otherwise computing a cheap estimate from the number of new commits since the last stored anchor using a per-commit rate constant, returning (seconds, new_commit_count_option, exceeds_budget_bool).
-- found: Builds a plan for the repo's current HEAD/windows; returns free (0.0) if already stored at that exact HEAD+windows, or a rate-based estimate using a previously banked per-commit rate if available, or free again if the full commit history is already stored elsewhere (so it's a memory pass not a walk), and otherwise a cold estimate using COLD_RATE times the commit count, flagged as exceeding budget.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The doc explains why this exists as a separate instrument from trace::estimate but says nothing about the four distinct pricing branches (already-current, banked-rate, history-already-stored, cold) actually implemented.
+### `estimate` — PREDICTED SOME
+- spec 3 · read at `659a32d63eb7` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds a plan for the repo (commit counts over the window), multiplies the number of commits/functions to walk by a per-item rate loaded from saved config, and returns (estimated seconds, optional commit count, bool flag such as whether the estimate is calibrated from measured rates vs a default).
+- found: Prices the edits walk: zero if no HEAD; zero if already walked at this HEAD/windows; measured rate × commits if a saved rate exists; zero if full history is stored; else commits × COLD_RATE with the flag true (cold guess).
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: Doc explains why it is separate from trace::estimate but not the return tuple meaning or the zero-cost cases.
 
 ### `span_days` — PREDICTED SOME
 - spec 3 · read at `c7e205944ab4` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:54:57Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -3641,12 +3643,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Reads HEAD via git rev-parse (returning Plan::default() if no HEAD), computes the churn window ladder from the repo's age (born_days, falling back to CAP_DAYS if undated), then counts non-merge commits since the widest window via git rev-list --count, bundling commits/head/windows into a Plan.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
-### `gather` — PREDICTED SOME
-- spec 3 · read at `50942ff512ee` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:51:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether a full commit-history timeline for this repo is already stored/cached; if so, reuses it and just does an arithmetic counting pass over it (fast, no git walk). Otherwise it performs a bounded walk of the repo's history, limited to MAX_DAYS, periodically checking the `stop` atomic and invoking `progress` to report status. Returns None if the walk was stopped partway (since a partial count shouldn't be stored/reported), otherwise returns Some(Edits) with per-function change counts/timestamps.
-- found: Checks a self-cache (load/save keyed on HEAD+windows) first, returns early for an empty-head or zero-commit repo, then either counts against a fully-traced stored timeline (reusing it) or does a bounded git walk via history::read; after a real walk it also measures and stores a per-commit rate (carrying forward a prior rate if the walk was too short to time).
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The docs explain the reuse-vs-walk tradeoff well but don't mention the separate load/save self-cache keyed on HEAD+windows, the empty/zero-commit shortcuts, or the rate-measurement bookkeeping.
+### `gather`
+- spec 3 · read at `9637a3f8c2ae` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Checks for a stored full timeline for the repo and, if present and current, counts edits from it without walking git. Otherwise builds a plan bounded by MAX_DAYS, walks history reporting progress and checking the stop flag, returns None if stopped, and stores the resulting Edits before returning Some.
+- found: Plans the walk; returns empty Edits if no HEAD; reuses stored edits if head and windows match; else counts from a stored full timeline if current; else, if zero commits in window, saves an empty result; otherwise walks history, returns None if stopped, counts, records a per-commit walk rate (or carries the old one when too few commits), saves and returns.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `rewritten`
 - spec 3 · read at `9e7bb55600ff` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:52:35Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -3665,6 +3666,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A test that constructs a synthetic sequence of commits (likely via a test-repo helper) where the same function body is rewritten in place many times (e.g. 12 edits), then runs this module's counting logic and asserts the count equals 12 — the full number of edits — contrasting explicitly with blame-style line-survival counting which would only see 2 surviving lines/commits.
 - found: Builds a fixture repo with 12 in-place rewrites of one function via rewritten(12), asserts edits.func() counts all 12, then contrasts with blame::range_detail on the same lines which sees only 2 surviving commits (signature/brace from commit 1, the rewritten line from commit 12).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_stale_timeline_is_not_counted_as_current`
+- spec 3 · read at `1b105f9136ff` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:41Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Creates a temp git repo with a few commits, stores a history timeline that stops at an old commit, then adds newer commits. Asserts that gather does not reuse the stale timeline (it walks and finds the recent commits, not zero), and that stored_current returns None.
+- found: Builds a 4-commit repo, banks the full timeline, adds two more commits, runs gather, and asserts func and path counts are 6, so the commits past the banked head are counted. Does not call stored_current directly.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no · test: yes
 
 ### `a_narrower_window_asks_the_same_dates_a_smaller_question` — PREDICTED SOME
 - spec 3 · read at `093e8e5fd1bd` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:51:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -3699,11 +3706,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/findings.rs
 
 ### the file itself
-- spec 3 · served in 8 parts · read at `b6ba95bc4391` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:57:13Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The evaluator for a rule language expressing conditions over measured per-function/file facts (surprise, cognitive, churn, clone size, etc) — the findings catalog from docs/notes/findings.md. Covers grammar/parsing of rule clauses, calibration of thresholds against a repo's actual measured distribution, matching/ranking against the repo to produce hits, a persisted catalog with save/load/archive, a decision workflow (verdicts, pinning, staleness when code changes) for accepting/dismissing findings, and rendering finding sentences/paragraphs for reports.
-- found: A complete findings subsystem: Field/Op/Rule grammar and parser, calibration of thresholds against a repo's own measured distribution (calibrate/tighten/balance), matching and ranking against subjects (matches/hits/live_hits/Marginal contribution), exclusion of what is not the population (not_ours: vendored/generated/test), a persisted catalog of ~20 built-in rules with save/load as a deviations-only file plus a regenerated full listing, a decision/archive workflow (Verdict: Flagged/FineForNow/FineAlways/FalsePositive, pinned to a body hash + clause values so dismissals expire correctly), and rendering of per-subject sentences with token substitution (render/Span/flat) feeding a wire-facing ProjectReport/Group/Finding structure. Extensively tested (~40 tests) for grammar round-tripping, calibration correctness, staleness/pin expiry, and catalog integrity.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
-- note: The module doc's three governing rules matched what I predicted, but the header doesn't mention the exclusion logic, the persistence/staleness format, or the decision-archive workflow, all of which are large parts of the file.
+- spec 3 · served in 8 parts · read at `7ecf3c63e4d3` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:57Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Rule engine for "findings": a small grammar (Field, Op, Clause, Rule) parsed from strings like "func: loc >= 200 and callers >= 20", evaluated against per-function/file facts to produce ranked hits with explanatory sentences. Also holds the default rule catalog, calibration/tightening to a target count, user-saved rules and decisions (pin/archive/verdicts) persisted under a rules dir, staleness against readings, and a large test module.
+- found: A findings evaluator: a Field/Op/Clause/Rule grammar plus per-subject Facts with Option values (None fails a clause). It also holds the shipped rule catalog, calibration and balance that only tighten thresholds, and rendering of rule sentences. Persistence covers catalog.md deviations, a generated listing, and a decisions archive with four verdicts and pins. About half the file is tests.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: The header says a rule is "up to two clauses" while MAX_CLAUSES is 4 (subject clauses only), and it names three governing rules but says nothing of the persistence, archive and verdict machinery that fills much of the file.
 
 ### `parse`
 - spec 3 · read at `637fa42ba289` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:02Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3789,11 +3796,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: I incorrectly guessed the population prefix would be omitted; it's actually included, making this a true round-trip of parse's full input format.
 
 ### `parse` #3
-- spec 3 · read at `995476ac8e96` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes a rule text like "func: loc >= 200 and callers >= 20", splits on ':' into a scope/subject keyword and a boolean expression, tokenizes the expression into Field-op-value clauses joined by and/or, builds a Rule struct (scope + expr tree) via Field::pop/Op::parse helpers, returning Err(String) on malformed input.
-- found: Splits on ':' into a Pop scope (func/file only, no "or" support), parses "and"-joined clauses of field/op/number, enforces a rule must have 1-3 subject-scope clauses (repo-scope clauses exempt from the cap, per comment), and builds a full ad-hoc Rule struct with placeholder title/so_what/background fields.
+- spec 3 · read at `7c63fcf8f6f6` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:48Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Parses a rule string like "func: loc >= 200 and callers >= 20" into a Rule. Splits off the scope before the colon, splits the rest on "and", parses each clause as field, Op, number, and returns Err(String) on unknown field, operator, or bad number, or an empty clause list.
+- found: Parses "func:/file: field op number [and ...]" into an ad-hoc Rule with a population, clauses, and placeholder id/title text. It caps subject-scope clauses at MAX_CLAUSES, not repo-scope ones, and errors on empty rules.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The comment already explains why repo-scope clauses don't count toward the 3-clause cap, so this isn't an undocumented trap.
+- note: The doc is on the default-catalog string and does not describe parse; the file/func population and the scope-exempt clause cap are undocumented in the docs handed out.
 
 ### `trim_num`
 - spec 3 · read at `f01350d0e15d` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:36:50Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -4034,12 +4041,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Exactly as predicted: a trivial function that always returns true.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `apply_edit` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `d4baf0162bbe` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T02:59:30Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Takes a RuleEdit (a user's proposed rule change) and tries to fold it into the `live` rule list — updating, adding, or removing a Rule by id. For edits that don't map cleanly onto the rule grammar (something the catalog can't express), it returns Err(String) with an explanatory refusal message instead of silently coercing the edit.
-- found: Validates a RuleEdit in detail: non-empty title, 1-3 subject-scope clauses, each clause's field/op parseable and scope-appropriate for the edit's Pop, rejects thresholds that are vacuously true, checks the template only references guaranteed fields, preserves an existing rule's background text across edits, clamps `calibrated`, then applies it by id — replacing if `on` and found, removing if not `on` and found, inserting if `on` and not found, no-op otherwise.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: The on/off toggle acts as add-vs-remove rather than an enabled flag on a stored rule, and a lot of specific validation (clause count/scope/threshold/template checks) isn't hinted at by the docs at all.
+### `apply_edit` — PREDICTED SOME
+- spec 3 · read at `38872d63dd2c` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:03Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Matches on RuleEdit variants (add, update, remove/disable) and mutates the live rules vec: validates the template, mints an id for new rules, rejects duplicates or edits to built-in catalog rules with an Err string, otherwise applies the change and returns Ok.
+- found: Validates a rule form (title, 1–4 subject clauses, field/op parse, population match, no always-true thresholds, template check), builds a Rule preserving the existing background, then upserts or removes it from the live vec depending on edit.on.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Doc says nothing of the on/off semantics (edit.on false removes the rule) or the background-preservation behavior, which comments in the body cover.
 
 ### `check_template`
 - spec 3 · read at `2e4e1bfde94a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:50Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -4055,11 +4062,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `catalog`
-- spec 3 · read at `45596b1bd072` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A large literal builder returning the full shipped Vec<Rule> — one entry per built-in rule (e.g. giant-function, load-bearing-undocumented, undocumented-declaration) with its id, clauses/fields/operators/placeholder thresholds, and human-readable sentence text. The 507 lines are mostly repetitive rule definitions rather than complex logic, deliberately excluding the two contributor-count rules the docs mention as not yet supported.
-- found: A long literal building the shipped Vec<Rule> catalog via small ge/lt/le/rule closures, one entry per built-in rule with clauses, sentence templates, and a calibration index — exactly as predicted, though I didn't anticipate the extensive per-rule design-rationale comments woven throughout.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The value here is almost entirely in the inline comments explaining why each threshold/field was chosen — reading the code without them would tell you the shape but none of the reasoning.
+- spec 3 · read at `09315dc3c92f` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns a hard-coded Vec of Rule values: one Rule literal per built-in finding (title, so_what, says template, background text, population, clauses with field/op/threshold, calibrated index), likely built via a helper or by parsing rule strings. It's a long list of data with placeholder thresholds and no logic.
+- found: Pure data: defines small closures (ge/lt/le/rule) and returns a vec of about 25 built-in Rule literals, each with id, title, so_what, says template, background, population, clauses and calibrated index; comments carry the design rationale for each rule.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `tighten`
 - spec 3 · read at `af8914c34e2d` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -4292,11 +4298,18 @@ What this is and how to add to it: [README.md](README.md)
 - found: Confirmed the many/solo gate-open/gate-closed halves, but also adds a third case: when blame hasn't run (headcount=0, blamed=false), the rule must NOT fire even though 0 would satisfy a naive "<=1" reading, since an absent field must block rather than silently read as zero — verified via a separate `blocked` assertion.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
+### `every_shipped_rule_survives_a_round_trip_through_the_catalog` — PREDICTED SOME
+- spec 3 · read at `00f21b73bae7` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:37Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Test: takes the shipped default rules, writes them to a catalog.md in a temp dir via save_rules, reads them back, and asserts the count and each rule's expression/id are equal, so none was dropped by parse_line.
+- found: For each shipped rule: parses its expr() back and asserts equality, then rebuilds the rule as a RuleEdit as the form would submit it and asserts apply_edit accepts it. No file I/O or save_rules involved.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no · test: yes
+
 ### `a_gate_does_not_count_against_the_clause_cap`
-- spec 3 · read at `255fa1d1cbd6` · commit `e1458a7` · read by claude-sonnet-5 · via claude · when 2026-09-05T00:03:30Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Parses a rule expression combining one repo-scope gate clause with the maximum allowed number of normal clauses, and asserts the parse succeeds — proving the gate clause isn't counted toward the clause cap that would otherwise reject it.
-- found: Asserts a rule with one repo-scope gate clause plus 3 body clauses parses OK, and the same with a 4th body clause fails — confirming the gate is exempt from the clause cap while body clauses are capped at 3.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `5d96689edcc7` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:21Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Test: builds a rule string with the max number of subject clauses plus one repo-scope gate clause, and asserts Rule::parse returns Ok. Probably also asserts that one more subject clause makes it Err.
+- found: Asserts that Rule::parse accepts a repo-scope gate plus four body clauses and rejects a gate plus five.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm: I had already read Rule::parse in this file at position 1, which made the prediction easy.
 
 ### `every_field_has_a_slot`
 - spec 3 · read at `5950dacc982c` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:41Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -4311,12 +4324,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a synthetic 20,000-file/8-function-each tree sized so the finding catalog actually fires, then times subjects(), grammar(), all_hits(), calibrated(), rules_view() and a full report() call; separately builds 18 overlapping loc-band rules and compares the fast Marginal::of "only" count against a quadratic rebuilt-per-rule reference implementation with an assert_eq for correctness, printing all timings.
 - predicted: some · documented: some · derivable: no · legible: some · trap: no · test: yes
 
-### `a_rule_survives_being_written_down` — PREDICTED NONE
-- spec 3 · read at `04fde24bb13c` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:37:05Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A round-trip test: builds a Rule (with an expr/clauses and title etc.), serializes it to its saved-file line form (via `one_line`), then parses that line back into a Rule, and asserts the parsed rule equals (or matches key fields of) the original — confirming the on-disk format is lossless.
-- found: Tests Rule::parse/expr round-trip on the rule TEXT (not the archive file line format): parses a two-clause expression, checks pop/clause count/expr() reproduces the original string, rejects an invalid population ("dir"), and asserts a 3-clause rule is fine while a 4-clause one is rejected (cap is 3).
-- predicted: none · documented: some · derivable: no · legible: full · trap: no
-- note: Despite the name/doc suggesting file-persistence round-trip (one_line/save_archive), this test is actually about the settings-page expression text round-tripping through Rule::parse/expr, plus the clause-count cap — the doc line is misleading on its own.
+### `a_rule_survives_being_written_down`
+- spec 3 · read at `aff0f248457a` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:21Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a rule with several clauses, serializes it to its text form (the settings page's expression), parses that text back, and asserts the parsed rule equals the original — fields, ops, values, population. Probably uses a shipped rule or a hand-made one.
+- found: Parses a two-clause rule string, checks pop and clause count and that expr() reproduces the string. Also asserts an unknown population (dir:) is rejected and that four clauses parse while five fail (the MAX_CLAUSES cap).
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The test also pins the clause cap and the unknown-population rejection, which its name and doc do not mention.
 
 ### `a_clause_with_no_evidence_never_matches` — PREDICTED SOME
 - spec 3 · read at `c003ee9df5f4` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:24:01Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -4458,10 +4471,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `a_rule_that_is_not_one_is_refused_with_a_reason`
-- spec 3 · read at `9dbae52c3d8d` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:05Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Feeds several malformed or semantically nonsensical rule definitions (e.g. an empty clause list, a duplicate field, a contradictory bound, or a clause on a field with no evaluator) into the rule-parsing/validation function, asserting each one is rejected with an Err carrying a specific human-readable reason rather than being silently accepted or corrected into something valid.
-- found: Runs apply_edit through a battery of invalid RuleEdits — blank title, zero clauses, too many clauses, an unknown field, a per-body field (illegible) on a File population, a vacuous clause (commits >= 0), and a `says` template naming a field the rule doesn't measure — asserting each returns an Err whose message names the specific problem, then confirms a valid edit is accepted, gets its own id, and doesn't mutate the built-in catalog.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: yes
+- spec 3 · read at `9a735e836e9c` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test that feeds the rule parser a list of malformed rule strings (unknown field, bad operator, empty clause, missing threshold, etc.) and asserts each returns an Err whose message names the specific problem, rather than being silently corrected or accepted.
+- found: Test of apply_edit on a live catalog: rejects blank title, 0 or 5 clauses, unknown field, a body-only grade on a file rule, a vacuous clause (commits >= 0), and a template naming an unmeasured field, each with a specific message; then checks a valid rule lands with id "mine" without touching the built-in catalog.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `a_minted_id_never_collides_with_a_shipped_one` — PREDICTED SOME
 - spec 3 · read at `9a942fbe757b` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:38:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -4864,12 +4877,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/history.rs
 
-### the file itself — PREDICTED SOME
-- spec 3 · served in 5 parts · read at `fa5b089479e6` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:58Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Implements the "replay" engine that walks a git repo's commit log and reconstructs, commit by commit, how the codebase's functions/files evolved — parsing each blob version, tracking function identity across renames/moves via keys, folding per-commit stats (churn, complexity, authorship, size) into "frames," and caching/checkpointing that replay to disk so it can resume or extend rather than re-walking from scratch. Supports cancellation mid-walk and batched/streamed parsing for performance, with a `Replayer` struct as the core state machine driving the fold.
-- found: A large module implementing git-history replay for the sunburst's "story" view: walks the commit log via `git log --raw` and `git cat-file --batch`, diffs each touched file version against carried-forward parse state to emit per-commit deltas (function size/complexity/reading changes, deletions, renames), and folds an out-of-window prefix into an opening `base` state. Beyond the core replay it includes: disk caching with version tags and a `Carry` enum (Same/Grew/Refused) to resume or extend an existing timeline instead of re-walking; periodic self-tuning checkpoints so a cancelled walk isn't lost; a dedicated rayon thread pool separate from the scan's; per-repo `Tracing` claims so only one walk runs at a time; and a paged serving API (`Tables`, `LogRow`, `funcs`, `log`, `deltas`, `scoped`) so a huge timeline (ceph: ~170MB) is never sent to the frontend whole.
-- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
-- note: The file's actual scope — resumable caching, checkpointing, thread-pool isolation, and a whole paged transport layer — is far larger than the replay-loop core the header emphasizes; predicting from the header alone badly undersells the engineering here.
+### the file itself
+- spec 3 · served in 5 parts · read at `a43dd1b286e2` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:07Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Replays git history commit by commit to build a timeline of function placements and complexity for the sunburst. Streams git log/raw output, reads blobs, folds each commit into a Replayer with checkpoints, supports cancellation, resume/extension of cached timelines, and persists a cache. Tests cover parsing, renames, and cache extension.
+- found: Replays non-merge git history into delta frames (set/del/cog/read/unread per commit) by re-parsing only touched files via one long-lived cat-file process and a batched rayon pool. It also carries the cache/resume machinery (checkpoints, extend, versioned cache, banked sidecar), the per-repo tracing claim and cancel flag, and a windowed serving API (tables/funcs/log/scoped/deltas) over a held timeline.
+- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- note: The header covers the replay design and the two governing rules, but not the cache versioning, checkpointing, tracing claim, or the trailing windowed-serving API, which make up a large share of the file.
 
 ### `unplaced`
 - spec 3 · read at `21b85db99a49` · commit `9f170fd` · read by claude-sonnet-5 · via claude · when 2026-09-10T07:49:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -5121,6 +5134,12 @@ What this is and how to add to it: [README.md](README.md)
 - spec 3 · read at `9357be16c560` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:24Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
 - expected: Reads whatever cached history trace exists on disk for this repo (via load_cache/cache_path) and returns it as-is, up to `limit`, without walking any commits or extending/resuming a partial trace — returns None if nothing was banked yet. It's the "read only, never compute" counterpart to read_cached.
 - found: Thin wrapper delegating directly to load_cache(repo, limit) — the doc's "exactly as banked, or nothing" contract lives in load_cache itself.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `stored_current`
+- spec 3 · read at `b19e1e21c659` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:34Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Loads the stored timeline via stored(repo, limit), then checks with git that HEAD is the timeline's head or that no non-merge commit exists past it (rev-list of head..HEAD, plus is_ancestor). Returns Some(scan) if current, else None.
+- found: Returns the stored scan only if its head is non-empty and an ancestor of HEAD, and git rev-list --count --no-merges head..HEAD is zero; any failure yields None.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `grew`
@@ -6375,11 +6394,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The file_doc describes a bug that COULD happen if a kind is missing from `chains`; this particular test verifies the bug is NOT happening (correct count of 3), which is the opposite direction from what the ominous docs made me expect.
 
 ### `one_fork_is_one_in_every_language_with_a_table`
-- spec 3 · read at `9fc8b9495bb9` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:51:05Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over every Lang that has a branch-kinds table (branches: true), looks up or builds a minimal one-`if`-statement snippet in that language's own syntax, parses it, and asserts cog(src, lang) == 1 for each — pinning the floor that a single fork costs exactly one point regardless of the language's grammar.
-- found: A hardcoded table of (Lang, hand-written one-`if` snippet) pairs across ~16 languages (Ruby, Swift, Kotlin, PHP, Scala, Dart, Lua, Zig, Shell, Perl, ObjC, GdScript, Julia, Solidity, R, OCaml, Nix), asserting cog(src, lang) == 1 for each — with inline comments flagging Ruby's bare-word `if` kind collision and ObjC's method-vs-function matching as specific past traps this pins against.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Missed that the snippets are literal hardcoded strings per language rather than derived from any shared template/table, and the two specific historical gotchas (Ruby's `if` keyword node sharing its parent's kind name, ObjC needing method_definition) called out inline.
+- spec 3 · read at `23ab3f7231fc` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test that iterates over every language that has a branch table, takes a small snippet with a single if statement, computes cognitive complexity via cog(), and asserts it equals 1 for each language. Probably includes per-language snippets and a failure message naming the language.
+- found: Test with a table of (Lang, snippet) pairs, one function with one if per language (16 langs), asserting cog(src, lang)==1. Comments explain Ruby and ObjC snippet choices.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `a_run_of_one_operator_costs_one_and_a_mix_costs_more` — PREDICTED SOME
 - spec 3 · read at `8d1298b3ce2f` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:51:48Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
