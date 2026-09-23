@@ -1,5 +1,12 @@
 import { isAnalyzed, type Node } from '../lib/api'
-import { colorFor, paintsFromReadings, saysNothing, type Views, type ColorMode } from '../lib/colorMode'
+import {
+  colorFor,
+  paintsFromReadings,
+  saysNothing,
+  VIEWS_DEFAULT,
+  type Views,
+  type ColorMode,
+} from '../lib/colorMode'
 import { unreadable } from '../lib/api'
 import { elide } from '../lib/text'
 
@@ -149,7 +156,12 @@ export function WedgeTip({
   // two numbers, two scales, one card, and the Docs tab is where the second one lives.
   const extras: [string, string][] = []
   if (sc && sc.ageDays !== null && mode === 'churn') {
-    extras.push(['Commits (90d)', String(sc.commits)])
+    // The count for the rung the lens is set to, named by that rung's own days: the ladder is
+    // the repo's (`ChurnView`), and before the timeline is walked every count is zero, which
+    // would print a measurement nobody took.
+    const churn = (views ?? VIEWS_DEFAULT).churn
+    if (churn.measured)
+      extras.push([`Commits (${churn.windows[churn.at]}d)`, String(sc.commits[churn.at])])
     extras.push(['First seen', `${Math.round(sc.ageDays)}d ago`])
   } else if (sc && sc.lastTouchedDays !== null && mode === 'age') {
     extras.push(['Last touched', `${Math.round(sc.lastTouchedDays)}d ago`])
