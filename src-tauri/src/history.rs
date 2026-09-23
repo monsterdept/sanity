@@ -1595,6 +1595,33 @@ pub fn stored(repo: &Path, limit: usize) -> Option<HistoryScan> {
     load_cache(repo, limit)
 }
 
+/// The stored timeline, but only if it reaches HEAD — for a caller that COUNTS it.
+///
+/// [`stored`] is the viewer's door and hands back whatever was banked, which is right for a
+/// picture of a trace and wrong for a count: a timeline replayed a year ago stops a year ago,
+/// and every window counted off it comes back empty. `edits::gather` reused one exactly that
+/// way and drew a repo with a hundred commits in ninety days as having none.
+///
+/// **Current means no non-merge commit lies past its head**, which is two constant-time git
+/// calls rather than [`extend`]'s log walk. On a branchy history a timeline can be current
+/// and still fail this — a side branch it walked is not reachable from its last commit — and
+/// the cost of that is a bounded walk, never a wrong count.
+pub fn stored_current(repo: &Path, limit: usize) -> Option<HistoryScan> {
+    let scan = stored(repo, limit)?;
+    if scan.head.is_empty() || !is_ancestor(repo, &scan.head) {
+        return None;
+    }
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-list", "--count", "--no-merges", &format!("{}..HEAD", scan.head)])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let ahead: usize = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    (out.status.success() && ahead == 0).then_some(scan)
+}
+
 /// What became of a stored timeline when it was asked to catch up.
 enum Carry {
     /// Already current — the walk has nothing left to apply. The commonest outcome by far,

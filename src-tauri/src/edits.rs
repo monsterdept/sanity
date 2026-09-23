@@ -385,7 +385,11 @@ impl At<'_> {
 /// never opened again. A bump costs every repo one walk, which is twenty to sixty seconds of
 /// somebody's afternoon; that is cheap next to a bank of timelines and expensive next to
 /// nothing, so it belongs written down rather than bumped by reflex.
-const EDITS_FORMAT: u32 = 1;
+///
+/// 2: a count taken off a stored timeline that stopped short of HEAD was stamped with HEAD and
+/// served as current — see `history::stored_current` — so no count written before it is
+/// trustworthy.
+const EDITS_FORMAT: u32 = 2;
 
 fn slot(repo: &std::path::Path) -> Option<std::path::PathBuf> {
     crate::reports::cache_slot("edits", repo, &format!("f{EDITS_FORMAT}"))
@@ -457,10 +461,11 @@ pub fn estimate(repo: &std::path::Path) -> (f32, Option<u32>, bool) {
             return (p.commits as f32 * rate, Some(p.commits as u32), false);
         }
     }
-    // Somebody has the whole story banked, so this is a counting pass over memory rather than a
-    // walk. Not free — ceph's timeline is seconds of deserialising — but not priced as a walk
-    // either, because it is not one. See `gather`, which takes that branch.
-    if crate::history::stored(repo, crate::history::ALL_COMMITS)
+    // Somebody has the whole story banked up to HEAD, so this is a counting pass over memory
+    // rather than a walk. Not free — ceph's timeline is seconds of deserialising — but not
+    // priced as a walk either, because it is not one. The same door `gather` takes: a story that
+    // stops short of HEAD is walked there, and pricing it as free would skip the asking.
+    if crate::history::stored_current(repo, crate::history::ALL_COMMITS)
         .is_some_and(|h| !h.commits.is_empty())
     {
         return (0.0, Some(0), false);
@@ -564,8 +569,10 @@ pub fn gather(
     // The span this can speak for. Where the walk is day-bounded that is the bound itself and
     // not the oldest commit it happened to find — see `Edits::from_ts`.
     let bounded = now - (p.span() as i64) * 86_400;
-    let scan = match crate::history::stored(repo, crate::history::ALL_COMMITS) {
-        // Somebody has traced the whole story. Count it where it lies.
+    let scan = match crate::history::stored_current(repo, crate::history::ALL_COMMITS) {
+        // Somebody has traced the whole story, up to HEAD. Count it where it lies. A story
+        // that stops short of HEAD falls through to the bounded walk, which is what this was
+        // priced at — carrying it forward could be years of commits.
         Some(full) if !full.commits.is_empty() => {
             let from = full.commits.first().map(|c| c.ts).unwrap_or(bounded).min(bounded);
             let out = Edits::count(&full, now, from, p.head, p.windows);
@@ -691,6 +698,37 @@ mod tests {
             2,
             "blame keeps one commit per LINE, so rewriting a body in place erases its own history"
         );
+    }
+
+    /// **A stored timeline is reused only while it reaches HEAD.**
+    ///
+    /// `gather` counts a full trace where it lies rather than re-walking, and it used to take
+    /// whatever timeline was banked: one replayed a year ago stopped at a commit a year old,
+    /// was stamped with today's HEAD, and answered every window with nothing — htop drew all
+    /// 1,579 functions as `no commits found` with a hundred commits in the last ninety days.
+    #[test]
+    fn a_stale_timeline_is_not_counted_as_current() {
+        let dir = rewritten(4);
+        let full = crate::history::read_cached(dir.path(), crate::history::ALL_COMMITS, &|_| {});
+        assert_eq!(full.commits.len(), 4, "the story is banked");
+
+        // Two more commits the banked timeline has never seen.
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(dir.path()).args(args).output().expect("git runs");
+        };
+        for i in 4..6 {
+            std::fs::write(dir.path().join("src/a.rs"), format!("fn only() {{\n    let x = {i};\n}}\n"))
+                .expect("writes");
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("c{i}")]);
+        }
+
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let edits = gather(dir.path(), &stop, &|_| {}).expect("nobody stopped it");
+        let now = crate::churn::now_secs();
+        let key = crate::assessment::key_of("src/a.rs", "only", 0);
+        assert_eq!(edits.func(&key, now, 90), 6, "the two commits past the banked head count");
+        assert_eq!(edits.path("", now, 90), 6);
     }
 
     /// A window is a window: an edit outside it is not counted, and the same stored dates
@@ -850,3 +888,4 @@ mod real {
         assert!(!cold, "and the price is measured evidence, not a bound");
     }
 }
+
