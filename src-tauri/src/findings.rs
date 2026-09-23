@@ -190,7 +190,7 @@ pub enum Field {
     /// **And it is the shape the two held blame rules need.** A rule may not name a person —
     /// that is a rule about what a thing is CALLED, which this grammar refuses — but it can
     /// count them: `headcount <= 1 and dependents >= 20` is *load-bearing, and only one person
-    /// has been in it*, with nobody named anywhere. See `TODO.md`.
+    /// has been in it*, with nobody named anywhere. See `docs/plans/open/blame-ownership.md`.
     Headcount,
     /// How long the file this function lives in is, and how many functions it holds.
     ///
@@ -496,6 +496,15 @@ impl Op {
     }
 }
 
+/// How many SUBJECT clauses a rule may have — gates are not counted, see `Rule::parse`.
+///
+/// **One number for both doors.** `Rule::parse` reads `catalog.md` and `apply_edit` takes the
+/// form, and the catalog ships rules of this width: three lenses and the size guard that keeps
+/// a two-line body out. A cap narrower than what ships drops a shipped rule the first time it
+/// is tuned or renamed, because `save_rules` writes its whole expression and `parse_line`
+/// discards a line that does not parse.
+pub const MAX_CLAUSES: usize = 4;
+
 #[derive(Debug, Clone, Copy)]
 pub struct Clause {
     pub field: Field,
@@ -505,7 +514,7 @@ pub struct Clause {
 
 /// A rule: a population, and a conjunction over it.
 ///
-/// **Three subject clauses is the cap** — see `Rule::parse`, which counts only clauses about
+/// **[`MAX_CLAUSES`] subject clauses is the cap** — see `Rule::parse`, which counts only clauses about
 /// the subject, so a repo-scope gate rides along free. The clauses are a flat conjunction:
 /// no `or` and no grouping, because a grammar with precedence is a query language — the
 /// bottomless thing this design exists to avoid.
@@ -630,8 +639,8 @@ impl Rule {
         // applies here, and then it is done. Counting it would spend a body's clause on a
         // question about the repo. See `Field::scope`.
         let body = clauses.iter().filter(|c| c.field.scope() == Scope::Subject).count();
-        if clauses.is_empty() || body > 3 {
-            return Err("a rule is one to three clauses".into());
+        if clauses.is_empty() || body > MAX_CLAUSES {
+            return Err("a rule is one to four clauses".into());
         }
         Ok(Rule {
             id: "ad-hoc".to_string(),
@@ -2028,19 +2037,19 @@ pub fn apply_edit(live: &mut Vec<Rule>, edit: RuleEdit) -> Result<(), String> {
     if edit.title.trim().is_empty() {
         return Err("a rule needs a title — it is what a decision is filed under".into());
     }
-    // Counted the way `Rule::parse` counts it: a gate is not one of the three — see there.
+    // Counted the way `Rule::parse` counts it: a gate is not one of them — see there.
     let body = edit
         .clauses
         .iter()
         .filter(|c| Field::parse(&c.field).map(|f| f.scope()) == Some(Scope::Subject))
         .count();
-    if edit.clauses.is_empty() || body > 3 {
-        // **Three, and the cap is about precedence rather than about counting.** Conjunction
+    if edit.clauses.is_empty() || body > MAX_CLAUSES {
+        // **The cap is about precedence rather than about counting.** Conjunction
         // needs none at any width; it is OR that would, and there is no OR. Two was the number
         // while the size guard was a separate `floor` field — see `findings.md`, where making
         // it a clause is argued: a rule that gates on size is asking a size question, and size
         // is a lens like any other.
-        return Err("a rule is one to three clauses".into());
+        return Err("a rule is one to four clauses".into());
     }
 
     let mut clauses = Vec::new();
@@ -2169,7 +2178,7 @@ fn mint_id(title: &str, live: &[Rule]) -> String {
 ///
 /// Two rules the note's bench measured are missing on purpose. "Last hand alone" and "Many
 /// hands" both need per-range contributor counts, which `blame.rs` computes into
-/// `RangeDetail::authors` and does NOT put on a node — the second reduction `TODO.md`
+/// `RangeDetail::authors` and does NOT put on a node — the second reduction `docs/plans/open/blame-ownership.md`
 /// describes. They arrive with it or not at all; a version of them off `last_author` would
 /// make exactly the ownership claim that note refuses to make.
 pub fn catalog() -> Vec<Rule> {
@@ -3809,17 +3818,55 @@ mod tests {
         assert!(blocked(&rule, &cold, Traced::default(), false).is_some());
     }
 
-    /// **A gate is not one of the three clauses a tile can carry.**
+    /// **Every shipped rule has to survive being written to `catalog.md` and read back.**
+    ///
+    /// `save_rules` writes a changed rule's whole expression, even when only its title moved,
+    /// and `parse_line` drops a line `Rule::parse` refuses — silently, because a hand-edited
+    /// line that does not parse is somebody's typo. So a shipped rule wider than the cap was
+    /// lost the first time anyone tuned or renamed it, and the form refused to save it at all.
+    #[test]
+    fn every_shipped_rule_survives_a_round_trip_through_the_catalog() {
+        for r in catalog() {
+            let back = Rule::parse(&r.expr())
+                .unwrap_or_else(|e| panic!("`{}` does not parse back: {e}", r.id));
+            assert_eq!(back.expr(), r.expr(), "`{}` changed on the way through", r.id);
+            let edit = RuleEdit {
+                id: r.id.clone(),
+                title: r.title.clone(),
+                so_what: r.so_what.clone(),
+                says: r.says.clone(),
+                pop: r.pop,
+                clauses: r
+                    .clauses
+                    .iter()
+                    .map(|c| ClauseView {
+                        field: c.field.name().to_string(),
+                        op: c.op.name().to_string(),
+                        value: c.value,
+                        lens: None,
+                        median: None,
+                        suggestion: None,
+                    })
+                    .collect(),
+                calibrated: r.calibrated,
+                on: true,
+            };
+            let mut live = catalog();
+            apply_edit(&mut live, edit).unwrap_or_else(|e| panic!("`{}` refused by the form: {e}", r.id));
+        }
+    }
+
+    /// **A gate is not one of the clauses a tile can carry.**
     ///
     /// The cap is on what a tile has to SAY — it names the lenses that raised a finding and
     /// writes a sentence about them. A repo-scope clause contributes neither, so counting it
     /// would spend a body's clause on a question about the repo.
     #[test]
     fn a_gate_does_not_count_against_the_clause_cap() {
-        let four = "func: repo_headcount >= 4 and headcount <= 1 and callers >= 10 and loc >= 10";
-        assert!(Rule::parse(four).is_ok(), "a gate plus three body clauses is a rule");
-        let five = "func: repo_headcount >= 4 and headcount <= 1 and callers >= 10 and loc >= 10 and calls >= 5";
-        assert!(Rule::parse(five).is_err(), "four body clauses is not");
+        let four = "func: repo_headcount >= 4 and headcount <= 1 and callers >= 10 and calls >= 5 and loc >= 10";
+        assert!(Rule::parse(four).is_ok(), "a gate plus four body clauses is a rule");
+        let five = "func: repo_headcount >= 4 and headcount <= 1 and callers >= 10 and calls >= 5 and loc >= 10 and dependents >= 5";
+        assert!(Rule::parse(five).is_err(), "five body clauses is not");
     }
 
     /// **`Facts` is indexed by discriminant, so the count has to cover every variant.**
@@ -3972,10 +4019,11 @@ mod tests {
         assert_eq!(r.clauses.len(), 2);
         assert_eq!(r.expr(), "func: loc >= 200 and callers >= 20");
         assert!(Rule::parse("dir: loc >= 10").is_err());
-        // Three is the cap, and it is about precedence rather than counting: conjunction
-        // needs none at any width, and there is no OR.
-        assert!(Rule::parse("func: loc >= 1 and calls >= 1 and age >= 1").is_ok());
-        assert!(Rule::parse("func: loc >= 1 and calls >= 1 and age >= 1 and read < 1").is_err());
+        // `MAX_CLAUSES` is the cap, and it is about precedence rather than counting:
+        // conjunction needs none at any width, and there is no OR.
+        assert!(Rule::parse("func: loc >= 1 and calls >= 1 and age >= 1 and read < 1").is_ok());
+        assert!(Rule::parse("func: loc >= 1 and calls >= 1 and age >= 1 and read < 1 and callers >= 1")
+            .is_err());
     }
 
     /// **The rule this file exists to keep.** An unanswerable clause fails; it does not
@@ -4806,7 +4854,7 @@ would hide the shape"
             RuleEdit { title: "  ".into(), ..edit(vec![("loc", ">=", 5.0)], Pop::Func) }
         ))
         .contains("title"));
-        assert!(err(apply_edit(&mut live, edit(vec![], Pop::Func))).contains("one to three"));
+        assert!(err(apply_edit(&mut live, edit(vec![], Pop::Func))).contains("one to four"));
         assert!(err(apply_edit(
             &mut live,
             edit(
@@ -4815,11 +4863,12 @@ would hide the shape"
                     ("callers", ">=", 5.0),
                     ("calls", ">=", 5.0),
                     ("commits", ">=", 5.0),
+                    ("dependents", ">=", 5.0),
                 ],
                 Pop::Func
             )
         ))
-        .contains("one to three"));
+        .contains("one to four"));
         assert!(err(apply_edit(&mut live, edit(vec![("nope", ">=", 5.0)], Pop::Func)))
             .contains("not a field"));
         // A body's grade on a file. A file reading grades `predicted`; `legible` is one body's.

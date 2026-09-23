@@ -111,6 +111,10 @@ function dirFor(hit: Hit, colW: number): string {
 }
 
 /** The size the address is set at, which the character count has to agree with. */
+/** How many clauses the form offers — `findings::MAX_CLAUSES`, which the catalog's widest
+ *  shipped rules already reach. */
+const MAX_CLAUSES = 4
+
 const ADDRESS_PX = 15
 
 /** The file, with its `#` where a function follows. Never truncated.
@@ -468,8 +472,8 @@ function RuleForm({
           })}
         </div>
         {/* **The cap says so, rather than the control disappearing.** A button that is there
-            at two clauses and gone at three reads as a bug, and the first person to reach
-            three asked where it went. It says it is a choice because it is one: the note
+            one clause and gone the next reads as a bug, and the first person to reach the cap
+            asked where it went. It says it is a choice because it is one: the note
             retracts the precedence argument that used to justify it — conjunction is
             associative and needs no precedence at any width — and what is left is a judgement
             about a tile staying readable.
@@ -477,7 +481,7 @@ function RuleForm({
             A new clause opens on its field's median rather than on zero: `>= 0` is true of
             everything, which `apply_edit` refuses, so starting there would open every added
             clause in a state the backend will not take. */}
-        {draft.clauses.length < 3 ? (
+        {draft.clauses.length < MAX_CLAUSES ? (
           <button
             className="self-start pl-[44px] text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
             disabled={busy}
@@ -497,7 +501,7 @@ function RuleForm({
           </button>
         ) : (
           <span className="self-start pl-[44px] text-[10px] text-[var(--muted-foreground)]">
-            three is as many clauses as this form offers — a choice, not a limit of the grammar
+            four is as many clauses as a rule takes
           </span>
         )}
       </div>
@@ -1143,9 +1147,8 @@ export function Findings({
                         `Rule::floor`, and the first person to see it asked what it was.
 
                         Not written as a clause either, though `loc >= 10` is what it does —
-                        the rule is capped at two clauses and a third clause-shaped thing
-                        beside them would make that cap look broken. It is a guard, so it
-                        reads as one. */}
+                        a clause-shaped thing beside the rule's own clauses would read as one
+                        more of them. It is a guard, so it reads as one. */}
                   </div>
 
                   <p className="pt-1 text-[11px] text-[var(--muted-foreground)]">
