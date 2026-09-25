@@ -1,26 +1,68 @@
 # Sanity
 
-Sanity shows you which parts of a repo are hard to understand.
+Sanity gives you a list of specific places in a repo that need attention, and says why each
+one is on the list. For example:
 
-It does this by asking a coding agent to predict each function before reading it. The agent
-sees the function's name, signature, neighbors and comments, but not its body. It writes down
-what it expects, then opens the file and reports how far off it was. That report is a
-**reading**. Code the agent predicted well is routine. Code it got wrong is where the
-decisions are, and it's the code the next person (or the next agent) is likely to get wrong
-too.
+- a 1,000-line function that a reader had to go back over more than once to follow
+- a function twenty others depend on that nobody has read
+- a function whose comments describe something other than what it does
+- code copied into several places, where one copy changed and the others didn't
+- code the rest of the project depends on that only one person has ever worked in
 
-Readings are saved as Markdown in your repo, under `.sanity/`. They expire when the code they
-describe changes. A CI check can fail a build whose readings are missing or out of date.
+Each item on the list is a **finding**, and each finding comes from a **rule**. A rule
+combines a few measurements, like "over 200 lines, and hard to follow" or "depended on by ten
+or more functions, and undocumented." Sanity comes with about two dozen rules. You can change
+their thresholds or turn them off for your repo.
+
+```
+$ sanity findings --limit 2
+/Users/you/projects/sanity  14 findings
+
+  web/src/components/Findings.tsx#Findings
+    Giant and hard to follow
+      1,012 lines, and a reader had to go back over it more than once to follow
+      it. Anything that changes it has to hold all of it at once, and a reader
+      already found that hard.
+    Tangled and hard to follow
+      For 720 lines of code this branches far more than bodies that size usually
+      do here, and a reader had to go back over it more than once to follow it.
+
+  web/src/App.tsx#App
+    Unpredicted and far-reaching
+      This calls 48 other functions and a reader still could not predict what it
+      does. It coordinates work that is not apparent from its own body.
+```
+
+You go through the list and decide on each finding: fix it, snooze it until the code changes,
+mark it wrong, or accept it. Your decisions are committed with the repo, so the list gets
+shorter as you work through it and your team sees the same list you do.
+
+## Where the measurements come from
+
+- **The code**: size, how much it branches, what calls what, and duplicated bodies.
+- **Git history**: how old code is, how often it changes, and who has worked on it.
+- **Readings.** A coding agent is shown a function's name, signature, neighbors and comments,
+  but not its body, and writes down what it expects the function to do. Then it opens the file
+  and reports how far off it was, how hard the code was to follow, whether the comments
+  helped, and anything likely to trip up the next person who edits it. That report is a
+  reading. Code the agent predicted well is routine. Code it got wrong is where the decisions
+  are, and it's the code the next person (or the next agent) is likely to get wrong too.
+
+Readings are saved as Markdown in your repo, under `.sanity/`, next to the rules and your
+decisions. They expire when the code they describe changes. A CI check can fail a build
+whose readings are missing or out of date.
 
 Sanity also draws the repo as a sunburst: directories and files as rings, functions on the
-rim, sized by lines and colored by whatever you're asking about.
+rim, sized by lines and colored by whichever measurement you pick.
+
+## Getting started
 
 ```sh
 brew install --cask monsterdept/tap/sanity
 cd your-repo
 sanity init --harness claude --model sonnet   # which agent reads, and with which model
 sanity check --limit 50                       # take 50 readings
-sanity findings                               # what is worth looking at, and why
+sanity findings                               # the list
 git add .sanity && git commit -m "Readings"
 ```
 
@@ -44,10 +86,9 @@ reader predicted it.*
 1. **Take readings.** `sanity check` starts coding agents as readers. Each one predicts
    functions before it sees them. Sanity doesn't send your code anywhere; the agent sends
    what it reads to its own model, as it would in any other session.
-2. **Look at findings.** `sanity findings` combines the readings with size, complexity, the
-   call graph, duplicated code and git history, and lists what stands out. For example: a very
-   large function a reader struggled with, a function many others depend on that nobody could
-   predict, or a function whose comments don't match what it does.
+2. **Look at findings.** `sanity findings` runs the rules over everything measured so far and
+   lists what matches, most important first. Rules that don't need readings (size,
+   duplication, history) work before you've taken any.
 3. **Decide what to do about each one.** You can snooze a finding until the code changes,
    mark it wrong, allow it permanently, or flag it as work to do. Decisions are committed with
    the readings, so the whole team sees them.
@@ -55,6 +96,18 @@ reader predicted it.*
    of date, or if readings were taken with different models.
 5. **Keep them current.** When you change a function, its reading goes stale and moves to
    the front of the queue. The next `sanity check` reads it again.
+
+## Changing the rules
+
+`.sanity/rules/README.md` lists every rule that ran: its name, the conditions it checks, and
+what it says about a match. That file is regenerated on every scan.
+
+To change a rule for your repo, edit its line in `.sanity/rules/catalog.md`. Change a number
+and it's used as written. Add `; off` to turn the rule off. Delete the line to go back to the
+default. The rules editor in the app makes the same changes.
+
+If the list is too long or too short to be useful, `sanity findings balance --target 20`
+suggests thresholds that would give about 20 findings, and `--apply` saves them.
 
 ## What you need
 
@@ -111,25 +164,6 @@ Project: sanity
 
   24 traps identified
   623 unhelpful doc strings found
-```
-
-```
-$ sanity findings --limit 2
-/Users/you/projects/sanity  14 findings
-
-  web/src/components/Findings.tsx#Findings
-    Giant and hard to follow
-      1,012 lines, and a reader had to go back over it more than once to follow
-      it. Anything that changes it has to hold all of it at once, and a reader
-      already found that hard.
-    Tangled and hard to follow
-      For 720 lines of code this branches far more than bodies that size usually
-      do here, and a reader had to go back over it more than once to follow it.
-
-  web/src/App.tsx#App
-    Unpredicted and far-reaching
-      This calls 48 other functions and a reader still could not predict what it
-      does. It coordinates work that is not apparent from its own body.
 ```
 
 Some findings depend on git history. `--edits` and `--blame` read that history first so those
