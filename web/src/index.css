@@ -1,14 +1,12 @@
 @import 'tailwindcss';
 
-/* Sanity's surface, sharing the warm-beige chrome of the sibling projects (tally /
- * slooth / Sewcrates / Fussy) so a block lifted from one drops into another. The
- * shadcn-style token names live in :root and .dark.
+/* Sanity's surface, built on the department's Paper and Ink. The shadcn-style token names
+ * live in :root and .dark.
  *
- * Sanity is the ROSE tool. The constraint the hue had to satisfy is about data, not
- * taste: the whole picture is a heat ramp, so an accent that reads as *heat* would
- * compete with the one thing the app is trying to say. Rose sits off every data ramp's
- * hue and, at these lightnesses, reads as a surface rather than as a reading — the
- * chrome recedes and the warm end stays entirely the data's.
+ * The chrome has no hue. The whole picture is colored by lenses, so any hue in the frame
+ * competes with the one thing the app is trying to say. Neutral grey reads as a surface
+ * rather than as a reading: the frame recedes and every color in the window belongs to
+ * the data.
  *
  * The department's shared teal is kept, but only for annotation (--agent-mark): it is
  * the one thing in the picture that is neither chrome nor a temperature. */
@@ -55,7 +53,7 @@
   --chrome-ring: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 13%, transparent);
 
   /* The Monster Dept palette (monsterdept.com/brand) — light. Neutrals are shared
-   * across every tool in the department; the rose is Sanity's. */
+   * across every tool in the department. */
   --background: #f5f1ea; /* Paper */
   --foreground: #1a1a1a; /* Ink */
   --card: #efebe3; /* Card */
@@ -103,9 +101,9 @@
    * makes the tile a thing sitting on the panel rather than a patch of it. */
   --code: #ffffff;
 
-  /* Chrome is the rose surface in BOTH themes. Anything else leaves one mode wearing
-   * the tool's identity and the other wearing generic department beige. */
-  --sidebar: color-mix(in oklch, #f3d9e7 58%, #efebe3 42%);
+  /* Chrome is neutral grey in BOTH themes, so the frame stays out of the way of the lens
+   * colors and the two modes wear the same frame. */
+  --sidebar: #e8e8e8;
   --sidebar-foreground: #1a1a1a;
   /* Mixed toward the chrome's own FOREGROUND, which is the only pair that makes a
    * line. This was a mix of #f3d9e7 and #e5e1da — two pale grounds, so it resolved
@@ -118,12 +116,12 @@
    * does not buy the same separation at both ends of the scale. */
   --sidebar-border: color-mix(in oklch, var(--sidebar) 78%, var(--sidebar-foreground) 22%);
 
-  /* Straight off the sheet's Sanity row: Primary for links and selection, Primary
-   * dark for hover/active, Tint for chips and callouts. 4.87:1 on Paper. */
-  --accent: #895b77; /* Primary */
-  --accent-dim: #6d435c; /* Primary dark — hover, active */
-  --accent-tint: #f3d9e7; /* Tint */
-  --accent-foreground: #f5f1ea;
+  /* Near-black for links and selection, a lifted grey for hover/active, and a pale grey for
+   * chips and callouts. No hue: the lenses are the only color in the window. */
+  --accent: #171717;
+  --accent-dim: #404040; /* hover, active */
+  --accent-tint: #e5e5e5; /* chips, callouts */
+  --accent-foreground: #fafafa;
 
   --destructive: #8f5753; /* Danger */
   /* The finding count in the hub, and nothing else.
@@ -641,20 +639,17 @@
    * exactly as it sits above it in light mode. Same rule, opposite direction. */
   --code: #1a1a1a;
 
-  /* Rose deep — the dark end of the icon tile's ground gradient, taken down far enough
-   * to sit under Paper text the way tally's #14383c does. */
-  --sidebar: #3a2231;
+  /* Neutral grey, one step above the card so the frame reads as frame. */
+  --sidebar: #262626;
   --sidebar-foreground: #f5f1ea;
   --sidebar-border: color-mix(in oklch, var(--sidebar) 80%, var(--sidebar-foreground) 20%);
 
-  /* The one place dark mode cannot just take the sheet value: Primary on Ink is
-   * 3.17:1, under AA for text. The lift is the ground gradient's top stop — an
-   * existing brand color, not a new one — at 4.88:1, and Primary steps down into
-   * the hover slot. Same two-step-of-one-hue move the mark itself makes. */
-  --accent: #a87a96; /* Ground top stop — lifted to carry on Ink */
-  --accent-dim: #895b77; /* Primary */
-  --accent-tint: #f3d9e7; /* Tint */
-  --accent-foreground: #3a2231;
+  /* A light neutral grey: light enough to carry text on Ink, and no hue, so the lenses are
+   * the only color in the window. */
+  --accent: #d4d4d4;
+  --accent-dim: #a3a3a3; /* hover, active */
+  --accent-tint: #333333; /* chips, callouts */
+  --accent-foreground: #171717;
 
   --destructive: color-mix(in oklch, #8f5753 70%, #f5f1ea 30%);
   /* Lifted off the ink the way every warm colour here is: the hub sits over the innermost
