@@ -14,6 +14,13 @@ It's for anyone maintaining a codebase, including one an agent wrote. Sanity doe
 your code anywhere: the agent you already use does the reading, and the results are saved as
 Markdown in your repo.
 
+Most of Sanity costs nothing. Nine of its thirteen lenses and History need no agent and no
+tokens, because they come from parsing the code and reading its git history. They show you
+how big and tangled the code is, what calls what, where it's duplicated and how it has
+changed. Findings work without an agent too, and on a repo nobody has read yet they mostly
+point at the large, tangled code worth reading first. Readings are what you add when you
+want to know where the code will trip someone up.
+
 How the pieces fit:
 
 - **Readings** measure each function: how well a reader predicted it, how hard it was to
@@ -75,22 +82,24 @@ might be a mess. Git history helps tell them apart:
 ```sh
 brew install --cask monsterdept/tap/sanity
 cd your-repo
+sanity                                        # open the app, then add this repo from there
+sanity findings                               # what needs work, and why
+
+# Readings start here: an agent does the reading, and it spends tokens
 sanity init --harness claude --model sonnet   # which agent reads, and with which model
 sanity check --limit 50                       # take 50 readings
-sanity                                        # open the app
-sanity findings                               # what needs work, and why
+sanity findings                               # now with the rules that need readings
 git add .sanity && git commit -m "Readings"
 ```
+
+Nothing before `sanity init` needs an agent.
 
 ## What you need
 
 - **Sanity itself.** See [Installation](#installation).
-- **A coding agent, installed and signed in**, to take readings: Claude Code (`claude`), Codex
-  (`codex`), OpenCode (`opencode`) or Antigravity (`agy`). Sanity never calls a model itself and
-  doesn't need an API key.
-
-Everything except taking readings works without an agent: the map, findings from the parts
-that don't need readings, history and `verify`.
+- **A coding agent, installed and signed in**, only for readings: Claude Code (`claude`),
+  Codex (`codex`), OpenCode (`opencode`) or Antigravity (`agy`). Sanity never calls a model
+  itself and doesn't need an API key.
 
 **What readings cost.** Cost depends on how many functions and file headers there are to read,
 and how long they are. `sanity status` shows how many are left.
