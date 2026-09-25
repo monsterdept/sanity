@@ -58,6 +58,10 @@ their only caller went too. Metric work is agentic readers now.
 **What the proxy is still for is ORDER.** It decides which functions a reader is offered
 first and nothing else — `Source::Proxy` is refused a colour, so the number never reaches
 the map. Judge a change to it by whether the queue puts better candidates first.
+It orders WITHIN bands, and the bands come first: stale readings, then unread code a live
+finding points at (`agentapi::findings_first`), then the rest of the unread, then readings
+with one answer out of date. The findings band is there so a `check --limit 50` reads what
+`sanity findings` just listed rather than fifty other bodies the proxy liked.
 
 Forced decoding was real and was measured — on krapow it scored **6/15** against a raw
 `wc -l` sort where the proxy scores 9/15, and the cobra boilerplate four earlier designs

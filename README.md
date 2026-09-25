@@ -87,7 +87,7 @@ sanity findings                               # what needs work, and why
 
 # Readings start here: an agent does the reading, and it spends tokens
 sanity init --harness claude --model sonnet   # which agent reads, and with which model
-sanity check --limit 50                       # take 50 readings
+sanity check --limit 50                       # take 50 readings, starting with what findings listed
 sanity findings                               # now with the rules that need readings
 git add .sanity && git commit -m "Readings"
 ```

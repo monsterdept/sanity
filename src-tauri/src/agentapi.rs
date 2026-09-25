@@ -154,6 +154,17 @@ pub struct Project {
     /// memory. A key derived from the inputs cannot be forgotten at a call site the way an
     /// `invalidate()` can.
     pub findings: Option<(FindingsAt, crate::findings::ProjectReport)>,
+    /// Every subject a live finding points at, which the queue reads first — see
+    /// [`findings_first`].
+    ///
+    /// **Keyed like `findings`, minus `reads`, so it holds for a whole pass.** The queue is
+    /// asked once per reader fetch, and working out the findings on each ask is a walk of
+    /// every subject and a calibration per rule, many times a wave. A reading landing
+    /// only ever takes a subject OUT of the unread band — and the queue already stops
+    /// handing it out once its reading exists — so the set cannot be wrong in the direction
+    /// that matters until the tree, the trace depth, the rules or the decisions move, and
+    /// the key covers those.
+    pub flagged: Option<(FindingsAt, std::sync::Arc<std::collections::HashSet<String>>)>,
     /// What the repo looked like when this scan was taken — see `watch::probe`.
     ///
     /// The comparison the tick makes. Held per project rather than globally because two repos
@@ -1667,11 +1678,12 @@ fn collect_tasks(
         // the reading describes code that is gone, unread means there is no reading at all,
         // and dated means there is a good reading with one answer greyed out. Three
         // situations, worst first. Bands do not overlap — dated sits at [-1, 0], unread at
-        // [0, 1], stale at [1, 2] — so a run works through them in that order however
-        // surprising the code is.
+        // [0, 1], stale at [2, 3] — so a run works through them in that order however
+        // surprising the code is. [1, 2] is left for unread code a finding points at, which
+        // only `queue` can know — see `findings_first`.
         let priority = node.score.map_or(0.5, |s| s.surprise)
             + if stale {
-                1.0
+                2.0
             } else if dated {
                 -1.0
             } else {
@@ -1742,7 +1754,7 @@ fn collect_tasks(
             // context for the functions inside it, so a reader that takes one first is
             // better placed — but the queue interleaves by file anyway, and a file task
             // that outranked real functions would put a wave of them ahead of the work.
-            let priority = node.score.map_or(0.5, |s| s.hot_share) + if stale { 1.0 } else { 0.0 };
+            let priority = node.score.map_or(0.5, |s| s.hot_share) + if stale { 2.0 } else { 0.0 };
             out.push((
                 priority,
                 Task {
@@ -3180,6 +3192,64 @@ fn resync_changed(project: &mut Project) -> usize {
 /// Rested files are PREFERRED, not forbidden. At the end of a run, or in a repo of four
 /// files, everything left may sit in a file touched a minute ago — and a warm reading is
 /// worth more than a stalled queue with work still on the table.
+/// Put unread code a finding points at ahead of the rest of the unread.
+///
+/// **The first readings go where the free list pointed.** On a repo nobody has read, the
+/// findings that fire are the ones that need no reading — giant, tangled, load-bearing and
+/// unread — and `sanity findings` shows them before anyone has spent a token. A `check
+/// --limit 50` that then read fifty other functions by the proxy's guess would answer a
+/// question nobody asked and leave the list it was run to act on exactly as it was.
+///
+/// Its own band, [1, 2]: above the rest of the unread at [0, 1], below stale at [2, 3],
+/// which `collect_tasks` leaves room for. Within the band the proxy still orders, and
+/// `spread_across_files` still rests a file just drawn from — a flagged body in a file a
+/// reader has just opened is a warm reading, and coldness outranks this. Unread means no
+/// report at all, which is what the finding said; stale and dated work keep their bands.
+///
+/// Settled findings don't count: a finding somebody dismissed is not pointing anywhere.
+fn findings_first(project: &mut Project, tasks: &mut [(f32, Task)]) {
+    let flagged = flagged(project);
+    if flagged.is_empty() {
+        return;
+    }
+    for (priority, t) in tasks.iter_mut() {
+        let (subject, stored) = if t.file {
+            (t.path.as_str(), crate::assessment::file_key(&t.path))
+        } else {
+            (t.id.as_str(), t.id.clone())
+        };
+        if flagged.contains(subject) && !project.reports.contains_key(&stored) {
+            *priority += 1.0;
+        }
+    }
+}
+
+/// What [`findings_first`] ranks by, worked out once per key — see `Project::flagged`.
+fn flagged(project: &mut Project) -> std::sync::Arc<std::collections::HashSet<String>> {
+    let at = FindingsAt { reads: 0, ..FindingsAt::of(project) };
+    if let Some((held, set)) = &project.flagged {
+        if *held == at {
+            return set.clone();
+        }
+    }
+    let traced = crate::findings::Traced::of(&project.scan.stats, project.trace.depth);
+    let facts = crate::findings::subjects(&project.scan.root, &project.reports, traced);
+    let rules = crate::findings::rules_for(&project.repo, &facts);
+    let archive = crate::findings::archive(&project.repo);
+    let pins = crate::findings::pinned(&archive);
+    // `Subject::key` is `key_of` for a function — the key readings are stored under, which
+    // is also what a function's `Task::id` is — and the path for a file.
+    let set: std::sync::Arc<std::collections::HashSet<String>> = std::sync::Arc::new(
+        rules
+            .iter()
+            .flat_map(|r| crate::findings::live_hits(r, &facts, &pins).0)
+            .map(|s| s.key.clone())
+            .collect(),
+    );
+    project.flagged = Some((at, set.clone()));
+    set
+}
+
 fn spread_across_files(
     tasks: Vec<(f32, Task)>,
     recent: &HashMap<String, Instant>,
@@ -3216,6 +3286,7 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
         &mut tasks,
     );
+    findings_first(project, &mut tasks);
     let now = Instant::now();
     let handed = spread_across_files(tasks, &project.recent_files, now, p.n);
 
@@ -3366,9 +3437,10 @@ pub fn default_batch() -> usize {
 /// fraction chosen — then the two are the same number twice and the bars paint identically.
 /// They are not the same thing: reading the first two hundred functions costs whatever those
 /// two hundred functions happen to be, and the queue hands them out in a decided order —
-/// stale first, then unread, round-robined across files. So a partial run's size in lines is
-/// a fact that can be looked up rather than estimated, and a repo whose expired readings sit
-/// in its long functions says so on the way up.
+/// stale first, then unread code a finding points at, then the rest of the unread,
+/// round-robined across files. So a partial run's size in lines is a fact that can be looked
+/// up rather than estimated, and a repo whose expired readings sit in its long functions says
+/// so on the way up.
 ///
 /// One entry per [`BATCH`], because that is the granularity a run actually has: the slider
 /// steps by a reader's handout, so every position it can stop at is an entry here. Cumulative
@@ -3390,6 +3462,8 @@ pub fn reading_curve(state: &Shared, key: &str) -> Vec<u32> {
         &crate::scan::declared_from_scan(&project.repo, &project.scan.root),
         &mut tasks,
     );
+    // The same band the queue gives findings, or this projects a run that never happens.
+    findings_first(project, &mut tasks);
     let all = tasks.len();
     let order = spread_across_files(tasks, &HashMap::new(), Instant::now(), all);
     let mut out = Vec::with_capacity(order.len().div_ceil(BATCH));
@@ -4113,6 +4187,7 @@ impl Project {
             // has just been bumped — and dropping it here says the same thing without relying
             // on that.
             findings: None,
+            flagged: None,
             last_agent: prev.and_then(|p| p.last_agent),
             // Bumped, not set. The window watches this for "the tree changed, refetch", and
             // a constant is a change exactly once — every rescan after the first looked
@@ -6842,6 +6917,7 @@ pub(crate) mod tests {
         Project {
             reads: 0,
             findings: None,
+            flagged: None,
             repo: dir.to_path_buf(),
             name: "t".into(),
             scan,
@@ -7895,6 +7971,64 @@ fn second() { println!(\"2\"); }\n",
             "the reading it inherited describes the other twin's body, so it is expired — \
              not silently believed"
         );
+    }
+
+    /// The first readings go where the free findings pointed, and stale work still goes first.
+    ///
+    /// A repo-local rule flags exactly one body, so which one is flagged does not depend on
+    /// how the shipped rules calibrate against three tiny files.
+    #[test]
+    fn findings_come_before_the_rest_of_the_unread_and_stale_before_both() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("big.rs"),
+            "fn flagged() {\n    println!(\"1\");\n    println!(\"2\");\n    println!(\"3\");\n    \
+             println!(\"4\");\n    println!(\"5\");\n    println!(\"6\");\n    println!(\"7\");\n    \
+             println!(\"8\");\n}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("small.rs"), "fn plain() { println!(\"p\"); }\n").unwrap();
+        std::fs::write(dir.path().join("moved.rs"), "fn moved() { println!(\"m\"); }\n").unwrap();
+        std::fs::create_dir_all(dir.path().join(".sanity/rules")).unwrap();
+        std::fs::write(
+            dir.path().join(".sanity/rules/catalog.md"),
+            "- `long-unread`; func: ncloc >= 8 and read < 1; title: Long and unread; so what: Long.\n",
+        )
+        .unwrap();
+        let mut p = project_of(dir.path());
+
+        // `moved` was read against a body it no longer has.
+        let mut moved = None;
+        p.scan.root.visit(&mut |n| {
+            if n.kind == NodeKind::Func && n.name == "moved" {
+                moved = Some(n.id.clone());
+            }
+        });
+        let moved = moved.expect("moved is parsed");
+        p.reports.insert(
+            moved.clone(),
+            Report { id: moved.clone(), body: "a body that is gone".into(), ..Report::blank() },
+        );
+
+        let mut tasks = Vec::new();
+        collect_tasks(
+            &p.scan.root,
+            &p.reports,
+            &HashMap::new(),
+            None,
+            &crate::scan::declared_from_scan(&p.repo, &p.scan.root),
+            &mut tasks,
+        );
+        assert_eq!(flagged(&mut p).len(), 1, "the local rule flags one body and nothing else does");
+        findings_first(&mut p, &mut tasks);
+        let band = |name: &str| -> f32 {
+            tasks.iter().find(|(_, t)| !t.file && t.name == name).map(|(s, _)| s.floor()).unwrap()
+        };
+        // The bands, not the order: within a band the proxy decides, and three tiny bodies
+        // could come out in the right order by the proxy alone.
+        assert_eq!(band("moved"), 2.0, "stale sits above everything unread");
+        assert_eq!(band("flagged"), 1.0, "what a finding points at sits above the rest");
+        assert_eq!(band("plain"), 0.0, "the rest of the unread");
     }
 
     /// The header was collected and fed to every function reader as context, and judged by
