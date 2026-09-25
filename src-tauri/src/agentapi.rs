@@ -591,6 +591,29 @@ impl AppState {
         self.restoring_progress.remove(key);
     }
 
+    /// Land what a launch's restore scanned, unless the project is already here.
+    ///
+    /// **A restore arriving second must not replace what arrived first.** A backend that a
+    /// `sanity check` starts is restoring every known repo while that same check posts `/open`
+    /// and then `/check`; the open lands a project, the check attaches its run, and a restore
+    /// finishing afterwards used to insert a project built from nothing over the top. The wave
+    /// went on spawning readers that nothing could stop, and every reading it banked was
+    /// stamped with no harness and no asked model, because both come from the run. The
+    /// leases, predictions and revealed parts went with it — everything `Project::rescan`
+    /// exists to carry. The project already here was scanned by an open no older than this
+    /// restore, so keeping it loses nothing.
+    ///
+    /// Returns whether the restore landed.
+    pub fn land_restored(&mut self, key: &str, project: Project) -> bool {
+        self.settle(key);
+        self.shallow.remove(key);
+        if self.projects.contains_key(key) {
+            return false;
+        }
+        self.projects.insert(key.to_string(), project);
+        true
+    }
+
     /// Land a scan somebody asked for as the project, whichever door it came through.
     ///
     /// **One place, because two doors built it twice and the copies drifted.** The window's
@@ -6328,10 +6351,7 @@ fn drain(
         let mut project = Project::rescan(None, path, known.name.clone(), scan, reports);
         project.trace = pending;
         project.touched = known.touched;
-        let mut s = lock(state);
-        s.settle(&known.key);
-        s.shallow.remove(&known.key);
-        s.projects.insert(known.key.clone(), project);
+        lock(state).land_restored(&known.key, project);
     }
 }
 
@@ -8157,6 +8177,44 @@ fn second() { println!(\"2\"); }\n",
     /// it is a daemon and whether readers are mid-reading. A wave costs minutes and real
     /// tokens per function; a build old enough to render last week's headings is not worth
     /// spending that to correct, and it stands down on its own once the run ends.
+    /// **A launch's restore landing late keeps the run an open already attached.** A check that
+    /// starts its own backend opens the repo and attaches a run while restore is still scanning
+    /// the same repo; the restore landing afterwards replaced the project, and every reading
+    /// the wave then banked came back with no harness. Pinned at the landing rather than
+    /// through threads, because which scan finishes first is the race itself.
+    #[test]
+    fn a_late_restore_does_not_replace_a_project_holding_a_run() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn one() { println!(\"1\"); }\n").unwrap();
+        let mut opened = project_of(dir.path());
+        opened.run = Some(Run {
+            from: 0,
+            harness: "claude".into(),
+            model: "sonnet".into(),
+            width: 5,
+            spawned: 2,
+            finished: 0,
+            failed: 0,
+            ended: None,
+            ended_at: None,
+            failures: Vec::new(),
+            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            live: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(2)),
+        });
+        opened.leased.insert("a.rs#one".into(), Instant::now());
+        let mut state = AppState::default();
+        state.projects.insert("/p".into(), opened);
+
+        assert!(!state.land_restored("/p", project_of(dir.path())), "landed over an open");
+        let kept = &state.projects["/p"];
+        assert_eq!(kept.run.as_ref().map(|r| r.harness.as_str()), Some("claude"), "the run was lost");
+        assert!(kept.leased.contains_key("a.rs#one"), "the lease was lost");
+
+        // Nothing opened: the restore is the project.
+        assert!(state.land_restored("/q", project_of(dir.path())));
+        assert!(state.projects.contains_key("/q"));
+    }
+
     #[tokio::test]
     async fn a_backend_with_a_wave_in_flight_is_not_retired() {
         let dir = tempfile::tempdir().unwrap();
