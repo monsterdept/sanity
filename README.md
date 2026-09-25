@@ -42,7 +42,7 @@ measurements, like "over 200 lines, and hard to follow" or "depended on by ten o
 functions, and undocumented." Sanity comes with about two dozen rules, and you can change
 their thresholds or turn them off for your repo.
 
-![The findings list](docs/images/findings.png)
+<img src="docs/images/findings.png" alt="The findings list" width="640">
 
 ```
 $ sanity findings --limit 2
@@ -122,7 +122,7 @@ function, and reads ten functions per session. That's roughly 5,300 tokens per f
 about five million tokens for a repo with a thousand functions. Start with `--limit` to see
 what a pass is like before reading everything. `sanity status` shows how much is left.
 
-![Starting a reading pass: the agent, the model, and what the pass will cover](docs/images/read-dialog.png)
+<img src="docs/images/read-dialog.png" alt="Starting a reading pass: the agent, the model, and what the pass will cover" width="480">
 
 To leave parts of a repo out, list them in a `.sanityignore` at the root. They're still drawn
 on the map, but they aren't read and don't count toward coverage.
