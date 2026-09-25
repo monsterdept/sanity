@@ -2221,12 +2221,11 @@ pub fn catalog() -> Vec<Rule> {
         // read, it asks what the reader found. The halves cannot both fire on one subject.
         rule(
             "giant-function",
-            "Giant, knotty and unread",
-            "Long, more complicated than its size usually is, and nobody has read it.",
-            "{{loc}} lines, more tangled than bodies that size usually are here, and no reader \
-             has assessed it.",
-            "Whether it can be followed in one pass is a reading's question. Until one is taken, \
-             this is the size worth checking first.",
+            "Giant and knotty",
+            "Long, more complicated than its size usually is, and not read yet.",
+            "{{loc}} lines, more tangled than bodies that size usually are here, and not read yet.",
+            "At this size it is the first place a reading pays off: it will say whether this can \
+             be followed in one pass.",
             Pop::Func,
             // `tangle` rather than a raw branch count: a giant body with no branching is data —
             // on kibana, an index-mapping literal and an i18n string map thousands of lines long
@@ -2247,12 +2246,12 @@ pub fn catalog() -> Vec<Rule> {
         ),
         rule(
             "crowded-file",
-            "Crowded, unexplained and unread",
-            "Many functions, no header saying what they are for, and nobody has read it.",
-            "This file defines {{funcs}} functions, has no header saying what it holds, and no \
-             reader has assessed it.",
-            "Whether they belong together is a reading's question. Until one is taken, nothing \
-             here says what is in it.",
+            "Crowded and unexplained",
+            "Many functions, no header saying what they are for, and not read yet.",
+            "This file defines {{funcs}} functions, has no header saying what it holds, and has \
+             not been read yet.",
+            "A reading will say whether they belong together. Until one is taken, nothing here \
+             says what is in it.",
             Pop::File,
             vec![ge(Field::Funcs, 40.0), lt(Field::HasDoc, 1.0), lt(Field::Read, 1.0)],
             0,
@@ -2276,11 +2275,11 @@ pub fn catalog() -> Vec<Rule> {
         // depends on it. Four rules lean on it on purpose.
         rule(
             "load-bearing-unread",
-            "Load-bearing and unread",
-            "Read this one next.",
-            "{{dependents}} functions outside the tests call this and no reader has assessed it.",
-            "It is the cheapest assessment available here, in the sense that what one of these \
-             turns out to be matters to every call site that depends on it.",
+            "Load-bearing",
+            "Widely depended on, and not read yet.",
+            "{{dependents}} functions outside the tests call this, and it has not been read yet.",
+            "What it turns out to be matters to every one of them, which makes it the cheapest \
+             reading available here.",
             Pop::Func,
             vec![ge(Field::Dependents, 20.0), lt(Field::Read, 1.0), ge(Field::Ncloc, 10.0)],
             0,
@@ -2533,11 +2532,11 @@ pub fn catalog() -> Vec<Rule> {
         ),
         rule(
             "tangled-for-size",
-            "Tangled and unread",
-            "More complicated than its length accounts for, and nobody has read it.",
+            "Tangled for its size",
+            "More complicated than its length accounts for, and not read yet.",
             "For {{ncloc}} lines of code this branches far more than bodies that size usually do \
-             here, and no reader has assessed it.",
-            "Whether it can be followed without stepping through it is a reading's question.",
+             here, and it has not been read yet.",
+            "A reading will say whether it can be followed without stepping through it.",
             Pop::Func,
             vec![ge(Field::Tangle, 0.8), ge(Field::Ncloc, 40.0), lt(Field::Read, 1.0)],
             1,
