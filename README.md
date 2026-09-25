@@ -352,7 +352,7 @@ grow, shrink and change color the way the code did. Because `.sanity/` is commit
 reading lenses work in a replay too: each commit shows the readings that existed at that
 point.
 
-![Replaying history](docs/images/history.png)
+https://github.com/user-attachments/assets/c7cd432e-bb55-49fd-ae9a-8ac7a7306932
 
 **Export** makes a PDF report (methodology, one section per lens, and findings grouped by
 where they are), a shorter brief, a 16:9 slide deck, and an MP4 of a replay. Use File →
