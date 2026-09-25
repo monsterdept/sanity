@@ -2,6 +2,8 @@
 
 Sanity helps you understand a repo, and points out the parts of it that need work.
 
+![The map, colored by predictability](docs/images/map.png)
+
 ## Understanding a repo
 
 Sanity draws the repo as a sunburst: the repo in the middle, directories and files as rings
@@ -10,6 +12,8 @@ color shows: how well an agent could predict the code, how hard it was to follow
 it's documented, how complex it is, what calls it, who worked on it last, how old it is, how
 often it changes, and more. Click any function to see its code and everything Sanity knows
 about it. **History** replays the repo one commit at a time, so you can watch it grow.
+
+![A function's reading in the side panel](docs/images/reading.png)
 
 The most useful of these measurements come from **readings**. A coding agent is shown a
 function's name, signature, neighbors and comments, but not its body, and writes down what it
@@ -37,6 +41,8 @@ Each item is a **finding**, and each finding comes from a **rule** that combines
 measurements, like "over 200 lines, and hard to follow" or "depended on by ten or more
 functions, and undocumented." Sanity comes with about two dozen rules, and you can change
 their thresholds or turn them off for your repo.
+
+![The findings list](docs/images/findings.png)
 
 ```
 $ sanity findings --limit 2
@@ -72,21 +78,6 @@ sanity                                        # open the app
 sanity findings                               # what needs work, and why
 git add .sanity && git commit -m "Readings"
 ```
-
-## Screenshots
-
-![The map, colored by predictability](docs/images/map.png)
-*The map. Each wedge is a function; its width is its line count and its color is how well a
-reader predicted it.*
-
-![A reading in the side panel](docs/images/reading.png)
-*Click a function to see its reading: what the agent expected, what it found, and its grades.*
-
-![The findings list](docs/images/findings.png)
-*Findings: places where several measurements agree something needs a look.*
-
-![Replaying history](docs/images/history.png)
-*History replays the repo one commit at a time.*
 
 ## How you use it
 
@@ -358,6 +349,8 @@ code. The findings list, the rules editor and your decisions are in the app too.
 grow, shrink and change color the way the code did. Because `.sanity/` is committed, the
 reading lenses work in a replay too: each commit shows the readings that existed at that
 point.
+
+![Replaying history](docs/images/history.png)
 
 **Export** makes a PDF report (methodology, one section per lens, and findings grouped by
 where they are), a shorter brief, a 16:9 slide deck, and an MP4 of a replay. Use File →
