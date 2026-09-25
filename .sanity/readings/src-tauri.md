@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1285 of 1285 read · 228 unpredicted
+1285 of 1285 read · 228 unpredicted · 1 stale
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1372,12 +1372,14 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds the Markdown header for one shard file: title, read/total/unprepared counts plus optional stale note, a fixed explanatory paragraph about what a 'reading' and 'read at' hash mean, an optional dated/spec-versioning explanation when some readings answered an older question spec, a README link, then appends body.
 - predicted: some · documented: none · derivable: no · legible: full · trap: no
 
-### `render_index`
+### `render_index` — STALE
 - spec 3 · read at `e5fdb9d2386e` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:03:55Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: Builds the top-level index markdown for the .sanity directory: a title with repo name, totals summed across shards, and a table with one row per shard (name plus five counts) linking to each shard file. Returns the assembled string.
 - found: Builds the .sanity index markdown: a per-shard table with totals row, where the "dated" column appears only if any shard has dated readings, followed by a large fixed boilerplate explanation (what readings are, install/update instructions, commit advice).
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: The conditional dated column must stay in sync with the shard headers, which is only stated in a comment; the file doc covers the store, not this function.
+- this code has changed since it was read; the reading above may no longer
+  describe it, and Sanity will offer it for re-reading first.
 
 ### `git`
 - spec 2 · read at `15b063d45267` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:30Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded

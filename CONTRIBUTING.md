@@ -13,7 +13,10 @@ copyright.
   that Sanity stays under the GPL. Agreeing is one line in your pull request's description.
 - **Talk to me.** If you'd like to work on Sanity seriously and a CLA isn't something you'll
   sign, I'm open to discussing it, including contributing under the GPL and keeping your own
-  copyright. Open an issue, and we'll work out something that suits us both.
+  copyright. Open an issue, and we'll work out something that suits us both. The one thing
+  any arrangement has to include: text Sanity writes into other people's repos, such as the
+  `.sanity/README.md` template and the rule descriptions, is released under CC0, so your
+  changes to it would be too.
 
 ## Building from source
 
