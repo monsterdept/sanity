@@ -18,11 +18,11 @@ What this is and how to add to it: [README.md](README.md)
 ## docs/bugs/OpenPanelListViewRepro.swift
 
 ### the file itself
-- spec 2 · read at `5809d94c635d` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:52:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A short, standalone Swift snippet documenting a reproducible bug involving NSOpenPanel's list view mode — likely showing minimal code that triggers the issue (e.g. list view not rendering or crashing) along with a "mode" variable/enum, kept in docs/bugs as a reference case rather than compiled production code. No file header comment since it's a scratch repro, not a maintained source file.
-- found: A standalone runnable Swift script that opens an NSOpenPanel (directory picker), reading three NSGlobalDomain UserDefaults keys before and after the modal to check which view mode (icon/list/column) the panel persisted, to help debug/verify whether the user's chosen view mode sticks.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- note: Correctly guessed the domain (view-mode persistence repro) but didn't anticipate it reads specific UserDefaults keys directly rather than using some enum/mode abstraction.
+- spec 3 · read at `5809d94c635d` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A small standalone Swift script reproducing a macOS NSOpenPanel bug where the panel doesn't open in list view; it has a single `mode` variable and sets up an open panel, runs it, and prints the result. No header docs.
+- found: Standalone Swift repro: a directories-only NSOpenPanel, with mode() reading the view-mode keys from NSGlobalDomain before and after runModal, then printing response, URLs and directory.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: The header comment describes only mode(); it never says what bug the file reproduces or what result counts as the bug.
 
 ### `mode` — PREDICTED SOME
 - spec 2 · read at `a24c4861041e` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:46:58Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded

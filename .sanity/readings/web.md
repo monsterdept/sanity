@@ -723,9 +723,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: I assumed petals()/seedHead() were called as functions; instead PETALS and SEEDS are precomputed module-level constants used directly, and the center is drawn as discrete seed circles rather than a single seedHead element.
 
 ### `leafPath`
-- spec 3 · read at `6d4b644d3fb7` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:27Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Returns an SVG path `d` string drawing a vesica/lens shape: starts at one tip (0,-L), draws an elliptical/circular arc out to a maximum width and back to the other tip (0,L), then a mirrored arc back to the start, using a radius derived from L via the vesica piscis geometry (arc radius equal to the distance between the two circle centers, i.e. related to L by a sqrt(3) or similar factor).
-- found: Two-arc vesica path as predicted, but tips are along the x-axis (-L,0) to (L,0) rather than the y-axis, and the arc radius is just an empirical constant L*1.16 rather than a geometrically-derived vesica-piscis factor.
+- spec 3 · read at `6d4b644d3fb7` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:33Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns an SVG path string: move to (0,-L), two arc commands to (0,L) and back, with radius such that each arc passes through the other's center (radius L·2/√3), closing with Z.
+- found: Horizontal vesica path from (-L,0) to (L,0) using two arcs of radius 1.16·L. Orientation was horizontal, not vertical, and radius was a fixed 1.16 rather than derived.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `Leaf`
@@ -923,11 +923,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/Crumbs.tsx
 
 ### the file itself
-- spec 2 · read at `f854d81892ed` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:52:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A React component rendering a breadcrumb trail for the current path/directory, splitting it into clickable segments so the user can navigate up to any ancestor directory. Likely takes a path string and an onNavigate callback prop, maps path segments to clickable spans/buttons separated by a delimiter (e.g. "/"), and highlights or disables the last (current) segment.
-- found: A breadcrumb nav component showing the ancestry trail (root to current node) as clickable buttons, plus a separate "Up" button. Collapsed single-child chains keep their internal slashes dimmed so the node reads as one place, while inter-crumb separators stay the louder visual mark.
+- spec 3 · read at `f854d81892ed` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A React breadcrumb component for the sunburst map: renders the path from root to the focused node as clickable segments, calling a callback to zoom to an ancestor, probably truncating long paths. No header docs.
+- found: Breadcrumb nav over the focused node's ancestry; every level is a button calling onGo(i), the last is styled as current, collapsed chains have dimmed inner slashes, and an optional Up button shows when onUp is given. Header was accurate and explains rationale (ancestry vs drill stack).
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: Doc comment explains non-obvious history (trail is ancestry not drill-stack, past bug with single-link rendering) that couldn't be derived from the code alone.
 
 ### `Crumbs`
 - spec 3 · read at `ca2eaebe663d` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:38:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
@@ -1031,10 +1030,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: no · legible: not judged · trap: no
 
 ### `frameOf`
-- spec 3 · read at `57a2a9bcea07` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:22:20Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Computes the export frame's width from a given height using the 16:9 ASPECT ratio (from movie.ts), then rounds the width to the nearest even number since video encoders require even dimensions for chroma subsampling, returning { width, height }.
-- found: Exactly as predicted: width = height * 16/9, rounded to nearest even number, height passed through unchanged.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `57a2a9bcea07` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:29Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Returns {width: Math.round(h*16/9 / 2)*2, height: h}, a 16:9 frame with width rounded to an even number.
+- found: Returns a 16:9 frame: width is h*16/9 rounded to an even number, height is h. The 16:9 ratio is not in the docs but is easy to guess.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `pace` — PREDICTED SOME
 - spec 3 · read at `72df0d0149a5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:48:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -1282,11 +1281,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
 - note: File has no top-of-file module docstring even though nearly every function/constant carries a rich rationale comment — a header could easily be assembled from what's already there.
 
-### `pace` — PREDICTED SOME
-- spec 2 · read at `f97e230c1fec` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:51:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Given a total count, returns a human-readable pace label by bucketing the number into ranges (e.g. "slow", "steady", "fast") for display in the HistoryBar UI. Likely a simple if/else or ternary chain comparing total against threshold constants.
-- found: Formats a duration in seconds as a short string: minutes rounded with 'm' suffix if >= 60 seconds, otherwise raw seconds with 's' suffix. Not actually a "pace" label like slow/fast — it's a duration formatter, likely misnamed relative to what I expected.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+### `pace`
+- spec 3 · read at `f97e230c1fec` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:31Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Formats a total (probably seconds or a count) into a short human-readable pace string, e.g. "about N min" if large, else "N s"; small ladder of thresholds.
+- found: Formats seconds: 60 or more becomes rounded minutes like "3m", otherwise "Ns". No fractional handling.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `speed` — PREDICTED SOME
 - spec 3 · read at `2ffb530ecac5` · commit `38c2756` · read by claude-sonnet-5 · via claude · when 2026-08-25T07:33:48Z · by ross@rossturk.com · warm reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -1547,12 +1546,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The careful padding/margin arithmetic (content-bottom vs border-box, below's margins counted explicitly) is called out in code comments as hard-won fixes for real overflow bugs, not obvious from the signature.
 
-### `AgeSection`
-- spec 3 · read at `ef6b11796c44` · commit `9f5abcc` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T22:48:14Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Renders a timeline of every commit that touched these lines (newest at top), each as a Touch row, rather than just printing oldest/newest dates as a sentence — using spanOf to summarize the span/gaps and hint for context text, passing repoKey through so each row can expand into its commit.
-- found: Pins the newest and oldest commits (as Edge rows) at top/bottom of the block and puts every commit in between in its own scrollable region sized via useFitToPane, rather than one date-positioned scrolling column — so the two endpoints (the actual answer to "how old is this") always stay visible regardless of how much history is in between.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Uses history.changes (not history.touches) deliberately — changes includes rewritten-away commits, touches would understate the lifespan by only counting surviving lines.
+### `AgeSection` — PREDICTED SOME
+- spec 3 · read at `ef6b11796c44` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:54Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Renders a vertical timeline of history.touches, newest first, with a line/rail scaled by date and Touch rows; shows hint text when history is empty. Marks the first (newest) Touch as bright and passes repoKey.
+- found: Pins Newest and Oldest edges with a scrollable middle list of Touch rows, height capped by useFitToPane so Oldest stays visible; uses history.changes, not a date-scaled rail.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: Docs explain the why of the design, but the pinned-ends layout and the scroll cap are only in inline comments.
 
 ### `Edge`
 - spec 3 · read at `483dcf98d1c9` · commit `00bad90` · read by claude-sonnet-5 · via claude · when 2026-08-20T23:56:48Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -1568,11 +1567,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc comment's design rationale is essentially restated verbatim as an inline code comment, so it adds little beyond what the code already says.
 
 ### `Touch`
-- spec 3 · read at `0f5d608ba734` · commit `9f5abcc` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-21T22:47:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders one git commit ("touch") as a row: commit hash/short id, author/date, and message, highlighted with different styling when `bright` is true. Includes a clickable/expand element using `repoKey` to construct a link or trigger navigation into that commit's full detail (diff/context), possibly using an ExpandIcon-like affordance.
-- found: Renders a single commit-touch row with a colored dot (bright/newest gets a heat-ramp color, others muted), relative time, short commit hash, a labeled line count (or "gone" if the commit's changed lines were fully superseded), an expand icon (only if repoKey is set and the commit hash looks like a real sha, not "uncommitted"), a truncated summary, and an optional "in {path}" line for renamed files. Clicking expand opens a CommitCard modal showing the full commit.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: The comments explain non-obvious design decisions (why zero shows 'gone' instead of '0 lines', why paths can be stale due to rename-following) that wouldn't be derivable from the code alone.
+- spec 3 · read at `0f5d608ba734` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:17Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: React component rendering a commit row: short hash, subject, author, relative date via when(), maybe +/- line counts. Clicking opens the commit (via invoke to open a code window or copy hash) using repoKey; bright flag highlights the row.
+- found: Commit row: dot (bright for newest), date, hash, surviving line count or "gone", expand icon opening CommitCard only for hex hashes with a repoKey, summary, and a renamed-path line.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `ChurnSection` — LEGIBLE SOME
 - spec 3 · read at `c5f77030db57` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:26Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1834,22 +1832,23 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `compact`
-- spec 3 · read at `73bcbba467b7` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Formats a number compactly for a narrow UI label. For n below 1000, returns it as-is. For thousands, uses "k" suffix — one decimal place while in the first decade (1000-9999, e.g. "5.2k"), then rounds to whole numbers above that (e.g. "12k"). Same pattern for millions with "m" suffix (e.g. "1.2m", then "12m").
-- found: Formats a number with k/m suffix, one decimal in the first decade of each unit (1000-9999 and 1000000-9999999), whole number otherwise, using toFixed to round.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `73bcbba467b7` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Formats a number: under 1000 returns the plain integer; 1000-999,999 returns k with one decimal below 10k (5.2k) and none above (54k); 1M+ returns m similarly. Trailing .0 probably dropped.
+- found: Formats n as plain digits below 1000, else k/m with toFixed(1) below 10k/10m and toFixed(0) above. Trailing .0 is not dropped (5.0k stays), contrary to my guess.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `fnv`
-- spec 3 · read at `fdf959d81bcc` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:48:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Standard FNV-1a hash implementation — iterates chars/bytes of text, XORs each into a running hash starting at the FNV offset basis, multiplies by the FNV prime (with 32-bit overflow handled via >>> 0 or Math.imul), and returns the final numeric hash.
-- found: Standard FNV-1a: offset basis 0x811c9dc5, XOR each char code then Math.imul by prime 0x01000193, returns h >>> 0.
+- spec 3 · read at `fdf959d81bcc` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Standard 32-bit FNV-1a: start at 2166136261, for each char code XOR then multiply by 16777619 (via Math.imul), return unsigned with >>> 0.
+- found: Standard 32-bit FNV-1a over UTF-16 code units, returned unsigned.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `seconds`
-- spec 3 · read at `958cc9bcf2f6` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Converts a seconds estimate into a short coarse human-readable duration string, rounding hard (no decimals) — likely something like "<1m", "2m", or "1h" depending on magnitude, used as a wait-time label in the phase pill.
-- found: Returns "~Ns" for under 60s (rounded, min 1) or "~Nm" for 60s+ rounded to nearest minute — only two units, no hours tier.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `958cc9bcf2f6` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Turns seconds into a coarse string: under a minute "~Ns" rounded to 5 or 10, under an hour "~N min", else "~N h". Rounded hard, one significant figure-ish.
+- found: Under 60s: ~Ns rounded, minimum 1; otherwise ~Nm rounded minutes. No hours tier and no 5/10 rounding, unlike my guess.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Docs say "rounded hard" and "two significant figures", but the code only rounds to whole seconds/minutes and has no hours tier, so long estimates read as e.g. ~600m.
 
 ### `phasesOf`
 - spec 3 · read at `74dac6011b8c` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:54:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -2154,20 +2153,20 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: I overestimated its size — it's a 2px accent line, not a row-height placeholder block.
 
-### `ProjectItem` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `1f6358cc3b7b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders a div (not button) acting as a row: role + tabIndex + onKeyDown for click semantics, onClick, onContextMenu, and onPointerDown wired to onGrab for drag start. Shows project name/icon, with `active` and `dragging` controlling CSS classes. The right-side slot conditionally renders: a Progress/percentage view when `replay` is non-null, action buttons (Read, Stop trace, Scan) when this row is active or hovered, otherwise a static count (e.g. file/issue count) — with `blocked` disabling or styling the trace-related control differently.
-- found: Renders the row div as predicted (role=button, onClick, onContextMenu, onPointerDown=onGrab, active/dragging styling), but the right-side "slot" I predicted (inline Read/Stop/Scan buttons) is actually delegated entirely to a separate `Phases` subcomponent. The bulk of the function is a state machine deriving `running`, `winding`, `stopping`, `busy`, `reading`, `working`, `failed`, and `open` from `project.run` plus local `cancelling`/`asked` state (with effects to reset them), used to drive a bottom-edge "sweep" progress indicator, a pulsing icon, and a failure chip that opens a transcript — none of which I predicted.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
+### `ProjectItem` — PREDICTED SOME
+- spec 3 · read at `1f6358cc3b7b` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:13Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Renders a div with role=button and key handling (Enter/Space) showing project name, right slot with count, or replay progress when running, plus Read/Stop/Trace/Scan buttons when active. Applies drag/dragging styling and a grab handle calling onGrab; context menu on right-click. Buttons stop propagation.
+- found: Row div (role=button) with hover/cancelling/asked state, derives busy/winding/working/failed flags, shows name, a 'Read failed' chip opening the transcript, a busy sweep along the bottom edge, and delegates to a Phases pill component whose onAct dispatches scan/trace/replay/read/stop actions. Drag via onPointerDown on the row, not a handle.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Several orphaned doc comments (count formatting, LEVEL ONE/TWO) sit above code that no longer exists; the docs describe removed behaviour.
 
 ## web/src/components/Sprig.tsx
 
 ### the file itself
-- spec 3 · read at `705845ca81b0` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Defines a small seeded-RNG helper (rng) and a Sprig React component that procedurally draws a decorative one-stem plant (SVG paths for stem + leaves) to fill the blank line under a project row's pills when idle. The shape is deterministic per project (seeded from something like the project id/path) so it looks different per row but stable across renders, purely decorative with no real data displayed.
-- found: Mulberry32 seeded PRNG plus a Sprig component that procedurally draws a wandering stem (sum of two sine waves plus a lean) with alternating leaves (borrowing leafPath from Bloom.tsx) as an SVG filler for the blank line under an idle project row's pills, seeded per-project so it's stable across polls but different every app session.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: The header doc is unusually thorough (explains rejected alternatives: showing a number, keeping the rose bud, a single sine wave) so almost nothing in the body was a surprise beyond exact constants/geometry.
+- spec 3 · read at `705845ca81b0` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:41Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A React component rendering a small decorative SVG plant: a seeded PRNG (rng, e.g. mulberry32 seeded from the FNV hash of the project key) generates a stem path with leaves at varying angles/sizes, deterministic per project. Sprig takes a seed/key prop and returns an svg sized to fit the idle slot.
+- found: Seeded (mulberry32) SVG vine: two-sine stem across a wide strip with alternating leaves borrowed from Bloom's leafPath, deterministic per seed. The header also explains why it exists and the geometry choices.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `rng`
 - spec 3 · read at `23eeeccc94cb` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:01Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2484,11 +2483,10 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/shell/SideBarHeader.tsx
 
 ### the file itself — PREDICTED SOME
-- spec 2 · read at `cef9ad3d6d95` · commit `ba429b4` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T20:52:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A small React component rendering the header area of a sidebar panel within the app shell — probably a title/logo, plus maybe a collapse/toggle button or action icons. Given its location under components/shell, it's likely a simple presentational component with minimal props (like a title string and onToggle/onClose callback) styled with Tailwind classes to match the rest of the shell chrome.
-- found: Renders the top-left header cell of the sidebar containing just the Wordmark logo, as a Tauri drag-region. It tracks fullscreen state to conditionally reserve left padding for macOS's overlay traffic-light buttons, collapsing that padding in fullscreen since the traffic lights hide then.
-- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
-- note: Expected a generic title/toggle-button header; the actual function is almost entirely about macOS Tauri traffic-light spacing and drag regions, not a typical sidebar header with controls.
+- spec 3 · read at `cef9ad3d6d95` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:42Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A small React component file exporting SideBarHeader: renders the sidebar's top row with a title and probably a close/collapse button, taking title and onClose props. No docs header.
+- found: Sidebar top-left cell showing the Wordmark, a Tauri drag region, with left padding reserving space for macOS traffic lights unless fullscreen (tracked via onFullscreenChange). No title/close button. The file has no header, but the component's doc comment covers it.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `SideBarHeader`
 - spec 2 · read at `048333edc686` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:45:54Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -3040,10 +3038,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: Already read this exact function verbatim in the prior api.ts file task, so this was recall, not prediction — reporting cold:false.
 
 ### `stopScan`
-- spec 3 · read at `460200c485de` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Thin frontend wrapper that invokes a Tauri command (e.g. invoke("stop_scan")) to signal the backend to stop the running scan, with no arguments, returning a promise that resolves once the command completes.
-- found: Calls invoke('stop_scan') with no args, returning the Promise<void>.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `460200c485de` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:35Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Invokes the Tauri command "stop_scan" with no args and returns its promise.
+- found: Thin wrapper: invoke('stop_scan').
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- note: The doc comment is two merged fragments ("Ask a wave to stop..." reads like a leftover from a neighbouring function such as stopTrace/stopCheck), and describes backend behavior rather than this wrapper.
 
 ### `stopCheck`
 - spec 3 · read at `8ff5e7dff082` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3058,28 +3057,29 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `stopTrace`
-- spec 3 · read at `f040b070dc9b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A thin frontend wrapper invoking the Tauri stop_trace command with the repo path, awaiting the result and returning the boolean indicating whether the running trace was successfully stopped.
-- found: Exactly as predicted: a thin wrapper calling invoke('stop_trace', { path }) and returning the Promise<boolean>.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `f040b070dc9b` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:43Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Tauri invoke wrapper: returns invoke<boolean>("stop_trace", { path }).
+- found: invoke<boolean>('stop_trace', { path }).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: The doc block starts with a stray sentence about estimateTrace that belongs to a neighbouring function.
 
 ### `estimateTrace`
-- spec 3 · read at `b7fd2560710b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:47Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Thin wrapper that calls Tauri's invoke("estimate_trace", { path }) and returns the resulting TraceCost promise, mirroring the Rust `estimate` function.
-- found: Thin Tauri invoke wrapper: invoke('estimate_trace', { path }) returning Promise<TraceCost>.
+- spec 3 · read at `b7fd2560710b` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:44Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Calls Tauri invoke("estimate_trace", { path }) and returns the TraceCost promise.
+- found: Thin invoke wrapper for 'estimate_trace' with { path }.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `explainTrace`
-- spec 3 · read at `a77324d6dcda` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:48Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Thin frontend wrapper that invokes the Tauri backend command "explain_trace" and returns the resulting boolean promise, mirroring the Rust explain_trace function.
-- found: Exactly as predicted: a one-line invoke() wrapper calling the 'explain_trace' Tauri command.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `a77324d6dcda` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:45Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Thin wrapper calling the Tauri invoke("explain_trace") command and returning the boolean promise.
+- found: invoke('explain_trace') wrapper.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `setExplainTrace`
-- spec 3 · read at `3baa2870cb8b` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:51:52Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Thin Tauri IPC wrapper: calls invoke("set_explain_trace", { explain }) and returns the resulting promise, toggling a backend flag controlling whether explain/trace output is produced by subsequent calls.
-- found: Thin Tauri IPC wrapper: invoke('set_explain_trace', { explain }).
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `3baa2870cb8b` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:47Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Thin wrapper: invokes the Tauri command "set_explain_trace" with { explain } and returns its promise.
+- found: Invokes the Tauri command set_explain_trace with { explain }.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `listProjects`
 - spec 2 · read at `352ee0c679ef` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:18Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -3547,11 +3547,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc explains why this exists (escalated wedge display) but not derivable from code that this is specifically for the case where the function/file itself isn't drawn.
 
 ### `ramped`
-- spec 2 · read at `179de516bc35` · commit `9ea3e1f` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T22:04:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the given ramp's stops, finds the stop nearest to v (clamped/quantized), computes the fill hex for that stop, and calls inkOn(fill) to get the readable ink color, returning {fill, stop, ink} as a Paint object so callers can't use one without the other.
-- found: Delegates to rampStop(v, ramp) for the stop and heatColor(v, ramp) for the fill separately (both computed from v/ramp directly rather than fill being derived from stop), and inkOn(stop) takes the stop rather than the fill hex — my prediction had the right shape (bundling fill+stop+ink) but wrong data flow between the three helper calls.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I assumed ink was computed from the fill color's luminance directly; instead inkOn takes the stop, meaning ink readability is decided per ramp-stop rather than per exact fill hex.
+- spec 3 · read at `179de516bc35` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:36Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Samples the named ramp at v to get a fill color, finds the nearest stop, and returns a Paint object with fill, stop, and ink computed via an ink helper for that stop. Roughly three lines.
+- found: Returns Paint with fill from heatColor(v, ramp), stop from rampStop(v, ramp), and ink from inkOn(stop).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `ageSpanOf`
 - spec 2 · read at `91acacf4eb3c` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:32:54Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -4013,11 +4012,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `traceProject`
-- spec 3 · read at `1a442f471908` · commit `03fa9fd` · read by claude-sonnet-5 · when 2026-08-26T17:47:29Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Thin frontend wrapper that POSTs to the backend's /trace endpoint (same one the CLI `trace` command hits) with the project path and optional depth ('files' or 'lines'), awaits the JSON response, and resolves with the `seconds` field from the result so the app can compare actual cost to its own estimate.
-- found: A one-line wrapper around Tauri's `invoke('trace_project', { path, depth })`, resolving to the seconds elapsed as reported by the backend Rust command — it's an IPC call to the app's own Tauri backend, not an HTTP fetch to a separate server process.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: This is the Tauri desktop-app path (invoke), a separate call surface from the HTTP /trace endpoint the CLI uses — worth knowing there are two client entry points into tracing.
+- spec 3 · read at `1a442f471908` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:34Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: One-line wrapper: invoke a Tauri command 'trace_project' with path and depth, returning the seconds promise.
+- found: invoke('trace_project', {path, depth}).
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- note: The doc block is fused with warmHistory's doc (two docs concatenated), so warmHistory's description shows up on this function.
 
 ### `warmHistory`
 - spec 3 · read at `ff9955356789` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T07:39:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -4349,10 +4348,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `luminance`
-- spec 2 · read at `d09f89e8db80` · commit `9ea3e1f` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-13T22:04:29Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Parses hex into r,g,b 0-1 channels, applies the sRGB linearization formula to each (dividing by 12.92 below threshold, else the gamma power-curve formula), then returns the weighted sum 0.2126*R + 0.7152*G + 0.0722*B per the WCAG spec.
-- found: Delegates hex parsing and sRGB linearization to a separate `srgb()` peer function, and this function itself is just the weighted-sum reduce over the three linearized channels with the WCAG coefficients — I correctly predicted the formula but attributed the linearization step to this function rather than a helper.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `d09f89e8db80` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:35Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Parses hex to sRGB channels via srgb(), linearizes them, and returns 0.2126R+0.7152G+0.0722B.
+- found: Weighted sum of srgb(hex) channels with the WCAG coefficients. Linearization presumably happens inside srgb(), which I had guessed.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `over`
 - spec 3 · read at `764d29607998` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:44:47Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -4448,25 +4447,25 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/locks.ts
 
 ### the file itself — PREDICTED SOME
-- spec 3 · read at `5f7373d34d40` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A pure-logic module computing "lock" state on items in a grading workflow — gradedCounts tallies how many items have been graded (per some grouping), and locksFor derives lock booleans/reasons for a given entity based on those counts, to prevent edits after grading passes some threshold.
-- found: gradedCounts tallies, per ColorMode lens, how many current (non-stale) agent reports actually grade that lens, using the same accessors (legibleOf/trapOf) the UI paints with. locksFor computes, per lens, whether it is locked and why (a UI tooltip string plus a paper/PDF-safe string plus whether a button exists to unlock it), based on replay mode, whether the repo tree/readings exist, whether wiring is resolvable, whether git history/blame/churn has been traced, and whether complexity bands exist — essentially deriving disabled/explanatory states for a multi-lens code-quality report UI.
-- predicted: some · documented: most · derivable: no · legible: not judged · trap: no
-- note: This is the Sanity tool's own codebase (a code-report UI with lenses like Legibility/Traps/Churn), not a grading-app domain as I guessed from generic function names alone.
+- spec 3 · read at `5f7373d34d40` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:51Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Frontend helper deciding which "locks" (pinned/frozen rules or gates on a function or file) apply: locksFor returns the locks for a target, and gradedCounts tallies how many items fall in each grade band. No header doc.
+- found: Decides which colour lenses (map modes) cannot paint and why, with tab and paper messages, using per-lens graded counts of readings. I guessed "locks" meant pinned rules, not disabled lenses.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: The file has no header; the file name "locks" does not say these are disabled colour lenses, though the per-function docs are excellent.
 
-### `gradedCounts` — TRAP
-- spec 3 · read at `2c94ab0c494c` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:32Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over reports and, for each ColorMode (a lens like legibility/trap/etc.), counts how many reports have a real (non-null) grade for that lens, using shared accessor functions (legibleOf, trapOf, etc.) instead of reading raw fields directly, to keep counting logic consistent with how the map paints colors. Returns a Partial<Record<ColorMode,number>> with only lenses that have at least one graded report, or all lenses each initialized to 0.
-- found: Builds a zero-initialized count object for surprise/legible/docs/traps, skips stale reports, and increments each counter based on presence of that field (via legibleOf/trapOf accessors for legible/traps, raw field checks for surprise/docs).
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: traps count is not "graded" but "true" (trapOf(r) truthy), asymmetric with surprise/docs/legible which count presence of a grade regardless of value — a maintainer adding a new lens by pattern-matching the trap line would silently change semantics.
+### `gradedCounts` — PREDICTED SOME
+- spec 3 · read at `2c94ab0c494c` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over reports and, for each color mode (e.g. legibility, trap), uses the accessors legibleOf/trapOf to decide whether the report has a current grade for that lens, and tallies a count per mode. Returns a partial record mapping mode to count, omitting modes with zero.
+- found: Tallies non-stale reports per lens (surprise, docs, legible, traps); only legible and traps use accessors, surprise/docs check raw fields; always returns all four keys, including zeros.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: Doc says counts go through accessors and never read fields directly, but surprise and docs read r.predicted/r.documented directly, and stale reports are skipped, which the doc never mentions.
 
-### `locksFor` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `ccf2b7f1da83` · commit `81e3c93` · read by claude-sonnet-5 · when 2026-09-16T05:34:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes a precomputed LockFacts object (not live app/window state) and returns a map from color-mode lens to a Locked reason for lenses that can't currently be painted. Checks replay-related limits first since those hold regardless of repo state, then checks other facts (e.g. derived from gradedCounts) to lock remaining lenses, only inserting entries for modes that are actually locked.
-- found: Builds a per-lens lock map. For replay, any mode not marked 'live' in REPLAY gets locked with a replay-specific note. Otherwise, for each ColorMode it runs through a carefully ordered chain of specific checks: reading-based lenses with zero graded items (distinguishing 'never read' vs 'read but doesn't answer this question'), wiring-based lenses when the language's call graph isn't resolvable, git-history lenses (blame/churn/age) checked in a specific order (untraced history before 'no history at all' before churn-specific 'not walked by timeline'), and tangle/complexity lenses when no language has branch-kind tables. Each lock carries a `why` (verbose UI copy), `paper` (report copy), and `keyed` (whether a button fixes it).
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: Docs explain the high-level design rationale (facts not window; replay ordering) but say nothing about the much larger, carefully ordered chain of git/wiring/tangle-specific locks that make up most of the body.
+### `locksFor`
+- spec 3 · read at `ccf2b7f1da83` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Builds a record of locked color modes: first, if the facts indicate a replay, locks the modes replays can't support; then for each remaining mode checks stats (no git history, no wiring, no graded functions, no analysis) and sets a Locked object with a reason message. Returns the partial record.
+- found: Loops over all color modes, producing a lock per mode. Replays lock non-live modes first. Otherwise an ordered else-if ladder: no readings, wiring unparsed, git untraced, folder without history, tangle table empty, churn timeline unwalked. Each lock has why, paper and keyed. Predicted the shape but not the ordering rationale or the keyed/paper distinction.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: The doc mentions only the replay-first ordering; the ordering of the rungs and the keyed vs paper semantics live only in inline comments.
 
 ## web/src/lib/mapMarkup.ts
 
@@ -4621,11 +4620,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc's mention of 'caps' made me predict a stroke+lineCap approach; actual implementation is a filled arcTo path, which achieves the same pill look but works differently (e.g. behaves correctly with any fillStyle/alpha, no stroke state needed).
 
 ### `stamp`
-- spec 3 · read at `32c58c4d592a` · commit `50b4d0a` · read by claude-sonnet-4.5 · asked for claude-sonnet-5 · via claude · when 2026-08-19T08:22:04Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Formats a commit timestamp (seconds since epoch) as a locale date string including the year, month, and day, for display under the timeline in the exported movie; returns a fallback string like "before this history" when ts is null (for frames before the export window).
-- found: Exactly as predicted: null returns 'before this history', otherwise formats as a locale date string with year/month/day.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: Already read this exact function in the earlier movie.ts whole-file reveal, so this is a warm/recall reading.
+- spec 3 · read at `32c58c4d592a` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Returns a placeholder like "—" if ts is null; otherwise converts unix seconds to a Date and formats as YYYY-MM-DD (ISO date, UTC slice).
+- found: Returns 'before this history' for null; otherwise a locale-formatted date (short month, day, year) from unix seconds. Predicted ISO format and a dash placeholder; both wrong in detail.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `within`
 - spec 3 · read at `f598d9fd28de` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:15Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
