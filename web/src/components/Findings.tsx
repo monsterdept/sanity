@@ -626,7 +626,7 @@ export function Findings({
   /** The catalog's answer, or `null` while it is still being asked.
    *
    *  **Fetched by `App` rather than here, because the badge needs it too.** Two fetchers for
-   *  one answer is two answers: a dot on the mascot saying there is something to see, over a
+   *  one answer is two answers: a badge in the hub saying there is something to see, over a
    *  panel that has not asked yet, or worse the reverse. One owner, one number. */
   groups,
   /** True while a replay is up. A finding is a claim about HEAD, so this is the one state the

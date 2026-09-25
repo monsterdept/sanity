@@ -1,9 +1,7 @@
 /**
  * What the middle of the map holds: two circles in the lens's colors.
  *
- * **It held four things and a picker to choose between them** — a creature, a balance wheel, an
- * eye and these — while the question was open. It is settled, so the others are gone and the
- * picker with them: the hub is the circles, and `HubCircles` draws them.
+ * The hub is the circles, and `HubCircles` draws them.
  *
  * The hub disc stays whatever is drawn on it, and so does the layer over it: that layer carries
  * the findings count and its click, which is the map's only way into the findings panel, and the

@@ -1564,7 +1564,7 @@ export interface Grammar {
  *  commands, and each built the whole fact set for itself — three walks of the tree under one
  *  lock, which on kibana is 540,000 records to answer three questions about one repo. They
  *  are also the same measurement seen three ways, so fetching them separately was three
- *  chances for the grid, the list and the creature to describe different states of it. */
+ *  chances for the grid, the list and the badge to describe different states of it. */
 export interface ProjectReport {
   groups: FindingGroup[]
   rules: RuleView[]

@@ -1463,7 +1463,7 @@ pub struct FieldView {
     pub file: Option<Spread>,
 }
 
-/// One walk's worth of answers — what the panel, the grid and the creature all read.
+/// One walk's worth of answers — what the panel, the grid and the hub's badge all read.
 ///
 /// Named `ProjectReport` rather than `Report`, which in this file is a READER's report — the
 /// thing a model sends back about one function. Two Reports in one module is the kind of
@@ -1471,7 +1471,7 @@ pub struct FieldView {
 ///
 /// **Together because they are one answer about one repo.** They were three commands and
 /// three walks of the tree; the counts in the grid, the tiles in the list and the number on
-/// the mascot are the same measurement seen three ways, and issuing them separately was both
+/// the badge are the same measurement seen three ways, and issuing them separately was both
 /// three times the work and three chances to describe different states of the same repo.
 #[derive(Clone, serde::Serialize, Default)]
 pub struct ProjectReport {

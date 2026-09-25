@@ -340,29 +340,6 @@ sample path out n="10":
     out="$(mkdir -p "{{out}}" && cd "{{out}}" && pwd)"
     cd src-tauri && cargo run --quiet --bin sanity-sample -- "$target" "$out" {{n}}
 
-# Clone the monsters repo at `ref` (branch/tag/sha; default main), build the lib, copy the
-# bundle to the WEBSITE's assets. The app used to draw a creature in the middle of the map and
-# does not any more — the hub is the circles, and the findings count sits over them — so this
-# feeds the habitat sheet's masthead alone. Vendored rather than depended on: it's a private repo,
-# so a plain `npm install` on a fresh checkout (or in CI) can't fetch it. Same recipe as
-# tally's and fussy's. The hand-written mascot.d.ts next to it declares only the surface
-# we use, so re-check it after a bundle update.
-#
-# It moved: `lapbar/neo-mascots` is now `monsterdept/monsters`. The old address does not
-# fail loudly — it fails as a clone that cannot authenticate, which reads as an SSH problem
-# rather than as a repo that is not there any more.
-mascot ref="main":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
-    git clone --depth=1 --branch {{ref}} git@github.com:monsterdept/monsters.git "$tmp/monsters"
-    cd "$tmp/monsters"
-    npm install
-    npm run build:lib
-    cp dist/index.js "{{justfile_directory()}}/website/assets/mascot.js"
-    echo "mascot.js updated from monsters@{{ref}} (website)"
-
 # Tag + push a release, e.g. `just release 0.1.0` (-suffix = prerelease).
 release version:
     #!/usr/bin/env bash
@@ -687,8 +664,8 @@ web-dev:
     cd web && npm run dev
 
 # Serve website/ locally and open it. The habitat sheet is plain static files, but it
-# must be served rather than opened as file:// — the mascot bundle is an ES module, and
-# a module fetched from file:// is blocked by CORS. Ctrl-C stops the server.
+# must be served rather than opened as file:// — its fonts are fetched with CORS, and a
+# font fetched from file:// is blocked. Ctrl-C stops the server.
 website port="8014":
     #!/usr/bin/env bash
     set -euo pipefail

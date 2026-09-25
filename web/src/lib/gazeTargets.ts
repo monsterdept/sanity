@@ -1,7 +1,7 @@
 import { type Node } from './api'
 import { type Wedge } from './sunburst'
 
-/** A direction from the hub, x right and **y up** — the creature's world, not the screen's. */
+/** A direction from the hub, x right and **y up** — the world's way, not the screen's. */
 export type Bearing = { x: number; y: number }
 
 /** How many lit wedges the dot will look at one at a time before giving up and taking
@@ -9,7 +9,7 @@ export type Bearing = { x: number; y: number }
  *  distinguish, not a display limit. */
 const GAZE_INDIVIDUALS = 6
 
-/** Where the creature in the hub is looking: at whatever is happening right now.
+/** Where the hub is looking: at whatever is happening right now.
  *
  *  **Two sources, one answer, because there are two ways this map moves on its own.** A
  *  scan lights the wedge it is reading (`reading`); a replay flashes the wedge the commit
@@ -24,10 +24,9 @@ const GAZE_INDIVIDUALS = 6
  *  would twitch between neighbours several times a second. The mean points at the part of
  *  the ring the work is in, and swings across when the work moves rather than jumping.
  *
- *  `a` is clockwise from 12 o'clock, and the creature's world has **y up** where the
- *  screen has y down: the gaze target is placed in world units off the pupils (see
- *  `setGazeFocus` in the bundle), so the vertical component is NOT negated the way it
- *  would be for an SVG coordinate.
+ *  `a` is clockwise from 12 o'clock, and a bearing has **y up** where the
+ *  screen has y down, so the vertical component is NOT negated the way it would be for an
+ *  SVG coordinate; `useHubGaze` turns it to the screen's way, once.
  *
  *  Rounded, so a set that gains and loses one thin wedge does not re-aim on every tick —
  *  finely enough that the motion reads as a turn rather than a series of steps, which is
@@ -48,7 +47,7 @@ export function gazeOf(wedges: readonly Wedge[], pulsing: ReadonlySet<string> | 
   // **A few things are looked at in turn; a crowd is looked at as a place.** Blame does
   // not run at a constant rate — it comes in bursts and then labours over three or four
   // files for seconds at a time — and through those lulls a single averaged bearing is a
-  // creature staring into the middle distance. Handing the figure the individual wedges
+  // stare into the middle distance. Handing the gaze the individual wedges
   // lets it glance between them, which is what something watching actually does.
   //
   // Past a handful there is nothing to glance between: twenty wedges cycled one at a time

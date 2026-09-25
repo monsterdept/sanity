@@ -302,8 +302,8 @@ function scaleOf({ rings, spacing, unitsPerPx }: MapInput, memo: Memo) {
    *  visibly: fitting the view to the drawn extent means scaling both ends is a no-op. */
   const rIn = R_OUTER - (R_OUTER - R_INNER) * spacing.width
   /** How much smaller the hub is than the one every constant in it was written against.
-   *  The disc, its name and the creature are all sized in user units and all three have to
-   *  travel with it, or a wider ring draws a creature that overflows the circle it lives in. */
+   *  The disc, its circles and the badge are all sized in user units and all three have to
+   *  travel with it, or a wider ring draws a picture that overflows the circle it lives in. */
   const hubK = rIn / R_INNER
 
   /** The mid-radius of ring `d`, from the NOMINAL band — the ring count, not the depth
@@ -396,7 +396,7 @@ function treeOf(
    *  Lighting the whole chain instead made `drivers` and `net` blaze continuously for as
    *  long as the sweep was anywhere inside them: the loudest thing on screen, saying only
    *  "somewhere in here", while the work itself was invisible underneath. And the same
-   *  average aimed the creature's eyes, which is why they read as idle wandering — the big
+   *  average aimed the hub's gaze, which is why it read as idle wandering — the big
    *  inner rings dominate the sum and drag it to the middle.
    *
    *  So a path lights the narrowest wedge that can carry it: itself if it is drawn, its
@@ -873,7 +873,7 @@ export function viewOf({
     // **A replay is fitted to the composition it will BECOME, not to the frame on screen.**
     // The fit is measured off what is drawn, which is right for a map somebody is reading
     // and wrong for a story: commit one is an empty repo, so the extent is the hub alone
-    // and the hub is blown up to fill the pane — a creature the size of a dinner plate,
+    // and the hub is blown up to fill the pane — a disc the size of a dinner plate,
     // and then a map that pumps in and out for the next nine hundred commits as the
     // outermost ring comes and goes. Nothing in that motion is about the code; it is the
     // camera reacting to it.

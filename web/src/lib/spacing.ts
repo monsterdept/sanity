@@ -49,10 +49,10 @@ export type Spacing = {
    *  START: thicker rings eat into the disc in the middle, thinner ones give it back. That is
    *  the real trade, and it is worth a control because the two ends are wanted by different
    *  repos — a deep tree wants every unit of radius it can have, and a shallow one has radius
-   *  to spare and a creature in the middle worth looking at.
+   *  to spare and a hub worth looking at.
    *
-   *  The hub's own contents scale with it. A fixed 94-unit creature in a disc half that wide
-   *  is the same bug as a fixed label size in a shrinking circle. */
+   *  The hub's own contents scale with it. A fixed-size picture in a disc half that wide is
+   *  the same bug as a fixed label size in a shrinking circle. */
   width: number
 }
 
@@ -101,6 +101,6 @@ export const RING_MAX = 4
  *  because both ends run out of something real rather than merely stopping being useful.
  *  Under about 60% the rings have given away so much radius that the outer band is thinner
  *  than the labels hanging off it; over about 110% the hub has nothing left to be a hub with,
- *  and the hub is the target for going up a level as well as the creature's home. */
+ *  and the hub is the target for going up a level as well as the findings badge's home. */
 export const WIDTH_MIN = 0.6
 export const WIDTH_MAX = 1.1

@@ -108,17 +108,6 @@ function SunburstView({
   views?: Views
   /** Undefined at the top level, which is what disables the hub's go-up affordance. */
   onUp?: () => void
-  /** The creature in the middle of the hub, and what it is doing.
-   *
-   *  **It lives here because the hub is the one part of the window that is about the whole
-   *  repo.** It used to sit in a panel under the sidebar, beside a word — Sleeping, Working,
-   *  Stopping — and that panel is gone: everything else in it was about ONE project and
-   *  belongs on that project's row. What was left was the app's own pulse, which has no row
-   *  and does not want one. The hub already names the repo and its size; the state of the
-   *  thing reading it is the third fact about the same subject.
-   *
-   *  Absent is a legitimate value — the history replay has no run to depict — and absence
-   *  draws nothing rather than a sleeping creature over a story from 2019. */
   /** What the badge in the hub says, and what a click on it opens. Absent draws nothing — a
    *  replay has no findings to report on a story from 2019.
    *
@@ -278,7 +267,7 @@ function SunburstView({
   })
   const { rIn, hubK, wedges, hidden, pulsing, fileIds, hist, rim, target, rimRuns } = m
 
-  /** Where the creature looks — see `gazeOf` — and which way the selection is from the hub. */
+  /** Where the hub looks — see `gazeOf` — and which way the selection is from the hub. */
   const gaze = useMemo(() => gazeOf(wedges, pulsing), [wedges, pulsing])
   const selectedGaze = useMemo(
     () => bearingOf(selected, wedges, root.id),
@@ -384,10 +373,8 @@ function SunburstView({
       />
 
       {/* The badge's layer, over the SVG rather than inside it.
-          A creature used to stand here — a WebGL canvas, which is why this is a layer and not
-          a `foreignObject`: a canvas scaled by an SVG transform is a bitmap stretched rather
-          than a picture redrawn. The creature is gone and the layer stays, because what it
-          carries is the findings count and the hub's own gesture. Positioned imperatively in
+          A layer and not a `foreignObject`, because what it carries is the findings count and
+          the hub's own gesture, and type in a layer stays type. Positioned imperatively in
           the fit effect above, so it travels with the disc through a level change instead of
           jumping to the new middle a frame early.
 
@@ -419,9 +406,9 @@ function SunburstView({
               be, and every bit of shape spent on saying "thought" came out of the part that
               had to stay readable.
 
-              **Drawn whatever the readers are doing.** It used to be gated on a sleeping
-              creature, which is not an argument anybody made, and what it did was take the
-              count off the map for the whole of a reading pass. Kibana's is minutes long;
+              **Drawn whatever the readers are doing.** Gating it on the readers being idle
+              is not an argument anybody made, and what it would do is take the count off the
+              map for the whole of a reading pass. Kibana's is minutes long;
               sanity's is 1,700 functions. For all of that the map said nothing while the panel
               behind it said forty-nine, and silence standing in for a clean bill is the one
               thing this surface is written never to do.

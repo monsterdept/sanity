@@ -9,7 +9,7 @@
  * two can happen at once.
  *
  * **Its own module because of what it imports.** `react-dom/server` is a renderer the window
- * never needs, and the window's own map imports the creature (`three`) and the tooltip. Kept
+ * never needs, and the window's own map imports the tooltip. Kept
  * apart, this file reaches neither: the picture is `MapArt`, and `MapArt` reaches only layout,
  * colour and label code.
  */

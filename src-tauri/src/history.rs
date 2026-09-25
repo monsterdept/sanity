@@ -85,9 +85,9 @@ const MAX_SHARD_BYTES: u64 = 32_000_000;
 /// applies, and it has to be the same test.
 ///
 /// Without it the timeline and the live map disagree about what the repo even contains:
-/// this repo commits a bundled mascot placeholder whose 161 "functions" the scan refuses
-/// and the replay happily drew, so history's HEAD held 769 functions against the map's
-/// 472 and the largest wedge in the story was a file the map does not show.
+/// a committed minified bundle is a file whose functions the scan refuses and the replay
+/// would happily draw, so history's HEAD would hold hundreds of functions the map does not,
+/// and the largest wedge in the story would be a file the map does not show.
 const MINIFIED_LINE_BYTES: usize = 2_000;
 
 /// Path segments holding somebody else's code. Kept in step with `scan::VENDORED` by

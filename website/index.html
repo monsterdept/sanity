@@ -37,20 +37,6 @@
 <link rel="preload" href="./assets/fonts/ibm-plex-sans-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="./assets/fonts/display.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="./assets/fonts/ibm-plex-mono-500.woff2" as="font" type="font/woff2" crossorigin>
-
-<!-- The mascot bundle is built as a library with three and react left as peer
-     imports. This sheet has no build step, so the deps are vendored under
-     assets/vendor and named here. Must precede any type="module" script. -->
-<script type="importmap">
-{
-  "imports": {
-    "three": "./assets/vendor/three/build/three.module.min.js",
-    "three/examples/jsm/loaders/GLTFLoader.js": "./assets/vendor/three/examples/jsm/loaders/GLTFLoader.js",
-    "react": "./assets/vendor/react-shim.js",
-    "react/jsx-runtime": "./assets/vendor/react-jsx-shim.js"
-  }
-}
-</script>
 <style>
 /* IBM Plex Sans and Mono are department chrome and are the same on every
    sheet — copied from the template, not re-subset here. */
@@ -193,25 +179,6 @@ img{max-width:100%; display:block}
   background:var(--rule-2);
   background:color-mix(in srgb, var(--muted) 60%, var(--paper));
 }
-/* Three of them, overlapped slightly so they read as a group standing together
-   rather than three separate specimens in a row — the overlap is smaller than
-   the transparent margin inside each canvas, so they crowd without clipping.
-   They stand at the right edge of the masthead, opposite the mark they answer
-   to.
-
-   They stand ON the letterhead's baseline, like the monogram and the type: the
-   masthead aligns on baselines, a canvas's baseline is its bottom edge, and the
-   mascots' feet sit 2px above that edge (the rest of the canvas is their
-   shadow), so the negative margin drops the feet onto the line. */
-.crew{display:flex; align-items:flex-end; margin-bottom:-2px}
-.crew-slot{
-  width:34px; height:34px; display:block; flex:0 0 auto;
-  margin-right:-6px; /* the overlap; last one is reset below */
-}
-.crew-slot:last-child{margin-right:0}
-/* Nothing to show until a mascot is actually mounted — an empty canvas would
-   still take its 96px of masthead. */
-.crew:not(.is-live){display:none}
 .vh{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
 
 /* ---------- the running head ----------
@@ -728,9 +695,6 @@ img{max-width:100%; display:block}
 @media (max-width:860px){
   .sheet{padding:0 22px 64px}
   .mast{flex-direction:column; align-items:flex-start; gap:10px; padding:30px 0 24px}
-  /* Stacked, the staff would fall under the letterhead rather than stand
-     opposite it — and they say nothing the monogram does not. Send them home. */
-  .crew{display:none}
   .mast h1{font-size:44px}
   .field > h2{font-size:19px}
   .field .body{padding:22px 0 40px}
@@ -903,14 +867,6 @@ img{max-width:100%; display:block}
       <img src="./assets/md-monogram.svg" alt="The Monster Dept monogram">
       <span class="div" aria-hidden="true"></span>
       <span class="issuer">Tool detail<span class="c">:</span><b>Sanity</b></span>
-    </div>
-    <!-- The department's staff, standing at the far side of the letterhead.
-         Purely decorative and aria-hidden: they say nothing the monogram does
-         not. Canvases are only filled if WebGL and motion are both available. -->
-    <div class="crew" id="crew" aria-hidden="true">
-      <canvas class="crew-slot" width="34" height="34"></canvas>
-      <canvas class="crew-slot" width="34" height="34"></canvas>
-      <canvas class="crew-slot" width="34" height="34"></canvas>
     </div>
   </header>
 
@@ -1988,60 +1944,5 @@ sanity check --detach        <span class="c"># start it and return</span></pre>
 })();
 </script>
 
-<!-- ---- the crew ------------------------------------------------------
-     Three mascots beside the monogram. Kept in its own module so a failure
-     to load three/WebGL takes the mascots down and nothing else: the sheet
-     is a document first and must read fine with this script deleted. -->
-<script type="module">
-  const crew = document.getElementById('crew');
-  if (crew && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    try {
-      const { MascotRenderer, randomizeMascot } = await import('./assets/mascot.js');
-      const slots = crew.querySelectorAll('.crew-slot');
-      const size = slots[0].width;
-
-      const staff = Array.from(slots, (canvas, i) => new MascotRenderer(
-        canvas,
-        randomizeMascot(),
-        {
-          size,
-          // Eye tracking. The renderer binds its own document-level mousemove
-          // and converts to world coords per canvas, so each one tracks from
-          // where it actually sits rather than sharing one gaze.
-          autoMouseTracking: true,
-          // They arrive built rather than popping in — the sheet is already
-          // loud in one place (Exhibit D) and does not need a second.
-          introOnLoad: i === 0 ? 'build' : false,
-        }
-      ));
-
-      // Only claim the layout space once at least one has parts on screen.
-      await Promise.allSettled(staff.map((m) => m.ready()));
-      crew.classList.add('is-live');
-
-      // Poking one wakes it and makes it react; the other two notice.
-      const REACTIONS = ['hop', 'wiggle', 'headTilt', 'nod', 'celebrate', 'surprise', 'wave'];
-      slots.forEach((canvas, i) => {
-        canvas.style.cursor = 'pointer';
-        canvas.addEventListener('click', () => {
-          staff[i].wake();
-          staff[i].play(REACTIONS[Math.floor(Math.random() * REACTIONS.length)]);
-          staff.forEach((m, j) => { if (j !== i) { m.wake(); m.play('headTilt'); } });
-        });
-      });
-
-      // Three WebGL contexts idling off-screen is rude on a laptop battery;
-      // the render loop pauses whenever the masthead scrolls away.
-      if ('IntersectionObserver' in window) {
-        new IntersectionObserver(
-          ([entry]) => staff.forEach((m) => m.setRendering(entry.isIntersecting)),
-          { rootMargin: '100px' }
-        ).observe(crew);
-      }
-    } catch (err) {
-      console.warn('[crew] mascots unavailable:', err);
-    }
-  }
-</script>
 </body>
 </html>

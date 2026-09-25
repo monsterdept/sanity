@@ -1,28 +1,19 @@
 /**
- * Where the hub's eye looks, and when it blinks: the creature's own rules, for an eye that has
- * no creature behind it.
- *
- * **Copied from the bundle's engine, not invented.** The eye is offered as the monster's gaze
- * without the monster. So it follows what the creature follows, in the same order, on the same
- * clocks:
+ * Where the hub's eye looks, and when it blinks. In order:
  * - the flashing wedges, one at a time on `DWELL_MS`, when there is work to watch;
- * - otherwise the clicked wedge, when a caller passes one (the creature has no such rule;
- *   the hub's circles add it), with glances away on the idle cadence;
+ * - otherwise the clicked wedge, when a caller passes one, with glances away on the idle
+ *   cadence;
  * - otherwise the pointer, with a glance away every few seconds;
  * - otherwise, once the pointer has been still for `MOUSE_STALE_MS`, glances of its own.
- * Under all of it sits a small, constant jitter, and it blinks every two to six seconds. Every
- * number here is the bundle's default (`gazeAutoMinMs`, `blinkIntervalMin` and the rest in
- * `mascot.js`). The creature cannot simply be asked where it is looking, because in this mode
- * it is not mounted.
+ * Under all of it sits a small, constant jitter, and it blinks every two to six seconds.
  *
  * Pure, with the random source passed in, so it can be stepped outside a window.
  */
 
-/** How long the creature looks at one flashing wedge before moving to the next.
+/** How long the eye looks at one flashing wedge before moving to the next.
  *
  *  Long enough to read as attention rather than a twitch, short enough that a lull with three
- *  files in it still looks like something is happening. Shared with `MascotFigure`, so the eye
- *  and the creature glance between wedges on one rhythm. */
+ *  files in it still looks like something is happening. */
 export const DWELL_MS = 900
 
 /** Blinks: how often, how long one takes, and how far the lids close at the middle of it. */
@@ -78,15 +69,15 @@ export interface GazeState {
 export interface GazeInput {
   /** The wedges being worked on, as directions — see `gaze` in `Sunburst` — or null. */
   focus: Look[] | null
-  /** The direction of the wedge the reader clicked, or null. Not the creature's: the hub's
-   *  circles add it. Looked at below the flashing wedges and above the pointer, with glances
+  /** The direction of the wedge the reader clicked, or null. Looked at below the flashing
+   *  wedges and above the pointer, with glances
    *  away on the idle cadence, so it reads as attention rather than a stare. */
   selected?: Look | null
   /** The pointer's direction from the eye, or null when there has been no pointer. */
   mouse: Look | null
   /** Milliseconds since the pointer last moved. */
   mouseAge: number
-  /** Wall-clock milliseconds, which is what the dwell runs on, as the creature's does. */
+  /** Wall-clock milliseconds, which is what the dwell runs on. */
   now: number
   /** Reduced motion: follow what is asked, and add nothing of its own. No glances, no jitter,
    *  no blinks. */

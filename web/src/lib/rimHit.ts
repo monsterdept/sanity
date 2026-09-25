@@ -45,7 +45,7 @@ export function toUser(
  *
  *  So the rim stays deaf and the arithmetic answers instead. The box is square and fitted
  *  `xMidYMid`, so the smaller pane dimension is the scale and the box's centre is the
- *  pane's — the same mapping the creature is placed by, one function over. Angles run
+ *  pane's — the same mapping the hub's badge is placed by, one function over. Angles run
  *  clockwise from twelve, matching `arcPath`.
  *
  *  It reads `rimRuns`, which is what the paths are drawn from, so the pointer and the

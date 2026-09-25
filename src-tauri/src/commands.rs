@@ -827,7 +827,7 @@ pub fn search_project(
 /// Empty for a project that has never been scanned. Every OTHER absence is reported inside
 /// the group as [`crate::findings::Group::blocked`], because a rule that cannot answer must not
 /// be drawn as a rule that found nothing.
-/// Everything the findings panel and the mascot need, from ONE walk of the tree.
+/// Everything the findings panel and the hub's badge need, from ONE walk of the tree.
 ///
 /// **It was three commands and it is one because they are one answer.** `project_findings`,
 /// `project_rules` and `rule_grammar` each built the whole fact set for themselves — three
@@ -840,7 +840,7 @@ pub fn search_project(
 /// panel confidently describing a repo as it was. Asking once is the version with no key.
 ///
 /// It also removes a way for the three to disagree. The counts in the grid, the tiles in the
-/// list and the number on the creature now come from one set of facts by construction rather
+/// list and the number on the badge now come from one set of facts by construction rather
 /// than from three fetches that happen to be issued together.
 #[tauri::command]
 pub fn project_report(

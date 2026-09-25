@@ -319,8 +319,8 @@ pub struct AppState {
     /// A single `last_tool` is what the window polls, and the window polls every two
     /// seconds — long enough for a reader to call `next`, `open` and `report` inside one
     /// interval, which collapsed a whole cycle of work into one animation of whichever
-    /// call happened to be last. Keeping a short tail lets the mascot play the sequence
-    /// it actually missed. Bounded because it is a display buffer, not a log.
+    /// call happened to be last. Keeping a short tail lets `agent_activity` hand over the
+    /// sequence the window actually missed. Bounded because it is a display buffer, not a log.
     pub recent: std::collections::VecDeque<(u64, String)>,
 }
 
@@ -682,7 +682,7 @@ impl AppState {
     }
 
     /// Record a call. `tool` is the tool name, optionally suffixed with the outcome —
-    /// `sanity_report:hot` — because what the mascot should do about a reading depends on
+    /// `sanity_report:hot` — because what the window shows about a reading depends on
     /// what the reading said, and the name of the endpoint cannot carry that.
     pub fn ping(&mut self, tool: &str) {
         self.last_agent = Some(Instant::now());
@@ -4911,7 +4911,7 @@ async fn report(
 
     // What the reading said, before it is moved into the map. `Some`/`None` are the two
     // grades that mean the reader was actually caught out — the same test the surprise
-    // rate is counted with, so the mascot and the hint cannot disagree about what
+    // rate is counted with, so the window and the hint cannot disagree about what
     // "surprising" means. A report landing on an id that already held one is a re-read of
     // work that expired, which is honest labor but not news.
     let outcome = if project.reports.contains_key(&r.id) {
@@ -4977,9 +4977,8 @@ async fn report(
         hint = e.clone();
     }
     // Last, once nothing else borrows the project. A write that failed must not look like
-    // a reading that landed — the mascot is the one part of the window a user watching
-    // from across the room can read, and a celebration over a report that was never saved
-    // is the same lie as a silent fallback file.
+    // a reading that landed — a window showing a report that was never saved is the same
+    // lie as a silent fallback file.
     state.ping(if write_error.is_some() { "sanity_error" } else { outcome });
     Json(serde_json::json!({
         "ok": write_error.is_none(),
@@ -5971,7 +5970,7 @@ impl ProjectList {
 /// Is anybody home, and who.
 ///
 /// Separate from `/status` because status is not free: it calls `ping`, which is what
-/// drives the mascot and the "an agent is working" panel. `sanity serve` and `sanity
+/// drives the window's agent activity (`agent_activity`). `sanity serve` and `sanity
 /// study` both have to ask whether a backend is already up, and a liveness probe that
 /// animates the window as though a reader had called something would make the UI lie
 /// about its own subject. This touches no state at all.

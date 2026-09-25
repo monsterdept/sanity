@@ -6,7 +6,7 @@ import { startGaze, stepGaze, type Gaze, type Look } from '../lib/eyeGaze'
 const MEASURE_MS = 500
 
 /**
- * Run the creature's gaze (`lib/eyeGaze.ts`) for a picture in the hub, and hand each frame's look
+ * Run the hub's gaze (`lib/eyeGaze.ts`) for a picture in the hub, and hand each frame's look
  * to `draw`. Shared by the eye and the circles, so the two follow one engine rather than two
  * copies of the pointer arithmetic.
  *
@@ -16,7 +16,7 @@ const MEASURE_MS = 500
 export function useHubGaze(
   /** What the pointer's direction is measured from. */
   target: RefObject<SVGGraphicsElement | null>,
-  /** The creature's gaze targets, x right and **y up** — see `gaze` in `Sunburst` — or null. */
+  /** The gaze targets, x right and **y up** — see `gaze` in `Sunburst` — or null. */
   gaze: Array<{ x: number; y: number }> | null,
   draw: (g: Gaze) => void,
   {
@@ -79,7 +79,7 @@ export function useHubGaze(
         if (box && box.width > 0) {
           const vx = pointer.x - (box.left + box.width / 2)
           const vy = pointer.y - (box.top + box.height / 2)
-          // As the creature does it: the pointer's direction, softened near the picture by a
+          // The pointer's direction, softened near the picture by a
           // depth the size of the picture, so a pointer right on it looks nearly straight ahead.
           const len = Math.sqrt(vx * vx + vy * vy + box.width * box.width)
           mouse = { x: vx / len, y: vy / len }

@@ -45,7 +45,7 @@ export function usePaneBox(
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect
       // **Placed here as well as in the frame loop.** An observer callback runs before the
-      // paint that the resize causes, so the creature moves on the same frame as the wedges;
+      // paint that the resize causes, so the badge moves on the same frame as the wedges;
       // waiting for the state below to come back through a render puts it one frame behind
       // for every frame of a drag, which is the hub stuttering inside a smooth map.
       place.current(width, height)
@@ -139,13 +139,13 @@ export function useMapView({
   )
   const viewFrom = useRef(viewTo)
   const viewNow = useRef(viewTo)
-  /** Put the creature where the hub's user-space origin lands, for a pane of this size.
+  /** Put the badge where the hub's user-space origin lands, for a pane of this size.
    *
    *  **Held in a ref so the RESIZE observer can call it too, and that is the whole point.**
    *  The pane's size reaches this component as state, so on a window drag the SVG rescaled
-   *  itself natively every frame while the creature waited for a React render — one frame
+   *  itself natively every frame while the badge waited for a React render — one frame
    *  behind, every frame, which is a hub that stutters while everything around it is smooth.
-   *  The observer runs before paint, so placing it from there puts the creature on the same
+   *  The observer runs before paint, so placing it from there puts the badge on the same
    *  frame as the box it sits in. The effect below still calls it, because the view also
    *  moves without the pane changing at all. */
   place.current = (w: number, h: number) => {
@@ -185,7 +185,7 @@ export function useMapView({
     // own arithmetic and nothing has to be measured. The viewBox is square and the SVG is
     // fitted `xMidYMid`, so one scale serves both axes and the middle of the box is the
     // middle of the pane. Written here rather than in its own effect because it has to move
-    // on the SAME frame as the wedges: a creature that arrives one frame late slides across
+    // on the SAME frame as the wedges: a badge that arrives one frame late slides across
     // the map behind the disc it belongs to.
     place.current(box.w, box.h)
     // eslint-disable-next-line react-hooks/exhaustive-deps

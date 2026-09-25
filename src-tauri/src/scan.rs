@@ -1628,8 +1628,8 @@ fn collapse_chains(node: &mut Node) {
 /// map arrive afterwards from readers over MCP, each carrying its own model.
 pub const HEURISTIC: &str = "heuristic (no model)";
 
-/// The whole pipeline. `on_progress` fires per directory — the app drives the mascot off
-/// it, so a scan of a big repo shows something moving rather than a frozen window.
+/// The whole pipeline. `on_progress` fires per directory — the app lights the wedge being
+/// read off it, so a scan of a big repo shows something moving rather than a frozen window.
 pub fn scan(
     root: &Path,
     on_progress: &(dyn Fn(Progress) + Sync),

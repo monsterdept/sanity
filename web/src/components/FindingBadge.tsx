@@ -7,13 +7,12 @@ import { R_INNER } from './mapModel'
 /** The badge's box in the hub, in user units, and where its middle sits.
  *
  *  Centred, and large, because it is the only thing in the disc — the name and the line
- *  count both went, being answered by the crumbs and the panel. The size is the creature's
- *  that stood here before it, kept so the badge holds its place and its scale as the hub
- *  grows and shrinks with the ring count.
+ *  count both went, being answered by the crumbs and the panel. It scales with the hub,
+ *  so the badge holds its place and its proportion as the hub grows and shrinks with the
+ *  ring count.
  *
- *  **In user units, drawn in pixels.** The badge is HTML rather than SVG — it was a layer over
- *  the pane for the creature's WebGL canvas, which does not scale like a path, and it stayed
- *  there because type in a layer stays type. It is moved and scaled to wherever the hub
+ *  **In user units, drawn in pixels.** The badge is HTML rather than SVG, in a layer over the
+ *  pane, because type in a layer stays type. It is moved and scaled to wherever the hub
  *  currently is. `HUB_BADGE` is therefore both: the
  *  side of the box in user units AND the canvas's own pixel size at scale 1, which is what
  *  keeps it crisp at the sizes the map actually draws at. */
@@ -150,17 +149,17 @@ function sectorPath(
  *  The dial won and the other five are gone; what they were for is worth keeping, because
  *  each lost for a reason that still applies:
  *
- *  - the plain disc and the aperture both put the number where the creature already is, and
- *    the creature had to shrink to make room for a badge stuck on top of it;
+ *  - the plain disc and the aperture both put the number on top of the hub's own picture,
+ *    which had to shrink to make room for it;
  *  - the band over the head and the shoulder bar carry one number and there are two to say;
- *  - the plinth reads as a pedestal, which is a claim about the creature rather than about
+ *  - the plinth reads as a pedestal, which is a claim about the picture rather than about
  *    the repo.
  *
  *  The dial is the only one where the count has somewhere of its own to be — the hub is
  *  already a dark disc with a figure at its centre — and the only one with room for the
  *  second number that gives the first one a denominator.
  *
- *  `pointer-events: none`: the CLICK is the whole creature's, one level up. This is the thing
+ *  `pointer-events: none`: the CLICK is the whole hub's, one level up. This is the thing
  *  being pointed at, not the target. */
 export function FindingBadge({
   layer,
@@ -200,7 +199,7 @@ export function FindingBadge({
      *  **The second number is what the first one was measured BY.** A count with no idea how
      *  many questions produced it is a number with no denominator; fifty-four findings from
      *  sixteen rules is a different fact from fifty-four out of three, and the rules grid is
-     *  one click away behind the same creature. */
+     *  one click away behind the same badge. */
     /** **The type is the unit, and the bar is measured off it.** It was the other way round —
      *  a thickness struck off the box, with the type struck off the thickness — which made
      *  every padding a fraction of a fraction and left no single number meaning "how much
