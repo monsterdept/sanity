@@ -1,17 +1,41 @@
 # Sanity
 
-Sanity gives you a list of specific places in a repo that need attention, and says why each
-one is on the list. For example:
+Sanity helps you understand a repo, and points out the parts of it that need work.
+
+## Understanding a repo
+
+Sanity draws the repo as a sunburst: the repo in the middle, directories and files as rings
+around it, and every function on the outer edge, sized by its line count. You choose what the
+color shows: how well an agent could predict the code, how hard it was to follow, whether
+it's documented, how complex it is, what calls it, who worked on it last, how old it is, how
+often it changes, and more. Click any function to see its code and everything Sanity knows
+about it. **History** replays the repo one commit at a time, so you can watch it grow.
+
+The most useful of these measurements come from **readings**. A coding agent is shown a
+function's name, signature, neighbors and comments, but not its body, and writes down what it
+expects the function to do. Then it opens the file and reports how far off it was, how hard
+the code was to follow, whether the comments helped, and anything likely to trip up the next
+person who edits it. Code the agent predicted well is routine. Code it got wrong is where the
+decisions are, and it's the code the next person (or the next agent) is likely to get wrong
+too.
+
+Readings are saved as Markdown in your repo, under `.sanity/`, so anyone can read them like
+notes from a code review. They expire when the code they describe changes. A CI check can fail
+a build whose readings are missing or out of date.
+
+## Finding what needs work
+
+Sanity also gives you a list of specific places that need attention, and says why each one
+is on it. For example:
 
 - a 1,000-line function that a reader had to go back over more than once to follow
 - a function twenty others depend on that nobody has read
 - a function whose comments describe something other than what it does
 - code copied into several places, where one copy changed and the others didn't
-- code the rest of the project depends on that only one person has ever worked in
 
-Each item on the list is a **finding**, and each finding comes from a **rule**. A rule
-combines a few measurements, like "over 200 lines, and hard to follow" or "depended on by ten
-or more functions, and undocumented." Sanity comes with about two dozen rules. You can change
+Each item is a **finding**, and each finding comes from a **rule** that combines a few
+measurements, like "over 200 lines, and hard to follow" or "depended on by ten or more
+functions, and undocumented." Sanity comes with about two dozen rules, and you can change
 their thresholds or turn them off for your repo.
 
 ```
@@ -33,27 +57,9 @@ $ sanity findings --limit 2
       does. It coordinates work that is not apparent from its own body.
 ```
 
-You go through the list and decide on each finding: fix it, snooze it until the code changes,
-mark it wrong, or accept it. Your decisions are committed with the repo, so the list gets
-shorter as you work through it and your team sees the same list you do.
-
-## Where the measurements come from
-
-- **The code**: size, how much it branches, what calls what, and duplicated bodies.
-- **Git history**: how old code is, how often it changes, and who has worked on it.
-- **Readings.** A coding agent is shown a function's name, signature, neighbors and comments,
-  but not its body, and writes down what it expects the function to do. Then it opens the file
-  and reports how far off it was, how hard the code was to follow, whether the comments
-  helped, and anything likely to trip up the next person who edits it. That report is a
-  reading. Code the agent predicted well is routine. Code it got wrong is where the decisions
-  are, and it's the code the next person (or the next agent) is likely to get wrong too.
-
-Readings are saved as Markdown in your repo, under `.sanity/`, next to the rules and your
-decisions. They expire when the code they describe changes. A CI check can fail a build
-whose readings are missing or out of date.
-
-Sanity also draws the repo as a sunburst: directories and files as rings, functions on the
-rim, sized by lines and colored by whichever measurement you pick.
+You decide on each finding: fix it, snooze it until the code changes, mark it wrong, or
+accept it. Decisions are committed with the repo, so the list gets shorter as you work
+through it, and your team sees the same list you do.
 
 ## Getting started
 
@@ -62,7 +68,8 @@ brew install --cask monsterdept/tap/sanity
 cd your-repo
 sanity init --harness claude --model sonnet   # which agent reads, and with which model
 sanity check --limit 50                       # take 50 readings
-sanity findings                               # the list
+sanity                                        # open the app
+sanity findings                               # what needs work, and why
 git add .sanity && git commit -m "Readings"
 ```
 
