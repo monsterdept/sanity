@@ -31,7 +31,13 @@ jobs:
   #
   # A release that already exists is not created twice. The builds below find
   # this one and upload into it, which is the only thing they ever needed to do.
+  # A release ships with its readings, so a tag whose .sanity/ is missing, expired or
+  # mixed stops here — before the draft exists and before four platforms build.
+  readings:
+    uses: ./.github/workflows/readings.yml
+
   draft:
+    needs: readings
     runs-on: [self-hosted, linux, X64, krapow]
     steps:
       - name: Ensure the draft release exists

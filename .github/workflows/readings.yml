@@ -1,0 +1,26 @@
+name: Readings
+
+# The release gate: the committed .sanity/ must be complete, current to the code, and
+# taken by one agent and model. Called by release.yml before anything is built, and
+# runnable by hand to see where a release would stand without tagging one.
+#
+# It takes no readings — that would mean model credentials here. Readings are taken
+# with `sanity check` and committed; this only rules on what was committed.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: [self-hosted, linux, X64, krapow]
+    steps:
+      - uses: actions/checkout@v4
+      # The release that judges staleness. It cannot be the one being tagged, which is
+      # not on dl.dept.monster until `just publish`; move it when `just expiry` says a
+      # release changes what a reading is taken against.
+      - uses: monsterdept/sanity-action@v1
+        with:
+          version: 0.31.0
