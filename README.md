@@ -185,10 +185,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: monsterdept/sanity-action@v1
         with:
-          version: 0.31.0          # the Sanity release your team reads with
+          version: 0.31.1          # the Sanity release your team reads with
           model: claude-sonnet-5   # optional: require this model
           # harness: claude        # optional: require this agent
           # path: services/api     # optional: a repo in a subdirectory
@@ -207,7 +207,7 @@ To gate releases rather than pull requests, put the job in front of your build w
 Download the `.AppImage` for the pinned version and run it:
 
 ```sh
-curl -fsSLo sanity https://dl.dept.monster/sanity/Sanity_0.31.0_amd64.AppImage
+curl -fsSLo sanity https://dl.dept.monster/sanity/Sanity_0.31.1_amd64.AppImage
 chmod +x sanity
 APPIMAGE_EXTRACT_AND_RUN=1 ./sanity verify "$PWD"   # absolute: the AppImage starts in its own directory
 ```

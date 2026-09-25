@@ -17,7 +17,7 @@ jobs:
   verify:
     runs-on: [self-hosted, linux, X64, krapow]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The release that judges staleness. It cannot be the one being tagged, which is
       # not on dl.dept.monster until `just publish`; move it when `just expiry` says a
       # release changes what a reading is taken against.
