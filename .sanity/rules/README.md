@@ -8,11 +8,11 @@ where changes go, and it exists only once this repo has made one.
 
 | Rule | Asks | Says |
 |---|---|---|
-| **Giant, knotty and unread**<br>`giant-function` | `func: loc >= 200 and tangle >= 0.25 and read < 1` | Long, more complicated than its size usually is, and nobody has read it. |
+| **Giant and knotty**<br>`giant-function` | `func: loc >= 200 and tangle >= 0.25 and read < 1` | Long, more complicated than its size usually is, and not read yet. |
 | **Giant and hard to follow** *(tuned here)*<br>`giant-illegible` | `func: loc >= 333 and illegible >= 0.6` | Long, and a reader had to work to follow it. |
-| **Crowded, unexplained and unread**<br>`crowded-file` | `file: funcs >= 40 and doc_present < 1 and read < 1` | Many functions, no header saying what they are for, and nobody has read it. |
+| **Crowded and unexplained**<br>`crowded-file` | `file: funcs >= 40 and doc_present < 1 and read < 1` | Many functions, no header saying what they are for, and not read yet. |
 | **Crowded and hard to navigate**<br>`crowded-unpredictable` | `file: funcs >= 40 and surprise >= 0.6` | Many functions, and a reader could not tell what the file holds. |
-| **Load-bearing and unread**<br>`load-bearing-unread` | `func: dependents >= 20 and read < 1 and ncloc >= 10` | Read this one next. |
+| **Load-bearing**<br>`load-bearing-unread` | `func: dependents >= 20 and read < 1 and ncloc >= 10` | Widely depended on, and not read yet. |
 | **Knotty and load-bearing**<br>`knotty-load-bearing` | `func: tangle >= 0.8 and dependents >= 10 and ncloc >= 10` | Branches a lot, and widely depended on. |
 | **Load-bearing and hard to read**<br>`load-bearing-illegible` | `func: illegible >= 0.6 and dependents >= 10 and ncloc >= 10` | Hard to follow, and widely depended on. |
 | **Load-bearing and undocumented**<br>`load-bearing-undocumented` | `func: doc_present < 1 and dependents >= 10 and ncloc >= 10` | Widely depended on, with nothing written about it. |
@@ -26,7 +26,7 @@ where changes go, and it exists only once this repo has made one.
 | **Clone being edited**<br>`clone-being-edited` | `func: clone_count >= 3 and commits >= 2 and ncloc >= 10` | One copy changed and the others did not. |
 | **Widely cloned**<br>`widely-cloned` | `func: clone_count >= 4 and ncloc >= 30` | The same body, in several places. |
 | **Fossil**<br>`fossil` | `func: repo_age >= 1095 and touched >= 1825 and ncloc >= 100` | No commit has changed it in years. |
-| **Tangled and unread**<br>`tangled-for-size` | `func: tangle >= 0.8 and ncloc >= 40 and read < 1` | More complicated than its length accounts for, and nobody has read it. |
+| **Tangled for its size**<br>`tangled-for-size` | `func: tangle >= 0.8 and ncloc >= 40 and read < 1` | More complicated than its length accounts for, and not read yet. |
 | **Tangled and hard to follow** *(tuned here)*<br>`tangled-illegible` | `func: tangle >= 0.8 and illegible >= 0.6 and ncloc >= 213` | More complicated than its length accounts for, and a reader had to work to follow it. |
 | **Load-bearing, and only one person has been in it**<br>`sole-author` | `func: repo_headcount >= 4 and headcount <= 1 and dependents >= 10 and ncloc >= 10` | Widely depended on, and every line of it was last touched by the same person. |
 | **Coordinates a lot, and only one person has been in it**<br>`sole-author-coordinator` | `func: repo_headcount >= 4 and headcount <= 1 and calls >= 10 and ncloc >= 10` | It calls a great deal, and every line of it was last touched by the same person. |

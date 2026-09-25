@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1285 of 1285 read · 228 unpredicted
+1294 of 1294 read · 228 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -32,11 +32,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/agentapi.rs
 
 ### the file itself
-- spec 3 · served in 16 parts · read at `28ba5239c823` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:49:07Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: An axum loopback HTTP server holding shared AppState of multiple projects: open/queue/reveal/report/status endpoints implementing the predict-then-read protocol, with leasing, resync of moved line ranges, staleness, run management, endpoint file publishing, and a large inline test module. The header explains motivation but not the structure.
-- found: A 5.7k-line module: AppState/Project state, the Report/Task schema, the loopback HTTP router (open/queue/reveal/report/check/status/summary/trace/retire), queue ranking and leasing, staleness and coverage counts, wave orchestration, startup restore with lanes, sidebar ProjectList, and a large test module.
+- spec 3 · served in 16 parts · read at `f44a15331720` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:56Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: The axum loopback HTTP server and state machine for the agent-reader protocol: shared AppState/Project holding scans, reports, leases, predictions; task queue construction (stale, findings, unread, interleaved by file); reveal/report handlers with validation; run/wave management; endpoint publishing; plus a large test module.
+- found: The loopback axum API plus core state for sanity's agent-reader protocol: Project/AppState, Task/Report types, queue building (collect_tasks, findings_first, spread_across_files), open/reveal/report/status/summary/check/trace handlers, run_wave reader spawning, startup restore with big/small lanes, watch_tick rescans, endpoint publishing, and a large test module. My prediction covered the shape but missed the restore/scan/trace-budget machinery, the window-facing ProjectList, and the wave orchestration.
 - predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The header only covers the predict-before-reveal motive; the sidebar/state model, restore lanes, run orchestration and report schema that make up most of the file are undescribed and would justify splitting the file.
+- note: The header covers the predict-then-look rationale only; nothing in it mentions that this file also owns app state, scan restore, tracing, wave spawning and the sidebar list, so it should be split or the header widened.
 
 ### `of` — PREDICTED SOME
 - spec 3 · read at `0a9549426a85` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -206,12 +206,12 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: Docs shown were for the whole file, not this function; qualify itself had no doc comment, just an inline code comment explaining the Ruby exclusion.
 
-### `collect_tasks` — LEGIBLE SOME
-- spec 3 · read at `740b6ecc4b9f` · commit `a785576` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:03:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks a Node tree of files/functions; for each leaf unit not already in `done` or currently `leased`, builds a Task (carrying file_doc and declared test info) with a computed priority weight and pushes (weight, task) into out, skipping or deprioritizing already-done/leased units, recursing into children otherwise.
-- found: Recursively builds a priority-weighted task queue from a Node tree: for Func nodes, skips oversize/leased/fresh-and-done nodes, computes a priority score (surprise + stale/dated offset) and pushes a Task; for File nodes, similarly queues a file-level reading task (with full peer list) if non-empty, non-oversize, and stale/leased-appropriate, then recurses into children computing per-child neighbor windows for peers; otherwise just recurses into children.
-- predicted: most · documented: none · derivable: no · legible: some · trap: no
-- note: The staleness/dated/lease priority-band logic (dated -1..0, unread 0..1, stale 1..2) and the file-task-must-come-before-child-peer-window ordering are load-bearing invariants not visible from the signature alone.
+### `collect_tasks` — PREDICTED SOME
+- spec 3 · read at `c9eb23613a3d` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the tree Node, and for each function/chunk not already in `done` and not currently leased (or lease expired), builds a Task with the file doc, declared test info, and neighbors, pushing (priority score, Task) into `out`. It recurses into children, passing file_doc down from file nodes. Score likely derives from a surprise/size metric on the node.
+- found: Recursive queue builder: function nodes yield a task unless oversize, read-and-current, or leased, with priority bands (stale +2, unread 0-1, dated -1); file nodes yield a whole-file task (unless excluded/empty/oversize/leased) then recurse into children, attaching each child's neighbor window; other nodes just recurse. Also sets the test-ask field conditionally.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The parameter comments cover why, but the priority bands and the oversize-only-this-node rule live only in inline comments, not in the signature docs.
 
 ### `all_tasks`
 - spec 3 · read at `9e20b6781528` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:04:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -257,6 +257,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Runs a full repo scan for an explicit "open" request (agent or window) — first parsing the tree (reporting progress/shape via callbacks, respecting `cancel`), then walking the commit log/blame to build history/trace data. The `budgeted` flag decides whether the trace step is skipped when the log exceeds crate::trace::BUDGET (returning an untraced TraceState with pricing info) or performed in full; agent-initiated calls presumably pass budgeted: false since they explicitly asked. Returns the parsed Scan plus resulting TraceState.
 - found: Opens the scan cache, runs an untraced ordering-fidelity scan; if `budgeted` and the commit log exceeds trace::BUDGET, returns early with an untraced TraceState carrying a pending price estimate; otherwise deepens to Depth::Files (walking the commit log/blame), redraws the treecache if depth actually changed, and returns the scan plus resulting TraceState.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `open_for_person`
+- spec 3 · read at `86b9dc8a71b2` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Calls open_project with the repo and a focus=true flag (via resolve_open), discarding the result since failures are shown by the window sidebar. Roughly 8 lines, maybe locking state to build the key first.
+- found: Builds an OpenRequest with the path and focus=true, calls the open_project handler, and ignores the result.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `open_project`
 - spec 3 · read at `976a6cf6620b` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -371,19 +377,32 @@ What this is and how to add to it: [README.md](README.md)
 - found: Visits every file node in the scan tree, computes its current mark (mtime/size) via mark_of, and diffs against the stored file_marks map (updating it in place via insert's return value) to find which files moved; for each moved file calls resync_file to re-cut it, then re-runs aggregate() on the tree root so rollups reflect the changed sizes, returning the moved-file count.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
-### `spread_across_files` — PREDICTED SOME
-- spec 2 · read at `60f93358437e` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:25Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Takes the score-ranked tasks, and for each candidate applies a penalty to its score based on how recently its file appears in `recent` (using `now`), effectively demoting warm files rather than excluding them. It then re-sorts by the adjusted score and returns the top n tasks — so an untouched file's function usually wins, but if all remaining candidates are in recently-touched files, the best-scored one is still returned rather than leaving the queue empty.
-- found: Partitions tasks into "fresh" (file not in `recent`, or last touched more than FILE_REST ago) versus "resting" (recently touched), uses fresh if any exist else falls back to resting, then delegates to interleave_by_file(_, n) to do the actual per-file spreading and top-n selection.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: Expected a continuous recency-based score penalty; actual mechanism is a hard threshold partition (FILE_REST) with binary fresh/resting fallback, delegating the real interleaving to a separate helper.
+### `findings_first`
+- spec 3 · read at `c5d1b55632c0` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:25Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Gets the project's flagged (cached) finding set, and for each unread task (score in [0,1)) whose id is in that set, remaps its score into the [1,2) band, e.g. adding 1.0. Leaves stale/dated tasks (score >= 2) untouched. Mutates tasks in place.
+- found: Returns early if no flagged set; otherwise adds 1.0 to priority of tasks whose subject (path for file tasks, id for functions) is flagged and has no stored report (file tasks use file_key for the report lookup).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The doc comment on this function is mostly about spread_across_files and appears misattached; the file-vs-function key difference is undocumented.
+
+### `flagged`
+- spec 3 · read at `5bb0333da01f` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:32Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Memoizing accessor: if project.flagged is Some, clone the Arc; else compute the findings for the project's scan (and settled/dismissed exclusions), collect the subject ids/paths into a HashSet, store it in project.flagged as an Arc and return it. Cache is keyed to be invalidated elsewhere when reports change.
+- found: Memoized by a FindingsAt snapshot (with reads zeroed, so new readings don't invalidate); on miss builds subjects, rules, archive and pins, collects keys of live hits across all rules into an Arc<HashSet>, and caches it.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+- note: Doc doesn't say the cache key deliberately ignores the read count, which is the non-obvious part.
+
+### `spread_across_files`
+- spec 3 · read at `1dca907ddc75` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:27:55Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes scored tasks and picks up to n, preferring tasks from files not recently handed out (per the `recent` map of file -> Instant). Likely sorts by score, penalizes or defers files seen recently relative to now, and returns the chosen tasks so consecutive handouts aren't all from the same file.
+- found: Partitions tasks into those whose file was not handed out within FILE_REST and those still resting; passes the fresh set (or resting if none are fresh) to interleave_by_file with n. No penalty scoring; the actual spreading is delegated.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `queue`
-- spec 3 · read at `d0a92ddd6ef4` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: locks shared state, reads query params (probably batch size n, maybe kind filter), picks the next unread/unscored functions from the scan (using spread_across_files/interleave_by_file), and returns them as a JSON list of Task without bodies.
-- found: Resolves project, resyncs changed line ranges, collects candidate tasks, spreads them across files, leases them and marks recent files so concurrent callers get different work, logs to feed, returns tasks.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Side effects (leasing, recent_files, resync, feed logging) are undocumented on the function itself; only comments inside explain them.
+- spec 3 · read at `456e006753f4` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:03Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: HTTP handler: locks shared state, reads query params (batch size, maybe file filter), picks the next unassessed functions using helpers like findings_first, interleave_by_file or spread_across_files, and returns them as a JSON list of Task (id, name, signature, docs, peers) without bodies. Probably caps to default_batch when no n given.
+- found: Handler that resolves the client's project, resyncs changed ranges, collects unreported unleased tasks, ranks findings first, spreads across files, leases the handed tasks and marks recent files so concurrent callers get different work, logs feed notes, and returns them as JSON.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The leasing/recent-file reservation side effect on a read-looking endpoint is explained only by inline comments, not docs.
 
 ### `default_batch`
 - spec 2 · read at `be58df657f50` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:31Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -392,9 +411,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `reading_curve`
-- spec 3 · read at `91b1b4782697` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T18:57:54Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Rebuilds the queue order a fresh run would use (stale first, then unread, round-robined across files) ignoring current leases and recent_files, then walks it in BATCH-sized steps accumulating LOC, producing a Vec<u32> of cumulative line counts — one entry per batch boundary — so the frontend can index into it to show how many lines a partial run of N batches would cost.
-- found: Collects all tasks fresh via collect_tasks, orders them via spread_across_files (ignoring leases/recent_files, using an empty HashMap and Instant::now()), then accumulates running LOC and pushes the running total at every BATCH-th index plus the final tail entry so a partial run can stop mid-batch.
+- spec 3 · read at `f76c6492825c` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Looks up project by key in shared state, builds the queue as if a run started now (no leases, empty recent_files), then walks it in BATCH-sized chunks accumulating the lines of each task, pushing the cumulative total per step. Returns empty vec if project is missing.
+- found: Locks state, gets project (empty vec if missing), collects tasks with no leases, applies findings_first, orders by spread_across_files with empty recent map, then emits cumulative line totals at every BATCH boundary and at the tail.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `check` — PREDICTED SOME
@@ -451,11 +470,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `rescan`
-- spec 3 · read at `274ad746bbf8` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:53:19Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a new Project from the fresh scan, repo, and name, then—if prev is Some—carries over volatile in-progress state (predictions already stamped by sanity_reveal, leases on functions currently out with a reader, and the running run/wave), keyed by node id via key_of so it survives across the rescan despite line numbers or structure changing. The reports map is merged in as historical reading results for nodes that still exist.
-- found: Field-by-field constructs the new Project: carries over leased, recent_files, predictions, revealed (in-progress multi-part reveals), run, events, touched, reads, and last_agent from prev; but deliberately resets trace (belongs to the scan, not the project run), drops findings entirely (stale against the new tree), and bumps scanned by 1 as a change-detection counter for the UI. reports and scan are simply the fresh ones passed in, not merged with prev.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: reports is fully replaced rather than merged — the caller is responsible for including any reports that should survive the rescan.
+- spec 3 · read at `c186693633ee` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds a new Project from the fresh scan and reports, then if prev exists copies over volatile state (predictions, leases, run, recent files, etc.), possibly pruning entries whose node ids no longer exist in the new scan. Without prev it returns a Project with defaults.
+- found: Struct literal building a fresh Project: recomputes marks, resets trace/behind/findings/flagged, carries over leases, recent_files, predictions, revealed, run, events, counters and last_agent from prev, and bumps scanned. No pruning by node id.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `note`
 - spec 2 · read at `6e0184e00ac2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:12:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -757,9 +775,9 @@ What this is and how to add to it: [README.md](README.md)
 - note: Not a real "spawned job tracker" as I guessed by name/peers — it's just a plain test helper for constructing Task fixtures with dummy field values, unrelated to process/run tracking.
 
 ### `project_of`
-- spec 3 · read at `28cc694ad783` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Test helper that builds a minimal Project struct from a directory path, filling other fields with defaults/placeholders so tests can quickly construct a Project without running full discovery/scan logic.
-- found: Test helper that builds a fully real Project by running the actual scan() over the given dir, then stamping file marks, probing watch state, and filling the rest of the Project struct's many fields (reads, findings, reports, trace, leases, predictions, etc.) with empty/default values, with name hardcoded to "t" and scanned set to 1.
+- spec 3 · read at `b1773b5c963f` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:10Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Test helper: scans the given directory and builds a Project from it with default/empty state (no reports, no leases), so tests can manipulate it. Likely calls scan::scan and Project::new with the dir as repo.
+- found: Test helper that scans dir with no-op callbacks, ephemeral cache, Ordering fidelity and Lines depth, stamps file marks, and builds a Project literal with empty maps and zeroed counters.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `a_superseded_answer_is_re_offered_after_everything_else` — PREDICTED NONE
@@ -919,6 +937,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Creates a file with two same-named functions (twins) with different bodies, records a report/reading for the first one, then rewrites the file deleting that first twin so the surviving second twin takes over ordinal 0 (the deleted one's old slot). After a resync, it asserts the survivor's reading is expired/stale rather than silently treated as valid coverage for the survivor, because the recorded body hash doesn't match the survivor's actual body — proving positional matching alone doesn't wrongly transfer a reading between twins.
 - found: Matches prediction closely: two same-named twin functions, reports recorded for both (body snapshot = original body text), first twin deleted so the survivor slides into ordinal 0, resync_changed runs, and it asserts the survivor's inherited reading is flagged stale via assessment::is_stale comparing recorded body against the survivor's actual current body.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `findings_come_before_the_rest_of_the_unread_and_stale_before_both`
+- spec 3 · read at `146300745e9c` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Test: creates a temp repo with three small files and a repo-local rule that flags exactly one function; builds project_of, adds a stale report for another function, then calls queue-like collect_tasks + findings_first and asserts order: stale first, flagged unread next, remaining unread last.
+- found: Test: three files, a repo-local rule flagging one long unread function, a stale report on another; asserts priority bands 2 (stale), 1 (flagged), 0 (plain) after collect_tasks and findings_first.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no · test: yes
 
 ### `a_file_is_queued_as_its_own_reading`
 - spec 3 · read at `6fc15b301436` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:03:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -2241,12 +2265,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/cli.rs
 
-### the file itself
-- spec 3 · served in 6 parts · read at `e468d125b445` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:37:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: The CLI entrypoint for the headless mode: parses subcommands (serve, check, init, status, findings, verify, export, etc.), acts as an HTTP client to a per-machine backend process (endpoint file, health probe, spawn lock to ensure only one backend starts), spawning it if needed. Also renders terminal output (progress bars, colored grades) and includes tests.
-- found: The clap-based CLI for the headless side: a spawn lock plus ensure_backend and retire_stale_backend for the per-machine daemon; serve with its idle and stand-down loop; init, check with a live tail, trace, status and summary. It also holds in-process verbs (findings, callers, decide, clear, balance, refresh, verify gate, export-data) and tests. I predicted the shape and the backend lifecycle but not the findings-decision verbs, the verify CI gate or export-data.
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The header covers the backend lifecycle and which verbs hit the backend, but says nothing about verify, export-data, balance or the findings-decision verbs, which make up much of the file.
+### the file itself — LEGIBLE SOME
+- spec 3 · served in 6 parts · read at `59152a98b990` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:51:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: The CLI entry point for a Tauri app: parses verbs (serve, check, status, findings, verify, export, etc.), ensures a per-machine background backend is running (spawn lock, probe/health, endpoint file), talks to it over local HTTP (get/post), and renders results as terminal text with progress bars. Also contains main dispatch and tests for arg parsing and spawn locking.
+- found: The whole CLI: a clap definition of verbs plus a main dispatcher, a per-machine daemon lifecycle (O_EXCL spawn lock, probe/health, stale-build retirement, serve loop with idle/supersede exit), a blocking HTTP client, and verbs. Some verbs go through the backend (check with a live-tailing terminal UI, status, trace); others run in-process (findings, callers, decide/clear/balance, refresh, verify gate, export-data, summary). Tests are included.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The header explains the daemon design and which verbs use the backend, but says nothing about the in-process findings/decision verbs, verify, export-data or the clap surface that make up much of the file.
 
 ### `spawn_lock_path`
 - spec 2 · read at `d361e1076438` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2598,12 +2622,38 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The file doc describes the whole CLI module, not this function specifically, so per-function coverage is partial.
 
+### `launch_target`
+- spec 3 · read at `7577a8b27d92` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: If args is empty: if interactive, resolve cwd to its git root and return Some(root) if in a repo, else None. If exactly one arg that isn't a verb and is a directory, resolve to git root or Err if not in a repo. Otherwise (verbs, multiple args, flags) return Ok(None).
+- found: Match on args: none+interactive gives git root of cwd (or None); one non-flag non-verb arg that is a directory resolves to its git root or a not-a-repo error; a non-directory arg, flags, verbs, or multiple args give None.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `is_verb`
+- spec 3 · read at `0e6bb2d5c19f` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:26Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds the clap Command (via CommandFactory) and checks whether any subcommand name equals word, or word == "help".
+- found: True if word is "help" or matches a clap subcommand's name or any alias.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `name_for_window`
+- spec 3 · read at `07e643fb502b` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:17Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Canonicalizes the repo path and adds it to the persisted list of known projects (via a projects/registry function), ignoring errors, so /open will accept it. Probably a 3-5 line wrapper around a register/add call.
+- found: Computes project_key for the repo, takes the directory name (falling back to the key), and records key, path and name via reports::remember.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The function name says nothing about registering on the list; the doc comment carries the purpose.
+
 ### `main`
 - spec 3 · read at `0c4111e8f906` · commit `83a90f8` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:21:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: Dispatches CLI args: takes first arg as a subcommand (serve, check, list, summary, verify, export, etc.), calls the matching handler, and returns an exit code; unknown or missing command prints usage and returns nonzero.
 - found: Parses args with clap (exit 2 on error, 0 for help), then dispatches on Verb to handlers, including nested findings decide verbs.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 - note: The docs given were the file-level doc, not this function's; the clap parse and exit-code behavior is only in inline comments.
+
+### `a_directory_argument_opens_its_repo_and_a_verb_never_does`
+- spec 3 · read at `cefcf5b5508e` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:44Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Creates a temp dir with a git repo (.git dir) and a subdirectory named like a verb ("check"), then asserts launch_target returns the repo root for "." and a directory arg, Ok(None) for a verb even when a same-named dir exists, an error for a non-repo directory, and behavior for no args with interactive true/false.
+- found: Test: temp git repo with a "check" subdir and a plain non-repo dir; asserts launch_target for ".", relative path, verb vs same-named dir, "./check", non-repo error, unknown arg, verb plus arg, and the no-args interactive cases.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no · test: yes
+- note: Warm on the file's launch_target behavior, since I read launch_target earlier; the test's assertion messages carry the intent.
 
 ### `the_progress_line_reads_correctly_at_both_ends` — PREDICTED SOME
 - spec 2 · read at `e58761c44962` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:09:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -4079,10 +4129,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `catalog`
-- spec 3 · read at `09315dc3c92f` · commit `fb82fd2` · read by claude-sonnet-5 · via claude · when 2026-09-23T19:04:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Returns a hard-coded Vec of Rule values: one Rule literal per built-in finding (title, so_what, says template, background text, population, clauses with field/op/threshold, calibrated index), likely built via a helper or by parsing rule strings. It's a long list of data with placeholder thresholds and no logic.
-- found: Pure data: defines small closures (ge/lt/le/rule) and returns a vec of about 25 built-in Rule literals, each with id, title, so_what, says template, background, population, clauses and calibrated index; comments carry the design rationale for each rule.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `8af6c6d591c6` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:41:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Returns a hand-written vec of Rule structs, each with an id, title, clause/expression over node metrics (size, churn, complexity), placeholder thresholds and a default settings row. Probably built via vec![] of Rule literals, possibly with small helper constructors; no computation beyond that.
+- found: A long literal list of ~30 default Rule values built via small closure helpers (ge/lt/le clause builders and a rule constructor), each with id, title, so_what, sentence templates, population, clauses over fields, and a calibration index. No logic beyond construction; extensive comments explain rationale.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `tighten`
 - spec 3 · read at `af8914c34e2d` · commit `dd88b4d` · read by claude-sonnet-5 · via claude · when 2026-09-05T03:00:12Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -5462,10 +5512,11 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/lib.rs
 
 ### the file itself
-- spec 2 · read at `5d3455064e52` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:05:28Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Tauri application crate root: builds the main window (build_window), the app menu including a theme submenu (build_menu, ThemeMenu::select), and exposes a run() entry point that constructs and launches the Tauri app, wiring up shared state and command handlers used to drive the scan/parse/score pipeline described in the header doc.
-- found: Crate root: declares the pub mod list for the whole pipeline, builds the main window with macOS-specific traffic-light/titlebar overlay handling, builds the app menu (including the ThemeMenu radio group and an install-cli item), and defines run() which sets up shared agent-API state, registers the Tauri invoke_handler command list, spawns the loopback agent API server, restores the previously open project, and on exit stops all runs and releases the endpoint file so other processes know the backend died.
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
+- spec 3 · read at `3da39ca9ea8d` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:12Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Crate root of the Tauri app: declares the modules (scan, parse, heuristic, model, etc.), and holds the app bootstrap — building the window and native menu (with a theme menu), and run/run_opening which start Tauri with command handlers and optionally open a given repo. Header documents the pipeline; the file itself is mostly Tauri glue.
+- found: Crate root: module list plus Tauri bootstrap — code-built main window, macOS menu with theme radio group, and run_opening which starts the agent API server, restores projects, registers ~60 commands, single-instance handling, and withdraws the endpoint on exit.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The header documents only the scan pipeline and the size/color invariant; it says nothing about this file also being the app bootstrap, menu, single-instance and shutdown logic.
 
 ### `build_window`
 - spec 2 · read at `b7ebd27862ee` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:46:18Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -5486,11 +5537,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: full · trap: no
 - note: The doc comment's history (settings panel emptying out, Ollama removal, rm -rf .sanity) explains why the menu looks the way it does but says nothing about the File menu items, which make up half the function.
 
-### `run` — PREDICTED SOME
-- spec 3 · read at `e47e15602fdd` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Tauri app entrypoint: builds tauri::Builder with plugins, manages state, registers invoke_handler commands, sets up the menu and window via build_menu/build_window, handles menu events (theme select), then runs the app with generate_context!, expecting on error.
-- found: Tauri entrypoint: shared agent-API state, setup spawns window, harness warm, slot sweep, macOS menu with event emits, restore of projects, agent API server; single-instance/dialog/opener plugins, big handler list, and on Exit stops runs and releases the endpoint file. Prediction missed the agent API, restore, and exit cleanup.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+### `run`
+- spec 3 · read at `224a7bf14571` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:27:54Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Tauri entry point: builds a tauri::Builder, registers plugins/setup (menu, window via build_window/build_menu), invokes handlers, and calls .run(generate_context!()) expecting failure with a message. Probably delegates to run_opening or similar. Only about three lines, so likely a thin wrapper.
+- found: Thin wrapper calling run_opening(None).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `run_opening`
+- spec 3 · read at `3f058ccae3c3` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:35Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds the Tauri app: manages shared agent-API state, sets up the window, macOS menu and menu events, restores projects, starts the loopback agent server, opens `repo` if given, registers single-instance/dialog/opener plugins and the command handlers, and on Exit stops runs and releases the endpoint. (Recalled from having read the file task earlier.)
+- found: Tauri app bootstrap: shared agent state, window, macOS menu and event forwarding, project restore, agent API server, single-instance handoff, command registration, and shutdown that stops runs and releases the endpoint file.
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- note: The doc line only points at launch_target; it says nothing about the backend startup and exit cleanup this function does. Warm reading: I had read this body during the lib.rs file task.
 
 ## src-tauri/src/links.rs
 
@@ -5648,11 +5706,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
 - note: Same binary serves as GUI app, CLI, and MCP server depending on argv — not the boilerplate-only entry point I expected.
 
-### `main`
-- spec 2 · read at `751e5a336219` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:45:38Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Checks std::env::args() for a subcommand (like `mcp` for the stdio MCP server mode, or other CLI subcommands) and dispatches to CLI handling code if present, otherwise falls through to launching the Tauri GUI application via tauri::Builder setup and .run(...).
-- found: Special-cases `mcp` as first arg to run the stdio MCP server; any other args go to the headless CLI dispatcher (serve/check/read verbs); no args launches the Tauri GUI window.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+### `main` — PREDICTED NONE
+- spec 3 · read at `0ad89071bff7` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:27:55Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Tauri app entry point: builds a tauri::Builder, registers plugins and invoke handlers, maybe sets up state, and runs with generate_context!(), expecting an error message on failure. Possibly has cfg attribute to hide the console window on Windows release.
+- found: Single binary dispatcher: `mcp` arg runs the stdio MCP server; otherwise launch_target decides between erroring, opening the window on a repo, opening a bare window with no args, or running the headless CLI and exiting with its code.
+- predicted: none · documented: none · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/mcp.rs
 
