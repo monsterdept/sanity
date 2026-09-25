@@ -82,7 +82,7 @@ might be a mess. Git history helps tell them apart:
 ```sh
 brew install --cask monsterdept/tap/sanity
 cd your-repo
-sanity                                        # open the app, then add this repo from there
+sanity .                                      # open this repo in the app
 sanity findings                               # what needs work, and why
 
 # Readings start here: an agent does the reading, and it spends tokens
@@ -202,9 +202,10 @@ measurement nobody took.
 
 ## The app
 
-`sanity` with no arguments opens the app. The repo is in the center, directories and files
-are rings around it, and functions are on the outer edge. A wedge's width is its size in
-lines. Its color depends on which lens you pick; see [docs/lenses.md](docs/lenses.md).
+`sanity .` opens the app on the repo you're in, and so does `sanity` on its own, typed inside
+a repo. The repo is in the center, directories and files are rings around it, and functions
+are on the outer edge. A wedge's width is its size in lines. Its color depends on which lens
+you pick; see [docs/lenses.md](docs/lenses.md).
 
 Click a wedge to zoom in. The side panel explains what the lens says about it and shows the
 code. The findings list, the rules editor and your decisions are in the app too.

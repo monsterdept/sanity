@@ -2304,6 +2304,21 @@ pub fn scan_asked(
     Ok((scan, TraceState { depth, ..Default::default() }))
 }
 
+/// Open a repo a person named at a terminal, and take the view — `sanity .`.
+///
+/// The one caller besides `init --show` entitled to `focus`: a human typed the path. The
+/// repo must already be on the known list, which [`crate::cli::name_for_window`] sees to
+/// before the window is asked. Failures are the window's to show; an open that went wrong
+/// leaves the sidebar row saying so, as it does for every other open.
+pub async fn open_for_person(state: Shared, repo: PathBuf) {
+    let asked = OpenRequest {
+        path: Some(repo.to_string_lossy().to_string()),
+        focus: Some(true),
+        ..Default::default()
+    };
+    let _ = open_project(State(state), Json(asked)).await;
+}
+
 /// Open a repo, and add it to what Sanity is holding.
 ///
 /// It used to end "…and make it what the window is showing", which is no longer the
