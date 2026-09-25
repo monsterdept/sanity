@@ -685,43 +685,6 @@ pub fn stamp_reports(
         .collect()
 }
 
-/// Whether an agent is working right now.
-///
-/// "Recently" is sixty seconds: an agent predicting a function, opening a file and
-/// writing a report goes quiet for tens of seconds at a time, and a shorter window would
-/// have the indicator flickering between working and asleep during one continuous batch.
-#[derive(serde::Serialize)]
-pub struct AgentCall {
-    /// Which ping this was. The window replays only the ones above the last it saw, so a
-    /// burst inside one poll interval animates as a burst rather than as its last frame.
-    seq: u64,
-    tool: String,
-}
-
-#[derive(serde::Serialize)]
-pub struct AgentActivity {
-    active: bool,
-    tool: String,
-    nonce: u64,
-    events: Vec<AgentCall>,
-}
-
-#[tauri::command]
-pub fn agent_activity(state: tauri::State<'_, crate::agentapi::Shared>) -> AgentActivity {
-    const IDLE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
-    let s = crate::agentapi::lock(&state);
-    AgentActivity {
-        active: s.last_agent.is_some_and(|t| t.elapsed() < IDLE_AFTER),
-        tool: s.last_tool.clone(),
-        nonce: s.pings,
-        events: s
-            .recent
-            .iter()
-            .map(|(seq, tool)| AgentCall { seq: *seq, tool: tool.clone() })
-            .collect(),
-    }
-}
-
 /// What the window should be showing, and everything else on offer.
 ///
 /// Polled by the frontend so an agent calling `sanity_open` switches the window with no

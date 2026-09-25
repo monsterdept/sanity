@@ -365,7 +365,6 @@ pub fn run() {
             commands::estimate_trace,
             commands::explain_trace,
             commands::set_explain_trace,
-            commands::agent_activity,
             commands::add_project,
             commands::harnesses,
             commands::read_curve,

@@ -228,16 +228,8 @@ pub struct AppState {
     /// repo.
     pub order: Vec<String>,
     pub clock: u64,
-    /// When an agent last called anything, and what it called.
-    ///
-    /// Tracked so the window can say whether an agent is working *right now*. Absence of
-    /// activity has to be statable — a panel that only appears while something is
-    /// happening cannot tell you it is idle, and its absence is indistinguishable from
-    /// the feature not existing.
+    /// When an agent last called anything: the clock a `sanity serve` daemon stands down by.
     pub last_agent: Option<Instant>,
-    pub last_tool: String,
-    /// Ticks per agent call, so the UI can animate on repeats of the same tool.
-    pub pings: u64,
     /// Reports turned away by [`mangled`] since this backend started, across all projects.
     ///
     /// A refusal costs a reading its substance — the reader cannot see what went wrong,
@@ -314,20 +306,7 @@ pub struct AppState {
     /// asking for a tree — the counts, the queue and a file's functions all wait for the
     /// project, and waiting is correct: they are answers about the whole repo.
     pub shallow: HashMap<String, crate::scan::Scan>,
-    /// The last few calls, newest last, each with the tick it happened on.
-    ///
-    /// A single `last_tool` is what the window polls, and the window polls every two
-    /// seconds — long enough for a reader to call `next`, `open` and `report` inside one
-    /// interval, which collapsed a whole cycle of work into one animation of whichever
-    /// call happened to be last. Keeping a short tail lets `agent_activity` hand over the
-    /// sequence the window actually missed. Bounded because it is a display buffer, not a log.
-    pub recent: std::collections::VecDeque<(u64, String)>,
 }
-
-/// How many calls the window can be behind before the tail stops being worth keeping.
-/// Eight is four poll intervals of a fast reader; anything older would animate a burst
-/// the user has already stopped watching for.
-const RECENT_CALLS: usize = 8;
 
 impl AppState {
     /// Write the project list to disk.
@@ -681,17 +660,9 @@ impl AppState {
         self.focus(key, true);
     }
 
-    /// Record a call. `tool` is the tool name, optionally suffixed with the outcome —
-    /// `sanity_report:hot` — because what the window shows about a reading depends on
-    /// what the reading said, and the name of the endpoint cannot carry that.
-    pub fn ping(&mut self, tool: &str) {
+    /// Record that an agent called something.
+    pub fn ping(&mut self) {
         self.last_agent = Some(Instant::now());
-        self.last_tool = tool.to_string();
-        self.pings += 1;
-        self.recent.push_back((self.pings, tool.to_string()));
-        while self.recent.len() > RECENT_CALLS {
-            self.recent.pop_front();
-        }
     }
 
     /// A keyless caller gets the most recently OPENED project, never the window's.
@@ -2356,7 +2327,7 @@ async fn open_project(
         return Json(serde_json::json!({ "ok": false, "error": crate::scan::not_a_repo(&path) }));
     }
     let key = project_key(&path);
-    lock(&state).ping("sanity_open");
+    lock(&state).ping();
 
     // Already held is not a reason to skip the scan.
     //
@@ -3227,7 +3198,7 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         return Json(Vec::new());
     };
     let Some(project) = state.projects.get_mut(&key) else {
-        state.ping("sanity_next");
+        state.ping();
         return Json(Vec::new());
     };
     project.last_agent = Some(Instant::now());
@@ -3264,11 +3235,7 @@ async fn queue(State(state): State<Shared>, Query(p): Query<QueueParams>) -> Jso
         };
         project.note("out", name, t.path.clone(), None);
     }
-    // Handing out nothing when nothing is left is the end of the job, and the only moment
-    // in the protocol worth a flourish. Handing out nothing while work is still leased is
-    // an ordinary wait, so the two are pinged apart rather than both reading as "done".
-    let done = handed.is_empty() && work_left(project).remaining == 0;
-    state.ping(if done { "sanity_next:done" } else { "sanity_next" });
+    state.ping();
     Json(handed)
 }
 
@@ -4465,7 +4432,7 @@ async fn reveal(
     // cell shared by every reader in a session, and an id resolved through it can name a
     // function in a repo this caller is not working on.
     let Some(key) = state.owner_of(&req.id, req.project.as_deref()) else {
-        state.ping("sanity_error");
+        state.ping();
         return Json(serde_json::json!({
             "ok": false,
             "error": format!("No open project holds `{}`, so there is no source to show.", req.id),
@@ -4474,12 +4441,12 @@ async fn reveal(
         }));
     };
     let Some(project) = state.projects.get_mut(&key) else {
-        state.ping("sanity_error");
+        state.ping();
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     project.last_agent = Some(Instant::now());
     if project.leased.get(&req.id).is_none_or(|t| t.elapsed() >= LEASE) {
-        state.ping("sanity_error");
+        state.ping();
         return Json(serde_json::json!({
             "ok": false,
             "error": format!("`{}` is not out with you, so its source was not sent.", req.id),
@@ -4510,7 +4477,7 @@ async fn reveal(
     // the line, and because the alternative to refusing is what used to happen.
     if let Some((_, _, _, _, Some(bytes))) = found {
         if bytes as usize > READ_CEILING {
-            state.ping("sanity_error");
+            state.ping();
             return Json(serde_json::json!({
                 "ok": false,
                 "error": format!(
@@ -4527,7 +4494,7 @@ async fn reveal(
         }
     }
     let Some((path, line, end_line, whole_file, _)) = found else {
-        state.ping("sanity_error");
+        state.ping();
         return Json(serde_json::json!({
             "ok": false,
             "error": format!("`{}` is no longer in this repo's scan.", req.id),
@@ -4538,7 +4505,7 @@ async fn reveal(
     let text = match std::fs::read_to_string(project.repo.join(&path)) {
         Ok(t) => t,
         Err(e) => {
-            state.ping("sanity_error");
+            state.ping();
             return Json(serde_json::json!({
                 "ok": false,
                 "error": format!("Could not read {path}: {e}. Nothing is wrong with your call."),
@@ -4582,7 +4549,7 @@ async fn reveal(
         seen.parts = parts;
         seen.seen.insert(part);
     }
-    state.ping("sanity_reveal");
+    state.ping();
     let mut out = serde_json::json!({
         "ok": true,
         "id": req.id,
@@ -4724,7 +4691,7 @@ async fn report(
         {
             let mut state = lock(&state);
             state.refused += 1;
-            state.ping("sanity_error");
+            state.ping();
         }
         return Json(serde_json::json!({
             "ok": false,
@@ -4754,7 +4721,7 @@ async fn report(
         {
             let mut state = lock(&state);
             state.refused += 1;
-            state.ping("sanity_error");
+            state.ping();
         }
         return Json(serde_json::json!({
             "ok": false,
@@ -4780,7 +4747,7 @@ async fn report(
         // nothing. A reading was counted, celebrated and discarded, and the response said
         // `saved: true`. A reading that cannot be placed is refused out loud instead.
         state.refused += 1;
-        state.ping("sanity_error");
+        state.ping();
         return Json(serde_json::json!({
             "ok": false,
             "saved": false,
@@ -4795,7 +4762,7 @@ async fn report(
         }));
     };
     let Some(project) = state.projects.get_mut(&key) else {
-        state.ping("sanity_error");
+        state.ping();
         return Json(serde_json::json!({ "ok": false, "error": NO_PROJECT }));
     };
     project.last_agent = Some(Instant::now());
@@ -4815,7 +4782,7 @@ async fn report(
             let missing = seen.missing();
             let (parts, have) = (seen.parts, seen.seen.len());
             state.refused += 1;
-            state.ping("sanity_error");
+            state.ping();
             return Json(serde_json::json!({
                 "ok": false,
                 "saved": false,
@@ -4909,19 +4876,6 @@ async fn report(
     // it, because that is the half only the reader can see.
     r.agent_docs = crate::assessment::agent_docs(&project.repo);
 
-    // What the reading said, before it is moved into the map. `Some`/`None` are the two
-    // grades that mean the reader was actually caught out — the same test the surprise
-    // rate is counted with, so the window and the hint cannot disagree about what
-    // "surprising" means. A report landing on an id that already held one is a re-read of
-    // work that expired, which is honest labor but not news.
-    let outcome = if project.reports.contains_key(&r.id) {
-        "sanity_report:stale"
-    } else if matches!(r.grades().0, Grade::Some | Grade::None) {
-        "sanity_report:hot"
-    } else {
-        "sanity_report:cold"
-    };
-
     // Before the map takes it, while the grade is still to hand.
     if let Some((name, path)) = named {
         project.note("read", name, path, Some(&r));
@@ -4976,10 +4930,8 @@ async fn report(
     if let Some(e) = &write_error {
         hint = e.clone();
     }
-    // Last, once nothing else borrows the project. A write that failed must not look like
-    // a reading that landed — a window showing a report that was never saved is the same
-    // lie as a silent fallback file.
-    state.ping(if write_error.is_some() { "sanity_error" } else { outcome });
+    // Last, once nothing else borrows the project.
+    state.ping();
     Json(serde_json::json!({
         "ok": write_error.is_none(),
         "saved": write_error.is_none(),
@@ -5031,7 +4983,7 @@ async fn status(
     // often, so a reader could poll for minutes with the window insisting nothing was
     // happening. Its mood is deliberately the quietest in the set: at this frequency
     // anything livelier would drown the calls that mean something.
-    state.ping("sanity_status");
+    state.ping();
     // Read before the map is borrowed. Reported on every status because the party that
     // needs it is the one driving a wave, and it is the only number here that describes
     // work the instrument DESTROYED rather than work it is waiting on.
@@ -5440,7 +5392,7 @@ async fn summary(
     Query(p): Query<SummaryParams>,
 ) -> Json<serde_json::Value> {
     let mut state = lock(&state);
-    state.ping("sanity_summary");
+    state.ping();
     let key = state.for_client(p.project.as_deref());
     let Some(project) = key.and_then(|k| state.projects.get(&k)) else {
         return Json(serde_json::json!({
@@ -5791,7 +5743,7 @@ impl ProjectList {
                     // A project with a tree has been scanned; what it would cost to do again
                     // is not a question the row asks. See the field.
                     scan_cost: None,
-                    // Same window as `agent_activity`: a reader predicting, opening a
+                    // Sixty seconds: a reader predicting, opening a
                     // file and writing a report goes quiet for tens of seconds inside one
                     // continuous batch, and a shorter window makes it flicker.
                     // And not counting this run's own death rattle. A stopped reader is
@@ -5969,11 +5921,11 @@ impl ProjectList {
 
 /// Is anybody home, and who.
 ///
-/// Separate from `/status` because status is not free: it calls `ping`, which is what
-/// drives the window's agent activity (`agent_activity`). `sanity serve` and `sanity
-/// study` both have to ask whether a backend is already up, and a liveness probe that
-/// animates the window as though a reader had called something would make the UI lie
-/// about its own subject. This touches no state at all.
+/// Separate from `/status` because status is not free: it calls `ping`, which resets the
+/// clock a `sanity serve` daemon stands down by. `sanity serve` and `sanity study` both
+/// have to ask whether a backend is already up, and a liveness probe that counted as a
+/// reader calling something would keep a backend alive by asking whether it is alive.
+/// This touches no state at all.
 ///
 /// The pid is the answer to "already serving, but by whom" — a daemon compares it against
 /// its own to notice it has been superseded.
