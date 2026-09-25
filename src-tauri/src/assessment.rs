@@ -1470,7 +1470,12 @@ fn render_index(repo: &str, shards: &[(String, usize, usize, usize, usize, usize
          ## Commit this directory\n\
          \n\
          A reading is minutes of careful work and tokens spent. Commit it so others can\n\
-         benefit from it.\n"
+         benefit from it.\n\
+         \n\
+         Everything here is yours, and Sanity claims no rights in it. The text Sanity\n\
+         writes here, including this file and the rule descriptions under `rules/`, is\n\
+         dedicated to the public domain under CC0 1.0, so committing this directory\n\
+         adds no license terms to this repo.\n"
     )
 }
 

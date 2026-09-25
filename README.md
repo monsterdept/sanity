@@ -228,3 +228,9 @@ and open).
 Sanity is free software under the [GNU General Public License, version 3 or later](LICENSE).
 The GitHub Action, [`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action),
 is under the MIT license.
+
+What Sanity writes into your repo is yours. The `.sanity/` directory holds your readings,
+rules and decisions, and the text Sanity puts there, such as its README and the rule
+descriptions, is dedicated to the public domain under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). Committing `.sanity/` adds no
+license terms to your repo.
