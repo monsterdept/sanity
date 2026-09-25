@@ -2661,6 +2661,99 @@ pub fn offline_counts(scan: &Scan, reports: &HashMap<String, Report>) -> Offline
     }
 }
 
+/// Why a unit stops a verification: the three bands `collect_tasks` queues, worst first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Owed {
+    /// The reading describes a body that is no longer there.
+    Stale,
+    /// There is no reading at all.
+    Unread,
+    /// The reading describes this body, but a graded question has moved since — see `SPEC`.
+    Dated,
+}
+
+/// One unit a verification refused on, located well enough to annotate.
+pub struct Outstanding {
+    pub owed: Owed,
+    pub path: String,
+    pub line: u32,
+    pub name: String,
+}
+
+/// One instrument over the current readings: which agent, which model, how many readings.
+///
+/// Empty strings are kept as themselves rather than folded into a neighbor. A reading with
+/// no harness was taken outside a run Sanity started, and one with no model never said what
+/// read it; neither can be vouched for as the same instrument as anything else.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Instrument {
+    pub harness: String,
+    pub model: String,
+    pub readings: usize,
+}
+
+/// What `sanity verify` rules on: every unit `sanity check` would still hand to a reader, and
+/// every instrument the current readings were taken with.
+///
+/// **"Complete and current" is defined as "the queue is empty", not re-derived.** The queue is
+/// `collect_tasks`, the one definition of what is owed — stale, unread, dated, and none of what
+/// `.sanityignore` or the read ceiling take out of scope. A second definition here would be a
+/// gate that passes a repo `sanity check` still has work in, or fails one it has none in.
+///
+/// **Current to HEAD is the body hash, not the commit stamp.** A reading records the commit it
+/// was taken at, but a commit that only touched other files leaves it describing exactly the
+/// code at HEAD; comparing `commit` against HEAD would fail every release cut one commit after
+/// the reading pass. `is_stale` compares against the body as it stands, which is the question.
+///
+/// Instruments are tallied over current readings of live units only. An orphan describes code
+/// that is gone, and a stale reading is already a failure of its own; counting either would
+/// fail the agent check for work the other two checks already refuse.
+pub struct Verification {
+    pub outstanding: Vec<Outstanding>,
+    pub instruments: Vec<Instrument>,
+}
+
+pub fn verify(scan: &Scan, reports: &HashMap<String, Report>) -> Verification {
+    let mut queued = Vec::new();
+    collect_tasks(&scan.root, reports, &HashMap::new(), None, &Default::default(), &mut queued);
+    let queued: std::collections::HashSet<String> =
+        queued.into_iter().map(|(_, t)| t.id).collect();
+    let mut outstanding = Vec::new();
+    let mut counts: HashMap<(String, String), usize> = HashMap::new();
+    each_unit(scan, &mut |node| {
+        let reading = reports.get(&node.id);
+        let stale =
+            reading.is_some_and(|r| crate::assessment::is_stale(r, node.body.as_deref(), node.bytes));
+        if queued.contains(&node.id) {
+            // Queued while holding a current reading can only mean a dated axis.
+            let owed = match reading {
+                None => Owed::Unread,
+                Some(_) if stale => Owed::Stale,
+                Some(_) => Owed::Dated,
+            };
+            let file = node.kind == NodeKind::File;
+            outstanding.push(Outstanding {
+                owed,
+                path: node.path.clone(),
+                line: if file { 1 } else { node.line.unwrap_or(1) },
+                name: if file { "the file itself".into() } else { node.name.clone() },
+            });
+        }
+        if let Some(r) = reading.filter(|_| !stale) {
+            *counts.entry((r.harness.trim().to_string(), r.model.trim().to_string())).or_default() += 1;
+        }
+    });
+    outstanding.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+    let mut instruments: Vec<Instrument> = counts
+        .into_iter()
+        .map(|((harness, model), readings)| Instrument { harness, model, readings })
+        .collect();
+    instruments.sort_by(|a, b| {
+        b.readings.cmp(&a.readings).then_with(|| (&a.harness, &a.model).cmp(&(&b.harness, &b.model)))
+    });
+    Verification { outstanding, instruments }
+}
+
 /// Lines of code sitting in functions that still need reading.
 ///
 /// **The size of the job in the unit the code is written in.** A function count answers

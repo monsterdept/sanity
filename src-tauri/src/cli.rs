@@ -2631,6 +2631,160 @@ pub fn refresh(path: &str) -> i32 {
     }
 }
 
+/// Fail unless every reading is present, current, and taken by one agent and model.
+///
+/// **A gate, and never a reader.** It runs where credentials should not be — a release job —
+/// so it spawns nothing and asks no backend; it scans, loads `.sanity/`, and rules. Readings
+/// are a developer's to take, against the code they are about to ship, with `sanity check`.
+///
+/// Three checks, each printed whether it passed or not so a green run says what it proved:
+///
+/// - **complete**: no unit is unread.
+/// - **current**: no reading is stale against the body at HEAD, and none is dated by a `SPEC`
+///   bump. A dated reading is one `sanity check` would re-queue, so a gate that passed it
+///   would disagree with the verb it tells people to run.
+/// - **one instrument**: every current reading names the same harness and model, and names
+///   one. The model is the scale, so a repo read on two is two measurements drawn as one map.
+///   `--model` and `--harness` pin which one, for a release that must be on a stated scale.
+///   `--mixed` waives it: the row reads `skip` and the tally still prints, so a waived mix
+///   is on screen rather than silent.
+///
+/// Exit 0 when all three pass, 1 when any fails, 2 when the repo cannot be scanned.
+pub fn verify(path: &str, model: Option<&str>, harness: Option<&str>, mixed: bool) -> i32 {
+    use crate::agentapi::Owed;
+    let repo = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("sanity: {path}: {e}");
+            return 2;
+        }
+    };
+    let Some((scan, reports)) = read_repo(&repo) else { return 2 };
+    let v = agentapi::verify(&scan, &reports);
+    // Annotations are GitHub's syntax, so they are written only where GitHub reads them.
+    let github = std::env::var_os("GITHUB_ACTIONS").is_some_and(|v| v == "true");
+    const SHOWN: usize = 20;
+    const ANNOTATED: usize = 10;
+
+    let of = |owed: Owed| v.outstanding.iter().filter(move |o| o.owed == owed);
+    let unread = of(Owed::Unread).count();
+    let stale = of(Owed::Stale).count();
+    let dated = of(Owed::Dated).count();
+
+    let complete = unread == 0;
+    let current = stale == 0 && dated == 0;
+    let unattributed = |i: &agentapi::Instrument| i.harness.is_empty() || i.model.is_empty();
+    let pinned = |i: &agentapi::Instrument| {
+        model.is_none_or(|m| i.model == m) && harness.is_none_or(|h| i.harness == h)
+    };
+    let one = v.instruments.len() == 1 && !unattributed(&v.instruments[0]) && pinned(&v.instruments[0]);
+
+    let label = |i: &agentapi::Instrument| {
+        let model = if i.model.is_empty() { "no model named" } else { &i.model };
+        let harness = if i.harness.is_empty() { "no harness" } else { &i.harness };
+        format!("{model} via {harness}")
+    };
+    let mark = |ok: bool| if ok { "pass" } else { "FAIL" };
+    // Waived is not passed: the row says which, and the exit ignores it.
+    let enforced = !mixed;
+
+    println!();
+    println!("{}", repo.to_string_lossy());
+    println!();
+    println!("  {}  complete        {}", mark(complete), if complete {
+        "every unit has a reading".to_string()
+    } else {
+        format!("{} unread", commas(unread as u64))
+    });
+    println!("  {}  current         {}", mark(current), if current {
+        "every reading describes the code as it stands".to_string()
+    } else {
+        let mut parts = Vec::new();
+        if stale > 0 {
+            parts.push(format!("{} stale", commas(stale as u64)));
+        }
+        if dated > 0 {
+            parts.push(format!("{} dated by a spec change", commas(dated as u64)));
+        }
+        parts.join(", ")
+    });
+    let instrument_line = match v.instruments.as_slice() {
+        [] => "no current readings".to_string(),
+        [only] if mixed => format!("not required — {}", label(only)),
+        many if mixed => format!("not required — {} instruments", many.len()),
+        [only] if one => label(only),
+        [only] if unattributed(only) => format!("{} — cannot be vouched for", label(only)),
+        [only] => format!("{}, but {} was required", label(only), required(model, harness)),
+        many => format!("{} instruments", many.len()),
+    };
+    println!(
+        "  {}  one instrument  {}",
+        if enforced { mark(one) } else { "skip" },
+        instrument_line
+    );
+
+    if !complete || !current {
+        for (owed, heading) in [
+            (Owed::Stale, "Stale — the reading describes a body that has since changed"),
+            (Owed::Unread, "Unread"),
+            (Owed::Dated, "Dated — read under an older question"),
+        ] {
+            let list: Vec<_> = of(owed).collect();
+            if list.is_empty() {
+                continue;
+            }
+            println!();
+            println!("{heading}:");
+            for o in list.iter().take(SHOWN) {
+                println!("  {}:{}  {}", o.path, o.line, o.name);
+            }
+            if list.len() > SHOWN {
+                println!("  … and {} more", commas((list.len() - SHOWN) as u64));
+            }
+        }
+    }
+    if v.instruments.len() > 1 || (enforced && !one && !v.instruments.is_empty()) {
+        println!();
+        println!("Current readings by instrument:");
+        for i in &v.instruments {
+            println!("  {:>7}  {}", commas(i.readings as u64), label(i));
+        }
+    }
+
+    if github {
+        for o in v.outstanding.iter().take(ANNOTATED) {
+            let why = match o.owed {
+                Owed::Stale => "stale reading",
+                Owed::Unread => "unread",
+                Owed::Dated => "dated reading",
+            };
+            println!("::error file={},line={},title=sanity: {why}::{}", o.path, o.line, o.name);
+        }
+        if enforced && !one {
+            println!("::error title=sanity: one instrument::{instrument_line}");
+        }
+    }
+
+    println!();
+    if complete && current && (one || !enforced) {
+        0
+    } else {
+        println!("Take the missing readings with `sanity check`, commit .sanity/, and re-run.");
+        println!();
+        1
+    }
+}
+
+/// How a `--model`/`--harness` requirement reads back in a failure line.
+fn required(model: Option<&str>, harness: Option<&str>) -> String {
+    match (model, harness) {
+        (Some(m), Some(h)) => format!("{m} via {h}"),
+        (Some(m), None) => m.to_string(),
+        (None, Some(h)) => format!("via {h}"),
+        (None, None) => String::new(),
+    }
+}
+
 /// One row of a grade table: four counts, in scale order, aligned under their headings.
 ///
 /// **The names moved to a header row, and that is a reversal with a reason.** They were on
@@ -3021,6 +3175,21 @@ enum Verb {
         #[arg(default_value = ".")]
         path: String,
     },
+    /// Fail unless every reading is present, current, and taken by one model
+    Verify {
+        /// The repo. Defaults to where you are standing.
+        #[arg(default_value = ".")]
+        path: String,
+        /// Require this model, not merely one model.
+        #[arg(long, value_name = "ID")]
+        model: Option<String>,
+        /// Require this agent, not merely one agent.
+        #[arg(long, value_name = "NAME")]
+        harness: Option<String>,
+        /// Pass readings taken by more than one agent or model.
+        #[arg(long, conflicts_with_all = ["model", "harness"])]
+        mixed: bool,
+    },
     /// Write everything the report reads, for one repo, as JSON
     ExportData {
         /// The repo. Defaults to where you are standing.
@@ -3108,6 +3277,9 @@ pub fn main(args: &[String]) -> i32 {
         }
         Verb::Callers { key, path } => callers(&path, &key),
         Verb::Refresh { path } => refresh(&path),
+        Verb::Verify { path, model, harness, mixed } => {
+            verify(&path, model.as_deref(), harness.as_deref(), mixed)
+        }
         Verb::ExportData { path, depth, out } => {
             export_data(&path, depth.as_deref().map(crate::trace::Depth::from_tag), out.as_deref())
         }
@@ -3243,6 +3415,97 @@ mod tests {
         let slot = std::path::Path::new(renders);
         let kind = slot.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str());
         assert!(kind == Some("renders") && renders.ends_with("-r1"), "{renders}");
+    }
+
+    /// **`verify` passes exactly when `sanity check` has nothing left to do and one instrument
+    /// did all of it.** Each check is broken on its own against a real scan and a store
+    /// written to disk and read back, so a gate that only ever says FAIL, or only ever says
+    /// pass, goes red here.
+    #[test]
+    fn verify_refuses_each_kind_of_gap_on_its_own() {
+        use crate::agentapi::{Grade, Owed, Report};
+        let _home = data_home();
+        let dir = tempfile::tempdir().expect("tmp");
+        let repo = std::fs::canonicalize(dir.path()).expect("canonical");
+        let src = repo.join("gate.rs");
+        let body = |shut: &str| {
+            format!(
+                "//! Opens and shuts.\n\nfn open() {{\n    println!(\"1\");\n}}\n\n\
+                 fn shut() {{\n    {shut}\n}}\n\nfn idle() {{\n    println!(\"3\");\n}}\n"
+            )
+        };
+        std::fs::write(&src, body("println!(\"2\");")).expect("writes");
+        let path = repo.to_string_lossy().to_string();
+
+        let scan = || read_repo(&repo).expect("scans").0;
+        let reading = |n: &crate::model::Node, model: &str, spec: u32| Report {
+            id: n.id.clone(),
+            expected: "a thing".into(),
+            found: "the thing".into(),
+            predicted: Some(Grade::Full),
+            documented: Some(Grade::None),
+            legible: Some(Grade::Full),
+            body: n.body.clone().unwrap_or_default(),
+            model: model.into(),
+            harness: "claude".into(),
+            spec,
+            ..Report::blank()
+        };
+        // Every unit read by one instrument at the current spec, except the names in `skip`.
+        let read_all = |skip: &[&str], odd: Option<(&str, &str, u32)>| {
+            let s = scan();
+            let mut out = std::collections::HashMap::new();
+            s.root.visit(&mut |n| {
+                use crate::model::NodeKind::{File, Func};
+                if !matches!(n.kind, Func | File) || skip.contains(&n.name.as_str()) {
+                    return;
+                }
+                let r = match odd {
+                    Some((name, model, spec)) if n.name == name => reading(n, model, spec),
+                    _ => reading(n, "sonnet", crate::assessment::SPEC),
+                };
+                out.insert(n.id.clone(), r);
+            });
+            crate::assessment::save(&repo, &s, &out).expect("saves");
+        };
+        let owed = || {
+            let (s, r) = read_repo(&repo).expect("scans");
+            let v = crate::agentapi::verify(&s, &r);
+            let owed: Vec<(Owed, String)> =
+                v.outstanding.into_iter().map(|o| (o.owed, o.name)).collect();
+            (owed, v.instruments.len())
+        };
+
+        // Nothing read: every unit unread, and there is no instrument to vouch for.
+        assert_eq!(verify(&path, None, None, false), 1);
+
+        read_all(&["idle"], None);
+        assert_eq!(owed(), (vec![(Owed::Unread, "idle".to_string())], 1));
+        assert_eq!(verify(&path, None, None, false), 1, "one unread fails");
+
+        read_all(&[], None);
+        assert_eq!(owed(), (vec![], 1));
+        assert_eq!(verify(&path, None, None, false), 0, "complete, current, one instrument");
+        assert_eq!(verify(&path, Some("sonnet"), Some("claude"), false), 0, "the pinned one");
+        assert_eq!(verify(&path, Some("haiku"), None, false), 1, "one model, but not the required one");
+
+        std::fs::write(&src, body("println!(\"two\");")).expect("writes");
+        assert_eq!(owed(), (vec![(Owed::Stale, "shut".to_string())], 1));
+        assert_eq!(verify(&path, None, None, false), 1, "a moved body fails");
+
+        std::fs::write(&src, body("println!(\"2\");")).expect("writes");
+        read_all(&[], Some(("idle", "sonnet", 0)));
+        assert_eq!(owed(), (vec![(Owed::Dated, "idle".to_string())], 1));
+        assert_eq!(verify(&path, None, None, false), 1, "a dated axis fails");
+
+        read_all(&[], Some(("idle", "haiku", crate::assessment::SPEC)));
+        assert_eq!(owed(), (vec![], 2));
+        assert_eq!(verify(&path, None, None, false), 1, "two models fail with nothing owed");
+        assert_eq!(verify(&path, None, None, true), 0, "unless a mix is allowed");
+
+        // Allowing a mix waives the instrument and nothing else.
+        read_all(&["idle"], Some(("open", "haiku", crate::assessment::SPEC)));
+        assert_eq!(verify(&path, None, None, true), 1, "an unread unit still fails a mixed repo");
     }
 
     /// **Factoring the stamping out changed nothing it stamps.** `agent_reports` now delegates

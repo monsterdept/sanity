@@ -246,6 +246,24 @@ readings (1.4 MB) parse in 30ms, once, on open.
   which is the honest shape.
 - Nothing is user-scoped. `by:` is provenance to read, not ownership; anyone with the
   repo extends anyone's assessment.
+- **`sanity verify` is the release gate, and it never reads.** Taking readings in CI means
+  model credentials in CI, and a reading belongs to whoever is about to ship the code it
+  describes; so the gate only rules on what was committed, and the GitHub Action
+  (`monsterdept/sanity-action`) downloads a pinned release and runs it. **The action is
+  versioned apart from Sanity**: the release a repo verifies with is what decides staleness,
+  so it is an explicit `version` input that moves when somebody edits it, never a side effect
+  of a Dependabot bump to the action — and a moving `v1` tag here would fire `release.yml`,
+  which builds on `v*`. Three decisions sit under it.
+  **"Complete and current" is the queue being empty** — `agentapi::verify` asks
+  `collect_tasks`, so the gate cannot pass a repo `sanity check` still has work in, and a
+  DATED reading fails it for that reason alone. **Current means the body hash, never the
+  `commit` stamp**: a reading taken one commit before the release still describes HEAD if
+  that commit touched other files, and comparing commits would fail every such release.
+  **One instrument is one (harness, model) pair over current readings of live units**, with
+  an empty field as its own value rather than a wildcard: a reading with no harness was taken
+  outside a run Sanity started, and one naming no model cannot be vouched for as the same
+  scale as anything. Orphans and stale readings are left out of that tally because the other
+  two checks already refuse them.
 - **A stale reading must not colour its wedge.** `readInto` (behind `applyAgentReports`) drops its score and
   the wedge falls back to the proxy; a hatch (`#stale-hatch`) marks it, and the reading
   stays in the panel as history. Keeping the old colour would be the same sin as a term

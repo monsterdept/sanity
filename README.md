@@ -140,11 +140,37 @@ sanity trace                                  # read git history onto the map (-
 sanity callers src/lib.rs#parse               # who calls one function, by name
 sanity export-data                            # everything the report reads, as JSON
 sanity refresh                                # rewrite .sanity/ in the current format
+sanity verify                                 # fail unless readings are complete, current, one model
 ```
 
 `sanity` with no arguments opens the window. `sanity mcp` is a stdio MCP server that lets a
 chat agent open a project and read back its status and summary. It can't take readings. Its
 context is full of the repo, so anything it graded would be recall.
+
+## In CI
+
+Readings are taken by developers, against the code they are about to ship, and committed.
+CI never takes them, because that would mean model credentials in CI. What CI can do is
+refuse a release that ships without them. `sanity verify` exits non-zero unless:
+
+- **complete**: every function and file in scope has a reading;
+- **current**: none is stale against the code as checked out, and none was taken under an
+  older version of a question;
+- **one instrument**: every reading names the same agent and model. `--model` and `--harness`
+  pin which one; `--mixed` waives the check and still prints the mix.
+
+It needs no git history and no network. As a GitHub Action, on a Linux x86-64 runner:
+
+```yaml
+- uses: actions/checkout@v4
+- uses: monsterdept/sanity-action@v1
+  with:
+    version: 0.31.0          # the Sanity release your team reads with
+    model: claude-sonnet-5   # optional
+```
+
+Pin `version` to the release your team reads with. A release that changes the parser or a
+question can expire readings, and the gate shouldn't move unless you move it.
 
 ## Export
 
