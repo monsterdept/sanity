@@ -2,6 +2,7 @@
 name = "sanity"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
 description = "Sanity — see where the thinking in your codebase actually is"
 publish = false
 default-run = "sanity"

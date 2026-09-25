@@ -334,3 +334,9 @@ runs.
 
 [docs/](docs/README.md) has the rest: the architecture, one note per area, and plans (finished
 and open).
+
+## License
+
+Sanity is free software under the [GNU General Public License, version 3 or later](LICENSE).
+The GitHub Action, [`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action),
+is under the MIT license.
