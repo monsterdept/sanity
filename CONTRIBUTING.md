@@ -1,5 +1,20 @@
 # Contributing
 
+## Sending a change
+
+There are three ways in, depending on what you want to send and how you feel about
+copyright.
+
+- **Tell me about it.** For a small fix, you don't have to send code. Open an issue
+  describing the bug and the fix, and I'll write it. Nothing about copyright changes hands,
+  and there's no paperwork.
+- **Send a pull request under the CLA.** [CLA.md](CLA.md) assigns me the copyright in your
+  contribution, gives you back the right to use your own work however you like, and promises
+  that Sanity stays under the GPL. Agreeing is one line in your pull request's description.
+- **Talk to me.** If you'd like to work on Sanity seriously and a CLA isn't something you'll
+  sign, I'm open to discussing it, including contributing under the GPL and keeping your own
+  copyright. Open an issue, and we'll work out something that suits us both.
+
 ## Building from source
 
 ```sh
