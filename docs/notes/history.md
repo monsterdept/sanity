@@ -142,7 +142,7 @@ second metric, and the line between those is the whole design.
   so that a checkpoint is a `memcpy` rather than a walk over eight maps, every absence is a
   sentinel that no measurement can produce, and the bank is bounded by a count AND a byte
   budget. **The frame a seek produces must be identical to the one playback produces** —
-  `just replay-check` folds a synthetic timeline to the same commit three ways and compares
+  `just web-check replay` folds a synthetic timeline to the same commit three ways and compares
   the trees field by field, and asserts on `cost` that the seek folded a bounded remainder,
   because a seek that thawed nothing is correct and slow and no comparison of trees can see
   it. Read `docs/plans/done/backward-scrubbing.md` before touching any of it.

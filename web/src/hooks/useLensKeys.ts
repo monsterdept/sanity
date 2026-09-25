@@ -45,7 +45,7 @@ export function useLensKeys({
       // It was eleven early returns in here, and adding one key to the pile silently cost the
       // lens digits — with no way to see which return had eaten them but to read the pile
       // again. The order of the guards is the behaviour, so the guards are a function now and
-      // `just keys-check` presses every key in every state.
+      // `just web-check keys` presses every key in every state.
       const at = e.target as HTMLElement | null
       const act = actOf(
         { key: e.key, meta: e.metaKey, alt: e.altKey, ctrl: e.ctrlKey, shift: e.shiftKey },

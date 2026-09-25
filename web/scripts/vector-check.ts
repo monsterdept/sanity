@@ -6,7 +6,7 @@
  * poppler — `pdfinfo`, `pdffonts`, `pdftotext` — about the result, because a parser we did not
  * write is the better witness. With `VECTOR_OUT` set, the PDF is left there to look at.
  *
- * Run with `just vector-check`.
+ * Run with `just web-check vector`.
  */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'

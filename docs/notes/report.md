@@ -223,7 +223,7 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
   - **nothing else splits, and no two groups share a place.** A file, or a pool, past 8 stays
     whole. The first version cut an oversized pool into runs, and styx's report had
     `internal (8)` and `internal (5)`: the same map twice, split by rank.
-  `just group-check` pins it: every finding lands in exactly one group, no place appears twice, a
+  `just web-check group` pins it: every finding lands in exactly one group, no place appears twice, a
   group past the cap had nothing under it to split into, and every root holds its findings.
 - **One merge, the panel's.** `mergeFindings` keeps one entry per subject with every rule's
   sentence under it. Findings are numbered in the order printed, group by group.
@@ -268,7 +268,7 @@ findings on a map zoomed to where they are. `web/src/lib/report.ts` lays it out 
 - **The writer is still by hand** (`vector/doc.ts`): content streams of paths and glyph-id text,
   Type0 fonts with `/W` widths and a `ToUnicode` map so text can be found and copied, tiling
   patterns, blend-mode graphics states, links and an outline. The cross-reference table is the
-  part that is easy to get wrong, because a reader seeks by offset. `just vector-check` draws a
+  part that is easy to get wrong, because a reader seeks by offset. `just web-check vector` draws a
   page through every part of the surface and the translator, follows `startxref` and every entry
   the way a reader would, and asks poppler whether the file opens, whether its fonts are embedded
   subsets and whether its text layer holds what was set.

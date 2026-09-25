@@ -23,8 +23,9 @@ repo := "monsterdept/sanity"
 tap_repo := "monsterdept/homebrew-tap"
 
 # Bare `just` lists the recipes.
+[private]
 default:
-    @just --list
+    @just --list --unsorted
 
 # Everything a fresh checkout needs before `just dev` (once).
 #
@@ -44,6 +45,8 @@ default:
 # libayatana-appindicator3-dev librsvg2-dev libxdo-dev xdg-utils fakeroot`, which is a
 # `sudo apt-get` and not a thing a project recipe gets to run on somebody's machine. The
 # release workflow lists them for the same reason.
+[group("develop")]
+[doc("Install tauri-cli and the web deps — once, on a fresh checkout")]
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -55,15 +58,15 @@ setup:
     fi
     cd web && npm install
 
-# Open the app: Tauri dev shell + Vite dev server with hot reload.
+# Tauri dev shell + Vite dev server with hot reload.
 # This is the human's to run — it opens a window.
+[group("develop")]
+[doc("Open the app with hot reload (the human's to run — it opens a window)")]
 dev:
     cd src-tauri && cargo tauri dev
 
 alias run := dev
 
-# Run the CLI — `just cli check ../tally --model sonnet`, `just cli status ../tally`.
-#
 # The sibling of `just dev`. That one opens a window and is the human's to run; this is the
 # same binary with no window, which since `sanity check` is how a run actually starts is
 # now the more useful half during development.
@@ -74,44 +77,193 @@ alias run := dev
 # into `.sanity/`, quietly picking the wrong repo is worse than for one that only prints.
 #
 # Verbs that take no repo (`serve`, `help`) ignore the argument, so the default is harmless.
+[group("develop")]
+[doc("Run the sanity CLI on a repo — `just cli check ../tally --model sonnet`")]
 cli verb="help" path="." *flags="":
     #!/usr/bin/env bash
     set -euo pipefail
     target="$(cd "{{path}}" && pwd)"
     cargo run --manifest-path src-tauri/Cargo.toml --quiet --bin sanity -- {{verb}} "$target" {{flags}}
 
-# Type-check + build the frontend only.
+[group("develop")]
+[doc("Vite dev server in a plain browser — UI only, no Tauri backend")]
+web-dev:
+    cd web && npm run dev
+
+[group("develop")]
+[doc("Type-check and build the frontend only")]
 web:
     cd web && npm run build
 
-# Fast gate: Rust type-checks + TypeScript type-checks (no bundling, no window).
-check:
-    cd src-tauri && cargo check
-    cd web && npx tsc -b
-
-# Format both halves. The configs beside them are what make this a no-op rather than a
-# rewrite — see src-tauri/rustfmt.toml and web/.prettierrc. Run it on its own, never mixed
-# into a change somebody has to review.
+# The configs beside them are what make this a no-op rather than a rewrite — see
+# src-tauri/rustfmt.toml and web/.prettierrc. Run it on its own, never mixed into a change
+# somebody has to review.
+[group("develop")]
+[doc("Format Rust and TypeScript — on its own, never inside a change under review")]
 fmt:
     cd src-tauri && cargo fmt
     cd web && npx prettier --write "src/**/*.{ts,tsx,css}" "scripts/**/*.ts"
 
-# Fail if anything is unformatted — the check half of `fmt`, for CI or a pre-commit look.
+[group("develop")]
+[doc("Fail if anything is unformatted — the check half of `fmt`")]
 fmt-check:
     cd src-tauri && cargo fmt --check
     cd web && npx prettier --check "src/**/*.{ts,tsx,css}" "scripts/**/*.ts"
 
-# Full release bundle (needs the icon set — `just icons` first).
+[group("test")]
+[doc("Fast gate: Rust and TypeScript type-check, no bundling, no window")]
+check:
+    cd src-tauri && cargo check
+    cd web && npx tsc -b
+
+# Everything CI runs, in CI's order (.github/workflows/ci.yml).
+[group("test")]
+[doc("Everything CI runs, in CI's order — passing means CI passes")]
+test:
+    # Frontend first: `npm run build` is `tsc -b && vite build`, so it doubles as the
+    # TypeScript type-check gate, and tauri-build reads web/dist while compiling src-tauri.
+    cd web && npm run build
+    just web-check
+    cd src-tauri && cargo test
+    cd src-tauri && cargo clippy --all-targets -- -D warnings
+
+# The frontend's checks — each is `web/scripts/<name>-check.ts`, bundled with esbuild and run
+# under node. esbuild rather than a test runner: the frontend has no test framework, and one
+# bundle of one file is a smaller thing to keep working than a framework nothing else uses.
+# A rule that can be wrong invisibly gets one of these.
+#
+#   replay    Fold a synthetic timeline to the same commit two ways and compare the trees
+#             field by field — a backward seek returns exactly what playback returns.
+#             `replay` is a pure accelerator and checkpoints extend that promise to seeking,
+#             which is a claim about code no repo on this machine can prove: the timeline is
+#             generated, so the run is deterministic and needs nothing checked out. It also
+#             prints the seek against a fold from the opening state, and fails if the two are
+#             close — a seek that thawed nothing is correct and slow, which no equality check
+#             can see.
+#   rim       What a rim segment is allowed to claim. The two ways a distribution drawn as
+#             bands can lie are both invisible on screen: a band wider than the value it
+#             names, and a band naming something it is not. Both shipped.
+#   keys      Every shortcut, in every state. A keyboard map is a pile of early returns whose
+#             ORDER is the behaviour, and adding one key to it silently cost the lens digits.
+#   identity  A node is a new object exactly when it means something new. Every memo under
+#             the tree reads identity as "this moved", so a walk that clones what it did not
+#             change tells the window the whole repo moved and the window redraws. It comes
+#             out pixel for pixel identical, on a period, which is why it has shipped twice.
+#   map       What the map's picture is without a window. A report draws the map from its
+#             markup, rendered by `mapMarkup` with no page to measure against, so the markup
+#             has to stand on its own: a real viewBox, every tagged wedge's geometry beside
+#             it, names measured by the measurer it was handed.
+#   vector    What the vector PDF writer has to get right. Draws a page through every part of
+#             the surface and the SVG translator and asks poppler about the file: that it
+#             opens, that its fonts are embedded subsets, that its text can be found.
+#   group     How a report groups its findings by place.
+#
+# harfbuzzjs stays external and every bundle sits under `node_modules`, because its wasm is
+# found beside its own module rather than beside the bundle; checks that never import it are
+# unaffected by either.
+[group("test")]
+[doc("Frontend checks: replay rim keys identity map vector group — all, or the one named")]
+web-check name="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd web
+    all="replay rim keys identity map vector group"
+    names="{{name}}"
+    names="${names:-$all}"
+    mkdir -p node_modules/.cache
+    for n in $names; do
+        if [ ! -f "scripts/$n-check.ts" ]; then
+            echo "no check named '$n' — one of: $all" >&2
+            exit 1
+        fi
+        echo "==> $n"
+        out="node_modules/.cache/$n-check.mjs"
+        ./node_modules/.bin/esbuild "scripts/$n-check.ts" --bundle --format=esm \
+            --platform=node --external:harfbuzzjs --loader:.css=empty \
+            --outfile="$out" --log-level=warning
+        node "$out"
+    done
+
+# Takes an optional ref pair for auditing history — `just expiry 16b3bba~1 16b3bba` is the
+# change that made this necessary, and it fails there.
+[group("test")]
+[doc("Does this release expire committed readings? `just release` gates on it")]
+expiry *refs:
+    @python3 scripts/expiry-check.py {{refs}}
+
+# The app is the human's to open, so this is how a change to the commit walk gets checked: it
+# prints how many commits replayed, how many functions survive to HEAD, and the busiest frames.
+# A rename mishandled as an add shows up here as a function count that only ever climbs.
+[group("headless")]
+[doc("Replay a repo's git history without a window — `just history ../slooth`")]
+history path="." *flags="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{path}}" && pwd)"
+    cd src-tauri && cargo run --quiet --bin sanity-history -- "$target" {{flags}}
+
+# `just findings . --rule "func: loc >= 200 and callers >= 20"`.
+#
+# The bench the default catalog is tuned on. Read `docs/notes/findings.md` first: the two
+# numbers that matter are the calibrated threshold (a count, never a percentile) and the
+# marginal contribution (what this rule finds that no other rule already did).
+# `[positional-arguments]` so a rule keeps its spaces: `{{flags}}` is raw interpolation and
+# splits `--rule "func: loc >= 200"` into five words, which the binary then reads as five
+# paths. Every other recipe here takes flags that are single words and never noticed.
+[positional-arguments]
+[group("headless")]
+[doc("A repo's findings without a window — `just findings ../ceph [--rule \"…\"]`")]
+findings path="." *flags="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "$1" && pwd)"
+    shift
+    cd src-tauri && cargo run --quiet --bin sanity-findings -- "$target" "$@"
+
+# Exports the repo's data with the CLI, then draws the PDFs from it; see
+# `web/scripts/render.ts`. `--out <dir>` says where they go (default: the current directory).
+[group("headless")]
+[doc("Render a repo's report/brief/deck PDFs — `just render ../tally all [--out dir]`")]
+render repo *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{repo}}" && pwd)"
+    data="$(mktemp -d)/export.json"
+    cargo run --manifest-path src-tauri/Cargo.toml --quiet --bin sanity -- export-data "$target" --out "$data"
+    here="$(pwd)"
+    cd web
+    mkdir -p node_modules/.cache
+    ./node_modules/.bin/esbuild scripts/render.ts --bundle --format=esm --jsx=automatic \
+        --platform=node --external:harfbuzzjs --loader:.css=empty --loader:.wasm=empty \
+        --outfile=node_modules/.cache/render.mjs --log-level=warning
+    cd "$here"
+    SANITY_WEB="$here/web" node web/node_modules/.cache/render.mjs --data "$data" {{flags}}
+
+# The tool descriptions, the subagent prompt, and the task payload for a real repo. At one
+# function per reader the fixed prefix is paid once per FUNCTION, so a long `inputSchema`
+# description is a per-reading charge. Run it before and after shortening one; guessing is
+# how the descriptions got long in the first place.
+[group("headless")]
+[doc("What a reader pays in tokens — run before and after editing tool descriptions")]
+tokens path=".":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(cd "{{path}}" && pwd)"
+    cd src-tauri && cargo run --quiet --bin sanity-tokens -- "$target"
+
+[group("ship")]
+[doc("Full release bundle, locally (needs the icon set — `just icons` first)")]
 build:
     cd web && npm run build
     cd src-tauri && cargo tauri build
 
-# Generate the icon set from a source PNG.
+[group("ship")]
+[doc("Generate every platform's icon from one source PNG")]
 icons source="icons/source.png":
     cd src-tauri && cargo tauri icon {{source}}
     just icons-mac {{source}}
 
-# The macOS icon, on Apple's grid rather than full-bleed.
+# The macOS icon, on Apple's grid rather than full-bleed. Run by `icons`.
 #
 # **The Dock draws every icon the same size, so a margin is part of the artwork.** Apple's grid
 # puts the rounded square at 824 of 1024 with transparent space round it for the shadow, and
@@ -119,6 +271,7 @@ icons source="icons/source.png":
 # drew this app about a fifth larger than everything beside it in the Dock. The margin is added
 # here and only for `.icns`: the Windows and Linux icons stay full-bleed, because those
 # platforms do not use the grid and the margin would make them look small.
+[private]
 icons-mac source="icons/source.png":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -140,207 +293,9 @@ icons-mac source="icons/source.png":
     iconutil -c icns "$set" -o icons/icon.icns
     echo "icons/icon.icns written on the macOS grid"
 
-# Everything CI runs, in CI's order — passing ⟹ CI passes (.github/workflows/ci.yml).
-test:
-    # Frontend first: `npm run build` is `tsc -b && vite build`, so it doubles as the
-    # TypeScript type-check gate, and tauri-build reads web/dist while compiling src-tauri.
-    cd web && npm run build
-    just replay-check
-    just rim-check
-    just keys-check
-    just identity-check
-    just map-check
-    just vector-check
-    just group-check
-    cd src-tauri && cargo test
-    cd src-tauri && cargo clippy --all-targets -- -D warnings
-
-# Re-solve the sunburst's ramp hues. `verify` reproduces what ships (and fails if it cannot,
-# which is what makes the rest of it worth reading); `add N` asks whether the wheel has room
-# for N more lens ramps; `flat` picks a standalone accent for a lens that is not a ramp.
-#
-# index.css says "Re-solve, don't eyeball" over a search nobody could re-run. This is it.
-palette cmd="verify" *args:
-    @python3 scripts/palette-search.py {{cmd}} {{args}}
-
-# Does this release expire committed readings? Run it any time; `just release` gates on it.
-# Takes an optional ref pair for auditing history — `just expiry 16b3bba~1 16b3bba` is the
-# change that made this necessary, and it fails there.
-expiry *refs:
-    @python3 scripts/expiry-check.py {{refs}}
-
-# Replay a repo's history headlessly — `just history ../slooth`. The app is the human's
-# to open, so this is how a change to the commit walk gets checked: it prints how many
-# commits replayed, how many functions survive to HEAD, and the busiest frames. A rename
-# mishandled as an add shows up here as a function count that only ever climbs.
-history path="." *flags="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    target="$(cd "{{path}}" && pwd)"
-    cd src-tauri && cargo run --quiet --bin sanity-history -- "$target" {{flags}}
-
-# What is worth looking at, headless — `just findings ../ceph`,
-# `just findings . --rule "func: loc >= 200 and callers >= 20"`.
-#
-# The bench the default catalog is tuned on. Read `docs/notes/findings.md` first: the two
-# numbers that matter are the calibrated threshold (a count, never a percentile) and the
-# marginal contribution (what this rule finds that no other rule already did).
-# `[positional-arguments]` so a rule keeps its spaces: `{{flags}}` is raw interpolation and
-# splits `--rule "func: loc >= 200"` into five words, which the binary then reads as five
-# paths. Every other recipe here takes flags that are single words and never noticed.
-[positional-arguments]
-findings path="." *flags="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    target="$(cd "$1" && pwd)"
-    shift
-    cd src-tauri && cargo run --quiet --bin sanity-findings -- "$target" "$@"
-
-# Fold a synthetic timeline to the same commit two ways and compare the trees field by
-# field — the check that a backward seek returns exactly what playback returns.
-#
-# `replay` is a pure accelerator and checkpoints extend that promise to seeking, which is a
-# claim about code no repo on this machine can prove: the timeline is generated, so the run
-# is deterministic and needs nothing checked out. It also prints the seek against a fold
-# from the opening state, and fails if the two are close — a seek that thawed nothing is
-# correct and slow, which no equality check can see.
-#
-# esbuild rather than a test runner: the frontend has no test framework, and one bundle of
-# one file is a smaller thing to keep working than a framework nothing else uses.
-replay-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    out="$(mktemp -d)/replay-check.mjs"
-    ./node_modules/.bin/esbuild scripts/replay-check.ts --bundle --format=esm \
-        --platform=node --outfile="$out" --log-level=warning
-    node "$out"
-
-# What a rim segment is allowed to claim — see `web/scripts/rim-check.ts`.
-#
-# The two ways a distribution drawn as bands can lie are both invisible on screen: a band
-# wider than the value it names, and a band naming something it is not. Both shipped. Bundled
-# and run the way `replay-check` is, for the same reason — the frontend has no test framework
-# and one bundle of one file is a smaller thing to keep working than one nothing else uses.
-rim-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    out="$(mktemp -d)/rim-check.mjs"
-    ./node_modules/.bin/esbuild scripts/rim-check.ts --bundle --format=esm \
-        --platform=node --outfile="$out" --log-level=warning
-    node "$out"
-
-# A node is a new object exactly when it means something new — see
-# `web/scripts/identity-check.ts`.
-#
-# Every memo under the tree reads identity as "this moved", so a walk that clones what it did
-# not change tells the window the whole repo moved and the window redraws. It comes out pixel
-# for pixel identical, on a period, which is why it has shipped twice. Bundled and run like
-# the other checks.
-identity-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    out="$(mktemp -d)/identity-check.mjs"
-    ./node_modules/.bin/esbuild scripts/identity-check.ts --bundle --format=esm \
-        --platform=node --outfile="$out" --log-level=warning
-    node "$out"
-
-# What the map's picture is without a window — see `web/scripts/map-check.ts`.
-#
-# A report draws the map from its markup, rendered by `mapMarkup` with no page to measure against,
-# so the markup has to stand on its own: a real viewBox, every tagged wedge's geometry beside it,
-# names measured by the measurer it was handed. Bundled and run like the other checks.
-map-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    out="$(mktemp -d)/map-check.mjs"
-    ./node_modules/.bin/esbuild scripts/map-check.ts --bundle --format=esm \
-        --platform=node --outfile="$out" --log-level=warning
-    node "$out"
-
-# What the vector PDF writer has to get right — see `web/scripts/vector-check.ts`.
-#
-# Draws a page through every part of the surface and the SVG translator and asks poppler about the
-# file: that it opens, that its fonts are embedded subsets, that its text can be found. harfbuzzjs
-# stays external and the bundle sits under `node_modules`, because its wasm is found beside its own
-# module rather than beside the bundle.
-vector-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    mkdir -p node_modules/.cache
-    ./node_modules/.bin/esbuild scripts/vector-check.ts --bundle --format=esm \
-        --platform=node --external:harfbuzzjs --loader:.css=empty \
-        --outfile=node_modules/.cache/vector-check.mjs --log-level=warning
-    node node_modules/.cache/vector-check.mjs
-
-# A repository's report, brief or deck without a window — `just render ../tally all`. Exports the
-# repo's data with the CLI, then draws the PDFs from it; see `web/scripts/render.ts`. `--out <dir>`
-# says where they go (default: the current directory).
-render repo *flags:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    target="$(cd "{{repo}}" && pwd)"
-    data="$(mktemp -d)/export.json"
-    cargo run --manifest-path src-tauri/Cargo.toml --quiet --bin sanity -- export-data "$target" --out "$data"
-    here="$(pwd)"
-    cd web
-    mkdir -p node_modules/.cache
-    ./node_modules/.bin/esbuild scripts/render.ts --bundle --format=esm --jsx=automatic \
-        --platform=node --external:harfbuzzjs --loader:.css=empty --loader:.wasm=empty \
-        --outfile=node_modules/.cache/render.mjs --log-level=warning
-    cd "$here"
-    SANITY_WEB="$here/web" node web/node_modules/.cache/render.mjs --data "$data" {{flags}}
-
-# How a report groups its findings by place — see `web/scripts/group-check.ts`.
-group-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    out="$(mktemp -d)/group-check.mjs"
-    ./node_modules/.bin/esbuild scripts/group-check.ts --bundle --format=esm \
-        --platform=node --outfile="$out" --log-level=warning
-    node "$out"
-
-# Every shortcut, in every state — see `web/scripts/keys-check.ts`.
-#
-# A keyboard map is a pile of early returns whose ORDER is the behaviour, and adding one key
-# to it silently cost the lens digits. Bundled and run like the other two checks.
-keys-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd web
-    out="$(mktemp -d)/keys-check.mjs"
-    ./node_modules/.bin/esbuild scripts/keys-check.ts --bundle --format=esm \
-        --platform=node --outfile="$out" --log-level=warning
-    node "$out"
-
-# Weigh what a reader pays for the context we write it — the tool descriptions, the
-# subagent prompt, and the task payload for a real repo. At one function per reader the
-# fixed prefix is paid once per FUNCTION, so a long `inputSchema` description is a
-# per-reading charge. Run it before and after shortening one; guessing is how the
-# descriptions got long in the first place.
-tokens path=".":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    target="$(cd "{{path}}" && pwd)"
-    cd src-tauri && cargo run --quiet --bin sanity-tokens -- "$target"
-
-# Cut N functions out of a repo as prediction exercises — `just sample ../ComfyUI /tmp/x 10`.
-# Writes NN_head.md (what a reader is handed) and NN_body.txt (what it must predict), so the
-# same function can go to several readers and their grades compared. Nothing touches
-# `.sanity/`: measuring the reader is not assessing the repo.
-sample path out n="10":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    target="$(cd "{{path}}" && pwd)"
-    out="$(mkdir -p "{{out}}" && cd "{{out}}" && pwd)"
-    cd src-tauri && cargo run --quiet --bin sanity-sample -- "$target" "$out" {{n}}
-
-# Tag + push a release, e.g. `just release 0.1.0` (-suffix = prerelease).
+# Validates, tags, pushes; CI builds, signs and attaches the bundles. -suffix = prerelease.
+[group("ship")]
+[doc("Tag and push a release — `just release 0.1.0`; CI builds it")]
 release version:
     #!/usr/bin/env bash
     # Validates, tags v<version> with a changelog body, and pushes the tag → CI
@@ -456,7 +411,9 @@ release version:
     echo "==> pushed. CI: https://github.com/{{repo}}/actions/workflows/release.yml"
     echo "    when it goes green:  just publish {{version}}"
 
-# Distribute a released version to dl.dept.monster + the website (from a workstation).
+# From a workstation: it needs SSH to the servers, which CI never has.
+[group("ship")]
+[doc("Ship a released version to dl.dept.monster, the tap and the website")]
 publish version:
     #!/usr/bin/env bash
     # Pulls the signed bundles CI attached to the GitHub release, verifies the
@@ -659,13 +616,11 @@ _publish-site version:
     rsync -az --delete "$work/" "{{site_host}}:{{site_path}}/"
     echo "    {{site_url}}"
 
-# Vite dev server in a plain browser (no Tauri backend — UI-only iteration).
-web-dev:
-    cd web && npm run dev
-
 # Serve website/ locally and open it. The habitat sheet is plain static files, but it
 # must be served rather than opened as file:// — its fonts are fetched with CORS, and a
 # font fetched from file:// is blocked. Ctrl-C stops the server.
+[group("ship")]
+[doc("Preview website/ locally in a browser — `just website [port]`")]
 website port="8014":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -680,6 +635,8 @@ website port="8014":
 # Drop the release half of target/. Releases are built in CI, so a local one is a copy of
 # something a tag already made; debug is left alone because `just dev` is the loop that
 # would have to pay for it. `cargo clean` if you want the other 25G too.
+[group("ship")]
+[doc("Delete the local release build; debug builds stay")]
 clean:
     rm -rf src-tauri/target/release
     du -sh src-tauri/target

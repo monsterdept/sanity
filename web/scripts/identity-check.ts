@@ -16,7 +16,7 @@
  *
  * So the rules are pinned here instead. No repo, no window, no framework: one bundle of one
  * file, the same shape `rim-check` and `replay-check` take, and for the same reason. Run it
- * with `just identity-check`.
+ * with `just web-check identity`.
  */
 import {
   NO_READINGS,

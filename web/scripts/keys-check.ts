@@ -5,7 +5,7 @@
  * the handler did not say why — a keyboard map is a pile of early returns whose ORDER is the
  * behaviour. So the decision moved to `lib/keys.ts` and this presses it.
  *
- * Run it with `just keys-check`.
+ * Run it with `just web-check keys`.
  */
 import { actOf, LENS_KEYS, type Act, type Where } from '../src/lib/keys'
 import { FAMILIES, MODE_LABEL, type ColorMode } from '../src/lib/colorMode'

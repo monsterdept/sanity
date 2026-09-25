@@ -104,7 +104,7 @@ the map went on looking like a map.
   on the ground that the strip refused it too; the strip had since been made click-through and
   said so in its own comment, so ⌘1 was dead on a repo where clicking Surprise worked. The
   guards are `lib/keys.ts` now, a pure function, because a keyboard map is a pile of early
-  returns whose ORDER is the behaviour: `just keys-check` presses every key in every state.
+  returns whose ORDER is the behaviour: `just web-check keys` presses every key in every state.
 - **The end of a replay is the live map.** One ranking and one spelling per lens, in both
   modes: blame ranks over `stats.authors` everywhere, and a language is named by `Lang::label`
   on both sides of the wire. Two of each is a split brain that recolours the whole map the
@@ -132,7 +132,7 @@ the map went on looking like a map.
   comes out is pixel for pixel what went in, arriving on a period: the map and the panel
   redrawing every two seconds through a reading pass, which is the poll's signature and not
   the renderer's. `pruneExcluded` cloning every node it walked and the readings poll folding
-  all 16,925 readings back in on a timer both shipped. `just identity-check` pins it.
+  all 16,925 readings back in on a timer both shipped. `just web-check identity` pins it.
 - **How many colors a lens spends is the reader's choice, not a constant.** The palette went
   4 → 8 → 16 → 64 chasing two incompatible readings; `CAPS` lets the reader pick. Apply a cap
   to the RANKS and nowhere else — every surface already treats an unranked category as
@@ -164,8 +164,8 @@ These are the ones with a body count. Each is written up in its note.
 - `just check` (Rust + TS type-check), `just test` (full CI-equivalent; passing ⟹ CI passes),
   `just cli <verb> <path>`, `just tokens` (before and after touching tool descriptions),
   `just expiry` (does this release expire readings), `just history <repo>`,
-  `just rim-check` (what a rim segment may claim), `just keys-check` (every shortcut, in
-  every state) and `just identity-check` (what a walk over the tree is allowed to reallocate)
+  `just web-check rim` (what a rim segment may claim), `just web-check keys` (every shortcut, in
+  every state) and `just web-check identity` (what a walk over the tree is allowed to reallocate)
   — the frontend has no test framework, so a rule that can be wrong invisibly gets a bundled
   script.
 - **Never launch the app yourself** — `just dev` opens a window; that is the human's to run.

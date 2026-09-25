@@ -92,7 +92,7 @@ jobs:
 
       # The frontend's one test: a synthetic timeline folded to the same commit two ways,
       # comparing a backward seek against a fold from the opening state. Deterministic and
-      # needs no repo checked out. See `just replay-check`.
+      # needs no repo checked out. See `just web-check replay`.
       - name: Replay equality check
         shell: bash
         working-directory: web

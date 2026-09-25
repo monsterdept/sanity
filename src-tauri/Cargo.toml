@@ -134,12 +134,6 @@ path = "src/main.rs"
 name = "sanity-tokens"
 path = "src/bin/tokens.rs"
 
-# Cut functions out of a repo as prediction exercises, for measuring whether two readers
-# agree. Deliberately outside `.sanity/` — a validation run is not an assessment.
-[[bin]]
-name = "sanity-sample"
-path = "src/bin/sample.rs"
-
 # Replay a repo's history without opening a window. The app is the human's to launch, so
 # this is the only way a change to the commit walk gets checked.
 [[bin]]

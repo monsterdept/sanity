@@ -7,7 +7,7 @@ import type { Face } from './fonts'
  * content streams of paths, fills, strokes, clips and text; a font is a TrueType subset with the
  * two tables that let a reader search and copy it (`/W` widths and a `ToUnicode` map); images are
  * the one raster a page may still carry. Offsets are counted as the bytes are written, so the
- * cross-reference table is right by construction — `just vector-check` follows it the way a reader
+ * cross-reference table is right by construction — `just web-check vector` follows it the way a reader
  * does.
  *
  * **Text is glyph ids, not characters.** A run is shaped once by `Face` and written as the ids it

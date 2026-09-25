@@ -109,7 +109,7 @@ Three things came out of it and are on main:
   `other` and `other` is what this app calls it everywhere else. A ramped merge still keeps
   the largest member's color — there the neighbours really are adjacent on one scale, and the
   color between them is on it — and still says how many bands it stands for. The sizing rule
-  moved to `lib/rim.ts` so `just rim-check` can reach it: the failure mode is arithmetic that
+  moved to `lib/rim.ts` so `just web-check rim` can reach it: the failure mode is arithmetic that
   looks fine, so a harness that knows the numbers behind the picture is the only thing that
   can see it.
   **The number of colors is a control, which is what finally settled the palette argument.**

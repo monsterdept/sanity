@@ -16,7 +16,7 @@
  *   seen, so every memo, checkpoint and intern table in it misses and the fold starts from
  *   the opening state.
  *
- * Run it with `just replay-check`. It prints the seek time it measured, which is the number
+ * Run it with `just web-check replay`. It prints the seek time it measured, which is the number
  * the whole thing is for.
  */
 import { cost, frameTree } from '../src/lib/history'

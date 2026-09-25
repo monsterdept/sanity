@@ -6,7 +6,7 @@
  * over the cap is the crowded map grouping exists to prevent, and a root one level too high is
  * a map zoomed out for no reason. None of those look broken on a page.
  *
- * Run it with `just group-check`. Bundled and run like the other checks.
+ * Run it with `just web-check group`. Bundled and run like the other checks.
  */
 import { groupFindings, type Placed } from '../src/lib/findings'
 

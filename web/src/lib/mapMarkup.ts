@@ -32,7 +32,7 @@ export interface MapMarkup {
    *
    * **Worked out from the layout, not parsed back out of the markup** — by `spotsOf`, which
    * walks what `MapSvg` walks. Computed whether or not `tagNodes` is set; with it set, these are
-   * exactly the ids in the markup, which `just map-check` pins.
+   * exactly the ids in the markup, which `just web-check map` pins.
    */
   spots: Map<string, Spot>
 }

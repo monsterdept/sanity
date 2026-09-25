@@ -16,7 +16,7 @@
  * from a per-function null — and on ceph, 123,000 commits with the log open beside it, that
  * drew as a repo with no git in it.
  *
- * Run it with `just rim-check`. No repo, no window, no framework: one bundle of one file, the
+ * Run it with `just web-check rim`. No repo, no window, no framework: one bundle of one file, the
  * same shape `replay-check` takes and for the same reason.
  */
 import { rimRuns } from '../src/lib/rim'
