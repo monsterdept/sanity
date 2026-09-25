@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-1128 of 1128 read · 260 unpredicted
+1127 of 1127 read · 260 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1146,19 +1146,19 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `FindingBadge` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `dd66690f68b9` · commit `8e13753` · read by claude-sonnet-5 · via claude · when 2026-09-17T20:18:20Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Renders a dial-shaped SVG split into two semicircular halves — top showing `count` (findings) and bottom showing `rules` — using the `sectorPath` helper to draw each half's arc scaled to `box`. Sets pointer-events: none on itself per the docs (click handled one level up), with `layer` affecting radius/offset for stacking multiple rings, and onFound/onRules likely wired to the halves anyway despite the pointer-events note, or exposed for a parent to use.
-- found: Renders an SVG dial with two filled arc "bars" (top = findings count, bottom = rules count), each with a label ("found"/"rules") set along a textPath arc. Extensive precise geometry computes font sizes, radii, baselines, and angular offsets so bar widths match text width, words are positioned outside their bars, and everything scales with `box`. The findings bar is lit red only when count>0 (a true "nothing found" is shown in neutral plate color, not zero-as-alarm); separate invisible hit-target paths layered on top capture clicks/dblclicks for onFound/onRules while the whole SVG itself is pointer-events:none.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- spec 3 · read at `26b111ecffa3` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: React component rendering an SVG watch dial sized by box: a circle with count at twelve o'clock and rules at six, ticks maybe. Upper half clickable calls onFound, lower half calls onRules; pointer-events none on the container otherwise. Uses sectorPath for the half-disc hit areas, scales font by box.
+- found: Renders an SVG dial: filled sector bars at twelve (findings count, red when >0) and six (rules count), digits and small-cap words "found"/"rules" set along arcs via textPath, with widths measured by widthPerPx and angles computed per radius. Transparent sector hit areas open the findings/rules tabs and stop click/double-click propagation.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ## web/src/components/Findings.tsx
 
 ### the file itself
-- spec 3 · served in 3 parts · read at `180b294effc8` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:28Z · by ross@rossturk.com · warm reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A React component file implementing the app's "Findings" panel — a UI for viewing and managing code-quality findings/rules ("lenses") derived from the scan. Likely includes a `RuleForm` for authoring/editing rules (with draft state, field pickers, color coding) and the top-level `Findings` component that groups findings into sections, with helper functions for deriving file/dir names from paths and colors for fields/lenses.
-- found: A large React component file for the app's "Findings" modal panel: three sub-views (findings list, ignored/archive drawer, rules catalog) switched by tabs, plus a `RuleForm` for creating/editing rules with dynamic clause builders driven by a `Grammar` schema, live distribution hints (median/p95/max), and a `Findings` component managing per-tile verdict actions (flag/fine-for-now/fine-always/false-positive) with inline reason capture. Extensive design-rationale comments explain UI decisions (truncation direction, tile merging by subject, why colors map 1:1 to lens tokens) but the form intentionally does no validation itself, deferring rule-legality checks to the backend.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: The file is almost entirely comment-driven design rationale for UI/UX decisions rather than describing data flow, so predicting exact behavior from name/peers alone undersells how much of the file is presentation logic (address truncation, color/lens mapping, tabs) versus data logic.
+- spec 3 · served in 3 parts · read at `b19bf972bd4e` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:14Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A React panel listing the project's findings (rule hits) grouped by rule/lens, with a RuleForm for editing/creating rules (draft, fields, sections, spread histograms), helpers for addressing functions/files/dirs and colors. Findings is the main component fetching the project report via invoke, with pin/decide actions.
+- found: Findings panel with three views (findings tiles, ignored drawer, rules catalog) plus RuleForm draft editor; helpers for path display, middle-truncation, lens colours, share formatting. Includes verdict/flag actions, rule save/delete/reset, balance sheet.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: No file header, but the Findings component has a rich doc; the file also has orphaned doc comments (lensColor/lens-swatch and ADDRESS_PX docs detached from their functions).
 
 ### `trim`
 - spec 3 · read at `4921dbf891a5` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:41:34Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2245,11 +2245,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## web/src/components/Sunburst.tsx
 
-### the file itself — PREDICTED SOME
-- spec 3 · read at `0014f27b3699` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:06Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A React component rendering a radial "sunburst" chart of the repo's file/directory tree as nested rings, colored by some per-file metric, with a useWantRings hook controlling ring/level display and a SunburstView component doing the layout and rendering, likely with interactivity for drilling into folders.
-- found: Not the drawing itself (that's MapSvg in MapArt.tsx) but the interactive "window" around it: pane sizing, level-change motion/chase, hover/pointer tracking and tooltip, directory fold/collapse state, the findings badge over the hub, and wiring together many extracted hooks (useMapModel, useLevelMotion, useMapView, useMapCaveat, useWantRings, gazeTargets, rimHit). Exports a memoized Sunburst component to avoid re-rendering thousands of arcs on unrelated state changes.
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
+### the file itself — LEGIBLE SOME
+- spec 3 · read at `1b510ead1bdf` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:23Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: React component file rendering the sunburst SVG: SunburstView takes the tree and view state, builds the map model, draws ring wedges, hub and labels, and wires pointer/click handlers for select, drill and hover. useWantRings is a hook that decides how many rings to request from the pane size or settings. No header doc.
+- found: The window-side sunburst: SunburstView owns hover, pointer, fold state and pane box, composes the map model, level motion, view fitting, caveat chip, hub findings badge and tooltip around MapSvg; useWantRings reports which file wedges can hold a function tiling. Exported memoised as Sunburst.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: There is a header-style comment after the imports explaining the split from MapArt, but no doc on the file itself; it is not derivable from code.
 
 ### `useWantRings`
 - spec 3 · read at `bd32ae4abb17` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:51Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -2258,11 +2259,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `SunburstView` — PREDICTED SOME
-- spec 3 · read at `b5279e085898` · commit `8e13753` · read by claude-sonnet-5 · via claude · when 2026-09-17T20:18:30Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: The main React component rendering the sunburst radial visualization: computes wedge/arc geometry per node from `root` across rings/depth, renders SVG paths with click handlers for select/drill/clear/up, colors wedges by `mode`, draws directory rim distribution bars and trap/clone marker dots, shows a central hub with repo stats/creature/findings badge, and animates between tree shapes via `morph` easing. Heavy use of memoization for layout and interaction state.
-- found: It's a thin orchestrator, not a monolithic renderer: it holds hover/pointer/collapsed-folder state, delegates layout entirely to useMapModel, animation/motion to useLevelMotion, viewbox fitting to useMapView, and actual SVG drawing to the MapSvg component. It composes these plus a findings badge overlay, a tooltip (WedgeTip), and a caveat/hidden-nodes notice (MapCaveat), and wires up click-to-clear, mousemove tracking, and fold/unfold handlers.
+- spec 3 · read at `681974ed0cfb` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:10Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: React component rendering a sunburst SVG of the tree: lays out wedges from root with rings/spacing, colours by mode, draws arcs, labels, rims, hub badge with eye, handles hover/click/drill via pointer events, tooltip, morph animation via refs, and reports wanted file rings via onWantRings. Big, with many hooks and memoized geometry.
+- found: Thin orchestrator: composes hooks (useMapModel, useLevelMotion, useMapView, etc.), owns hover/collapsed state, and renders the pane div with MapSvg, findings badge layer, tooltip and caveat; layout/drawing lives elsewhere.
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: The extensive prop-doc comments explain rationale/history well but say little about the body's own hook-composition architecture (useMapModel/useLevelMotion/useMapView/MapSvg split), which a reader has to infer from the return statement.
+- note: Most of the geometry work I predicted lives in extracted hooks and MapSvg, so the body is composition rather than drawing.
 
 ## web/src/components/Tabs.tsx
 
@@ -2353,19 +2354,19 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: none · documented: none · derivable: no · legible: full · trap: yes
 - note: The name strongly implies caching-until-invalidated semantics, but this implementation recomputes every call — anyone swapping it in expecting referential stability or skipped recomputation across calls will be surprised; worth checking mapModel.ts for a sibling real-caching implementation of `Memo` to confirm this is a deliberate toggle rather than a stub left behind.
 
-### `scaleOf` — LEGIBLE SOME — TRAP
-- spec 3 · read at `a2ec38ac1fe6` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:27Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Computes where the concentric rings begin (a base radius/scale) and converts every pixel-based threshold in spacing/config into the ring's own coordinate units via unitsPerPx, memoizing the result in memo for reuse.
-- found: Computes rIn (inner radius shrunk from R_OUTER by spacing.width) and hubK (scale factor for hub-sized content), then returns memoized per-ring-depth functions: radiusAt (mid-radius of a ring band), minAngleAt and handleAngleAt (pixel thresholds converted to angle at each ring's actual radius, not a single global angle), and minPatchArea (pixel area threshold squared-converted to user units).
-- predicted: most · documented: full · derivable: no · legible: some · trap: yes
-- note: The comments explicitly warn this is a longstanding bug source (MIN_SLICE previously not squared, and a global angle threshold that broke at inner rings) — worth flagging as a trap since getting units/exponents wrong here is invisible until tested at other window sizes or ring counts.
+### `scaleOf` — PREDICTED SOME
+- spec 3 · read at `cd61d7e3d039` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:15Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Memoised on its inputs; computes the inner radius of the rings from spacing and unitsPerPx, and returns an object of pixel thresholds (min arc, label size, etc.) multiplied by unitsPerPx, plus the ring geometry.
+- found: Computes inner radius from spacing width, hub scale factor, and memoised per-ring functions converting pixel thresholds (min arc angle, fold handle angle) to angles via nominal ring radius, plus min patch area (px squared); returns undefined thresholds when unitsPerPx is null.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
+- note: Function doc says little; the inline comments carry the reasoning.
 
 ### `treeOf` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `b5c23ad01cbb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:18Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the tree from root, ordering children by sortBy, respecting collapsed and selected state, and computes each node's wedge geometry (start/end angle, inner/outer radius) using the Scale functions rIn/minAngleAt/handleAngleAt at the given rings/spacing; returns the full layout (list of wedges) plus derived sets/geometry read straight off it (e.g. file wedges), using memo to cache repeated subtree computations.
-- found: Computes the layout (wedges/hidden) via layout(), then a battery of memoized derived values: selTrail (ancestor ids of the selected node, excluding itself), pulsing (narrowest drawn wedge per reading-lit path, filtering out ancestors whose descendant already lights up), fileWedges, structural depth (excluding func nodes) to size band thickness, drawnDirs (dir ids actually on screen), ringGap, target geometry (geoOf), and fileIds — returned as one bundled object.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: Nearly every derived value here encodes a specific historical bug fix (documented inline) — e.g. why pulsing lights the narrowest wedge, why structDepth excludes funcs — none of which is inferable from the signature or peers.
+- spec 3 · read at `f172623d1fd3` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:10Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Computes the sunburst layout from root using rings, spacing, sortBy, collapsed and min-angle thresholds from scale, memoized in memo. Returns an object with wedges, plus derived sets (e.g. selected path, reading ids) and geometry such as ring radii and handle positions.
+- found: Memoized derivations from the layout: the selection's ancestor trail, wedges and hidden from layout, the pulsing set (deepest drawn reading wedges only), file wedges, structural depth and band thickness, drawn dir ids, ring gap, target geometry, and file ids.
+- predicted: some · documented: none · derivable: no · legible: some · trap: no
+- note: The one-line doc says nothing about pulsing, the selection trail or the depth rules, which live only in inline comments; there is also a stale duplicate doc comment above fileWedges.
 
 ### `paintOf` — LEGIBLE SOME
 - spec 3 · read at `096dfb969314` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:47:20Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -2407,10 +2408,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: Didn't know the `once` helper passed as the memoizer argument, but the shape (thin buildModel wrapper) matched.
 
 ### `viewOf` — PREDICTED SOME
-- spec 3 · read at `11e30c494731` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:18Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: viewOf computes the destination viewBox for the current target layout — finding the bounding box of the geometry (likely the root's disc, expanded for file zoom via fileFrom), then fits/pads it to match paneAspect, adjusting for whether the target is a file (via fileIds) or a directory, and using rIn/morph to decide how tightly to frame it.
-- found: Computes the viewBox: if opening a file, fits to the fan it opens into; if morphing (replay) and not a file, pins to a fixed nominal-circle extent so the camera doesn't pump in/out as history plays; otherwise fits to the actual target geometry, growing file wedges that can hold a rim label by the label band so names aren't clipped.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- spec 3 · read at `9031c8f3d4ad` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:41:57Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes the View (bounding box/viewBox) for the map: if a file is open, fits the box to the wedge it grew from (fileFrom) adjusted by paneAspect; otherwise computes the extent of the target geometries (excluding fileIds) and pads it, maybe using rIn as inner radius and morph to choose between the rest box and a transition box. Returns {x,y,w,h}-like view.
+- found: Three cases: open file fits to a fan from fileFrom; morph (replay) without fan pins to a fixed nominal circle plus label band; otherwise grows file wedges wide enough for a rim name by the label ring and fits to their extent.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
 
 ### `restFrame`
 - spec 3 · read at `750237e52377` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:07Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -2513,18 +2514,17 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/useHubGaze.ts
 
 ### the file itself
-- spec 3 · read at `a501500de332` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:21:45Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: The React hook that wraps the eyeGaze.ts engine (startGaze/stepGaze) into component state: it runs a requestAnimationFrame loop advancing GazeState each frame based on inputs like flashing wedges, a clicked wedge, and pointer position, and returns the current look offset (x, y, maybe blink state) for consumers such as the eye SVG and HubCircles' inner disc to render.
-- found: Confirmed the core: a RAF loop wrapping startGaze/stepGaze, driven by pointer position, a selected wedge, and flashing-wedge targets, calling a `draw` callback each frame. Missed specifics: props are stashed in refs so the effect never restarts on prop changes (only `target` does), pointer direction is 'softened' near the picture using a depth term equal to the box width, bounding-rect measurement is throttled to every 500ms rather than every frame, and prefers-reduced-motion is detected and passed through as `still`.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
-- note: No module-level header exists, but the exported function itself carries a solid docblock explaining the shared-engine rationale — a file header could be assembled from that plus the inline comments.
+- spec 3 · read at `85b4595bdc37` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:22Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A small file exporting the useHubGaze React hook, plus imports of the gaze engine and types. Its purpose is to wire the pure gaze engine to the pointer and a rAF loop. (I already read the hook body earlier in this run.)
+- found: The file holds one hook, useHubGaze, which wires the pure gaze engine to the pointer and a rAF loop, plus a MEASURE_MS throttle constant. It has no header of its own, but the hook's doc covers it.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: Warm reading: I had already read this hook's body as task 2, so the prediction is not independent.
 
-### `useHubGaze` — LEGIBLE SOME
-- spec 3 · read at `62a35a063d15` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:44:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a requestAnimationFrame loop ticking the eyeGaze engine each frame, combining mouse-pointer tracking (relative to target, when followMouse is true), idle autonomous motion, and a selected wedge override, calling draw(g) each frame with the resulting gaze. Stores draw in a ref so changing it doesn't restart the gaze engine; attaches/cleans up pointer-move listeners and cancels the rAF loop on unmount.
-- found: Keeps all inputs (gaze/draw/followMouse/idle/selected) in refs so a single mount-time effect can run an uninterrupted rAF loop: tracks mousemove, periodically re-measures target's bounding rect, computes a depth-softened pointer direction, feeds it plus focus/selected/idle/reduced-motion flags into a stepGaze state machine (state persists across frames via `s`), and calls the current draw ref each frame; cleans up rAF and the listener on unmount (only re-running if `target` changes).
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-- note: The y-axis flip (screen y-down to gaze y-up) happens on every ref sync, and the pointer direction softening uses the target's own width as a pseudo-depth — neither is guessable from the signature.
+### `useHubGaze`
+- spec 3 · read at `8487d20b7091` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:03Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A React hook: in a useEffect it creates a gaze engine, tracks pointermove on window (converting pointer to bearing relative to target's bounding rect, if followMouse), and runs a requestAnimationFrame loop that steps the engine with pointer, gaze targets (flipping y to screen), selected and idle, then calls draw(g). Refs hold latest draw/gaze; cleanup cancels the frame and removes listeners.
+- found: Mirrors props into refs (flipping y to screen), then one effect runs a rAF loop with a document mousemove listener. Each frame it measures the target rect on a throttle and turns the pointer into a softened direction. It steps the gaze engine with focus, selected, mouse, age and reduced-motion, then calls draw. Cleanup cancels the frame and removes the listener.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ## web/src/components/useLevelMotion.ts
 
@@ -2550,10 +2550,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `usePaneBox`
-- spec 3 · read at `f0ad6014dae7` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:42:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A hook that keeps a Box state in sync with the pane element's actual measured size using a ResizeObserver, so layout decisions (unlike tooltip placement) aren't based on stale {0,0} defaults. It sets up the observer in a useEffect on the pane ref, updates state whenever the element resizes, cleans up the observer on unmount, and returns [box, setBox] so callers can both read and adjust it.
-- found: Uses a ResizeObserver in a useLayoutEffect (mount-only) on the pane element; on each resize it immediately calls place.current(width, height) to move the hub in the same frame as the resize, then updates the box state only if the dimensions actually changed. Cleans up by disconnecting the observer; returns [box, setBox].
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `973adc3e1a45` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:41:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Holds a Box state initialised to {0,0}; in a layout effect creates a ResizeObserver on the pane, measures its clientWidth/Height, sets the box state, and probably also pokes place.current (e.g. re-applies the view to the SVG) on resize. Returns [box, setBox], disconnecting the observer on cleanup.
+- found: Observes pane size with a ResizeObserver, calls place.current(w,h) immediately, and sets box state only if changed.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
 
 ### `PLACE_NOWHERE` — PREDICTED SOME
 - spec 3 · read at `f5b7bb5121bf` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:47Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -2562,11 +2562,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `useMapView`
-- spec 3 · read at `b71b2e733e03` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A React hook that computes and imperatively writes the SVG viewBox (and hub badge position) on every frame using getBBox() post-render, fitting a square box centered on the actual rendered content (not the origin) to avoid oval distortion. It tracks level-change transitions via run/moving/e for interpolation between old and new bounding boxes, writes directly to the DOM via refs (svg, hubBadge) rather than through state, and returns a viewBox string plus a ref to the current view for other imperative consumers.
-- found: Computes a target view (viewOf) from geometry data, interpolates from the previous view to the new one via lerpView while a level-change is 'moving', and writes the resulting viewBox string directly onto the SVG DOM element (bypassing React state, for per-frame performance) rather than via getBBox measurement. It also imperatively positions the hub badge overlay via a ref-held function so a ResizeObserver can call it pre-paint, and re-bases the interpolation start once per level change via a run counter.
+- spec 3 · read at `89ada74815f3` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:11Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A hook that computes the target view via viewOf, keeps a ref of the current View, and on each layout/frame interpolates from the previous box to the target by easing e while moving, re-basing once per run. It writes the viewBox attribute directly to the svg and positions/sizes the hubBadge div via place, without React state. Returns the initial viewBox string and the viewNow ref.
+- found: Memoizes viewOf as viewTo, re-bases viewFrom once per run during render, then in a layout effect lerps (when moving) and writes viewBox directly to the svg and positions/scales the hub badge via place.current (also usable by resize observer). Docs on the function describe a different fit function (getBBox), so they don't match this body.
 - predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: The docs on this handout (about getBBox/measuring content extent) describe a different function's approach than what this body actually does — this body computes the view from geometry (viewOf/lerpView) rather than measuring via getBBox, so the docs likely belong to a sibling like usePaneBox or an internal fit effect.
+- note: The doc comment given (getBBox fit, centred on content) describes a different function than this hook; the hook has no getBBox.
 
 ## web/src/hooks/useAddProject.ts
 
@@ -2903,11 +2903,11 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/api.ts
 
 ### the file itself
-- spec 3 · served in 5 parts · read at `3c62d52c7f4a` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This is the frontend's single API/IPC layer: thin wrapper functions around Tauri `invoke` calls (listProjects, projectReport, saveRule, scanRepo, stopScan, readSource, etc.) plus `listen`-based event subscriptions (onScanProgress, onSetTheme, onOpenProject). It also seems to have accumulated a grab-bag of pure domain/presentation helpers unrelated to IPC itself — color/heat-ramp math (heatColor, wedgeHeat, rampAt), report-grading helpers (isReportStale, legibleOf, trapOf, reportGrades), and tree/locality utilities (localityOf, toNode, pruneExcluded) — with no file header explaining why these live alongside the IPC wrappers rather than in their own modules.
-- found: It is the single frontend model + IPC layer: every type mirroring a Rust struct (Node, Score, ProjectSummary, FindingGroup, AgentReport, etc.), the wire-format conversion functions (toNode, toScan) that translate snake_case Rust JSON into the app's camelCase shapes with careful null-vs-zero-vs-undefined semantics, thin invoke() wrappers for every Tauri command, event listeners (onScanProgress, onSetTheme...), plus a cluster of pure aggregation/coloring helpers (reaggregate, summarize, countPending, heatColor/rampAt/shareRamp, readInto/holdReadings for identity-preserving polling merges). It has no file header doc at all, which the docs field's emptiness itself signals — odd for a file this central and this heavily commented at the declaration level.
-- predicted: most · documented: none · derivable: no · legible: not judged · trap: no
-- note: I called it a loose 'grab-bag' of unrelated helpers, but on reading it's actually a tightly-scoped single model/IPC layer — the aggregation and color helpers exist here specifically so the wedge, panel, and legend can't disagree, which is a real architectural reason rather than accretion.
+- spec 3 · served in 5 parts · read at `6a6a2d77e278` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Frontend API layer for a desktop (Tauri/Electron) app: typed wrappers around backend IPC calls (projects, scans, rules, findings, traces, source reading, CLI install), event subscriptions for menu/scan progress, plus client-side helpers for aggregating agent reports/grades and heat-map color ramps for visualization.
+- found: Tauri frontend bridge: wire/domain types (Node, Score, Scan, findings, rules, history), invoke wrappers, snake_case-to-camelCase decoding (toNode/toScan), event listeners, plus client-side folding of agent reports into the tree with identity preservation (readInto, holdReadings, reaggregate, summarize), grade mappings, and heat ramp helpers. It also has a large amount of type and interface content I did not predict.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- note: The file has no header; add one saying it is the Tauri IPC boundary and also holds the tree-folding, grade and heat-ramp logic that must mirror Rust (aggregate, HOT, CHURN_SATURATION, READ_CEILING).
 
 ### `languages`
 - spec 3 · read at `8b90410603f0` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:54:20Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2953,13 +2953,6 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Converts a raw WireNode (as it arrives over JSON from the backend) into the app's internal Node type — likely renaming/defaulting fields, parsing any string-encoded values, and recursively converting nested children — shared with the headless renderer since both consume the same wire format.
 - found: Converts snake_case WireNode fields into the camelCase Node shape, recursing into children, with careful per-field defaulting: absent numeric/optional fields become `null` (never `0`/`false`) to distinguish "not measured/not applicable" from a real zero value that a lens would otherwise misread as a finding, while a couple of fields (`funcs`, `hotspots`, `children`) do default to `0`/`[]` where absence really does mean none.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `agentActivity`
-- spec 2 · read at `498e4cdbcd05` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:44Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Simple fetch wrapper that calls a backend endpoint (likely /health or similar) and returns the parsed JSON as an AgentActivity object, used by the sidebar to poll whether an agent is currently active and show last-activity info.
-- found: Calls Tauri's invoke('agent_activity') and on failure falls back to a default inactive AgentActivity object (active: false, empty tool/events, nonce 0) rather than throwing.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Used Tauri invoke (IPC to Rust backend) rather than an HTTP fetch as I'd guessed, with a graceful error fallback to a default value.
 
 ### `pickProject`
 - spec 2 · read at `819957eba1c8` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:45:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -3791,37 +3784,36 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/eyeGaze.ts
 
 ### the file itself
-- spec 3 · read at `3896ea77e132` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A small, self-contained state-machine module implementing the hub creature's/eye's gaze targeting logic, independent of rendering: startGaze initializes gaze state, stepGaze is the per-frame update that picks a target by priority (flashing wedges > clicked wedge > pointer > idle), randomLook generates idle glance-away targets on a timer, and within is a small geometric helper (clamping/containment check) keeping glance targets in bounds.
-- found: A pure, framework-free gaze state machine: startGaze/stepGaze track a target with priority focus (flashing wedges, dwelling per wedge) > selected wedge > recent pointer > idle wander, each tier with its own glance-away timing, plus constant jitter and periodic blinking, all driven by an injectable random source.
+- spec 3 · read at `2c59b3c94829` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:22Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A pure state machine for the hub's eye: startGaze creates initial state, stepGaze(state, inputs, dt, rand) advances timers, picks a target (flashing wedge, clicked wedge, pointer, or random glance), applies jitter and blink scheduling and returns a new state with pupil offset and blink amount. within is a bounds/clamp helper; randomLook picks a random look direction.
+- found: Pure gaze state machine: startGaze/stepGaze pick a target by priority (flashing wedges, selected, pointer, idle glances), add jitter, ease toward the target, schedule blinks, and return the clamped look plus lid closure. Constants and types sit alongside.
 - predicted: full · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `within`
-- spec 3 · read at `9d74a469b03e` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:28Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A one-line helper: given a seeded random function `rand` and a [lo, hi] range tuple, returns a random number between lo and hi, computed as lo + rand() * (hi - lo).
-- found: lo + rand() * (hi - lo), a linear interpolation between the range bounds using the seeded random function.
+- spec 3 · read at `57cdbedf72ad` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:15Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns a random number uniformly between lo and hi: lo + rand() * (hi - lo).
+- found: Uniform random value in [lo, hi) using the injected rand.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: File doc describes the module's overall gaze behavior, not this specific one-line helper.
+- note: The docs are the file's module doc, which describes the gaze priorities, not this helper.
 
 ### `randomLook`
-- spec 3 · read at `38adee65d3c5` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:31:46Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Generates a random gaze target using rand: picks a random angle around a circle and a radius between `least` and 1 (or similar max), ensuring idle glances land at least `least` away from center rather than an imperceptible flick, returning a Look with x/y coordinates.
-- found: Random angle 0-2π, random magnitude between `least` and 1, returned as {x,y} via cos/sin — exactly as predicted.
+- spec 3 · read at `a8f71f2cd552` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:20Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Picks a random direction angle and a distance of at least `least` (up to some max radius), returning a Look {x,y} offset via polar-to-cartesian using rand().
+- found: Random angle, magnitude uniformly between `least` and 1, returned as a unit-disc offset.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: The file_doc describes the module's overall gaze-priority rules, not this specific random-point helper.
+- note: The file doc covers the gaze policy but not this helper; the magnitude is normalised to 1, which the signature doesn't say.
 
 ### `startGaze`
-- spec 3 · read at `28483d886453` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:21:07Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Returns a fresh GazeState object with an initial look direction (probably center, or chosen via randomLook) and initial timers/timestamps (e.g. for the next idle glance and next blink) computed using the injectable `rand` function, ready for stepGaze to advance on subsequent frames.
-- found: Returns a plain GazeState object centered at (0,0), with an `auto` idle-glance timer, a `nextDistract` timer via `within`, and a `blinkIn` timer via `within(BLINK.minMs, BLINK.maxMs)` — plus jitter fields (jx/jy/jitterIn), a `hold` counter, and `blinkT` set to a -1 sentinel, none of which I anticipated.
+- spec 3 · read at `e8043df4b8f8` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:09Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds the initial GazeState: zero offsets, no glance active, and schedules the first blink and first glance times using rand (blink 2-6s out). Returns the object.
+- found: Returns initial GazeState: zeroed position/target/jitter, an auto timer of 300–1000ms, a scheduled next distraction and blink drawn from ranges, blinkT -1 meaning not blinking.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The given docs describe the whole gaze-behavior module (mirroring the creature's rules), not the specific fields this initializer sets.
 
 ### `stepGaze` — LEGIBLE SOME
-- spec 3 · read at `548aced9a1db` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:44:15Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Advances the gaze state machine by dt ms according to a priority cascade: flashing wedges first (cycling attention between them on a DWELL_MS timer), falls back to a clicked wedge (glancing away periodically on an idle cadence), then to following the pointer (with occasional glances away), and finally to a random idle look when there's nothing else - while also independently ticking a blink timer/state - returning the updated GazeState plus the resolved Gaze (target + blink) for this frame.
-- found: Priority cascade (focus wedges cycling on DWELL_MS > selected wedge with periodic distract-glances > recent mouse with its own distract timing > idle random auto-look, else centers when not wandering) sets a target (tx,ty); separately applies exponential pursuit easing toward the target (faster while 'watching'), adds periodic jitter noise, tracks a hold period that pauses pursuit, runs an independent sine-shaped blink timer, then normalizes the final jittered vector to unit length and returns {state, gaze:{x,y,closed}}.
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- spec 3 · read at `1de6d4a387ca` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Pure state-machine step: decrements timers by dt, picks a target by priority (flashing wedges cycling on DWELL_MS, clicked wedge, pointer, stale-pointer idle glances), occasionally starts a random glance away, adds small jitter, and handles blink timing (2-6s). Returns new state and the computed gaze (x,y,blink).
+- found: Pure gaze step: picks target by priority (focus, selected, mouse, idle), with distraction glances, jitter, hold, exponential pursuit, blink timing; returns clamped-to-unit gaze and eye-closed amount.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
 
 ## web/src/lib/fan.ts
 
@@ -3961,11 +3953,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `gazeOf` — PREDICTED SOME
-- spec 3 · read at `b90f0cd34301` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:09Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Filters wedges to those whose id is in `pulsing`, converts each to a bearing via bearingOf, computes the circular mean angle (sin/cos sum) rounded to avoid jitter, and returns it as a single-element Bearing[] array, or null if pulsing is empty/undefined so gaze follows the pointer instead.
-- found: Collects direction vectors for wedges that are pulsing or mid-appear/edit. If a handful or fewer (<=GAZE_INDIVIDUALS), returns each as its own bearing so the gaze can glance between them; past that threshold it collapses them to one circular mean vector (returning null if they cancel out to near-zero, i.e. spread evenly around the ring).
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The docs block handed to the reader says \"the mean direction, not one of them\" as if that's the only mode, but the code actually returns individual bearings below GAZE_INDIVIDUALS — the crowd-vs-individuals distinction lives only in an inline comment, not the doc header given for prediction.
+- spec 3 · read at `5eae7c9b2599` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:41:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Collects wedges that are reading/appeared/edited (or in pulsing set), converts each to a bearing via bearingOf, averages the vectors into one mean direction, rounds the angle, and returns a single-element array; returns null if no wedge is active.
+- found: Selects pulsing/appeared/edited wedges, makes rounded unit vectors from mid-angles; if few (<=GAZE_INDIVIDUALS) returns each individually, otherwise returns the normalized rounded mean, or null if they cancel out.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `bearingOf`
 - spec 3 · read at `51dc319b6821` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -6054,10 +6045,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `rimSliceAt`
-- spec 3 · read at `ff45e8744520` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:43:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Converts the pointer position into polar coordinates around the box's center (using the smaller dimension as scale, matching the map's own placement math), computing a radius and a clockwise-from-twelve angle. It checks whether the radius falls within the rim's ring band, then looks up which node's rimRuns cut (from the target map) covers that angle, returning the matching RimSlice or null if the pointer isn't over any rim segment.
-- found: For a single given directory node, looks up its geometry and rim cut, converts the pointer to user-space via toUser, computes radius/angle (inverting arcPath's placement, wrapped near the band's own start angle to handle the seam), checks the radius against the band and finds which angular run contains the angle, then returns a RimSlice with label/fill/lines/share/held/named for that run.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- spec 3 · read at `cc0e5671ce67` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:41:57Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Looks up the node's geometry in target, returns null if missing. Converts the pointer position to box coordinates using scale = min(w,h) and centring, then to view coordinates; computes distance and clockwise-from-twelve angle relative to the geometry centre; if radius falls within the rim band, finds the run from rimRuns whose angular span contains the angle and returns it as a RimSlice, else null.
+- found: Returns null unless node is a dir with geometry and rim cut; converts pointer to user coords, checks radius in band, inverts arcPath angle wrapped near band.a0 to handle seam, finds run containing angle, returns slice with label, fill, lines, share, held, named.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ## web/src/lib/rings.ts
 
