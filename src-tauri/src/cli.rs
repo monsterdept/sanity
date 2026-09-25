@@ -2659,6 +2659,18 @@ pub fn verify(path: &str, model: Option<&str>, harness: Option<&str>, mixed: boo
             return 2;
         }
     };
+    // Refused before anything is counted. A directory with nothing to read passes `complete`
+    // and `current` for want of anything to fail them, so the wrong path — or a repo that was
+    // never read — would pass the gate whenever the instrument check is waived.
+    if !crate::assessment::dir(&repo).is_dir() {
+        println!();
+        println!("{} has no .sanity/ — there are no readings to verify.", repo.to_string_lossy());
+        println!();
+        if std::env::var_os("GITHUB_ACTIONS").is_some_and(|v| v == "true") {
+            println!("::error title=sanity::no .sanity/ in {}", repo.to_string_lossy());
+        }
+        return 1;
+    }
     let Some((scan, reports)) = read_repo(&repo) else { return 2 };
     let v = agentapi::verify(&scan, &reports);
     // Annotations are GitHub's syntax, so they are written only where GitHub reads them.
@@ -3478,6 +3490,11 @@ mod tests {
 
         // Nothing read: every unit unread, and there is no instrument to vouch for.
         assert_eq!(verify(&path, None, None, false), 1);
+
+        // A directory with nothing in it owes nothing, and must still not pass.
+        let empty = tempfile::tempdir().expect("tmp");
+        let empty = empty.path().to_string_lossy().to_string();
+        assert_eq!(verify(&empty, None, None, true), 1, "no .sanity/ is not a pass");
 
         read_all(&["idle"], None);
         assert_eq!(owed(), (vec![(Owed::Unread, "idle".to_string())], 1));
