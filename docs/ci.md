@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: monsterdept/sanity-action@v1
         with:
-          version: 0.31.2          # the Sanity release your team reads with
+          version: 0.32.0          # the Sanity release your team reads with
           model: claude-sonnet-5   # optional: require this model
           # harness: claude        # optional: require this agent
           # path: services/api     # optional: a repo in a subdirectory
@@ -49,7 +49,7 @@ Sanity checks its own releases this way: see
 Download the `.AppImage` for your pinned version and run it:
 
 ```sh
-curl -fsSLo sanity https://dl.dept.monster/sanity/Sanity_0.31.2_amd64.AppImage
+curl -fsSLo sanity https://dl.dept.monster/sanity/Sanity_0.32.0_amd64.AppImage
 chmod +x sanity
 APPIMAGE_EXTRACT_AND_RUN=1 ./sanity verify "$PWD"   # use an absolute path: the AppImage starts in its own directory
 ```
