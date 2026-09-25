@@ -1,17 +1,19 @@
 # Sanity
 
-**Understandability, measured, and gated.** Sanity gives each function in a repo a reading:
-a coding agent is shown the function's name, signature, neighbors and comments, but not its
-body, and says what it expects the function to do. Then it opens the file and reports how
-far off it was. The readings are committed next to the code. They expire when the code
-changes, and CI can refuse a release that ships without them.
+Sanity shows you which parts of a repo are hard to understand.
 
-Generating code got cheap, so understanding it became the bottleneck. Sanity is for teams
-who can build anything and no longer know what they've built. It tells you which code
-nobody could predict, which docs are wrong, what will bite the next person to edit it, and
-whether any of that changed since the last release.
+It does this by asking a coding agent to predict each function before reading it. The agent
+sees the function's name, signature, neighbors and comments, but not its body. It writes down
+what it expects, then opens the file and reports how far off it was. That report is a
+**reading**. Code the agent predicted well is routine. Code it got wrong is where the
+decisions are, and it's the code the next person (or the next agent) is likely to get wrong
+too.
 
-It also draws the whole repo as a sunburst, with a lens for each of those questions.
+Readings are saved as Markdown in your repo, under `.sanity/`. They expire when the code they
+describe changes. A CI check can fail a build whose readings are missing or out of date.
+
+Sanity also draws the repo as a sunburst: directories and files as rings, functions on the
+rim, sized by lines and colored by whatever you're asking about.
 
 ```sh
 brew install --cask monsterdept/tap/sanity
@@ -22,45 +24,77 @@ sanity findings                               # what is worth looking at, and wh
 git add .sanity && git commit -m "Readings"
 ```
 
-## The loop
+## Screenshots
 
-Sanity covers the whole life of a repo's quality, not one snapshot of it:
+![The map, colored by predictability](docs/images/map.png)
+*The map. Each wedge is a function; its width is its line count and its color is how well a
+reader predicted it.*
 
-1. **Read.** `sanity check` starts coding agents as readers, and each one predicts functions
-   before it sees them. Nothing leaves your machine except what the agent itself sends to its
-   own model.
-2. **Find.** `sanity findings` crosses the readings with size, complexity, call graph, clones
-   and git history, and ranks what comes out: *giant and hard to follow*, *load-bearing and
-   unread*, *documented and still surprising*, *copies that have drifted apart*.
-3. **Decide.** Every finding gets a verdict, and verdicts are committed. *Snooze* expires when
-   the code changes, and *wrong* expires when the rule changes. The list shrinks to what's
-   still true.
-4. **Gate.** `sanity verify` fails a build whose readings are missing, stale or mixed. You
-   can't ship code nobody has read.
-5. **Re-read.** Change a function and its reading goes stale. It moves to the front of the
-   queue, and the next `sanity check` picks it up.
+![A reading in the side panel](docs/images/reading.png)
+*Click a function to see its reading: what the agent expected, what it found, and its grades.*
+
+![The findings list](docs/images/findings.png)
+*Findings: places where several measurements agree something needs a look.*
+
+![Replaying history](docs/images/history.png)
+*History replays the repo one commit at a time.*
+
+## How you use it
+
+1. **Take readings.** `sanity check` starts coding agents as readers. Each one predicts
+   functions before it sees them. Sanity doesn't send your code anywhere; the agent sends
+   what it reads to its own model, as it would in any other session.
+2. **Look at findings.** `sanity findings` combines the readings with size, complexity, the
+   call graph, duplicated code and git history, and lists what stands out. For example: a very
+   large function a reader struggled with, a function many others depend on that nobody could
+   predict, or a function whose comments don't match what it does.
+3. **Decide what to do about each one.** You can snooze a finding until the code changes,
+   mark it wrong, allow it permanently, or flag it as work to do. Decisions are committed with
+   the readings, so the whole team sees them.
+4. **Check in CI.** `sanity verify` fails if any function has no reading, if a reading is out
+   of date, or if readings were taken with different models.
+5. **Keep them current.** When you change a function, its reading goes stale and moves to
+   the front of the queue. The next `sanity check` reads it again.
+
+## What you need
+
+- **Sanity itself.** See [Installation](#installation).
+- **A coding agent, installed and signed in**, to take readings: Claude Code (`claude`), Codex
+  (`codex`), OpenCode (`opencode`) or Antigravity (`agy`). Sanity never calls a model itself and
+  doesn't need an API key.
+
+Everything except taking readings works without an agent: the map, findings from the parts
+that don't need readings, history and `verify`.
+
+**What readings cost.** A reader uses about 23,000 tokens to get started and about 3,000 per
+function, and reads ten functions per session. That's roughly 5,300 tokens per function, or
+about five million tokens for a repo with a thousand functions. Start with `--limit` to see
+what a pass is like before reading everything. `sanity status` shows how much is left.
+
+To leave parts of a repo out, list them in a `.sanityignore` at the root. They're still drawn
+on the map, but they aren't read and don't count toward coverage.
 
 ## The CLI
 
-Every verb takes a repo path and defaults to the current directory. `sanity <verb> --help`
-lists a verb's flags.
+Every command takes a repo path and defaults to the current directory. `sanity <command>
+--help` lists its options.
 
-### Set up and read
+### Taking readings
 
 ```sh
 sanity init --harness claude --model sonnet   # pick the agent and model for this repo
-sanity check                                  # read until done, watching progress here
-sanity check --readers 8                      # 8 readers at once
-sanity check --limit 50                       # stop after 50 readings (a reader does ten)
-sanity check --detach                         # start it and return
-sanity status                                 # what readers are working on, and how much is read
+sanity check                                  # read until done, showing progress
+sanity check --readers 8                      # run 8 readers at once
+sanity check --limit 50                       # stop after 50 readings
+sanity check --detach                         # start in the background and return
+sanity status                                 # what the readers are doing, and how much is read
 ```
 
-`--harness` takes `claude`, `codex`, `opencode` or `agy`. `--model` takes any model id that
-agent can reach. Stopping a pass costs only the readings in flight: finished readings are
-written as they land, and the next `check` resumes where it stopped.
+`--harness` takes `claude`, `codex`, `opencode` or `agy`. `--model` takes any model the agent
+can use. If you stop a pass, you lose only the readings in progress. Finished readings are
+saved as they come in, and the next `check` continues where it left off.
 
-### See what was found
+### Seeing results
 
 ```
 $ sanity summary
@@ -81,7 +115,7 @@ Project: sanity
 
 ```
 $ sanity findings --limit 2
-/Users/rturk/projects/sanity  14 findings
+/Users/you/projects/sanity  14 findings
 
   web/src/components/Findings.tsx#Findings
     Giant and hard to follow
@@ -98,22 +132,23 @@ $ sanity findings --limit 2
       does. It coordinates work that is not apparent from its own body.
 ```
 
-`--edits` and `--blame` read more git history first, so the rules about churn and age can
-fire. On a large repo that takes minutes. `sanity trace` reads the same history up front.
+Some findings depend on git history. `--edits` and `--blame` read that history first so those
+findings can appear. On a large repo this takes a few minutes. `sanity trace` reads the same
+history ahead of time.
 
-### Decide on findings
+### Deciding on findings
 
 ```sh
 sanity findings snooze web/src/App.tsx#App --reason "rewrite planned for Q4"   # hide until this code changes
-sanity findings allow  src/gen.rs#table                   # always fine
-sanity findings wrong  src/lib.rs#parse --rule giant-illegible   # the finding is false; hide until the rule changes
-sanity findings flag   src/lib.rs#parse                   # needs doing; keep it in the list
-sanity findings clear  src/lib.rs#parse                   # take a decision back
-sanity findings balance --target 20                       # propose thresholds that yield ~20 findings
-sanity findings balance --target 20 --apply               # write them to .sanity/rules/catalog.md
+sanity findings allow  src/gen.rs#table                   # this is fine; don't show it again
+sanity findings wrong  src/lib.rs#parse --rule giant-illegible   # the finding is wrong; hide until the rule changes
+sanity findings flag   src/lib.rs#parse                   # this needs work; keep it listed
+sanity findings clear  src/lib.rs#parse                   # undo a decision
+sanity findings balance --target 20                       # suggest thresholds that give about 20 findings
+sanity findings balance --target 20 --apply               # save them to .sanity/rules/catalog.md
 ```
 
-### Gate, inspect and export
+### Checking, looking things up and exporting
 
 ```
 $ sanity verify
@@ -123,54 +158,45 @@ $ sanity verify
 ```
 
 ```sh
-sanity verify --model claude-sonnet-5         # require this model, not just one model
-sanity callers src/edges.rs#resolve           # who calls one function, by name
-sanity trace --blame                          # per-line blame, so age resolves to functions
-sanity export-data --out report.json          # everything the report reads, as JSON
+sanity verify --model claude-sonnet-5         # require this specific model
+sanity callers src/edges.rs#resolve           # what calls a function, matched by name
+sanity trace --blame                          # per-line blame, so Age works per function
+sanity export-data --out report.json          # all the data behind the report, as JSON
 sanity refresh                                # rewrite .sanity/ in the current format
 ```
 
-`sanity` with no arguments opens the window. `sanity mcp` is a stdio MCP server that lets a
-chat agent open a project and read back its status and summary. It can't take readings: its
-context is already full of the repo, so anything it graded would be recall.
+`sanity` with no arguments opens the app. `sanity mcp` runs an MCP server over stdio, so a
+chat agent can open a project and read its status and summary. That agent can't take
+readings: it has already seen the repo, so its predictions wouldn't mean anything.
 
 ## Installation
 
-| Platform | Get it |
+| Platform | Download |
 |---|---|
 | macOS (Apple silicon) | `brew install --cask monsterdept/tap/sanity`, or the `.dmg` from [sanity.monster](https://sanity.monster) |
 | Linux x86-64 | `.deb` or `.AppImage` from [sanity.monster](https://sanity.monster) |
 | Windows x86-64 / arm64 | `.exe` installer from [sanity.monster](https://sanity.monster) |
 
-The app and the CLI are the same binary. The Homebrew cask puts `sanity` on your `PATH`. If
-you installed the app another way, press **Install sanity command** on the welcome screen,
-which links it into `/usr/local/bin` or `~/.local/bin`. Don't add the app bundle to your
-`PATH` or alias it. Other binaries live beside it, and scripts can't see an alias.
-
-**To take readings** you also need a coding agent installed and signed in: Claude Code
-(`claude`), Codex (`codex`), OpenCode (`opencode`) or Antigravity (`agy`). Sanity never calls a
-model itself and needs no API key. Everything else (the map, findings, history, `verify`)
-works without one.
-
-**What a pass costs.** A reader spends roughly 23,000 tokens getting started and 3,000 per
-function, and it reads ten functions per session. That works out to about 5,300 tokens per
-function, or about five million for a thousand-function repo. `sanity status` shows how much
-is left. Start with `--limit`. To leave parts of a repo out of reading, list them in a
-`.sanityignore` at the root: they're still drawn, but they no longer count toward coverage.
+The app and the CLI are one program. The Homebrew cask puts `sanity` on your `PATH`. If you
+installed another way, open the app and press **Install sanity command** on the welcome
+screen. It links `sanity` into `/usr/local/bin` or `~/.local/bin`. Don't add the app bundle
+to your `PATH` or make an alias for it: other programs it needs live next to it, and scripts
+can't see aliases.
 
 ## In CI
 
-Readings are taken by developers, against the code they're about to ship, and committed. CI
-never takes them, because that would mean model credentials in CI. CI checks what was
-committed. `sanity verify` exits non-zero unless the readings are:
+You take readings on your own machine, against the code you're about to ship, and commit
+them. CI doesn't take readings, because that would mean putting model credentials in CI. It
+only checks what you committed. `sanity verify` fails unless the readings are:
 
 - **complete**: every function and file in scope has a reading;
-- **current**: none is stale against the checked-out code, and none was taken under an older
-  version of a question;
-- **one instrument**: every reading names the same agent and model. `--model` and `--harness`
-  pin which one. `--mixed` waives the check and still prints the mix.
+- **current**: no reading is out of date for the code that's checked out, and none was taken
+  with an older version of the questions;
+- **from one model**: every reading was taken with the same agent and model. `--model` and
+  `--harness` require a specific one. `--mixed` turns this check off but still prints what
+  was used.
 
-It needs no git history, no network and no credentials.
+`verify` doesn't need git history, network access or credentials.
 
 ### GitHub Actions
 
@@ -195,127 +221,124 @@ jobs:
           # consistent-reader: false   # optional: allow mixed models
 ```
 
-**Pin `version`.** A release that changes the parser or a question can expire readings, and
-the gate shouldn't move unless you move it.
+**Pin `version`.** A new release can change the parser or the questions, which can make
+existing readings out of date. Pinning means your check only changes when you decide to
+upgrade.
 
-To gate releases rather than pull requests, put the job in front of your build with
-`needs:`. Sanity gates its own releases this way: see
+To check releases instead of pull requests, add the job before your build with `needs:`.
+Sanity checks its own releases this way: see
 [`.github/workflows/readings.yml`](.github/workflows/readings.yml).
 
-### Anywhere else
+### Other CI systems
 
-Download the `.AppImage` for the pinned version and run it:
+Download the `.AppImage` for your pinned version and run it:
 
 ```sh
 curl -fsSLo sanity https://dl.dept.monster/sanity/Sanity_0.31.1_amd64.AppImage
 chmod +x sanity
-APPIMAGE_EXTRACT_AND_RUN=1 ./sanity verify "$PWD"   # absolute: the AppImage starts in its own directory
+APPIMAGE_EXTRACT_AND_RUN=1 ./sanity verify "$PWD"   # use an absolute path: the AppImage starts in its own directory
 ```
 
-`APPIMAGE_EXTRACT_AND_RUN=1` is for runners that don't have `libfuse2`.
+`APPIMAGE_EXTRACT_AND_RUN=1` is needed on runners without `libfuse2`.
 
-## The metric: predictability
+## What the readings measure
 
-Anyone can count lines or branches. What Sanity measures is:
+The idea behind Sanity is that routine code is code a model can predict from its context. If
+a reader predicts a function well, there isn't much in it you'd need to learn. If it doesn't,
+something in there isn't obvious.
 
-> Boilerplate is code a model can predict from its context.
+Comments are part of the context the reader predicts from. A comment that explains an
+unusual function helps the reader predict it, so the function scores better. A comment that
+just restates the code (`// increments the counter`) doesn't help. A comment that's out of
+date makes things worse: the reader predicts what the comment says, and the code does
+something else. Readers also note whether a comment could have been written from the code
+alone. By default those comments don't count as documentation, so generating comments with a
+model won't improve the numbers.
 
-A predictable body is scaffolding. A surprising one is where the decisions are, and it's the
-code a new teammate, or the next agent, will get wrong.
+**The model you read with sets the scale.** A smaller model is surprised by more things, so
+readings from different models can't be compared. Sanity records the model and agent for
+every reading. Use one model for a repo, and `verify` will check that you did.
 
-Documentation is part of the context the reader predicts from. A comment that actually
-explains a surprising body makes it predictable, so the function reads cooler next time.
-`// increments the counter` over a subtle retry loop changes nothing. A stale comment makes
-it read *hotter*, because the reader predicts what the comment describes and the body does
-something else. Adding more comments can't game the score. A reader also records whether a
-comment could have been written from the code alone, and by default a comment like that
-doesn't count as documentation, so running a model over the repo can't make the numbers look
-better.
+Each reader runs as its own process, outside the repo and without your project settings, with
+only the tools it needs. This matters: an agent that has already been working in the repo
+knows what the code does, and its "predictions" would just be memory.
 
-**Which model reads is part of the measurement.** A smaller model is surprised by more
-things, so the model sets the scale. Sanity records the model and agent behind every
-reading. Read a repo with one model throughout, and `verify` enforces that.
+A hard-to-predict function isn't always a problem. It might be a careful algorithm or it
+might be a mess. Git history helps tell them apart:
 
-Each reader is a separate process, started outside the repo without your project settings,
-and given only the tools it needs to take a reading. That's what makes a reading a
-prediction and not a recollection: a session that has been working in the repo already knows
-the answers.
-
-Surprise alone can't tell a subtle algorithm from a mess, so git history supplies a second
-axis:
-
-|  | **Stable** | **Churning** |
+|  | **Rarely changes** | **Changes often** |
 |---|---|---|
-| **Surprising** | Crown jewel: document it, don't touch it | Trouble: the mess |
-| **Predictable** | Bloat, if there's a lot of it | Quiet: ignore it |
+| **Hard to predict** | Probably intricate and important. Document it and be careful with it. | Probably a problem. |
+| **Easy to predict** | Routine. Worth a look only if there's a lot of it. | Routine work. Usually fine. |
 
 ## Readings live in the repo
 
-A reading takes minutes of an agent's time and can't be recomputed, so it doesn't belong in
-an app-support folder on one laptop. Readings are committed to the repo they describe, at
-`.sanity/`, as Markdown meant for people. Open `.sanity/readings/*.md` and it reads like
-notes from a code review.
+A reading takes an agent minutes and can't be recreated exactly, so Sanity keeps readings
+in the repo they describe, at `.sanity/`, as Markdown meant to be read by people. Open
+`.sanity/readings/*.md` and you'll see something like notes from a code review.
 
-- **One file per top-level directory**, ordered by position in the source, so two people
-  reading one repo don't produce merge conflicts.
-- **Readings expire.** Each one records a hash of the body and comments it was taken against.
-  When the code changes, the reading is marked stale and goes to the front of the queue.
-- **Anyone with the repo can extend anyone's readings.** A reading names who took it, with
-  which model and which agent. That's provenance, not ownership.
+- **There's one file per top-level directory**, in source order, so two people taking
+  readings in the same repo don't get merge conflicts.
+- **Readings expire.** Each one records a hash of the code and comments it was taken
+  against. When those change, the reading is marked stale and goes to the front of the queue.
+- **Anyone can add to them.** Each reading records who took it, with which model and agent.
+  That's a record of where it came from, not ownership.
 
-`.sanity/rules/` holds the findings catalog, and `.sanity/findings/decisions.md` holds the
-verdicts. Don't hand-edit readings. An edited reading is a measurement nobody took.
+`.sanity/rules/` holds the rules that produce findings, and `.sanity/findings/decisions.md`
+holds your decisions. Please don't edit readings by hand. An edited reading describes a
+measurement nobody took.
 
-## The map
+## The app
 
-`sanity` with no arguments opens the window. The repo is at the center, directories and files
-are rings around it, and every function is on the rim. A wedge's width is its size in lines.
-Its color is whichever question you're asking:
+`sanity` with no arguments opens the app. The repo is in the center, directories and files
+are rings around it, and functions are on the outer edge. A wedge's width is its size in
+lines. Its color depends on which lens you pick:
 
-| Group | Lens | What it asks | Needs |
+| Group | Lens | What it shows | Needs |
 |---|---|---|---|
-| **Code shape** | Complexity | How complex is it for its size? | nothing but the scan |
-| | Composition | Is it hand-written, a test, generated, vendored or a header? | |
-| | Language | What is it written in? | |
-| | Clones | Is it a copy of something else? | |
-| **Interconnectivity** | Callers | How many things call it? | a language whose calls are read |
-| | Reach | How much does it call out to? | |
-| **Activity** | Blame | Who committed to it last? | git history |
-| | Age | How long since anyone touched it? | |
-| | Churn | How much has it changed lately? | |
-| **Assessment** | Predictability | How much could a reader predict? | readings |
-| | Legibility | What was reading it actually like? | |
-| | Docs | What has nobody explained? | |
-| | Traps | What will bite whoever edits it next? | |
+| **Code shape** | Complexity | How complex it is for its size | only the scan |
+| | Composition | Whether it's hand-written, a test, generated, vendored or a header | |
+| | Language | What language it's in | |
+| | Clones | Whether it's a copy of other code | |
+| **Interconnectivity** | Callers | How many things call it | a language whose calls Sanity can read |
+| | Reach | How much it calls | |
+| **Activity** | Blame | Who changed it last | git history |
+| | Age | How long since it changed | |
+| | Churn | How much it has changed recently | |
+| **Assessment** | Predictability | How well a reader predicted it | readings |
+| | Legibility | How hard it was to read | |
+| | Docs | What isn't explained | |
+| | Traps | What's likely to trip up the next person who edits it | |
 
-Click a wedge to drill in. The side panel explains what the lens says about it and shows the
-code. The findings list, the rules editor and verdicts are all in the window too.
+Click a wedge to zoom in. The side panel explains what the lens says about it and shows the
+code. The findings list, the rules editor and your decisions are in the app too.
 
-**History** replays the repo one commit at a time. Scrub to any commit and the rings grow,
-shrink and recolor as the code did. Because `.sanity/` is committed, the reading lenses work
-during a replay too: each frame shows what the repo knew about itself at that commit.
+**History** replays the repo one commit at a time. As you move through commits, the rings
+grow, shrink and change color the way the code did. Because `.sanity/` is committed, the
+reading lenses work in a replay too: each commit shows the readings that existed at that
+point.
 
-**Export**: a PDF **report** that stands alone like a paper (cover, methodology, a section per
-lens, findings grouped by where they are), a shorter **brief**, a 16:9 **deck**, and the
-replay as an MP4. File → Export Report as PDF… (⇧⌘E).
+**Export** makes a PDF report (methodology, one section per lens, and findings grouped by
+where they are), a shorter brief, a 16:9 slide deck, and an MP4 of a replay. Use File →
+Export Report as PDF… (⇧⌘E).
 
 Sanity parses 63 languages with tree-sitter, including Rust, TypeScript, Python, Go, Swift, C,
 C++, Java, Kotlin, C#, Ruby, PHP, Elixir, Scala, Zig, Haskell and shell. Files in other
-languages still appear on the map, but without functions on the rim.
+languages still show up on the map, but without functions.
 
 ## Building from source
 
 ```sh
-just setup                      # once: frontend deps and the Tauri CLI (needs Rust and Node)
-just dev                        # the app
-just cli findings ../some-repo  # the CLI, built from this checkout
+just setup                      # once: frontend dependencies and the Tauri CLI (needs Rust and Node)
+just dev                        # run the app
+just cli findings ../some-repo  # run the CLI built from this checkout
 ```
 
 On Linux, install the WebKit and GTK development packages first:
 `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev`.
 
-`just check` type-checks. `just test` runs exactly what CI runs, in the same order, so if it
-passes, CI passes.
+`just check` type-checks. `just test` runs the same steps as CI, in the same order, so if it
+passes locally, CI will pass.
 
-[docs/](docs/README.md) has the rest: the architecture, one note per area, and the plans,
-finished and open.
+[docs/](docs/README.md) has the rest: the architecture, one note per area, and plans (finished
+and open).
