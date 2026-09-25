@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1287 of 1287 read · 228 unpredicted
+1285 of 1285 read · 228 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -1666,22 +1666,6 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Parses a repo path argument from the command line, then runs the same commit-by-commit history walk/replay used by the app (probably calling into a shared walk/scan module) while accumulating stats. At the end it prints a summary: total commit count, final function count, and details of the biggest/most impactful frames (e.g. largest diffs or function count deltas), to let a developer sanity-check the walker after changes without opening the GUI.
 - found: CLI entry point: parses PATH plus --limit/--files/--json/--cached/--help flags, runs history::read (or read_cached) with a throttled stderr progress ticker, then either dumps JSON or replays the commit deltas (set/del) to compute live function counts and peak, and prints a summary (commit count, file/function counts, optional per-file breakdown, and the 8 busiest commits by change size).
 - predicted: most · documented: most · derivable: no · legible: some · trap: no
-
-## src-tauri/src/bin/sample.rs
-
-### the file itself
-- spec 2 · read at `cf7c3dc1db75` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:52:09Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A small standalone Rust binary (`just sample <repo> <out> [n]`) that reuses this project's own candidate-extraction logic to pull N functions out of a target repo, then serializes them (JSON, matching the sanity_next handout shape) to a file on disk — bypassing the normal lease/report/.sanity/ bookkeeping since it's meant for feeding the same batch to multiple readers for inter-rater comparison rather than doing a real single-reader assessment. Likely just a `main()` that parses argv, calls into a shared module for extraction, and writes output.
-- found: A main() that scans a repo with the same scan/agentapi machinery as the live tool (using ephemeral memos so nothing is banked), takes every stride-th task (fixed stride sampling, not random, for reproducibility) up to N, slices out each function's source by its recorded line range, and writes two files per exercise (NN_head.md with name/owner/signature/docs/peers, NN_body.txt with the raw body) to an output directory — plus a summary line to stdout.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: I predicted JSON output and reuse of the sanity_next handout format, but it actually writes paired markdown/txt files per exercise and samples by fixed stride rather than randomness — both details I got wrong.
-
-### `main`
-- spec 3 · read at `d297e55d585f` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Parses CLI args (repo, out, optional n), loads/scans the repo's candidate functions (same logic the live queue uses), randomly samples n of them, and writes the sampled handouts as JSON to the out path, bypassing sanity_report/.sanity leasing state entirely.
-- found: Parses repo/out/n args, scans the repo to get all_tasks, then takes an evenly-strided sample (not random) of the task list, and for each writes a pair of files (NN_head.md with name/owner/signature/docs/peers, NN_body.txt with the sliced source) into the output directory as prediction exercises.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Sampling is stride-based (tasks.len()/want), not random, and output is a head/body markdown+txt file pair per task rather than a single JSON blob.
 
 ## src-tauri/src/bin/tokens.rs
 

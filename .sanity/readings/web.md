@@ -1,6 +1,6 @@
 # web — sanity assessment
 
-1127 of 1127 read · 260 unpredicted
+1127 of 1127 read · 254 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -18,49 +18,48 @@ What this is and how to add to it: [README.md](README.md)
 ## web/scripts/group-check.ts
 
 ### the file itself
-- spec 3 · read at `9f90edc02767` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:53:05Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A standalone script (run via `just group-check`) that builds small synthetic trees/findings using helper builders (fn, file, roots) and feeds them through groupFindings, then asserts invariants: no finding silently dropped from every group, no group over its size cap, and no group's zoom root picked one level too high. Reports pass/fail and exits non-zero on violation, matching the pattern of sibling *-check.ts scripts.
-- found: A hand-rolled test script (no test framework) that builds synthetic Placed findings (fn/file helpers) and runs them through groupFindings, asserting via a simple check() logger covering: correct zoom-root selection for small groups, splitting large groups down to directories, cap-crossing behavior (avoiding duplicate group names for the same place), stable ordering (widest group first, insertion order within groups), and large-repo invariants (every finding in exactly one group, no overlapping group roots, no group root could have been split further, file-rooted groups only contain funcs). Exits 1 if any check fails.
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- spec 3 · read at `df66fde02d2b` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:14Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A standalone check script: builds synthetic placed findings, runs groupFindings with caps, and asserts no finding is dropped, groups respect max, and roots are as deep as possible; prints pass/fail and exits nonzero on failure. Helpers check/run/roots/next.
+- found: Check script for groupFindings: cases for fitting groups, splitting past cap, pooling strays, ordering, and a seeded 400-item invariant test; exits 1 on failure.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `check`
-- spec 3 · read at `c5488bd5a2a4` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:20:50Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A lightweight assertion helper: given a description `what` and a boolean `ok` (plus optional `saw` value), it records/prints a pass or fail line, printing `saw` for context when the assertion fails, and likely tracks a failure count/exit code for the script.
-- found: Logs "ok <what>" if ok is true; otherwise increments a module-level `failed` counter and logs "FAIL <what>" plus a JSON-stringified `saw` value when provided.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-- note: The `documented` field here describes the file_doc (which covers the whole script's purpose), not this specific function — there were no per-function docs.
-
-### `fn` — PREDICTED NONE
-- spec 3 · read at `a7fe076461c9` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:45:11Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Takes a file path (a fixture path), reads and parses its contents into findings, runs groupFindings on them, and returns a Placed object summarizing the result (e.g. which group/root each finding was placed into) so the check script can compare against expected fixture output.
-- found: It's a trivial one-line fixture constructor: given a path string, it returns a Placed object with that path and a hardcoded kind: 'func', presumably used to build synthetic test findings for the group-check script rather than doing any real parsing or grouping.
-- predicted: none · documented: none · derivable: yes · legible: full · trap: no
-- note: The file doc describes groupFindings/the whole module's purpose, not this specific tiny helper, so it reads as documenting the wrong altitude for this particular function.
-
-### `file`
-- spec 3 · read at `4adc5109f729` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:21:22Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A small factory used within this check script's test cases — given a path string, it builds a synthetic Placed value (a stand-in "finding" or node placed at that file path) to feed into groupFindings for testing grouping/root-zoom behavior, without needing real scan data.
-- found: One-liner factory constructing a Placed value of kind 'file' at the given path, for use as test fixture data in this check script.
+- spec 3 · read at `79a9d3210ea0` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Assertion helper: if ok is false, logs a failure line with the description and the optionally JSON-stringified saw value, and records failure (sets exit code or increments counter); otherwise logs/counts a pass.
+- found: Logs ok line on pass; otherwise increments module-level failed counter and logs FAIL with optional JSON of saw.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: File doc describes groupFindings, not this helper.
+
+### `fn`
+- spec 3 · read at `3bcea7691ef5` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:00Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Placed test fixture from a path: a function-kind entry with the path as its file, and name derived from the path's last segment.
+- found: Test helper returning {path, kind:'func'}; no name derivation.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+
+### `file` — PREDICTED SOME
+- spec 3 · read at `c6a60d6d3185` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:00Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Test factory: builds a Placed finding object for a file path, with a fresh incrementing id from next() and defaults for other fields.
+- found: Returns {path, kind:'file'} Placed value; no id or defaults.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `run`
-- spec 3 · read at `2f2d568b2947` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:29Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A thin one-line wrapper that delegates to a check/validation helper, passing items and max/min caps into the grouping logic (likely groupFindings) and returning whatever violations or pass/fail result that produces.
-- found: A one-line wrapper calling groupFindings(items, identityFn, max, min), using the identity function as the item accessor since Placed items are used directly rather than needing extraction.
+- spec 3 · read at `7acc394b6153` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:02Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: One-line wrapper calling groupFindings(items, max, min) with test defaults, likely mapping the result into a simplified form for assertions.
+- found: Calls groupFindings with identity accessor and optional max/min; no result mapping.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The identity accessor (p) => p implies groupFindings's second param is normally an extractor for test items wrapped in something else; here items are already the right shape.
 
 ### `roots`
-- spec 3 · read at `71c6f93a8440` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:25:51Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A small test helper that calls groupFindings(items, max, min) and maps the resulting groups to just their root identifier/level, so the check script can assert on which root each group zoomed to without repeating the grouping call everywhere.
-- found: Calls the local `run` helper (wrapping groupFindings) on items/max/min and maps each resulting group to a compact `"kind:root:count"` string for easy assertion comparisons in the check script.
+- spec 3 · read at `d6974f5821e4` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Test helper: calls groupFindings on items with max/min, and returns the list of each group's root (zoom target) paths, likely mapped and sorted.
+- found: Runs run(items,max,min) and maps each group to a "kind:root:count" string.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: File doc covers the module; the function itself has no doc.
 
-### `next` — PREDICTED NONE
-- spec 3 · read at `fee05285bdc3` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:31:32Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A one-line counter helper referencing an outer counter variable, incrementing and returning it (e.g. `() => id++` or similar) to generate unique sequential ids for synthetic findings/fixtures used in the group-check tests.
-- found: A seeded linear-congruential PRNG step that mutates the outer `seed` and returns a pseudo-random float in [0,1), used to generate deterministic synthetic test data.
-- predicted: none · documented: none · derivable: yes · legible: full · trap: no
+### `next` — PREDICTED SOME
+- spec 3 · read at `db532629ec37` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:03Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A one-line arrow function that returns an incrementing counter, used as a fresh id or seed for building test fixtures (e.g. ++n).
+- found: A seeded LCG (glibc constants, mod 2^31) returning a deterministic pseudo-random float in [0,1) and advancing the closed-over seed. I predicted a counter, not a PRNG.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/scripts/identity-check.ts
 
@@ -130,37 +129,37 @@ What this is and how to add to it: [README.md](README.md)
 ## web/scripts/keys-check.ts
 
 ### the file itself
-- spec 3 · read at `0c9e8a660033` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:41:36Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A standalone CLI script (run via `just keys-check`) that exhaustively simulates every key against every UI state, feeding them through the shared `lib/keys.ts` decision logic, to catch cases where an early-return in the ordered keyboard handler silently shadows another shortcut (like the Tab-vs-lens-digit regression). It likely has a `check`/`step` loop enumerating states, a `cmd` helper mapping key+state to the resolved command, and a `lens` helper isolating lens-digit shortcuts, printing any keys that resolve to an unexpected or conflicting command.
-- found: A hand-written assertion script (not exhaustive over states, but a curated set of regression checks) that calls `actOf` from lib/keys.ts with various key+modifier+Where combinations and asserts expected resolved actions: lens digits still work with the find pane open or a field focused, Tab only opens the finder where free, ⌘+ / bare ⌘= disambiguate history vs the twelfth lens, keyboard parity with the lens-switcher strip (including a locked lens), and ⌘]/⌘[ stepping to reach the lens with no digit. Exits 1 if any check fails.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: I predicted a generic exhaustive cross-product and a `step` helper that loops over states; actually it's a fixed list of pointed regression assertions and `step` specifically extracts the stepBy action for bracket keys.
+- spec 3 · read at `8bb7cad4b1f9` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:16Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A standalone script that imports the key decision function from lib/keys.ts, feeds it many key events across states (typing in inputs, modifiers, Tab, digits), and asserts the resulting action using check(); exits nonzero if any failed.
+- found: Test script pressing actOf across key/state combinations: lens digits, Tab/find, history, stepping, menu families order; exits 1 on failure.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- note: Header explains the why (regression history) which code alone cannot.
 
 ### `check`
-- spec 3 · read at `7026e7f50af2` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:47:21Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A tiny assertion helper for this CLI script: if `ok` is false it prints a failure message (including `what` and the `saw` value if given) and marks the run as failed, likely via process.exitCode or a shared counter, while doing nothing (or maybe a pass log) when ok is true.
-- found: Logs "ok <what>" and returns if ok is true; otherwise increments a shared `failed` counter and logs "FAIL <what>" plus the JSON-stringified `saw` value if one was provided.
+- spec 3 · read at `9c0b6be668b8` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Assertion helper: if ok is false, records/prints a failure with the description and the observed value (saw), likely incrementing a failure counter or setting exit code; otherwise logs a pass.
+- found: Prints ok line, or increments module-level failed counter and prints FAIL with JSON of saw if provided.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Docs describe the file, not this function.
+
+### `cmd`
+- spec 3 · read at `7654cb505153` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:03Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns actOf result for a key pressed with meta held, in a default state (not typing, no finding, not covered).
+- found: Builds a key-press descriptor with only meta set; it doesn't call actOf or carry state.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The file_doc explains why this check script exists (a keyboard-map ordering bug) but not this function's own behavior.
 
-### `cmd` — PREDICTED SOME
-- spec 3 · read at `b3234bb32a25` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:32Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: cmd(key) calls into the actual keyboard shortcut handler from lib/keys.ts with a synthetic event for that key, then returns the resolved command name (or undefined) - used by check/lens to enumerate what each key does in each state without duplicating the handler's own early-return ordering logic.
-- found: It's a tiny factory that builds a synthetic key-event object for a given key string, defaulting meta:true and the other modifiers false — it doesn't call any handler itself, just constructs the input shape that check/lens presumably feed into the real handler.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-
-### `lens` — PREDICTED NONE
-- spec 3 · read at `9061a87b7cb6` · commit `db7b69c` · read by claude-sonnet-5 · via claude · when 2026-08-30T07:49:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes an Act object and returns a short human-readable string label combining its key and modifier flags (e.g. "Ctrl+Tab"), used elsewhere in the script for printing or comparing actions.
-- found: Extracts a representative value from an Act: if the action's `do` field is 'lens', returns its `mode` sub-field, otherwise returns the `do` field itself (with optional chaining for null/undefined safety). It's a special-case accessor, not a string formatter.
-- predicted: none · documented: none · derivable: yes · legible: full · trap: no
-- note: The file_doc explains why the script exists (a Tab-shortcut regression) but says nothing about this specific accessor's lens-vs-do special-casing.
+### `lens`
+- spec 3 · read at `441fadf1fe28` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:05Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Returns the lens name/index from an Act if it is a lens-switch action, else null/undefined.
+- found: Returns the mode for a lens action, otherwise the action's kind (a.do), or undefined when a is falsy.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `step`
-- spec 3 · read at `73131de6ddb5` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:47:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A small helper that simulates pressing a single key `k`, likely calling into the keyboard-map/shortcut logic (e.g. cmd or lens) and advancing/reporting current state by one step, used so the twelfth lens (with no digit shortcut) can still be reached via repeated stepping instead of a direct number key.
-- found: step(k) simulates pressing key k by calling cmd(k) to get the resulting action against the `idle` state, then returns the step delta (`a.by`) only if the action's `do` is 'step', otherwise null — it's a query of what stepping distance a key would produce, not a state-advancing action itself.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `6726fe8c7ec1` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Test helper that presses key k through the key-decision function with default state and returns the resulting action/command, probably mapping it to a stepping command.
+- found: Maps key to command, runs through actOf in idle state, returns the step delta if the action is 'step', else null.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no · test: yes
+- note: The doc explains why stepping matters, not what step returns (delta or null).
 
 ## web/scripts/map-check.ts
 
@@ -612,29 +611,29 @@ What this is and how to add to it: [README.md](README.md)
 ## web/scripts/vector-check.ts
 
 ### the file itself
-- spec 3 · read at `6cd6bd9fbe99` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:32:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A standalone CLI verification script for a vector graphics/PDF pipeline. It draws a test page exercising the Surface API and SVG translator, writes out a PDF file, then shells out to poppler utilities (pdfinfo, pdffonts, pdftotext) to validate the PDF opens, has embedded fonts, and contains findable/extractable text matching what was drawn. Helper functions `run` (shell out to a command and capture output), `check` (assert a condition and report pass/fail), and `font` (check font embedding) support the main flow. Honors a VECTOR_OUT env var to leave the generated PDF on disk for manual inspection instead of cleaning it up.
-- found: A CLI check script: builds fonts, loads CSS vars, draws a test page through Surface (text, paths, clipping, blend modes) and an SVG (sunburst-style paths, pattern hatch, textPath, nested transforms), writes the PDF via PdfDoc, then does two kinds of verification: (1) manual byte-level parsing of the PDF's own structure (header, EOF, xref table entries each landing on the correct object offset, stream /Length honesty, page/outline counts) and (2) shelling out to poppler's pdfinfo/pdffonts/pdftotext to confirm it opens, fonts are embedded as subsets, and drawn text is extractable. Exits 1 on any failed check.
-- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+- spec 3 · read at `4ecf7c4debd9` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:14Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A script that builds a PDF page via Surface and the SVG translator, writes it to a temp file (or VECTOR_OUT), runs poppler's pdfinfo/pdffonts/pdftotext on it, and asserts on the output using a check helper. A font helper loads a test font; run() is the main entry that sets the exit code on failures.
+- found: Top-level script: builds a page from a Surface and an SVG, writes the PDF, then checks the xref offsets, stream lengths and page tree by hand. It then runs poppler's pdfinfo, pdffonts and pdftotext if installed, and exits 1 on any failure. There is no run() function; run is a local wrapper around execFileSync.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `check`
-- spec 3 · read at `b3d09b94fd99` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:20:51Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A tiny test-assertion helper: logs pass/fail for a named check `what`, printing `saw` when `ok` is false, and likely tracks a failure count (or exits) so the vector-check script can report overall success/failure.
-- found: Logs "ok" or "FAIL" for a named check, appending a truncated JSON dump of `saw` on failure, and increments a module-level `failed` counter.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no · test: yes
+- spec 3 · read at `260f62ec7759` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:51Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Same assertion helper: logs ok, or increments a failure counter and logs FAIL with the description and observed value, perhaps setting process.exitCode.
+- found: Logs ok, or increments failed and logs FAIL with saw JSON truncated to 300 chars.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Docs describe the file, not this function.
 
-### `font` — PREDICTED NONE
-- spec 3 · read at `f7cc50030df6` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A check helper that runs pdffonts on the given PDF file, searches its output for a line naming the given font name, and asserts/records under key that the font appears and is embedded (not just referenced).
-- found: Reads a font file's bytes from public/fonts/pdf and wraps them in a Face object (key, name, bytes) — a constructor helper for supplying fonts to the PDF-drawing surface, not a validation/check function at all.
-- predicted: none · documented: none · derivable: yes · legible: not judged · trap: no
-- note: The name `font` sits right next to `check`, which primes the reader (wrongly) to expect an assertion; it's actually input construction, the opposite direction.
+### `font`
+- spec 3 · read at `edbe37ba9536` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: One-line arrow returning a font descriptor object: reads the font file's bytes from a fonts directory and returns {key, data, name}.
+- found: Builds a Face from key, name and bytes read from public/fonts/pdf/<file> (cwd-relative).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `run`
-- spec 3 · read at `44e31314ea2e` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:43:17Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A small helper that spawns the given command with args (probably via execFileSync or Bun's spawnSync), captures and returns its stdout as a string, and throws or logs a helpful error if the command fails or isn't found — used to invoke poppler's pdfinfo/pdffonts/pdftotext against the generated PDF.
-- found: Wraps execFileSync; returns stdout on success, null if the command is missing (ENOENT, so a caller can distinguish "tool not installed" from "tool failed"), or a string prefixed "ERROR " with stdout+stderr on other failures — never throws.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `76b5ebc705ee` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Runs an external command (poppler tool) synchronously via spawnSync/execFileSync with args, returns its stdout as a string, and probably throws or records a failure if the exit code is nonzero.
+- found: execFileSync wrapper returning stdout; null if binary missing (ENOENT); otherwise on failure returns a string prefixed "ERROR " with stdout+stderr instead of throwing.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/App.tsx
 
@@ -2688,10 +2687,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `useLensKeys` — PREDICTED SOME
-- spec 3 · read at `5cf484c5c638` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:20:41Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A React effect hook that adds a keydown listener mapping Cmd-1..9/Cmd-0 to select the corresponding lens/mode from MODE_LABEL's key order via setMode, Cmd-minus to select the eleventh lens, and Cmd-plus/equals to toggleHistory (the replay toggle). It likely bails out early when a text input is focused, or when `finding`/`findingsOpen`/`helping` indicate some overlay/search state is active that should swallow the shortcut instead, and cleans up the listener on unmount.
-- found: Adds a keydown listener that delegates the actual key-to-action decision to `actOf` (in lib/keys.ts), passing typing/finding/covered context flags; based on the returned action it opens find, toggles history, wraps-steps through MODE_LABEL's mode list, or sets the mode directly, preventing default whenever an action was claimed. Uses a ref for the current mode so the listener doesn't need to rebind on every mode change.
+- spec 3 · read at `afaab880e450` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A React hook registering a window keydown listener in an effect. Cmd+digit maps to Object.keys(MODE_LABEL)[n] and calls setMode; Cmd+0 is tenth, Cmd+- eleventh, Cmd+= / + calls toggleHistory. Ignores keys when help/findings panels are open (or exits finding mode), and preventDefaults handled keys.
+- found: Keydown listener delegating to actOf (lib/keys.ts) with typing/finding/covered context; preventDefaults any act, dispatches find/history/step (wrapping through MODE_LABEL keys using a modeRef)/set mode.
 - predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Docs describe digit/minus/plus mapping, but that logic now lives in lib/keys.ts actOf; the doc is stale and omits the step keys and find.
 
 ## web/src/hooks/useNavigation.ts
 
@@ -6626,98 +6626,96 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/lib/vector/doc.ts
 
 ### the file itself
-- spec 3 · read at `3a815cf9c9b4` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:01:55Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A hand-rolled, dependency-free PDF file writer. `PdfPage` accumulates content-stream operators (paths, fills, strokes, clips, text) plus per-page resource registration (fonts via fontName, images, patterns, graphics-state dicts via state()). `PdfDoc` owns the set of pages, manages font subsetting/embedding (TrueType subset with /W widths array and a ToUnicode CMap for copy/search), and serializes the whole document to bytes, tracking each object's byte offset as it writes so the xref table it appends is correct without a second pass. Helper functions format PDF primitives: `fmt` for numbers, `pdfString` for escaped string literals, `pdfDate` for date metadata, `subsetTag` for the 6-letter font-subset prefix, and `toUnicode` for the CMap.
-- found: Matches the predicted shape closely: PdfPage/PdfDoc classes, font subsetting with /W widths and ToUnicode CMap, single-pass byte-offset tracking for a correct-by-construction xref table, and the predicted helper functions all present. Missed: link annotations (PdfLink) with per-page /Annots, tiling PdfPattern objects with dedup-by-JSON-equality, an outline/bookmark tree built from pages with a `title`, `pageAt` for writing a page at a reserved index out of draw order, and image soft-masks (alpha channel as a separate DeviceGray XObject).
+- spec 3 · read at `01e159740bf7` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:16Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: PDF document container: PdfDoc holds pages and fonts, PdfPage accumulates content stream plus resource registries (graphics states, images, patterns, fonts) deduped by name; write() serializes objects, tracks byte offsets for xref, embeds font subsets with ToUnicode CMaps, info dictionary with date. Helpers format numbers, strings, dates.
+- found: Hand-written PDF writer: PdfPage/PdfDoc with resource registries, write() emitting fonts, pages, images, patterns, links, outlines, xref with offsets; subsetTag and ToUnicode helpers.
 - predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
-### `fmt` — PREDICTED SOME — TRAP
-- spec 3 · read at `19c200fd17e4` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:34:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Formats a number the way a PDF content stream requires: fixed-point decimal (no scientific notation like 1e-7), rounded to a small number of decimal places, with trailing zeros/decimal point stripped, returning a short numeric string.
-- found: Guards non-finite input to '0', rounds to 3 decimal places via multiply/round/divide, normalizes -0 to '0', then relies on String(r) — no toFixed or explicit trailing-zero stripping as I'd guessed.
-- predicted: some · documented: full · derivable: no · legible: full · trap: yes
-- note: String(r) can still emit exponential notation for very small rounded magnitudes (e.g. values that round to 1e-7-scale would not occur since rounding to 3 decimals floors them to 0, but for very large n, String() can produce exponential form too) — worth confirming the doc's 'never 1e-7' guarantee actually holds across the full numeric range PDF content streams see.
+### `fmt`
+- spec 3 · read at `f65a91adc0b1` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:58Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Rounds n to a few decimals (toFixed(3) or so), strips trailing zeros and a trailing dot, and normalizes "-0" to "0", so no exponent notation appears.
+- found: Non-finite becomes '0'; rounds to 3 decimals via Math.round; -0 becomes '0'; otherwise String(r). Rounding to 3 decimals keeps small values out of exponent form, since anything under 0.0005 rounds to 0.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `pdfString`
-- spec 3 · read at `eec484cca421` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:43:09Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the string is plain ASCII; if so, escapes special characters like ( ) and backslash and returns it wrapped in parentheses as a PDF literal string. If not, it encodes the string as UTF-16BE with a leading FE FF byte-order mark, converts that to a hex string, and returns it wrapped in angle brackets (or parens with escaped bytes) as required by the PDF spec.
-- found: Tests for printable ASCII; if so wraps in parens escaping backslash/parens. Otherwise builds a UTF-16BE hex string (code unit per JS char, no surrogate pair handling) prefixed with FEFF BOM, wrapped in angle brackets.
+- spec 3 · read at `78b822ca7b22` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: If all chars are printable ASCII, returns "(" + escaped string (backslash, parens) + ")". Otherwise returns hex string "<FEFF...>" of UTF-16BE code units.
+- found: Printable ASCII returns escaped literal string; otherwise UTF-16BE hex string with FEFF BOM.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `pdfDate`
-- spec 3 · read at `c5a26c598a9c` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:25:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Formats a JS Date into the PDF date string format required for document metadata: "(D:YYYYMMDDHHmmSS+HH'mm')" using the local or UTC time, zero-padding each numeric field, and appending a timezone offset segment.
-- found: Formats a Date as PDF date string "D:YYYYMMDDHHMMSSZ" using UTC fields, zero-padded, with a literal trailing Z (no offset, no parens).
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `7aa25a82804f` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Formats a Date as "D:YYYYMMDDHHmmSS" using UTC components, maybe with trailing Z.
+- found: Formats Date as PDF date string D:YYYYMMDDHHmmSSZ in UTC.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `constructor` — PREDICTED NONE
-- spec 3 · read at `fd05fc72cecf` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:52:53Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Stores the parent doc, width, and height (in points), and initializes empty internal collections for this page's content-stream ops and its resource maps (fonts used, images embedded, patterns) that the later image/pattern/fontName/state methods populate and reference.
-- found: Empty body — just assigns the three readonly constructor parameters (doc, width, height) via parameter properties. No other initialization happens here at all.
-- predicted: none · documented: none · derivable: yes · legible: full · trap: no
-- note: Any resource maps/collections for fonts, images, ops etc. must be declared as class field initializers elsewhere in PdfPage, not in the constructor body.
+### `constructor`
+- spec 3 · read at `7e4b019b0e28` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:07Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Parameter-property constructor storing doc, width, height; the body probably empty or initializing a content ops array with a flip transform for y-up coordinates.
+- found: Empty body; only parameter properties doc, width, height (points).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `state`
-- spec 3 · read at `9cf1127be0a5` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:32:44Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: A PdfPage method that takes a map of ExtGState entries (like /ca, /CA, /BM) and returns the PDF resource name to reference it in the content stream (e.g. "/GS3"). It likely checks whether an identical entries set has already been registered for this page and reuses that name, otherwise allocates a new name, stores the entries in the page's ExtGState resource dictionary, and returns the name.
-- found: Builds a string key from the entries, looks it up in a per-page states map to dedupe, and if absent allocates a new name "GS{size}", stores it, and returns the (bare, no-slash) name string.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `a1f475dd0bb0` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds a canonical key from the entries, looks it up in a per-page map; if absent, assigns a new name like GS1 and stores the entries. Returns the name for use with the gs operator.
+- found: Dedupes graphics-state entries by key string (insertion-order sensitive), naming them GS0, GS1...
+- predicted: full · documented: some · derivable: no · legible: full · trap: no
 
 ### `image`
-- spec 3 · read at `c7daa000b9db` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:01:05Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: On PdfPage, registers an image resource for use in this page's content stream, similar to fontName's memoization: looks up img in a map, and if not already registered, mints a new resource name like "Im{n}", stores it, and probably records the image for later embedding as an XObject when the page/doc is written. Returns the resource name string.
-- found: Always mints a fresh name "Im{size}" and stores the image, unlike fontName which dedups via a lookup-first Map.get check — no dedup here, so the same image passed twice gets two resource entries.
+- spec 3 · read at `38d86bf3b3c8` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:10Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Registers the image in the page's resource map under a generated name like /Im1 (deduplicating if already present) and returns that name for use in a Do operator.
+- found: Names image Im<size>, stores it in map, returns name; no dedup, and name starts at Im0.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `pattern` — TRAP
-- spec 3 · read at `fb0908cd5234` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:20:39Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Looks up or registers a PdfPattern resource on the page, returning a PDF resource name (e.g. /P3) to reference in the content stream; memoizes by cell/placement so identical patterns are only defined once, adding a new entry to the page's pattern resource dictionary when it hasn't been seen before.
-- found: Deduplicates PdfPattern objects by JSON.stringify equality against previously registered patterns, returning the existing name if found, else registers it under a new name "P{size}" and returns that.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: yes
-- note: The dedup is O(n) JSON.stringify comparison per call and depends on stable key ordering in PdfPattern objects — fine at PDF-sized pattern counts, but a trap if pattern property insertion order ever varies, since equal patterns would then silently fail to dedupe (not a correctness bug, just duplicated resources).
+### `pattern`
+- spec 3 · read at `cd6145fda189` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Registers a pattern in a page-level map keyed by its cell/placement identity, assigning a name like P0, P1 on first sight and returning the existing name thereafter.
+- found: Dedupes patterns by JSON.stringify equality (linear scan), returning existing name or registering a new P<n>.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `fontName` — PREDICTED SOME
-- spec 3 · read at `b356c7375808` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:58:04Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Looks up or lazily registers `face` in this page's list of used fonts, returning a resource name like "F1"/"F2" based on its index in that list, adding it if not already present.
-- found: It registers the face in this page's own `fonts` set (tracking which fonts are used on this page) and delegates the actual name generation/lookup to the parent `PdfDoc.fontName`, which presumably assigns the global resource name.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+### `fontName`
+- spec 3 · read at `73bf9c0924c9` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:08Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Delegates to the owning doc's fontName(face) to get or allocate a name like "F1", records it in the page's font resource map, and returns it.
+- found: Adds the face to the page's fonts set, then returns the doc-wide name from doc.fontName(face).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `page`
-- spec 3 · read at `71c69f3f5111` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:01:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Creates a new PdfPage instance sized to width/height, registers it in the PdfDoc's internal list of pages (so write() later serializes it in order), and returns the new page for the caller to draw on.
-- found: Exactly as predicted: constructs a new PdfPage(this, width, height), pushes it to this.pages, returns it.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `fee920dd3494` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:11Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Creates a new PdfPage of the given size bound to this doc, pushes it onto the pages list, and returns it.
+- found: Creates PdfPage bound to doc, appends to pages, returns it.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `pageAt`
-- spec 3 · read at `f520fbd21f4a` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:01:13Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Creates a new PdfPage sized width x height and inserts/stores it at a specific `index` in the document's pages array (rather than appending), so a page drawn out of order — like a contents page finalized last but meant to appear third — still ends up in the right position in the final PDF's page tree.
-- found: Creates a new PdfPage and stores it at a given index in the pages array, returning it, so a page produced out of draw-order still lands at its correct position in the document.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+### `pageAt` — TRAP
+- spec 3 · read at `a64dd893c3ad` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:13Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Creates a new PdfPage and inserts it into this.pages at the given index (splice), returning it.
+- found: Creates a PdfPage and assigns it to pages[index] (overwrite/sparse fill, not insert), returning it.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: It assigns pages[index] rather than splicing, so a skipped index leaves a hole that write() will crash on (p.ops of undefined) and an occupied index is silently overwritten.
 
 ### `fontName` #2
-- spec 3 · read at `ec593c1414cb` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T05:00:39Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: On PdfDoc (doc-level, not page-level), looks up or creates a PDF resource name (like "/F1", "/F2") for a given Face, keyed in some doc-wide map so repeated use of the same face across pages reuses the same font name/object. Probably involves subsetTag to build a unique tag per subset and registers the face for embedding if not already known.
-- found: Looks up the face in a doc-level Map<Face,string>; if absent, mints a new name "F{size}" and stores it, then returns the name. Matches my prediction of a memoized resource-name lookup, though simpler (no subsetTag involvement here).
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `05b9d44c6e34` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:35:08Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Registers the face in the document's font list if not present (Map lookup, else assigns next name like F1, F2) and returns its resource name.
+- found: Memoized Face→"F<n>" resource name in this.faces map.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `write`
-- spec 3 · read at `323caf999e1a` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:33:00Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The top-level serializer: builds a byte buffer by writing the PDF header, then walks all pages and fonts, emitting each as a PDF object (font objects use o.subset to get TrueType subset bytes plus /W widths and a ToUnicode CMap; page objects emit their content stream of paths/fills/strokes/clips/text, compressed via o.deflate), tracking each object's byte offset as it's appended so the cross-reference table can be built exactly, then appends the xref table, trailer, startxref and %%EOF, returning the final Uint8Array.
-- found: Reserves object slots for catalog/tree/info/pages up front, then fills in font objects (Type0/CIDFontType2/FontDescriptor/embedded subset stream/ToUnicode), then per-page content streams plus resources (fonts, ExtGState, images with optional SMask alpha, tiling patterns, link annotations), then an outline tree for titled pages, then serializes everything sequentially into byte chunks while recording each object's offset, and finally writes the xref table, trailer, startxref and EOF from those recorded offsets.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
+### `write` — LEGIBLE SOME
+- spec 3 · read at `bc69eb29c073` · commit `a6ee009` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Builds the PDF: allocates object numbers for catalog, pages, fonts (subset via o.subset, with descriptor, widths, ToUnicode), images, patterns and page content streams (deflated), writes each object recording byte offsets, then emits the xref table, trailer with Info (title, created date) and startxref. Returns the concatenated bytes.
+- found: Serializes the PDF: reserves object numbers, writes fonts (Type0/CIDFontType2/descriptor/subset file/ToUnicode), page content, images with SMask, tiling patterns, link annots, page objects, outlines, catalog/tree/info, then emits bytes with offset counting, xref and trailer. Throws if no pages or a reserved object was never written.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
 
 ### `subsetTag`
-- spec 3 · read at `96b2074ff010` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:29:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Derives a deterministic 6-letter uppercase tag from `face` (probably hashing its name/identity) by mapping the hash digits into the letters A-Z, to be used as the required subset prefix like "ABCDEF+FontName" in the PDF's embedded font BaseFont name.
-- found: Computes an FNV-1a-style hash over the glyph ids in face.used, then extracts 6 letters (A-Z) from the hash bits via shifting and mod-26, giving a tag deterministic in the actual subset of glyphs used (not the font's name/identity).
+- spec 3 · read at `057e226e7a11` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:52Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Hashes the face's identity (name/id) into a deterministic six-letter A–Z string, e.g. via a simple hash mod 26 per letter, so the same face always gets the same tag.
+- found: FNV-1a-style hash over the glyph ids in face.used (in insertion order), then six letters A–Z from 5-bit slices of the hash mod 26. So the tag depends on the glyphs used, not the face's name.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The tag is derived from the used glyph set, not the face's identity; that isn't stated in the doc.
 
 ### `toUnicode`
-- spec 3 · read at `eb92b4ced6f4` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:40Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds the PDF ToUnicode CMap stream text for a font subset: iterates glyphs in `face`, emits beginbfchar/endbfchar blocks mapping each glyph id (hex) to its Unicode codepoint (hex), wrapped in standard CMap boilerplate so PDF readers can search/copy text.
-- found: Sorts face.used glyph-id→text entries, chunks them into groups of up to 100 for beginbfchar/endbfchar blocks, encodes each mapped string as UTF-16 hex (with surrogate pairs for codepoints above 0xFFFF), and wraps it all in the standard Adobe-Identity-UCS CMap boilerplate.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The single doc line correctly names this as the glyph-id-to-text CMap, but doesn't mention the 100-entry chunking or surrogate-pair handling.
+- spec 3 · read at `3fd2473cd2f3` · commit `296c74c` · read by claude-sonnet-5 · via claude · when 2026-09-25T04:34:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Builds a ToUnicode CMap string: header boilerplate, codespace range <0000><FFFF>, then bfchar/bfrange entries mapping each used glyph id (4 hex digits) to UTF-16BE hex of its codepoint, chunked into blocks of 100, then footer.
+- found: Sorts face.used glyph ids, emits bfchar blocks of up to 100 with UTF-16BE hex (surrogate pairs for astral), skips empty text, wrapped in standard CMap boilerplate with 0000-FFFF codespace.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## web/src/lib/vector/env.ts
 
