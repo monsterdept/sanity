@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1286 of 1286 read · 230 unpredicted
+1288 of 1288 read · 230 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -31,12 +31,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/agentapi.rs
 
-### the file itself — LEGIBLE NONE
-- spec 3 · served in 16 parts · read at `86f7c360cbe8` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:22:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A large Rust module implementing the loopback HTTP server (axum router) that agents call: next/reveal/report handlers, per-project state with leases, task queue interleaving across files, persistence of reports, scanning/resync of projects, status/summary aggregation, endpoint file publishing, and a big test module. Header explains the rationale of agent-driven predict-then-look scoring.
-- found: An axum loopback backend plus all app state: the /open, /queue, /reveal, /report, /check, /status, /summary, /trace, /scan, /retire and /health handlers. It also holds Project and AppState, leases and file-rest spreading, report stamping and refusal rules, a wave runner that spawns reader processes, a launch restore with big and small scan lanes, a repo watcher, the sidebar ProjectList, and about half the file as regression tests. My prediction had the handlers, state, queue, persistence and tests but missed the restore lanes, trace budgeting, the watcher and the sidebar summary model. The header covers only the predict-then-look rationale and says nothing of the module's actual contents.
-- predicted: most · documented: some · derivable: no · legible: none · trap: no
-- note: The header explains only why an agent API exists and the predict-first rule; a short map of the sections (handlers, state, run wave, restore, watch, tests) would help a newcomer to a 5.7k-line file.
+### the file itself — LEGIBLE SOME
+- spec 3 · served in 16 parts · read at `88f15bf1cc40` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:44:39Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A loopback HTTP server (axum router) that exposes sanity_next/reveal/report to an agent. It holds per-project AppState (queues, leases, reports), persists reports to disk, scans projects for functions/files, hands out tasks spread across files, serves source bodies in parts after a prediction is recorded, validates reports, and aggregates summaries. Large, with a big test module covering lifecycle and edge cases.
+- found: A 5.7k-line module holding the loopback axum API plus much more: AppState/Project state, task queue and leases, reveal/report handlers with server-stamped provenance, status/summary aggregation, sidebar ProjectList, and also reader-wave orchestration (spawning agent processes), launch restore in two lanes, a repo watcher/rescan tick, trace depth handling, daemon health/retire/endpoint file, and about 60 tests. My prediction covered the HTTP/queue/reveal/report/aggregate core but missed the process orchestration, restore, watcher and trace.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: The header says bodies are never sent, which reveal now contradicts, and it describes only the agent protocol rationale, not the run orchestration, restore, watcher or daemon lifecycle that make up much of the file.
 
 ### `of` — PREDICTED SOME
 - spec 3 · read at `0a9549426a85` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -90,6 +90,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Removes key from two separate tracking structures: retains only non-matching entries in self.restoring (a list of in-progress restore keys) and removes the key from self.restoring_progress (a progress map) — clearing both regardless of scan outcome.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 - note: The doc's rationale (failure paths are where cleanup is easiest to forget) explains WHY callers must call this on every path, which isn't visible from the two-line body alone.
+
+### `land_restored`
+- spec 3 · read at `c014f0fc74cf` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:43:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether the projects map already contains key; if so returns false and drops the restored project. Otherwise inserts the project under key, likely persists or touches state, and returns true.
+- found: Calls settle(key), removes key from the shallow map, then returns false if a project already exists; otherwise inserts and returns true. The settle and shallow removal happen even when the restore is rejected.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: Docs explain the don't-replace rule but not the settle/shallow.remove side effects that run unconditionally.
 
 ### `publish_asked` — TRAP
 - spec 3 · read at `774516b5f9fc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -691,10 +698,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The docs attached to this handout actually describe the `restore` function, not `set_order` — file_doc/docs field mismatch.
 
 ### `drain` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `a3a0d84da9f8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:37:49Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Pops projects off its queue and, once empty, keeps asking claim_next for more from the shared wanted set, scanning each project (invoking on_shape/on_tick as scan progress arrives) and publishing the finished scan into shared state — repeating until there is no more work. It deliberately never writes to active, leaving that decision to restore, so two lanes running this function concurrently can't race on which project the window is currently showing.
-- found: Loops over its queue, using claim_next each iteration to pick which queued project to serve next (favoring whatever the window is waiting on), skips/settles projects that vanished or are too expensive to scan (unless a warm cache makes the estimate wrong), otherwise runs scan + trace-budget + report loading, banking size/rate/trace stats for future pricing, and finally inserts the rebuilt Project into shared state and marks it settled — all without ever touching `active`.
-- predicted: some · documented: most · derivable: no · legible: some · trap: no
+- spec 3 · read at `5423e05308db` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:43:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Loops over the queue of known projects; for each, scans the repo (calling on_tick for progress and on_shape with the file shapes), stores results/progress in the shared state under the lock, and publishes it. It skips projects that were dropped or already handled, and checks claim_next/wanted to see if this lane can serve it. Never modifies active.
+- found: Pops the claimed project, skips/settles missing dirs, preloads cached tree, prices the scan and declines (awaiting) if too expensive and no warm tree cache, else scans untraced, banks size/rate/trace depth, traces within budget, loads reports, builds Project and lands it under lock.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
 
 ### `claim_next`
 - spec 3 · read at `b95946e3ccb5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -945,11 +952,18 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 - note: I assumed the test would go through the queue/next handout path since the doc says 'not handed out at stale lines', but it actually verifies removal at the scan-tree level via resync_changed.
 
+### `a_late_restore_does_not_replace_a_project_holding_a_run`
+- spec 3 · read at `282b21723351` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:49:32Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test that opens a repo and attaches a run to the project, then simulates a late-landing restore for the same repo, and asserts the project (and its run/harness) is not replaced — the existing project remains and the run is still attached.
+- found: Test: builds a project with a run and a lease, inserts it, asserts land_restored refuses to replace it (run and lease kept), and that land_restored on an unopened path inserts the restored project.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Docs cover the scenario in prose; the second half (no project open, restore lands) is not mentioned.
+
 ### `a_backend_with_a_wave_in_flight_is_not_retired`
-- spec 3 · read at `57f239447756` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:43Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: This test starts an agent-api backend, simulates a wave (assessment run) currently in flight — e.g. a reader mid-read with an outstanding lease/task — and then calls the retire endpoint, asserting that retirement is refused/deferred rather than immediately swapping out the backend, since interrupting an in-flight wave would waste tokens. It probably also checks that the backend does retire once the wave finishes.
-- found: Tests the `retire` endpoint's refusal ladder: first refused with reason "window" while it's not headless (a window always keeps its readers), then set to headless and refused with reason "busy" while a run is in-flight (live=3, not ended), confirming the watch loop's `retiring()` flag stays false; then once the run's `ended` is set, retire succeeds and `retiring()` becomes true.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: yes
+- spec 3 · read at `c48d18075449` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:43:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Test sets up an agent-API backend with an active wave/lease outstanding, then triggers the retire/cleanup path (e.g. a sweep or shutdown of idle backends) and asserts the backend is still present/not removed. Likely creates state, hands out a task, calls the retire function, checks it remains.
+- found: Test builds a project with an in-flight Run, calls retire(): refuses with reason "window" when not headless, then "busy" once headless (and not retiring), then after run.ended is set retire succeeds and retiring() is true. I missed the window-refusal stage and the run-ending stage details.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `status_answers_about_the_callers_repo_not_the_window`
 - spec 3 · read at `207740eb8703` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:52Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
