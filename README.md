@@ -58,7 +58,7 @@ measurements, like "over 200 lines, and hard to follow" or "depended on by ten o
 functions, and undocumented." Sanity comes with about two dozen rules, and you can change
 their thresholds or turn them off for your repo.
 
-<img src="docs/images/findings.png" alt="The findings list" width="640">
+<p align="center"><img src="docs/images/findings.png" alt="The findings list" width="560"></p>
 
 ```
 $ sanity findings --limit 2
@@ -90,6 +90,25 @@ might be a mess. Git history helps tell them apart:
 |---|---|---|
 | **Hard to predict** | Probably intricate and important. Document it and be careful with it. | Probably a problem. |
 | **Easy to predict** | Routine. Worth a look only if there's a lot of it. | Routine work. Usually fine. |
+
+## How rules work
+
+A rule is a condition over measurements, applied to every function or every file:
+
+```
+func: loc >= 200 and illegible >= 0.6
+```
+
+That one is "Giant and hard to follow": at least 200 lines, and a reader had to go back over
+it more than once. A rule has one to four clauses joined by `and`, each a field, an operator
+and a number. The fields are the lenses' measurements plus a few counts, such as how many
+people have worked in a function or whether a test calls it.
+
+`.sanity/rules/README.md` lists every rule that ran. To change one for your repo, edit its
+line in `.sanity/rules/catalog.md`: change a number, add `; off` to turn it off, or add a rule
+of your own. If the list is too long or too short, `sanity findings balance --target 20`
+suggests thresholds that give about 20 findings. [docs/rules.md](docs/rules.md) has every
+field, the file format, and what an edit does to decisions you've already made.
 
 ## The lenses
 
@@ -126,18 +145,6 @@ sanity findings                               # what needs work, and why
 git add .sanity && git commit -m "Readings"
 ```
 
-## Changing the rules
-
-`.sanity/rules/README.md` lists every rule that ran: its name, the conditions it checks, and
-what it says about a match. That file is regenerated on every scan.
-
-To change a rule for your repo, edit its line in `.sanity/rules/catalog.md`. Change a number
-and it's used as written. Add `; off` to turn the rule off. Delete the line to go back to the
-default. The rules editor in the app makes the same changes.
-
-If the list is too long or too short to be useful, `sanity findings balance --target 20`
-suggests thresholds that would give about 20 findings, and `--apply` saves them.
-
 ## What you need
 
 - **Sanity itself.** See [Installation](#installation).
@@ -162,7 +169,7 @@ A cheaper reader isn't a cheaper version of the same measurement (see
 [why trust the signal](#why-trust-the-signal)). Start with `sanity check --limit 50`
 to see what a pass is like before reading everything.
 
-<img src="docs/images/read-dialog.png" alt="Starting a reading pass: the agent, the model, and what the pass will cover" width="480">
+<p align="center"><img src="docs/images/read-dialog.png" alt="Starting a reading pass: the agent, the model, and what the pass will cover" width="420"></p>
 
 To leave parts of a repo out, list them in a `.sanityignore` at the root. They're still drawn
 on the map, but they aren't read and don't count toward coverage.
