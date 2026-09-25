@@ -2567,9 +2567,9 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `verify`
-- spec 3 · read at `9b60e29b1df3` · commit `83a90f8` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:22:01Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Scans the repo at path (exit 2 on failure), loads stored readings, and computes three checks: complete (no unread units), current (no stale or SPEC-dated readings), one instrument (all current readings share a harness and model, optionally pinned by args, skipped if mixed). Prints a row per check with pass/fail/skip and a tally, returns 0 if all pass else 1.
-- found: Canonicalizes path (exit 2 on error), reads repo, calls agentapi::verify, prints pass/FAIL rows for complete, current, one instrument (skip if mixed), lists outstanding items by category capped at 20, per-instrument breakdown, emits GitHub Actions annotations when in CI, returns 0 or 1 with a hint.
+- spec 3 · read at `fb62881b0ead` · commit `4867125` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:40:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Scans the repo at path (exit 2 on failure), loads readings from .sanity/, then computes three checks: complete (no unread units), current (none stale or dated), one instrument (all readings share one harness and model, honoring the pins, waived by mixed). Prints a line per check with pass/fail/skip plus a tally, returns 0 if all pass else 1.
+- found: Canonicalizes path (exit 2 on error), exits 1 early if no .sanity/ dir (with GitHub annotation), reads repo (exit 2 on failure), computes complete/current/one-instrument checks, prints rows with pass/FAIL/skip (skip when mixed), lists outstanding items by stale/unread/dated capped at 20, prints instrument breakdown, emits GitHub ::error annotations (max 10) when in Actions, returns 0 or 1 with a hint.
 - predicted: most · documented: most · derivable: no · legible: most · trap: no
 
 ### `required`
@@ -2620,10 +2620,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: The test covers staleness-after-edit and a whole summary/renderCache contract, not just the "whole files + stamped loc" the name/doc emphasize.
 
 ### `verify_refuses_each_kind_of_gap_on_its_own`
-- spec 3 · read at `240416f3f8f6` · commit `83a90f8` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:22:06Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Builds a scan and store in a temp dir, checks verify passes when complete, then introduces each gap one at a time (unassessed item, stale reading, mixed model/harness) and asserts verify fails for each specific reason, restoring between.
-- found: Test that writes a temp repo, saves readings for all units, and asserts verify's exit code and owed list for each gap: unread, stale body, dated spec, mixed models (waived by mix flag), plus unread still failing under mix.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no · test: yes
+- spec 3 · read at `5970bb4571c8` · commit `4867125` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:40:51Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a scan and a store on disk, then for each kind of gap (unassessed function, missing reading, reads by more than one instrument, etc.) mutates the store, reloads it, and asserts verify returns a failure naming that gap. It also likely asserts the clean state passes.
+- found: Test that writes a temp repo, saves readings for all units, and checks verify's exit code and outstanding list for each gap: unread, stale body, dated spec, two models (fails unless mix allowed), pinned model mismatch, empty dir, and unread in a mixed repo.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ### `stamping_marks_size_expiry_and_dating`
 - spec 3 · read at `2058f7a36187` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:34:30Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
