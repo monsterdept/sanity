@@ -1,7 +1,16 @@
 # Sanity docs
 
-Three kinds of document live here, and they are kept apart so that a reader can tell what the
+Four kinds of document live here, and they are kept apart so that a reader can tell what the
 product does from what somebody once meant it to do.
+
+## Using Sanity
+
+- [cli.md](cli.md): every command.
+- [lenses.md](lenses.md): what each lens measures, and what it needs to have run first.
+- [findings.md](findings.md): findings, decisions, and how rules produce them.
+- [rules.md](rules.md): the rule grammar, every field, and what an edit does to decisions.
+- [ci.md](ci.md): checking committed readings with `sanity verify`, on GitHub Actions or
+  anywhere else.
 
 ## How it works — true of the code today
 
