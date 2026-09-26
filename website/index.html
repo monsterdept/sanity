@@ -1107,7 +1107,7 @@ img{max-width:100%; display:block}
     <div class="acq">
       <figure>
         <img src="./assets/icon-512.png" alt="The Sanity app icon">
-        <figcaption>Exhibit L<br>App icon</figcaption>
+        <figcaption><span id="icon-no">Exhibit M</span><br>App icon</figcaption>
       </figure>
       <div>
       <table class="dl">
@@ -1379,6 +1379,10 @@ sanity check --detach        <span class="c"># start it and return</span></pre>
      plates here, and the app icon closes it in 06. The exhibits document the
      habitat; the occupant only appears in the photographic record. */
   function letter(n) { return String.fromCharCode(69 + n); }
+  /* The icon's letter is written into the page for a visitor without scripts,
+     and set here from the plate count so a plate added or removed moves it. */
+  var iconNo = document.getElementById('icon-no');
+  if (iconNo) iconNo.textContent = 'Exhibit ' + letter(tiles.length);
 
   tiles.forEach(function (t, n) {
     var tag = document.createElement('span');
