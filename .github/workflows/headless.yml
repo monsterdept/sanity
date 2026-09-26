@@ -36,22 +36,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: [self-hosted, linux, X64, krapow]
+          # GitHub-hosted, each target on its own architecture — the same runners release.yml
+          # builds the bundles on, for the same reasons. 22.04 because a Linux binary runs on
+          # distros whose glibc is at least the one it was built against.
+          - os: ubuntu-22.04
             triple: x86_64-unknown-linux-gnu
-          # Cross-compiled from the x64 runner with the distribution's aarch64 toolchain. It
-          # cannot be run here, so it is checked by building and not by `--version`.
-          - os: [self-hosted, linux, X64, krapow]
+          - os: ubuntu-22.04-arm
             triple: aarch64-unknown-linux-gnu
-            cross: linux
-          - os: [self-hosted, macOS, arm64, krapow]
+          - os: macos-15
             triple: aarch64-apple-darwin
-          - os: [self-hosted, windows, X64, krapow]
+          - os: windows-latest
             triple: x86_64-pc-windows-msvc
-          # As release.yml builds the Windows ARM64 installer: from the x64 runner, with clang
-          # from LLVM for the C grammars.
-          - os: [self-hosted, windows, X64, krapow]
+            msvc: x64
+          - os: windows-11-arm
             triple: aarch64-pc-windows-msvc
-            cross: windows
+            msvc: arm64
 
     runs-on: ${{ matrix.os }}
     permissions:
@@ -62,6 +61,15 @@ jobs:
 
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.msvc }}
+
+      # Git for Windows' coreutils `link` sits ahead of MSVC's link.exe under `shell: bash` —
+      # see release.yml.
+      - name: Keep Git's link out of the linker's way (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: rm -f /usr/bin/link.exe
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -79,51 +87,20 @@ jobs:
           BASE="${TAG#v}"; BASE="${BASE%%-*}"
           node scripts/stamp-version.mjs "$BASE"
 
-      - name: Add Rust cross-compile target
-        if: matrix.cross
-        shell: bash
-        run: rustup target add ${{ matrix.triple }}
-
-      - name: Install the aarch64 toolchain (Linux cross)
-        if: matrix.cross == 'linux'
-        shell: bash
-        run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          {
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
-            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
-            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
-          } >> "$GITHUB_ENV"
-
-      - name: Add LLVM to PATH (Windows cross)
-        if: matrix.cross == 'windows'
-        shell: bash
-        run: echo "C:/Program Files/LLVM/bin" >> "$GITHUB_PATH"
-
-      # Native builds land in target/release; a --target build under target/<triple>/release.
       - name: Build
         id: build
         shell: bash
         working-directory: src-tauri
         run: |
           set -euo pipefail
-          if [ -n "${{ matrix.cross }}" ]; then
-            cargo build --release --locked --no-default-features --target ${{ matrix.triple }}
-            dir="target/${{ matrix.triple }}/release"
-          else
-            cargo build --release --locked --no-default-features
-            dir="target/release"
-          fi
+          cargo build --release --locked --no-default-features
           exe=sanity; [ "$RUNNER_OS" = "Windows" ] && exe=sanity.exe
-          echo "bin=src-tauri/$dir/$exe" >> "$GITHUB_OUTPUT"
+          echo "bin=src-tauri/target/release/$exe" >> "$GITHUB_OUTPUT"
           echo "exe=$exe" >> "$GITHUB_OUTPUT"
 
       # The binary is asked, not the filename: the filename is chosen by the same job whose
-      # stamping is in question. Native builds only — a cross build cannot run on this runner.
+      # stamping is in question.
       - name: Check the binary
-        if: ${{ !matrix.cross }}
         shell: bash
         env:
           BIN: ${{ steps.build.outputs.bin }}
@@ -199,10 +176,3 @@ jobs:
           done
           echo "::error::release asset upload failed after 5 attempts"
           exit 1
-
-      # Persistent self-hosted runners keep target/ forever; a release build is the biggest
-      # thing in it and has no warm-cache value.
-      - name: Clean target dirs
-        if: always()
-        shell: bash
-        run: cargo clean --manifest-path src-tauri/Cargo.toml || true

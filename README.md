@@ -14,6 +14,13 @@ It's for anyone maintaining a codebase, including one an agent wrote. Sanity doe
 your code anywhere: the agent you already use does the reading, and the results are saved as
 Markdown in your repo.
 
+Most of Sanity costs nothing. Nine of its thirteen lenses and History need no agent and no
+tokens, because they come from parsing the code and reading its git history. They show you
+how big and tangled the code is, what calls what, where it's duplicated and how it has
+changed. Findings work without an agent too, and on a repo nobody has read yet they mostly
+point at the large, tangled code worth reading first. Readings are what you add when you
+want to know where the code will trip someone up.
+
 How the pieces fit:
 
 - **Readings** measure each function: how well a reader predicted it, how hard it was to
@@ -32,8 +39,9 @@ Sanity draws the repo as a sunburst: the repo in the middle, directories and fil
 around it, and every function on the outer edge, sized by its line count. You choose what the
 color shows: how well an agent could predict the code, how hard it was to follow, whether
 it's documented, how complex it is, what calls it, who worked on it last, how old it is, how
-often it changes, and more. Click any function to see its code and everything Sanity knows
-about it. **History** replays the repo one commit at a time, so you can watch it grow.
+often it changes, and more; [docs/lenses.md](docs/lenses.md) lists every lens. Click any
+function to see its code and everything Sanity knows about it. **History** replays the repo
+one commit at a time, so you can watch it grow.
 
 ![A function's reading in the side panel](docs/images/reading.png)
 
@@ -54,34 +62,12 @@ is on it. For example:
 - code copied into several places, where one copy changed and the others didn't
 
 Each item is a **finding**, and each finding comes from a **rule** that combines a few
-measurements, like "over 200 lines, and hard to follow" or "depended on by ten or more
-functions, and undocumented." Sanity comes with about two dozen rules, and you can change
-their thresholds or turn them off for your repo.
+measurements. You decide on each one: fix it, snooze it, mark it wrong or accept it, and the
+decision is committed with the repo. [docs/findings.md](docs/findings.md) covers findings,
+decisions and how rules work; [docs/rules.md](docs/rules.md) has every field and how to
+write your own.
 
 <p align="center"><img src="docs/images/findings.png" alt="The findings list" width="560"></p>
-
-```
-$ sanity findings --limit 2
-/Users/you/projects/sanity  14 findings
-
-  web/src/components/Findings.tsx#Findings
-    Giant and hard to follow
-      1,012 lines, and a reader had to go back over it more than once to follow
-      it. Anything that changes it has to hold all of it at once, and a reader
-      already found that hard.
-    Tangled and hard to follow
-      For 720 lines of code this branches far more than bodies that size usually
-      do here, and a reader had to go back over it more than once to follow it.
-
-  web/src/App.tsx#App
-    Unpredicted and far-reaching
-      This calls 48 other functions and a reader still could not predict what it
-      does. It coordinates work that is not apparent from its own body.
-```
-
-You decide on each finding: fix it, snooze it until the code changes, mark it wrong, or
-accept it. Decisions are committed with the repo, so the list gets shorter as you work
-through it, and anyone who picks up the repo sees the same list you do.
 
 A hard-to-predict function isn't always a problem. It might be a careful algorithm or it
 might be a mess. Git history helps tell them apart:
@@ -91,69 +77,29 @@ might be a mess. Git history helps tell them apart:
 | **Hard to predict** | Probably intricate and important. Document it and be careful with it. | Probably a problem. |
 | **Easy to predict** | Routine. Worth a look only if there's a lot of it. | Routine work. Usually fine. |
 
-## How rules work
-
-A rule is a condition over measurements, applied to every function or every file:
-
-```
-func: loc >= 200 and illegible >= 0.6
-```
-
-That one is "Giant and hard to follow": at least 200 lines, and a reader had to go back over
-it more than once. A rule has one to four clauses joined by `and`, each a field, an operator
-and a number. The fields are the lenses' measurements plus a few counts, such as how many
-people have worked in a function or whether a test calls it.
-
-`.sanity/rules/README.md` lists every rule that ran. To change one for your repo, edit its
-line in `.sanity/rules/catalog.md`: change a number, add `; off` to turn it off, or add a rule
-of your own. If the list is too long or too short, `sanity findings balance --target 20`
-suggests thresholds that give about 20 findings. [docs/rules.md](docs/rules.md) has every
-field, the file format, and what an edit does to decisions you've already made.
-
-## The lenses
-
-Each lens colors the map by one measurement. **Needs** is the step that has to have run
-first: Scan (parse the repo), Trace (read its git history) or Read (take readings). They're
-the three buttons on each project in the app's sidebar. The descriptions come from the app's
-own help.
-
-| Lens | Needs | What it measures | Values |
-|---|---|---|---|
-| **Complexity** | Scan | How tangled a body is: every fork costs one, plus one for each fork it's nested inside, weighted against other bodies its size in this repo. | low · moderate · high · very high |
-| **Composition** | Scan | What the repo is made of: code written here, headers, tests, generated code and vendored code. | code · header · test · generated · vendored |
-| **Language** | Scan | The file's language, by extension. | |
-| **Clones** | Scan | Functions whose bodies are identical once identifiers and literals are flattened and comments dropped. | too small to compare · no clone in this repo · a clone |
-| **Callers** | Scan, in a language whose calls Sanity reads | How many places elsewhere in the repo call the body. Calls from outside the repo aren't counted. | no in-repo caller · 1 · 2–5 · 6+ |
-| **Reach** | Scan, in a language whose calls Sanity reads | How many functions defined elsewhere in the repo the body calls. | none · 1 · 2–5 · 6+ |
-| **Blame** | Trace | Who last touched the lines: the newest line's author, or whoever holds most of the lines. Not authorship. | newest line · most lines |
-| **Age** | Trace | Days since the newest line was written, or, on the other setting, since the oldest line was. | older · this quarter · this month · this week · today |
-| **Churn** | Trace | For a function, how many distinct commits its current lines come from. For a file, how many commits in the last 90 days. | no commits found · 1–2 · 3–9 · 10+ |
-| **Predictability** | Read | How much of the body the reader predicted from its surroundings, before it was allowed to read the body. | full · most · some · none |
-| **Legibility** | Read | What reading the body was like: understood in one pass, in several, or not at all. Independent of Predictability. | full · most · some · none |
-| **Docs** | Read | How little of the body its documentation covers. Documentation a model could reproduce from the body alone is graded `none`. | full · most · some · none |
-| **Traps** | Read | Whether a reader flagged something likely to catch out the next person who edits the code. | unread · no trap reported · trap |
-
 ## Getting started
 
 ```sh
 brew install --cask monsterdept/tap/sanity
 cd your-repo
-sanity init --harness claude --model sonnet   # which agent reads, and with which model
-sanity check --limit 50                       # take 50 readings
-sanity                                        # open the app
+sanity .                                      # open this repo in the app
 sanity findings                               # what needs work, and why
+
+# Readings start here: an agent does the reading, and it spends tokens
+sanity init --harness claude --model sonnet   # which agent reads, and with which model
+sanity check --limit 50                       # take 50 readings, starting with what findings listed
+sanity findings                               # now with the rules that need readings
 git add .sanity && git commit -m "Readings"
 ```
+
+Nothing before `sanity init` needs an agent.
 
 ## What you need
 
 - **Sanity itself.** See [Installation](#installation).
-- **A coding agent, installed and signed in**, to take readings: Claude Code (`claude`), Codex
-  (`codex`), OpenCode (`opencode`) or Antigravity (`agy`). Sanity never calls a model itself and
-  doesn't need an API key.
-
-Everything except taking readings works without an agent: the map, findings from the parts
-that don't need readings, history and `verify`.
+- **A coding agent, installed and signed in**, only for readings: Claude Code (`claude`),
+  Codex (`codex`), OpenCode (`opencode`) or Antigravity (`agy`). Sanity never calls a model
+  itself and doesn't need an API key.
 
 **What readings cost.** Cost depends on how many functions and file headers there are to read,
 and how long they are. `sanity status` shows how many are left.
@@ -196,63 +142,12 @@ can't see aliases.
 
 ## In CI
 
-You take readings on your own machine, against the code you're about to ship, and commit
-them. CI doesn't take readings, because that would mean putting model credentials in CI. It
-only checks what you committed. `sanity verify` fails unless the readings are:
-
-- **complete**: every function and file in scope has a reading;
-- **current**: no reading is out of date for the code that's checked out, and none was taken
-  with an older version of the questions;
-- **from one model**: every reading was taken with the same agent and model. `--model` and
-  `--harness` require a specific one. `--mixed` turns this check off but still prints what
-  was used.
-
-`verify` doesn't need git history, network access or credentials.
-
-### GitHub Actions
-
-[`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action) runs `verify` on
-Linux, macOS and Windows runners, x86-64 or ARM64:
-
-```yaml
-name: Readings
-on: [pull_request]
-
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: monsterdept/sanity-action@v2
-        with:
-          version: 0.32.0          # the Sanity release your team reads with
-          model: claude-sonnet-5   # optional: require this model
-          # harness: claude        # optional: require this agent
-          # path: services/api     # optional: a repo in a subdirectory
-          # consistent-reader: false   # optional: allow mixed models
-```
-
-**Pin `version`.** A new release can change the parser or the questions, which can make
-existing readings out of date. Pinning means your check only changes when you decide to
-upgrade.
-
-To check releases instead of pull requests, add the job before your build with `needs:`.
-Sanity checks its own releases this way: see
-[`.github/workflows/readings.yml`](.github/workflows/readings.yml).
-
-### Other CI systems
-
-Each release includes a headless `sanity`: every command, without the app's window, as a single
-binary of about 16 MB compressed. Download the one for your runner and run it:
-
-```sh
-curl -fsSL https://dl.dept.monster/sanity/sanity-0.32.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
-./sanity verify
-```
-
-The targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`,
-`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`; Windows archives are `.zip`. On a
-desktop, install the app instead: it includes the same `sanity`.
+You take readings on your own machine and commit them; CI only checks what you committed.
+`sanity verify` fails unless every function in scope has a reading, none is out of date, and
+all were taken with the same model. It needs no git history, network access or credentials.
+[docs/ci.md](docs/ci.md) has the GitHub Action,
+[`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action), and how to run
+`verify` anywhere else.
 
 ## Why trust the signal
 
@@ -263,8 +158,8 @@ result.
 
 Sanity doesn't measure correctness, security, performance or whether the architecture is
 right. A model can predict code that's wrong, and be puzzled by code that's fine. Readings
-tell you where the code is surprising, and the history matrix
-[above](#finding-what-needs-work) helps tell intricate from messy.
+tell you where the code is surprising, and [git history](#finding-what-needs-work)
+helps tell intricate from messy.
 
 Comments are part of the context the reader predicts from. A comment that explains an
 unusual function helps the reader predict it, so the function scores better. A comment that
@@ -307,9 +202,10 @@ measurement nobody took.
 
 ## The app
 
-`sanity` with no arguments opens the app. The repo is in the center, directories and files
-are rings around it, and functions are on the outer edge. A wedge's width is its size in
-lines. Its color depends on which lens you pick; see [The lenses](#the-lenses).
+`sanity .` opens the app on the repo you're in, and so does `sanity` on its own, typed inside
+a repo. The repo is in the center, directories and files are rings around it, and functions
+are on the outer edge. A wedge's width is its size in lines. Its color depends on which lens
+you pick; see [docs/lenses.md](docs/lenses.md).
 
 Click a wedge to zoom in. The side panel explains what the lens says about it and shows the
 code. The findings list, the rules editor and your decisions are in the app too.
@@ -331,8 +227,8 @@ languages still show up on the map, but without functions.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers building from source and running the same checks CI
-runs.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers how to send a change, building from source, and
+running the same checks CI runs.
 
 [docs/](docs/README.md) has the rest: the architecture, one note per area, and plans (finished
 and open).
@@ -342,3 +238,9 @@ and open).
 Sanity is free software under the [GNU General Public License, version 3 or later](LICENSE).
 The GitHub Action, [`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action),
 is under the MIT license.
+
+What Sanity writes into your repo is yours. The `.sanity/` directory holds your readings,
+rules and decisions, and the text Sanity puts there, such as its README and the rule
+descriptions, is dedicated to the public domain under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). Committing `.sanity/` adds no
+license terms to your repo.

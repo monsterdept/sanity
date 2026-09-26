@@ -3036,7 +3036,8 @@ fn after_help() -> String {
         not user-initiated)\n  \
         \x1b[1msanity mcp\x1b[0m    Start the stdio MCP server, launched by an agent's own config";
     let bare = if cfg!(feature = "gui") {
-        "Run `sanity` with no arguments to open the window."
+        "Run `sanity .` to open this repo in the window, or `sanity` with no arguments to open\n\
+        the window alone."
     } else {
         "This build of sanity has no window. Every verb above works."
     };
@@ -3241,6 +3242,65 @@ enum Verb {
     Mcp,
 }
 
+/// The repo `sanity` should open in the window, if the arguments name one.
+///
+/// **`sanity .` opens this repo, the way `code .` and `zed .` open this folder.** It used to
+/// be `unrecognized subcommand`, and plain `sanity` opened the window on whatever was open
+/// last — so the first command a newcomer ran left them to find the repo they were standing
+/// in with a picker.
+///
+/// - **A verb always wins.** A directory called `check` does not turn `sanity check` into an
+///   open; you would write `sanity ./check`.
+/// - **One argument that is a directory** is a repo to open, resolved to its git root the way
+///   every other door resolves one. A directory that is not in a repo is an error, said the
+///   way the window's Open says it, not a silent fall through to clap's usage text.
+/// - **No arguments, at a terminal, inside a repo**, opens that repo. Not from a double-click:
+///   `interactive` is whether stdin is a terminal, because a launcher's working directory is
+///   `/` on macOS but can be `$HOME` on Linux, and a home directory that happens to be a
+///   dotfiles repo is not a repo anybody asked to see.
+///
+/// `Ok(None)` means nothing to open: the caller runs the CLI when there are arguments and the
+/// plain window when there are none.
+pub fn launch_target(
+    args: &[String],
+    cwd: &std::path::Path,
+    interactive: bool,
+) -> Result<Option<PathBuf>, String> {
+    match args {
+        [] if interactive => Ok(crate::scan::git_root(cwd)),
+        [] => Ok(None),
+        [one] if !one.starts_with('-') && !is_verb(one) => {
+            let dir = cwd.join(one);
+            if !dir.is_dir() {
+                return Ok(None);
+            }
+            crate::scan::git_root(&dir).map(Some).ok_or_else(|| crate::scan::not_a_repo(&dir))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Whether `word` names one of the CLI's verbs, `help` included.
+fn is_verb(word: &str) -> bool {
+    use clap::CommandFactory;
+    word == "help"
+        || Cli::command()
+            .get_subcommands()
+            .any(|c| c.get_name() == word || c.get_all_aliases().any(|a| a == word))
+}
+
+/// Put a repo a person named at a terminal on the list of repos Sanity has been given.
+///
+/// The same door `sanity init` is: a person naming a repo in a place a person is allowed to.
+/// Recorded before the window is asked to open it, because `/open` only opens what is on
+/// that list — and when a window is already running, this process forwards its arguments
+/// and exits, so this is the last chance to record anything.
+pub fn name_for_window(repo: &std::path::Path) {
+    let key = agentapi::project_key(repo);
+    let name = repo.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| key.clone());
+    crate::reports::remember(&key, &repo.to_string_lossy(), &name);
+}
+
 pub fn main(args: &[String]) -> i32 {
     use clap::Parser;
     // The binary's own name back in front, because clap reports usage with argv[0] and
@@ -3311,6 +3371,47 @@ pub fn main(args: &[String]) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    /// `sanity .` and plain `sanity` in a repo open it; verbs and everything else do not.
+    #[test]
+    fn a_directory_argument_opens_its_repo_and_a_verb_never_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join("check")).unwrap();
+        std::fs::create_dir(dir.path().join("plain")).unwrap();
+        let git = std::process::Command::new("git").arg("init").arg("-q").arg(&repo).status();
+        assert!(git.map(|s| s.success()).unwrap_or(false), "git init");
+        let root = std::fs::canonicalize(&repo).unwrap();
+        let at = |p: Option<PathBuf>| p.map(|p| std::fs::canonicalize(p).unwrap());
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        assert_eq!(at(launch_target(&args(&["."]), &repo, false).unwrap()), Some(root.clone()));
+        assert_eq!(
+            at(launch_target(&args(&["repo"]), dir.path(), false).unwrap()),
+            Some(root.clone()),
+            "a path relative to where you stand"
+        );
+        assert_eq!(
+            launch_target(&args(&["check"]), &repo, false).unwrap(),
+            None,
+            "a verb is a verb even with a directory of that name beside it"
+        );
+        assert_eq!(
+            at(launch_target(&args(&["./check"]), &repo, false).unwrap()),
+            Some(root.clone()),
+            "and the directory is still reachable by spelling it as a path"
+        );
+        assert!(
+            launch_target(&args(&["plain"]), dir.path(), false).is_err(),
+            "a directory outside any repo is said so, not handed to clap"
+        );
+        assert_eq!(launch_target(&args(&["nope"]), dir.path(), false).unwrap(), None);
+        assert_eq!(launch_target(&args(&["findings", "."]), &repo, false).unwrap(), None);
+
+        assert_eq!(at(launch_target(&[], &repo, true).unwrap()), Some(root), "at a terminal, in a repo");
+        assert_eq!(launch_target(&[], &repo, false).unwrap(), None, "not from a launcher");
+        assert_eq!(launch_target(&[], dir.path(), true).unwrap(), None, "at a terminal, outside one");
+    }
+
 
     /// The pieces of the progress line, which is watched for minutes and has to be right.
     #[test]

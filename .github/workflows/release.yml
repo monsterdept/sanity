@@ -38,7 +38,7 @@ jobs:
 
   draft:
     needs: readings
-    runs-on: [self-hosted, linux, X64, krapow]
+    runs-on: ubuntu-latest
     steps:
       - name: Ensure the draft release exists
         shell: bash
@@ -66,26 +66,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # krapow base images ship a GitHub-hosted-equivalent universal
-          # toolchain (C compiler on Linux; MSVC + chocolatey + LLVM on
-          # Windows; Xcode CLI tools + WebKit on macOS). The workflow installs
-          # only language toolchains + project-specific deps on top.
-          - os: [self-hosted, macOS, arm64, krapow]
+          # GitHub-hosted, never self-hosted — see ci.yml. Every target builds
+          # natively on its own architecture: no cross-compiling, so no second
+          # toolchain, no LLVM on PATH for the C grammars, and each installer
+          # carries its own architecture in its name.
+          - os: macos-15
             platform: macos_arm64
-            triple: aarch64-apple-darwin
-          - os: [self-hosted, linux, X64, krapow]
+          # 22.04, not latest: an AppImage runs on distros whose glibc is at
+          # least the one it was built against, so the oldest supported image
+          # reaches the most machines.
+          - os: ubuntu-22.04
             platform: linux_x86-64
-            triple: x86_64-unknown-linux-gnu
-          - os: [self-hosted, windows, X64, krapow]
+          - os: ubuntu-22.04-arm
+            platform: linux_arm64
+          - os: windows-latest
             platform: windows_x86-64
-            triple: x86_64-pc-windows-msvc
-          # Windows ARM64 cross-compiled from the same x64 runner. `cross: true`
-          # toggles the rustup target add + LLVM-on-PATH steps and switches
-          # build paths to the per-triple subdir.
-          - os: [self-hosted, windows, X64, krapow]
+            msvc: x64
+          - os: windows-11-arm
             platform: windows_arm64
-            triple: aarch64-pc-windows-msvc
-            cross: true
+            msvc: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -110,6 +109,16 @@ jobs:
 
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.msvc }}
+
+      # Git for Windows ships a coreutils `link` in /usr/bin, and under `shell: bash` it sits
+      # ahead of MSVC's link.exe on PATH — so rustc links with it and gets `extra operand`.
+      # The runner is thrown away after the job, so removing it costs nothing.
+      - name: Keep Git's link out of the linker's way (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: rm -f /usr/bin/link.exe
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -117,45 +126,15 @@ jobs:
         with:
           node-version: 20
 
-      # tauri-cli is invoked from src-tauri/ via `cargo tauri build`. Install
-      # once per runner; subsequent runs hit the cached binary in ~/.cargo/bin.
-      # --locked is required by current cargo-install when the crate ships a
-      # Cargo.lock.
+      # tauri-cli is invoked from src-tauri/ via `cargo tauri build`. A hosted
+      # runner starts empty, so `cargo install` would compile it from source on
+      # every release, on every platform; binstall fetches the prebuilt binary
+      # where tauri publishes one and falls back to compiling where it does not.
+      - uses: cargo-bins/cargo-binstall@main
+
       - name: Install tauri-cli
         shell: bash
-        run: cargo install tauri-cli --version "^2" --locked
-
-      # rustup target add for the cross-compile variants. Gated on matrix.cross
-      # so native builds skip the no-op.
-      - name: Add Rust cross-compile target
-        if: matrix.cross
-        shell: bash
-        run: rustup target add ${{ matrix.triple }}
-
-      # The tree-sitter grammars are C, and cross-compiling them to
-      # aarch64-pc-windows-msvc needs clang from LLVM on PATH — the `cc` crate
-      # picks it up for the non-host target. The krapow Windows base image ships
-      # LLVM at the standard windows-latest path.
-      - name: Add LLVM to PATH (for C grammar cross-compile)
-        if: matrix.cross && runner.os == 'Windows'
-        shell: bash
-        run: echo "C:/Program Files/LLVM/bin" >> "$GITHUB_PATH"
-
-      # Cross-compile builds land under target/<triple>/release/... instead of
-      # target/release/...; emit the right bundle dir + --target flag once so
-      # the downstream build / artifact-collect steps don't each branch on
-      # matrix.cross themselves.
-      - name: Configure build paths
-        id: paths
-        shell: bash
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            echo "bundle_dir=src-tauri/target/${{ matrix.triple }}/release/bundle" >> "$GITHUB_OUTPUT"
-            echo "target_flag=--target ${{ matrix.triple }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "bundle_dir=src-tauri/target/release/bundle" >> "$GITHUB_OUTPUT"
-            echo "target_flag=" >> "$GITHUB_OUTPUT"
-          fi
+        run: cargo binstall tauri-cli --version "^2" --locked --no-confirm
 
       - name: Install frontend dependencies
         shell: bash
@@ -241,18 +220,13 @@ jobs:
             --wait
           xcrun stapler staple "$DMG_FILE"
 
-      - name: Clean stale Tauri bundles (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: rm -rf src-tauri/target/release/bundle/{deb,appimage,rpm}
-
       # tauri-bundler downloads linuxdeploy-plugin-gtk.sh into ~/.cache/tauri/
-      # on first use and reuses it forever. Current upstream re-creates GTK
+      # on first use. Current upstream re-creates GTK
       # immodule/printbackend symlinks with `ln -s` (no -f) over libraries the
       # linuxdeploy core call already staged, so the second `ln -s` dies with
       # "File exists" and bundling fails with the unhelpful "failed to run
-      # linuxdeploy". Pre-download the plugin and patch `ln -s` → `ln -sf` so
-      # the workaround is idempotent (cold + warm caches both end up patched).
+      # linuxdeploy". Pre-download the plugin and patch `ln -s` → `ln -sf`
+      # before the bundler looks for it.
       - name: Patch cached linuxdeploy-plugin-gtk (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -278,16 +252,11 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: cargo tauri build
 
-      - name: Clean stale Tauri bundles (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: rm -rf ${{ steps.paths.outputs.bundle_dir }}/{nsis,msi}
-
       - name: Build Tauri app (Windows)
         if: runner.os == 'Windows'
         shell: bash
         working-directory: src-tauri
-        run: cargo tauri build ${{ steps.paths.outputs.target_flag }} --bundles nsis
+        run: cargo tauri build --bundles nsis
 
       - name: Collect Tauri artifacts (macOS)
         if: runner.os == 'macOS'
@@ -312,26 +281,18 @@ jobs:
             done
           done
 
-      # Both Windows targets bundle to nsis/*.exe with the SAME filename — the
-      # bundler names by product + version, not by triple — so the arm64 asset
-      # would silently overwrite the x64 one on the shared draft release. Suffix
-      # the cross build with its platform before upload.
+      # Built natively, each installer is named for its own architecture —
+      # `_x64-setup.exe` and `_arm64-setup.exe` — so both land on the release
+      # under the names the website links to. The cross build used to need a
+      # suffix to stop the two colliding, and the suffix made the arm64 asset
+      # `_arm64-setup_arm64.exe`, which nothing linked to.
       - name: Collect Tauri artifacts (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir -p artifacts
-          BUNDLE="${{ steps.paths.outputs.bundle_dir }}"
-          for dir in nsis msi; do
-            for f in "$BUNDLE/$dir"/*; do
-              [ -f "$f" ] || continue
-              if [ "${{ matrix.cross }}" = "true" ]; then
-                base=$(basename "$f"); ext="${base##*.}"; stem="${base%.*}"
-                cp "$f" "artifacts/${stem}_arm64.${ext}"
-              else
-                cp "$f" artifacts/
-              fi
-            done
+          for f in src-tauri/target/release/bundle/nsis/*.exe; do
+            [ -f "$f" ] && cp "$f" artifacts/
           done
 
       # All platforms push their bundles directly to the draft GH release via
@@ -361,9 +322,8 @@ jobs:
         run: |
           set -euo pipefail
           # Said plainly, because the alternative is `gh: command not found` at
-          # the end of a twenty-minute signed build. The krapow images are
-          # GitHub-hosted-equivalent and those ship the CLI on all three
-          # platforms, which is the assumption this step rests on.
+          # the end of a twenty-minute signed build. GitHub's hosted images
+          # ship the CLI, which is the assumption this step rests on.
           command -v gh >/dev/null || { echo "::error::gh is not on PATH for ${{ matrix.platform }}"; exit 1; }
           # What `fail_on_unmatched_files` was for: a platform that bundled
           # nothing must fail here rather than let the release publish without it.
@@ -384,15 +344,6 @@ jobs:
           echo "::error::release asset upload failed after 5 attempts"
           exit 1
 
-      # Release builds are the biggest disk consumers and run rarely, so there's
-      # no warm-cache value in keeping them. Reclaim the target dir after every
-      # run on these persistent self-hosted runners. always() so a failed build
-      # still cleans up; || true so a missing target dir is a no-op.
-      - name: Clean target dirs
-        if: always()
-        shell: bash
-        run: cargo clean --manifest-path src-tauri/Cargo.toml || true
-
   # Every CLI verb with no window, for CI runners and servers — see
   # docs/plans/open/headless-cli.md. Its own workflow so a pull request can build the same
   # archives without a release.
@@ -404,7 +355,7 @@ jobs:
 
   release:
     needs: [build, headless]
-    runs-on: [self-hosted, linux, X64, krapow]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 

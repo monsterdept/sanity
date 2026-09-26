@@ -222,6 +222,12 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
 #[cfg(feature = "gui")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    run_opening(None)
+}
+
+/// The window, opening `repo` once it is up — `sanity .`. See [`cli::launch_target`].
+#[cfg(feature = "gui")]
+pub fn run_opening(repo: Option<std::path::PathBuf>) {
     // Shared with the loopback agent API so an MCP client can see the scan that is
     // currently on screen — the whole point is that the human and the agent are looking
     // at the same thing.
@@ -311,6 +317,9 @@ pub fn run() {
             // window is never retired over it — a CLI on a newer build says so and carries
             // on — but a wrong answer would send that warning to the wrong person.
             let _ = agentapi::build_id();
+            if let Some(repo) = repo {
+                tauri::async_runtime::spawn(agentapi::open_for_person(api_state.clone(), repo));
+            }
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = agentapi::serve(api_state).await {
                     eprintln!("agent API not available: {e}");
@@ -319,9 +328,20 @@ pub fn run() {
             Ok(())
         })
         // Opening a second copy should focus the window you already have, not start a
-        // second scan of the same repo.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // second scan of the same repo. A second copy started as `sanity .` hands over the
+        // repo it was asked for, and this window opens it: the other process has already
+        // checked the path and recorded it, and exits the moment this runs.
+        //
+        // No arguments counts as a terminal here. The launcher case `launch_target` guards
+        // against does not reach this: a second double-click activates the running app
+        // rather than starting a process.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             use tauri::Manager;
+            let args = argv.get(1..).unwrap_or_default();
+            if let Ok(Some(repo)) = cli::launch_target(args, std::path::Path::new(&cwd), true) {
+                let state = app.state::<agentapi::Shared>().inner().clone();
+                tauri::async_runtime::spawn(agentapi::open_for_person(state, repo));
+            }
             if let Some(w) = app.webview_windows().values().next() {
                 let _ = w.set_focus();
             }

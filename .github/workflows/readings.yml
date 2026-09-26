@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   verify:
-    runs-on: [self-hosted, linux, X64, krapow]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       # The release that judges staleness. It cannot be the one being tagged, which is
