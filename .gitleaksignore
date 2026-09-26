@@ -1,0 +1,3 @@
+# A reader wrote "keyed to format version" about trace.rs; the generic-api-key rule
+# takes the word "key" and what follows for a credential. Prose, not a secret.
+0ee551c219fb1e0a1b3453d25982e40d3409e9c4:.sanity/readings/src-tauri.md:generic-api-key:7791

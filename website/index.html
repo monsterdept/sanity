@@ -904,7 +904,7 @@ img{max-width:100%; display:block}
                the arrow is decoration. So the link says it out loud for anyone
                who is listening rather than looking. -->
           <a class="get-btn" id="get" aria-label="Download Sanity __VERSION__ for macOS"
-             href="https://dl.dept.monster/sanity/Sanity___VERSION___aarch64.dmg">
+             href="https://github.com/monsterdept/sanity/releases/download/v__VERSION__/Sanity___VERSION___aarch64.dmg">
             <span class="get-say">
               <span class="get-name">Sanity __VERSION__</span>
               <!-- The whole line is the sniff's here, not just the platform:
@@ -1117,7 +1117,7 @@ img{max-width:100%; display:block}
             <td>
               <div class="build">
                 <span class="a">arm64</span><span class="f">.dmg</span>
-                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___aarch64.dmg">Download</a>
+                <a href="https://github.com/monsterdept/sanity/releases/download/v__VERSION__/Sanity___VERSION___aarch64.dmg">Download</a>
               </div>
               <div class="build is-cmd">
                 <code id="brew">brew install --cask monsterdept/tap/sanity</code>
@@ -1130,11 +1130,11 @@ img{max-width:100%; display:block}
             <td>
               <div class="build">
                 <span class="a">x86-64</span><span class="f">.exe</span>
-                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___x64-setup.exe">Download</a>
+                <a href="https://github.com/monsterdept/sanity/releases/download/v__VERSION__/Sanity___VERSION___x64-setup.exe">Download</a>
               </div>
               <div class="build">
                 <span class="a">arm64</span><span class="f">.exe</span>
-                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___arm64-setup.exe">Download</a>
+                <a href="https://github.com/monsterdept/sanity/releases/download/v__VERSION__/Sanity___VERSION___arm64-setup.exe">Download</a>
               </div>
             </td>
           </tr>
@@ -1143,11 +1143,11 @@ img{max-width:100%; display:block}
             <td>
               <div class="build">
                 <span class="a">x86-64</span><span class="f">.deb</span>
-                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___amd64.deb">Download</a>
+                <a href="https://github.com/monsterdept/sanity/releases/download/v__VERSION__/Sanity___VERSION___amd64.deb">Download</a>
               </div>
               <div class="build">
                 <span class="a">x86-64</span><span class="f">.AppImage</span>
-                <a href="https://dl.dept.monster/sanity/Sanity___VERSION___amd64.AppImage">Download</a>
+                <a href="https://github.com/monsterdept/sanity/releases/download/v__VERSION__/Sanity___VERSION___amd64.AppImage">Download</a>
               </div>
             </td>
           </tr>
@@ -1282,7 +1282,7 @@ sanity check --detach        <span class="c"># start it and return</span></pre>
      the full table in Packages is always one click away. */
   var get = document.getElementById('get'), fmt = document.getElementById('get-fmt');
   if (get) {
-    var base = 'https://dl.dept.monster/sanity/Sanity___VERSION__';
+    var base = 'https://github.com/monsterdept/sanity/releases/download/v__VERSION__/Sanity___VERSION__';
     var ua = navigator.userAgent;
     var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
     var arm = /arm|aarch64/i.test(ua) || /arm/i.test(plat);
