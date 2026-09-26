@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: monsterdept/sanity-action@v2
         with:
-          version: 0.33.0          # the Sanity release your team reads with
+          version: 0.34.0          # the Sanity release your team reads with
           model: claude-sonnet-5   # optional: require this model
           # harness: claude        # optional: require this agent
           # path: services/api     # optional: a repo in a subdirectory
@@ -50,16 +50,24 @@ Sanity checks its own releases this way: see
 ## Other CI systems
 
 Each release from 0.33.0 includes a headless `sanity`: every command, without the app's window,
-as a single binary of about 16 MB compressed. Download the one for your runner and run it:
+as a single binary of about 16 MB compressed. On Linux or macOS, the install script fetches the
+one for your runner and checks it against the release's `SHA256SUMS` before installing it:
 
 ```sh
-curl -fsSL https://github.com/monsterdept/sanity/releases/download/v0.33.0/sanity-0.33.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+curl -fsSL https://sanity.monster/install.sh | SANITY_INSTALL_DIR=. sh -s -- --headless --version=0.34.0
 ./sanity verify
 ```
 
-The targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`,
-`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`; Windows archives are `.zip`. From 0.34.0
-the archives are named `sanity-headless-<version>-<target>`; 0.33.0's are `sanity-0.33.0-<target>`,
-as above. Each release's notes say which file is which. The Linux
-builds need glibc 2.35 or later (Ubuntu 22.04). On a desktop, install the app instead: it
-includes the same `sanity`.
+Or download the archive yourself:
+
+```sh
+curl -fsSL https://github.com/monsterdept/sanity/releases/download/v0.34.0/sanity-headless-0.34.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+./sanity verify
+```
+
+The archives are named `sanity-headless-<version>-<target>`, for the targets
+`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`,
+`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`; Windows archives are `.zip`, and on
+Windows you download them directly. 0.33.0's lack the `headless`. Each release's notes say
+which file is which. The Linux builds need glibc 2.35 or later (Ubuntu 22.04). On a desktop,
+install the app instead: it includes the same `sanity`.
