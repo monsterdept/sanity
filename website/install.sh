@@ -21,6 +21,23 @@ headless=0
 say() { printf '%s\n' "$*" >&2; }
 die() { say "sanity install: $*"; exit 1; }
 
+# The SHA-256 of a file, with whichever tool this system has.
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else die "needs sha256sum or shasum to check the download"
+  fi
+}
+
+# **Nothing is unpacked or run until it matches the release's SHA256SUMS.** A mismatch, or an
+# asset the file does not list, stops the install and leaves nothing behind.
+check() {
+  want="$(awk -v n="$2" '$2 == n { print $1 }' "$tmp/SHA256SUMS")"
+  [ -n "$want" ] || die "$2 is not listed in the release's SHA256SUMS, so it cannot be checked"
+  got="$(sha256 "$1")"
+  [ "$got" = "$want" ] || die "$2 does not match its checksum (expected $want, got $got). Nothing was installed."
+}
+
 for arg in "$@"; do
   case "$arg" in
     --headless) headless=1 ;;
@@ -74,6 +91,9 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 mkdir -p "$dir"
 
+curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" \
+  || die "Sanity $version publishes no SHA256SUMS, so its download cannot be checked. Releases from 0.33.0 have one."
+
 if [ "$headless" = 1 ]; then
   command -v tar >/dev/null 2>&1 || die "needs tar"
   case "$os" in
@@ -81,9 +101,10 @@ if [ "$headless" = 1 ]; then
     Darwin) target="aarch64-apple-darwin" ;;
   esac
   # 0.33.0 named these sanity-<v>-<target>; every release after it adds `headless`.
-  for name in "sanity-headless-$version-$target" "sanity-$version-$target"; do
-    if curl -fsSL -o "$tmp/sanity.tar.gz" "$base/$name.tar.gz" 2>/dev/null; then
-      tar -xzf "$tmp/sanity.tar.gz" -C "$tmp"
+  for name in "sanity-headless-$version-$target.tar.gz" "sanity-$version-$target.tar.gz"; do
+    if curl -fsSL -o "$tmp/$name" "$base/$name" 2>/dev/null; then
+      check "$tmp/$name" "$name"
+      tar -xzf "$tmp/$name" -C "$tmp"
       break
     fi
   done
@@ -94,8 +115,9 @@ else
   # prerelease suffix from the version.
   case "$arch" in x86_64) suffix=amd64 ;; aarch64) suffix=aarch64 ;; esac
   app="Sanity_${version%%-*}_${suffix}.AppImage"
-  curl -fsSL -o "$tmp/sanity" "$base/$app" || die "could not download $base/$app"
-  mv "$tmp/sanity" "$dir/sanity"
+  curl -fsSL -o "$tmp/$app" "$base/$app" || die "could not download $base/$app"
+  check "$tmp/$app" "$app"
+  mv "$tmp/$app" "$dir/sanity"
 fi
 chmod +x "$dir/sanity"
 say "Installed Sanity $version at $dir/sanity"

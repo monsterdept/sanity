@@ -5,7 +5,7 @@
 Sanity is for anyone maintaining a codebase, including one an agent wrote. It comes in three parts:
 
 - **An app** for exploring a repo. Its directories, files and functions share one map, colored by whatever you want to look at: size, complexity, who works where, what changes, which functions have the most callers and which call the most.
-- **A CLI** for taking quality readings. A coding agent is shown each function's name, signature, neighbors and comments, predicts what the function does, then reads it. Where the prediction missed, something in the code isn't evident from the outside.
+- **A CLI** for taking quality readings. A coding agent is shown each function's name, signature, neighbors and comments, predicts what the function does, then reads it. Where the prediction missed, something in the code isn't evident from the outside. The reader also flags any **trap**: something likely to break for the next person who edits it, with nothing in the code to warn them.
 - **A GitHub Action** that fails a build when the readings are missing, out of date, or taken with more than one model.
 
 You can use it two ways. The first is to see a repo: how it's laid out, what's big, what's tangled, what keeps changing. That needs no agent and costs nothing. The second is to find where the code will trip someone up, which is what readings are for. Readings cost tokens.

@@ -467,6 +467,24 @@ jobs:
               --title "$GITHUB_REF_NAME" \
               --generate-notes
           fi
+          # **SHA256SUMS, so an installer can refuse a file that is not what CI built.**
+          # install.sh and sanity-action check every download against it before unpacking or
+          # running anything. Taken from the files as the release serves them, and checked
+          # against the digest GitHub computed on upload, so a file damaged between runner and
+          # release cannot be vouched for here.
+          rm -rf sums && mkdir sums
+          gh release download "$GITHUB_REF_NAME" --dir sums
+          rm -f sums/SHA256SUMS
+          (cd sums && sha256sum -- * | sort -k2) > SHA256SUMS
+          gh release view "$GITHUB_REF_NAME" --json assets \
+            --jq '.assets[] | select(.name != "SHA256SUMS") | "\(.digest // "none" | sub("^sha256:"; ""))  \(.name)"' \
+            | sort -k2 > github.sums
+          if ! diff SHA256SUMS github.sums; then
+            echo "::error::a release file does not match the digest GitHub recorded for it"
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS --clobber
+          cat SHA256SUMS
           gh release edit "$GITHUB_REF_NAME" --draft=false
 
   # **The Homebrew cask, generated from the DMG this release just published.** It was the last
