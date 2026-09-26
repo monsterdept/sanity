@@ -15,7 +15,13 @@ measurements, like "over 200 lines, and hard to follow" or "depended on by ten o
 functions, and undocumented." Sanity comes with about two dozen rules, and you can change
 their thresholds or turn them off for your repo.
 
-<p align="center"><img src="images/findings.png" alt="The findings list" width="560"></p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/findings-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="images/findings-light.png">
+  <img alt="The findings list" src="images/findings-light.png" width="560">
+</picture>
+</p>
 
 ```
 $ sanity findings --limit 2

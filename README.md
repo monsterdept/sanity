@@ -38,7 +38,11 @@ Sanity doesn't send your code anywhere new: the agent you already use does the r
 
 All of it is committed with the repo, so it goes wherever the code goes.
 
-![The map, colored by predictability](docs/images/map.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/map-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/map-light.png">
+  <img alt="The map, colored by predictability" src="docs/images/map-light.png">
+</picture>
 
 ## Understanding a repo
 
@@ -46,7 +50,11 @@ Sanity draws the repo as a sunburst: the repo in the middle, directories and fil
 
 You choose what the color shows: how well an agent could predict the code, how hard it was to follow, whether it's documented, how complex it is, how many places call it, how many functions it calls, who worked on it last, how old it is, how often it changes, and more; [docs/lenses.md](docs/lenses.md) lists every lens.
 
-![A function's reading in the side panel](docs/images/reading.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/reading-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/reading-light.png">
+  <img alt="A function's reading in the side panel" src="docs/images/reading-light.png">
+</picture>
 
 The most useful of these measurements come from **readings**, the predictions described above. Besides how far off its prediction was, each reading records how hard the code was to follow, whether the comments helped, and any traps the reader found.
 
@@ -62,7 +70,13 @@ Sanity also gives you a list of specific findings, places that need attention. E
 
 You decide on each finding: fix it, snooze it, mark it wrong or accept it, and the decision is committed with the repo. For findings, decisions and how rules work, see [docs/findings.md](docs/findings.md); for every field and how to write your own rule, see [docs/rules.md](docs/rules.md).
 
-<p align="center"><img src="docs/images/findings.png" alt="The findings list" width="560"></p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/findings-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/findings-light.png">
+  <img alt="The findings list" src="docs/images/findings-light.png" width="560">
+</picture>
+</p>
 
 Rules are designed to combine multiple signals. For example, a hard-to-predict function isn't always a problem. It might be a careful algorithm or it might be a mess. Git history helps tell them apart:
 
@@ -94,7 +108,13 @@ That is the only reader measured so far: about 23,000 tokens for a reader to sta
 
 A cheaper reader isn't a cheaper version of the same measurement (see [why trust the signal](#why-trust-the-signal)). Start with `sanity check --limit 50` to see what a pass is like before reading everything.
 
-<p align="center"><img src="docs/images/read-dialog.png" alt="Starting a reading pass: the agent, the model, and what the pass will cover" width="420"></p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/read-dialog-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/read-dialog-light.png">
+  <img alt="Starting a reading pass: the agent, the model, and what the pass will cover" src="docs/images/read-dialog-light.png" width="420">
+</picture>
+</p>
 
 To leave parts of a repo out, list them in a `.sanityignore` at the root. They're still drawn on the map, but they aren't read and don't count toward coverage.
 
