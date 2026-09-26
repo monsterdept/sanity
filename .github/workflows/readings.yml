@@ -18,6 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # The AppImage loads the window's graphics libraries even for a verb with no window, and a
+      # clean hosted runner has none of them: without these it fails with `libEGL.so.1: cannot
+      # open shared object file`, which sanity-action@v1 reports as the release having no
+      # `verify`. Gone when this gate runs the headless build through sanity-action@v2.
+      - name: Install the libraries the AppImage loads
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl1 libgl1 libgbm1
       # The release that judges staleness. It cannot be the one being tagged, which is
       # not on dl.dept.monster until `just publish`; move it when `just expiry` says a
       # release changes what a reading is taken against.
