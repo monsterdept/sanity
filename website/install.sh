@@ -105,7 +105,9 @@ if [ "$headless" = 0 ] && ! (ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2')
   say "It needs libfuse2 to start (Debian/Ubuntu: sudo apt install libfuse2). Without it, set APPIMAGE_EXTRACT_AND_RUN=1."
 fi
 
+# The headless build has no window, so `sanity .` would have nothing to open.
+if [ "$headless" = 1 ]; then next="sanity --help"; else next="sanity . in a repo"; fi
 case ":$PATH:" in
-  *":$dir:"*) say "Run 'sanity .' in a repo to open it." ;;
-  *) say "$dir is not on your PATH. Add it, then run 'sanity .' in a repo." ;;
+  *":$dir:"*) say "Run '$next' to start." ;;
+  *) say "$dir is not on your PATH. Add it, then run '$next'." ;;
 esac
