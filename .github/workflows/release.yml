@@ -112,6 +112,14 @@ jobs:
         with:
           arch: ${{ matrix.msvc }}
 
+      # Git for Windows ships a coreutils `link` in /usr/bin, and under `shell: bash` it sits
+      # ahead of MSVC's link.exe on PATH — so rustc links with it and gets `extra operand`.
+      # The runner is thrown away after the job, so removing it costs nothing.
+      - name: Keep Git's link out of the linker's way (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: rm -f /usr/bin/link.exe
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: actions/setup-node@v4
