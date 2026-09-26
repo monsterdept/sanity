@@ -958,6 +958,11 @@ img{max-width:100%; display:block}
                alt="The full map of a repository: rings of directories, files and functions, with the repo's readings broken down by grade in the panel.">
         </button>
         <button class="plate" type="button">
+          <img src="./assets/plate-map-dark.png"
+               data-cap="The same map after dark: the same 2,299 functions in the same four grades."
+               alt="The full map of the repository in the dark theme.">
+        </button>
+        <button class="plate" type="button">
           <img src="./assets/plate-reading.png"
                data-cap="One function&#39;s reading: the prediction, recorded before the body was served, and what was actually there. Both are kept, because a correct prediction is what makes a cold wedge trustworthy."
                alt="An agent's reading of one function: the four grades, what it expected, and what it found.">
@@ -968,29 +973,24 @@ img{max-width:100%; display:block}
                alt="The same function's reading in the dark theme.">
         </button>
         <button class="plate" type="button">
-          <img src="./assets/plate-traps.png"
-               data-cap="A trap on SunburstView: priming that runs during render rather than in an effect, deliberately, and no test would catch its removal. Reported by the reader that had just predicted the function."
-               alt="The Traps lens: one wedge marked, and the reader's note about it in the panel.">
+          <img src="./assets/plate-findings.png"
+               data-cap="Findings: places that need attention, each from a rule that asks for more than one measurement at once. drain is here twice: a reader could not predict it, it changed in four commits in eight days, and it calls 21 other functions."
+               alt="The findings list: two functions, each with the rules it met and the lenses those rules read.">
         </button>
         <button class="plate" type="button">
-          <img src="./assets/plate-clones.png"
-               data-cap="Two functions, one body. one_harness and one_model differ only in the field they read; the lens prints both, so neither file has to be opened to compare them."
-               alt="The Clones lens: a function and its clone, each with its source, side by side in the panel.">
+          <img src="./assets/plate-findings-dark.png"
+               data-cap="The same findings after dark. Each one can be fixed, snoozed, marked wrong or accepted, and the decision is committed with the repo."
+               alt="The findings list in the dark theme.">
         </button>
         <button class="plate" type="button">
-          <img src="./assets/plate-history.png"
-               data-cap="The repo replayed, commit by commit. Green marks what the commit under the playhead changed; the log beside it jumps to any of them."
-               alt="History mode: the map part-way through a replay, with the commit log beside it and the transport underneath.">
+          <img src="./assets/plate-read.png"
+               data-cap="Before a reading pass: the agent, and what the pass will cover, from functions and readers to lines and tokens. Each reader runs in its own process, with no access to the repository."
+               alt="Starting a reading pass: the agents to choose from, and dials for the functions, readers, lines and tokens the pass will cover.">
         </button>
         <button class="plate" type="button">
-          <img src="./assets/plate-history-dark.png"
-               data-cap="The same replay after dark. The transport sets a duration rather than a rate, so a long history and a short one each take the time you asked for."
-               alt="History mode in the dark theme, mid-replay.">
-        </button>
-        <button class="plate" type="button">
-          <img src="./assets/plate-commit.png"
-               data-cap="Every row that names a commit opens it: the message and the files it touched, without leaving the map."
-               alt="A commit opened over the map: its message and the files it touched, with line counts.">
+          <img src="./assets/plate-read-dark.png"
+               data-cap="The same dialog after dark."
+               alt="The reading-pass dialog in the dark theme.">
         </button>
       </div>
       <p class="plate-cap"><b id="plate-no">Exhibit E</b> &nbsp; <span id="plate-cap"></span></p>
