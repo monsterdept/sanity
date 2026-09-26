@@ -2830,7 +2830,7 @@ struct Export {
     name: String,
     path: String,
     remote: Option<String>,
-    head: Option<crate::commands::RepoHead>,
+    head: Option<crate::stamp::RepoHead>,
     #[serde(rename = "traceDepth")]
     trace_depth: crate::trace::Depth,
     grammars: usize,
@@ -2895,7 +2895,7 @@ fn export_of(
 
     let reports = crate::assessment::load(path, &scan);
     crate::links::retest_tree(&mut scan, &reports);
-    let stamped = crate::commands::stamp_reports(&scan.root, &reports);
+    let stamped = crate::stamp::stamp_reports(&scan.root, &reports);
     lap("readings");
 
     let traced = crate::findings::Traced::of(&scan.stats, reached);
@@ -2927,11 +2927,11 @@ fn export_of(
         render_cache,
         version: 1,
         name,
-        remote: crate::commands::repo_remote(where_.clone()),
-        head: crate::commands::repo_head(where_.clone()),
+        remote: crate::stamp::repo_remote(where_.clone()),
+        head: crate::stamp::repo_head(where_.clone()),
         path: where_,
         trace_depth: reached,
-        grammars: crate::commands::languages().len(),
+        grammars: crate::parse::language_support().len(),
         scan,
         reports: stamped,
         groups,
@@ -3020,16 +3020,27 @@ fn export_data(path: &str, depth: Option<crate::trace::Depth>, out: Option<&str>
     // The two machine-invoked verbs are hidden from the list and described here instead —
     // they are things that happen TO you, and a reader scanning for what to type should not
     // have to filter them out first.
-    after_help = "\x1b[1m\x1b[4mInternals\x1b[0m\n  \
-        \x1b[1msanity serve\x1b[0m  Start the backend (one per machine, ephemeral, idempotent,\n                \
-        not user-initiated)\n  \
-        \x1b[1msanity mcp\x1b[0m    Start the stdio MCP server, launched by an agent's own config\n\n\
-        Run `sanity` with no arguments to open the window.",
+    after_help = after_help(),
     disable_help_subcommand = true,
 )]
 pub struct Cli {
     #[command(subcommand)]
     command: Verb,
+}
+
+/// The foot of `sanity --help`: the two hidden verbs, then what `sanity` alone does, which is
+/// the one line that differs between the app and a headless build.
+fn after_help() -> String {
+    let internals = "\x1b[1m\x1b[4mInternals\x1b[0m\n  \
+        \x1b[1msanity serve\x1b[0m  Start the backend (one per machine, ephemeral, idempotent,\n                \
+        not user-initiated)\n  \
+        \x1b[1msanity mcp\x1b[0m    Start the stdio MCP server, launched by an agent's own config";
+    let bare = if cfg!(feature = "gui") {
+        "Run `sanity` with no arguments to open the window."
+    } else {
+        "This build of sanity has no window. Every verb above works."
+    };
+    format!("{internals}\n\n{bare}")
 }
 
 // Every verb takes a path, and every one of them defaults it to the working directory:
@@ -3114,7 +3125,7 @@ enum Verb {
         /// Which model reads. It is the scale — a smaller one is surprised by more.
         #[arg(long, value_name = "ID")]
         model: Option<String>,
-        /// Point the window at this repo.
+        /// Point a running Sanity window at this repo, if there is one.
         #[arg(long)]
         show: bool,
     },
@@ -3553,7 +3564,7 @@ mod tests {
             );
         }
         let by: std::collections::HashMap<String, Report> =
-            crate::commands::stamp_reports(&root, &reports)
+            crate::stamp::stamp_reports(&root, &reports)
                 .into_iter()
                 .map(|r| (r.id.clone(), r))
                 .collect();

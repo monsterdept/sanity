@@ -55,6 +55,9 @@ Independent of the rest, and it shrinks every download, the DMG included.
 - The `just` recipes change from `--bin sanity-history` to that crate's manifest. Nothing else
   calls them.
 - **Measure:** the AppImage and DMG sizes before and after, on a release build.
+  *Measured on macOS, binaries only: the three tools were 159, 156 and 159MB beside a 178MB
+  `sanity`, so about 474MB of the 652MB the bundle carried. The DMG and AppImage themselves are
+  measured on the first release built from this.*
 - `conventions.md`'s warning about `Contents/MacOS` loses its reason and is rewritten.
 
 ### 2. A `gui` feature
@@ -68,6 +71,9 @@ Independent of the rest, and it shrinks every download, the DMG included.
 - `build.rs` runs `tauri_build::build()` only under `gui`.
 - **Measure:** a `--no-default-features --release` binary on Linux and macOS, raw and gzipped.
   That number decides whether the grammars need a look of their own.
+  *macOS: 166MB raw, 16.7MB gzipped (16.1MB stripped), against 178MB for the app binary. So
+  Tauri was about 12MB and the rest is the parser, mostly grammar tables, which compress about
+  ten to one. Linux is measured by the release job.*
 - `just test` builds both ways, so a headless build that stops compiling fails CI rather than a
   release.
 

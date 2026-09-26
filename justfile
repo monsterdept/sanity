@@ -113,7 +113,8 @@ fmt-check:
 [group("test")]
 [doc("Fast gate: Rust and TypeScript type-check, no bundling, no window")]
 check:
-    cd src-tauri && cargo check
+    cd src-tauri && cargo check --workspace
+    cd src-tauri && cargo check --no-default-features
     cd web && npx tsc -b
 
 # Everything CI runs, in CI's order (.github/workflows/ci.yml).
@@ -124,8 +125,10 @@ test:
     # TypeScript type-check gate, and tauri-build reads web/dist while compiling src-tauri.
     cd web && npm run build
     just web-check
-    cd src-tauri && cargo test
-    cd src-tauri && cargo clippy --all-targets -- -D warnings
+    cd src-tauri && cargo test --workspace
+    cd src-tauri && cargo clippy --workspace --all-targets -- -D warnings
+    # The headless build (no window), so one that stops compiling fails here and not in a release.
+    cd src-tauri && cargo clippy --no-default-features --all-targets -- -D warnings
 
 # The frontend's checks — each is `web/scripts/<name>-check.ts`, bundled with esbuild and run
 # under node. esbuild rather than a test runner: the frontend has no test framework, and one
@@ -200,7 +203,7 @@ history path="." *flags="":
     #!/usr/bin/env bash
     set -euo pipefail
     target="$(cd "{{path}}" && pwd)"
-    cd src-tauri && cargo run --quiet --bin sanity-history -- "$target" {{flags}}
+    cd src-tauri && cargo run --quiet -p sanity-tools --bin sanity-history -- "$target" {{flags}}
 
 # `just findings . --rule "func: loc >= 200 and callers >= 20"`.
 #
@@ -218,7 +221,7 @@ findings path="." *flags="":
     set -euo pipefail
     target="$(cd "$1" && pwd)"
     shift
-    cd src-tauri && cargo run --quiet --bin sanity-findings -- "$target" "$@"
+    cd src-tauri && cargo run --quiet -p sanity-tools --bin sanity-findings -- "$target" "$@"
 
 # Exports the repo's data with the CLI, then draws the PDFs from it; see
 # `web/scripts/render.ts`. `--out <dir>` says where they go (default: the current directory).
@@ -249,7 +252,7 @@ tokens path=".":
     #!/usr/bin/env bash
     set -euo pipefail
     target="$(cd "{{path}}" && pwd)"
-    cd src-tauri && cargo run --quiet --bin sanity-tokens -- "$target"
+    cd src-tauri && cargo run --quiet -p sanity-tools --bin sanity-tokens -- "$target"
 
 [group("ship")]
 [doc("Full release bundle, locally (needs the icon set — `just icons` first)")]
@@ -465,6 +468,21 @@ publish version:
         exit 1
     fi
     echo "    bundle reports $got"
+
+    # The same question of the headless archive, which is built by a different job. Extracted
+    # outside $work, because everything in $work is uploaded.
+    TGZ="sanity-${VERSION}-aarch64-apple-darwin.tar.gz"
+    echo "==> Checking $TGZ's own version"
+    [ -f "$work/$TGZ" ] || { echo "error: $TGZ missing from the release" >&2; exit 1; }
+    headless=$(mktemp -d)
+    tar -xzf "$work/$TGZ" -C "$headless"
+    got=$("$headless/sanity" --version 2>/dev/null || echo "")
+    rm -rf "$headless"
+    if [ "$got" != "sanity $VERSION" ]; then
+        echo "error: $TGZ reports '$got', expected 'sanity $VERSION'" >&2
+        exit 1
+    fi
+    echo "    headless reports $got"
 
     echo "==> Uploading to {{dl_host}}:{{dl_path}}"
     ssh "{{dl_host}}" "mkdir -p '{{dl_path}}'"

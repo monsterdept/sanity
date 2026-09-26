@@ -12,19 +12,21 @@ name = "sanity_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
-tauri-plugin-single-instance = "2"
-tauri-plugin-opener = "2"
-tauri-plugin-dialog = "2"
+# The window, and everything only the window needs. Optional so `--no-default-features`
+# builds every CLI verb with no Tauri, WebKit or GTK — see `gui` below.
+tauri = { version = "2", features = ["macos-private-api"], optional = true }
+tauri-plugin-single-instance = { version = "2", optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The one thing that crosses the IPC as bytes: an exported replay, on its way to a file
 # the save dialog picked. Already in the tree several times over — reqwest and tauri both
 # pull it — so this is a name for a crate that is being compiled anyway.
-base64 = "0.22"
+base64 = { version = "0.22", optional = true }
 anyhow = "1"
 # Repo walking that honours .gitignore/.ignore for free — the same matcher ripgrep
 # uses. Getting this wrong means node_modules dominates every sunburst.
@@ -123,29 +125,30 @@ bincode = { version = "2", features = ["serde"] }
 tempfile = "3"
 
 [features]
-custom-protocol = ["tauri/custom-protocol"]
+default = ["gui"]
+# The window. On by default, so `cargo build`, `just dev` and the release bundles are the app.
+# `--no-default-features` is the headless build: the same `sanity`, every verb, no window —
+# for CI runners and servers where the app is not installed. See
+# `docs/plans/open/headless-cli.md`.
+gui = [
+    "dep:tauri",
+    "dep:tauri-plugin-single-instance",
+    "dep:tauri-plugin-opener",
+    "dep:tauri-plugin-dialog",
+    "dep:tauri-build",
+    "dep:base64",
+]
+custom-protocol = ["gui", "tauri/custom-protocol"]
 
 [[bin]]
 name = "sanity"
 path = "src/main.rs"
 
-# What a reader pays for the parts of its context we write. Separate from the scorer
-# because it answers a different question and must not slow that one down.
-[[bin]]
-name = "sanity-tokens"
-path = "src/bin/tokens.rs"
-
-# Replay a repo's history without opening a window. The app is the human's to launch, so
-# this is the only way a change to the commit walk gets checked.
-[[bin]]
-name = "sanity-history"
-path = "src/bin/history.rs"
-
-# The lead catalog, headless — and the instrument the catalog is titrated with. See
-# `docs/notes/findings.md`; the window's settings page is a UI over this same evaluator.
-[[bin]]
-name = "sanity-findings"
-path = "src/bin/findings.rs"
-
 # Standalone workspace so cargo never folds this into a parent build graph.
+#
+# `tools` holds the dev tools — `sanity-findings`, `sanity-history`, `sanity-tokens`. They are a
+# crate of their own because the Tauri bundler ships every binary THIS package builds, and each
+# of them weighs about as much as the app: in the app crate they were most of every download.
+# A member rather than a crate apart, so they share this lockfile and this target directory.
 [workspace]
+members = ["tools"]

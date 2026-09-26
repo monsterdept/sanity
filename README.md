@@ -211,8 +211,8 @@ only checks what you committed. `sanity verify` fails unless the readings are:
 
 ### GitHub Actions
 
-[`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action) runs `verify` on a
-Linux x86-64 runner:
+[`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action) runs `verify` on
+Linux, macOS and Windows runners, x86-64 or ARM64:
 
 ```yaml
 name: Readings
@@ -223,9 +223,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: monsterdept/sanity-action@v1
+      - uses: monsterdept/sanity-action@v2
         with:
-          version: 0.31.2          # the Sanity release your team reads with
+          version: 0.32.0          # the Sanity release your team reads with
           model: claude-sonnet-5   # optional: require this model
           # harness: claude        # optional: require this agent
           # path: services/api     # optional: a repo in a subdirectory
@@ -242,15 +242,17 @@ Sanity checks its own releases this way: see
 
 ### Other CI systems
 
-Download the `.AppImage` for your pinned version and run it:
+Each release includes a headless `sanity`: every command, without the app's window, as a single
+binary of about 16 MB compressed. Download the one for your runner and run it:
 
 ```sh
-curl -fsSLo sanity https://dl.dept.monster/sanity/Sanity_0.31.2_amd64.AppImage
-chmod +x sanity
-APPIMAGE_EXTRACT_AND_RUN=1 ./sanity verify "$PWD"   # use an absolute path: the AppImage starts in its own directory
+curl -fsSL https://dl.dept.monster/sanity/sanity-0.32.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+./sanity verify
 ```
 
-`APPIMAGE_EXTRACT_AND_RUN=1` is needed on runners without `libfuse2`.
+The targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`,
+`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`; Windows archives are `.zip`. On a
+desktop, install the app instead: it includes the same `sanity`.
 
 ## Why trust the signal
 

@@ -102,17 +102,25 @@ jobs:
             --platform=node --outfile="$RUNNER_TEMP/replay-check.mjs" --log-level=warning
           node "$RUNNER_TEMP/replay-check.mjs"
 
-      # The whole Rust crate lives in src-tauri/ — there is no workspace-root
-      # backend crate. Scanning and scoring run in-process, not as a sidecar.
+      # The Rust workspace lives in src-tauri/: the app crate, and `tools` for the dev tools
+      # that must not ship in the bundle. `--workspace` so a tool that stops compiling fails
+      # here. Scanning and scoring run in-process, not as a sidecar.
       - name: cargo test
         shell: bash
         working-directory: src-tauri
-        run: cargo test
+        run: cargo test --workspace
 
       - name: cargo clippy -- -D warnings
         shell: bash
         working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The headless build — every verb, no window — so one that stops compiling fails here
+      # rather than in a release. See docs/plans/open/headless-cli.md.
+      - name: cargo clippy --no-default-features -- -D warnings
+        shell: bash
+        working-directory: src-tauri
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
 
       # Persistent self-hosted runners never evict target/ between runs, so
       # sibling projects' debug + release builds pile up until the disk fills.

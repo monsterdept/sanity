@@ -21,6 +21,7 @@ pub mod blame;
 pub mod churn;
 pub mod cli;
 pub mod clones;
+#[cfg(feature = "gui")]
 pub mod commands;
 pub mod edges;
 pub mod edits;
@@ -37,6 +38,7 @@ pub mod scan;
 pub mod scancache;
 pub mod screen;
 pub mod search;
+pub mod stamp;
 pub mod surprise;
 pub mod tangle;
 pub mod trace;
@@ -50,11 +52,12 @@ pub mod watch;
 /// ignored — and there is no runtime setter on Window. That is why the window is built
 /// here rather than declared in config. Tally and Sewcrates use this exact inset, so the
 /// department's windows line up when they overlap.
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "gui", target_os = "macos"))]
 pub(crate) const TRAFFIC_LIGHTS: (f64, f64) = (16.0, 23.0);
 
 /// Build the main window in code, because the traffic-light inset above cannot be
 /// expressed in config. Everything else here is what tauri.conf.json used to declare.
+#[cfg(feature = "gui")]
 fn build_window(app: &tauri::AppHandle) {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
@@ -88,14 +91,14 @@ fn build_window(app: &tauri::AppHandle) {
 ///
 /// Managed as app state because a radio group has to be updated as a group: picking Dark
 /// means clearing Light and System, and the handler needs all three to do it.
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "gui", target_os = "macos"))]
 pub struct ThemeMenu {
     pub light: tauri::menu::CheckMenuItem<tauri::Wry>,
     pub dark: tauri::menu::CheckMenuItem<tauri::Wry>,
     pub system: tauri::menu::CheckMenuItem<tauri::Wry>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "gui", target_os = "macos"))]
 impl ThemeMenu {
     /// Show `which` as the active one. Called from the menu handler and from the frontend
     /// on startup — the preference lives in the webview's localStorage, so Rust cannot
@@ -120,7 +123,7 @@ impl ThemeMenu {
 /// gives no way to insert items into the stock menu. Everything else here is a predefined
 /// item, so the standard behaviors (Hide, Quit, copy/paste, ⌘W) stay the system's rather
 /// than being reimplemented badly.
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "gui", target_os = "macos"))]
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri::Wry>, ThemeMenu)> {
     use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
@@ -216,6 +219,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<(tauri::menu::Menu<tauri:
     Ok((menu, ThemeMenu { light, dark, system }))
 }
 
+#[cfg(feature = "gui")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Shared with the loopback agent API so an MCP client can see the scan that is

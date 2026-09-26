@@ -5,5 +5,8 @@ fn main() {
     // package — so `just icons-mac` wrote a new icon and a dev build went on showing the old one
     // until some unrelated Rust file moved. Measured: touching only `icon.icns` rebuilt nothing.
     println!("cargo:rerun-if-changed=icons");
+    // Only the window has a Tauri context to generate. A headless build (`--no-default-features`)
+    // has no `tauri.conf.json` to read and no frontend to embed.
+    #[cfg(feature = "gui")]
     tauri_build::build()
 }

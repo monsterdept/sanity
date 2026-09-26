@@ -1,0 +1,208 @@
+name: Headless
+
+# The headless `sanity`: every CLI verb, no window, for CI runners and servers where the app is
+# not installed. See docs/plans/open/headless-cli.md.
+#
+# Called by release.yml with the tag, it stamps the version, builds, checks the binary reports
+# that version, and uploads `sanity-<version>-<target>.tar.gz` (`.zip` on Windows) into the draft
+# release. On a pull request that touches the build it does the same without a tag and keeps the
+# archives as workflow artifacts, so a change to how this is built is tried on the real runners
+# before a release depends on it.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag, e.g. v0.32.0. Empty for a trial build.
+        type: string
+        default: ""
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/headless.yml
+      - scripts/stamp-version.mjs
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - src-tauri/build.rs
+      - src-tauri/src/main.rs
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: [self-hosted, linux, X64, krapow]
+            triple: x86_64-unknown-linux-gnu
+          # Cross-compiled from the x64 runner with the distribution's aarch64 toolchain. It
+          # cannot be run here, so it is checked by building and not by `--version`.
+          - os: [self-hosted, linux, X64, krapow]
+            triple: aarch64-unknown-linux-gnu
+            cross: linux
+          - os: [self-hosted, macOS, arm64, krapow]
+            triple: aarch64-apple-darwin
+          - os: [self-hosted, windows, X64, krapow]
+            triple: x86_64-pc-windows-msvc
+          # As release.yml builds the Windows ARM64 installer: from the x64 runner, with clang
+          # from LLVM for the C grammars.
+          - os: [self-hosted, windows, X64, krapow]
+            triple: aarch64-pc-windows-msvc
+            cross: windows
+
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        if: inputs.tag != ''
+        with:
+          node-version: 20
+
+      - name: Set version from tag
+        if: inputs.tag != ''
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          BASE="${TAG#v}"; BASE="${BASE%%-*}"
+          node scripts/stamp-version.mjs "$BASE"
+
+      - name: Add Rust cross-compile target
+        if: matrix.cross
+        shell: bash
+        run: rustup target add ${{ matrix.triple }}
+
+      - name: Install the aarch64 toolchain (Linux cross)
+        if: matrix.cross == 'linux'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          {
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
+          } >> "$GITHUB_ENV"
+
+      - name: Add LLVM to PATH (Windows cross)
+        if: matrix.cross == 'windows'
+        shell: bash
+        run: echo "C:/Program Files/LLVM/bin" >> "$GITHUB_PATH"
+
+      # Native builds land in target/release; a --target build under target/<triple>/release.
+      - name: Build
+        id: build
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.cross }}" ]; then
+            cargo build --release --locked --no-default-features --target ${{ matrix.triple }}
+            dir="target/${{ matrix.triple }}/release"
+          else
+            cargo build --release --locked --no-default-features
+            dir="target/release"
+          fi
+          exe=sanity; [ "$RUNNER_OS" = "Windows" ] && exe=sanity.exe
+          echo "bin=src-tauri/$dir/$exe" >> "$GITHUB_OUTPUT"
+          echo "exe=$exe" >> "$GITHUB_OUTPUT"
+
+      # The binary is asked, not the filename: the filename is chosen by the same job whose
+      # stamping is in question. Native builds only — a cross build cannot run on this runner.
+      - name: Check the binary
+        if: ${{ !matrix.cross }}
+        shell: bash
+        env:
+          BIN: ${{ steps.build.outputs.bin }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          got="$("$BIN" --version)"
+          echo "$got"
+          if [ -n "$TAG" ]; then
+            want="sanity ${TAG#v}"; want="${want%%-*}"
+            [ "$got" = "$want" ] || { echo "::error::binary reports '$got', expected '$want'"; exit 1; }
+          fi
+          "$BIN" verify --help >/dev/null
+          # Bare `sanity` in this build prints help and says there is no window.
+          out="$RUNNER_TEMP/bare.txt"
+          if "$BIN" >"$out"; then
+            echo "::error::bare sanity exited 0 in a build with no window"; exit 1
+          fi
+          grep -q "no window" "$out" || { echo "::error::bare sanity did not say it has no window"; exit 1; }
+
+      - name: Package
+        id: package
+        shell: bash
+        env:
+          BIN: ${{ steps.build.outputs.bin }}
+          EXE: ${{ steps.build.outputs.exe }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"; [ -n "$version" ] || version="dev"
+          name="sanity-${version}-${{ matrix.triple }}"
+          rm -rf dist && mkdir -p "dist/$name"
+          cp "$BIN" LICENSE "dist/$name/"
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -NoProfile -Command "Compress-Archive -Path '$name/*' -DestinationPath '$name.zip'"
+            file="$name.zip"
+          else
+            tar -czf "$name.tar.gz" -C "$name" "$EXE" LICENSE
+            file="$name.tar.gz"
+          fi
+          ls -l "$file"
+          echo "file=dist/$file" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the archive (trial build)
+        if: inputs.tag == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanity-${{ matrix.triple }}
+          path: ${{ steps.package.outputs.file }}
+          retention-days: 7
+
+      # Into the draft release.yml's `draft` job made, retried for the same reason the bundles
+      # are: the release service fails transiently on its own side.
+      - name: Push the archive to the draft release
+        if: inputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          FILE: ${{ steps.package.outputs.file }}
+        run: |
+          set -euo pipefail
+          command -v gh >/dev/null || { echo "::error::gh is not on PATH"; exit 1; }
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$TAG" "$FILE" --clobber; then
+              echo "uploaded on attempt $attempt"
+              exit 0
+            fi
+            echo "upload attempt $attempt failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::release asset upload failed after 5 attempts"
+          exit 1
+
+      # Persistent self-hosted runners keep target/ forever; a release build is the biggest
+      # thing in it and has no warm-cache value.
+      - name: Clean target dirs
+        if: always()
+        shell: bash
+        run: cargo clean --manifest-path src-tauri/Cargo.toml || true

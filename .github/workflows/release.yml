@@ -167,56 +167,14 @@ jobs:
         working-directory: web
         run: npm run build
 
-      # The git tag is the single source of truth for the version (like tally /
-      # metalbug — `just release` tags, it doesn't bump committed files). A -pre
-      # suffix is stripped because Tauri's version field wants plain
-      # MAJOR.MINOR.PATCH; the tag / release name still carries the prerelease.
-      # Edits the runner checkout only, never committed. node is on PATH from
-      # setup-node (all platforms).
-      #
-      # EVERY file that carries the version, not just the bundle's. This stamped
-      # tauri.conf.json alone, so v0.8.1 shipped a binary compiled from a
-      # Cargo.toml still reading 0.1.0 — and `mcp.rs` hands `CARGO_PKG_VERSION`
-      # to every client as `serverInfo.version`, so the DMG said 0.8.1 while the
-      # thing inside it introduced itself as 0.1.0 to every agent that connected.
-      # A version that is right on the wrapper and wrong on the wire is worse
-      # than one that is wrong everywhere: nothing on the machine disagrees
-      # visibly, so nobody looks.
-      #
-      # Cargo.lock holds its own copy of this package's version and cargo would
-      # quietly rewrite it — fine today, an error the moment anything builds
-      # --locked. Stamped here so the tree stays consistent either way.
+      # The tag is the version; scripts/stamp-version.mjs writes it into every file that carries
+      # one, and fails closed if any of them missed. A -pre suffix is stripped because Tauri's
+      # version field wants plain MAJOR.MINOR.PATCH; the tag and release name keep it.
       - name: Set version from tag
         shell: bash
         run: |
           BASE="${GITHUB_REF_NAME#v}"; BASE="${BASE%%-*}"
-          # The version reaches node through the ENVIRONMENT so the script can be
-          # single-quoted: interpolating it left a program whose quoting had to
-          # survive bash and JS at once, and the regexes here are made of exactly
-          # the characters both of them care about.
-          SANITY_VERSION="$BASE" node -e '
-            const fs = require("fs")
-            const v = process.env.SANITY_VERSION
-            const json = (f, k) => {
-              const j = JSON.parse(fs.readFileSync(f, "utf8"))
-              j[k] = v
-              fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n")
-            }
-            json("src-tauri/tauri.conf.json", "version")
-            json("web/package.json", "version")
-            // Anchored to the FIRST `version =` at the start of a line, which is
-            // the one in [package] — a blind replace would hit every dependency
-            // pin in the file.
-            const sub = (f, re, to) => fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(re, to))
-            sub("src-tauri/Cargo.toml", /^version = ".*"$/m, `version = "${v}"`)
-            // The lockfile entry for this package, found by its own name line.
-            sub("src-tauri/Cargo.lock", /(name = "sanity"\nversion = )".*"/, `$1"${v}"`)
-            console.log("version →", v)
-          '
-          # Fail closed. A stamp that silently missed is exactly how 0.1.0 shipped
-          # inside a 0.8.1 bundle, and the check costs nothing.
-          grep -q "^version = \"$BASE\"" src-tauri/Cargo.toml || { echo "::error::Cargo.toml not stamped to $BASE"; exit 1; }
-          grep -q "\"version\": \"$BASE\"" src-tauri/tauri.conf.json || { echo "::error::tauri.conf.json not stamped to $BASE"; exit 1; }
+          node scripts/stamp-version.mjs "$BASE"
 
       - name: Import Apple signing certificate
         if: runner.os == 'macOS'
@@ -435,8 +393,17 @@ jobs:
         shell: bash
         run: cargo clean --manifest-path src-tauri/Cargo.toml || true
 
+  # Every CLI verb with no window, for CI runners and servers — see
+  # docs/plans/open/headless-cli.md. Its own workflow so a pull request can build the same
+  # archives without a release.
+  headless:
+    needs: draft
+    uses: ./.github/workflows/headless.yml
+    with:
+      tag: ${{ github.ref_name }}
+
   release:
-    needs: build
+    needs: [build, headless]
     runs-on: [self-hosted, linux, X64, krapow]
     permissions:
       contents: write
