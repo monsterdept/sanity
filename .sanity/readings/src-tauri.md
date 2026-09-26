@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1294 of 1294 read · 228 unpredicted
+1300 of 1300 read · 228 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -24,10 +24,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `main`
-- spec 3 · read at `6c8608513d4e` · commit `01a81a7` · read by claude-sonnet-5 · via claude · when 2026-09-11T03:19:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A minimal Tauri build script that just calls tauri_build::build() to handle standard build-time codegen (resources, icons, context generation) with no custom logic.
-- found: Calls tauri_build::build() as expected, but also adds an explicit cargo:rerun-if-changed=icons line, with a comment explaining that tauri-build's own rerun-if-changed lines suppress Cargo's default full-rebuild-on-any-change behavior, so icon changes alone wouldn't trigger a rebuild without this.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `05bcd0eaefbb` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Tauri build script entry point; calls tauri_build::build() to generate the context/config for the app. Possibly a small extra like cargo rerun-if-changed directives.
+- found: Emits cargo rerun-if-changed=icons (so icon changes trigger rebuild), and calls tauri_build::build() only when the "gui" feature is enabled.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ## src-tauri/src/agentapi.rs
 
@@ -1656,80 +1656,6 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a store with save() then manually rewrites it to look like the old flat layout (moves readings/src-tauri.md to src-tauri.md, edits README.md index to drop the 'readings/' prefix). Asserts load() still finds the one reading under the old layout. Then calls save() again and asserts it rewrites the shard into the new readings/ location, sweeps away the old flat file, and load() still reports exactly one reading (not duplicated).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-## src-tauri/src/bin/findings.rs
-
-### the file itself
-- spec 3 · read at `1a049263f5fd` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:02:37Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Headless CLI binary for `just findings <path>`: main() loads a project tree, evaluates the rule catalog from the findings.rs evaluator module against it, and fmt() formats/prints each rule's calibrated threshold and hit count to the terminal — the tool used to tune the default catalog without the GUI.
-- found: Headless CLI as predicted: main() parses flags (--rule, --bare, --raw, --target, --show, --depth), scans the repo with a throttled progress ticker, builds Facts, runs the rule catalog (calibrated per-repo via rules_for, or raw/bare), subtracts findings already settled in the archive, and prints a summary table (hits/only/calibrated/so-what) plus sample hits with the rendered sentence per hit. fmt() is a trailing float formatter (duplicate of trim_num in the library).
-- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
-
-### `main` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `99ac601a3f0f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:08Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Parses CLI args (a repo path, maybe rule/threshold overrides), runs the finding rules against that path, and for each rule computes both its raw hit count and a "calibrated" threshold value that would yield some target hit rate, then prints a formatted table (using the `fmt` helper) to stdout before exiting.
-- found: Parses many CLI flags (path, --rule, --bare, --raw, --target, --show, --depth), scans the repo with a progress ticker, loads assessment reports, builds the rule catalog (shipped, repo-tuned, or ad-hoc via --rule), computes live hits per rule minus archived/settled findings, then prints a summary line and a table per rule (hits/only/wrong/never/calibrated threshold/so-what), followed by sample findings with rendered explanation text for each rule.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-
-### `fmt`
-- spec 3 · read at `0ed57cf5165c` · commit `259ab27` · read by claude-sonnet-5 · via claude · when 2026-09-03T07:01:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Formats an f32 value for the CLI's tabular output, rounding to a small number of decimal places (e.g. 1-2) and trimming unnecessary trailing zeros so numbers like thresholds/percentiles print cleanly.
-- found: Formats an f32: if it has no fractional part, prints it as a plain integer; otherwise prints with 2 decimal places.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-## src-tauri/src/bin/history.rs
-
-### the file itself
-- spec 2 · read at `855b2edad4c9` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:52:09Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A CLI binary (`just history <path>`) that walks a git repo's commit history and replays it through the same function-tracking/walk logic the main app uses, then prints a headless summary: total commit count, final function count, and the largest "frames" (biggest changes) per commit. It's a diagnostic tool for catching walk bugs like renames misclassified as adds or functions landing in the wrong file, mirroring what `just scan` does for the metric side. Likely a single main() that parses a path argument, drives the walker/replay, and prints stats to stdout.
-- found: A CLI main() parsing path/--limit/--files/--json/--cached flags, running history::read (or read_cached), then replaying the commit deltas (set/del) into a live function->loc map to compute totals, peak function count, and optionally per-file breakdown and the 8 busiest commits by files touched.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: Got the overall shape (headless replay + summary stats) right but missed the specific flags (--files/--json/--cached/--limit) and the per-file reconciliation-with-scan detail.
-
-### `main` — LEGIBLE SOME
-- spec 3 · read at `905f1f341977` · commit `024199b` · read by claude-sonnet-5 · via claude · when 2026-08-20T04:51:28Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Parses a repo path argument from the command line, then runs the same commit-by-commit history walk/replay used by the app (probably calling into a shared walk/scan module) while accumulating stats. At the end it prints a summary: total commit count, final function count, and details of the biggest/most impactful frames (e.g. largest diffs or function count deltas), to let a developer sanity-check the walker after changes without opening the GUI.
-- found: CLI entry point: parses PATH plus --limit/--files/--json/--cached/--help flags, runs history::read (or read_cached) with a throttled stderr progress ticker, then either dumps JSON or replays the commit deltas (set/del) to compute live function counts and peak, and prints a summary (commit count, file/function counts, optional per-file breakdown, and the 8 busiest commits by change size).
-- predicted: most · documented: most · derivable: no · legible: some · trap: no
-
-## src-tauri/src/bin/tokens.rs
-
-### the file itself
-- spec 2 · read at `f9ef6d6755a2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:13:48Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A standalone CLI binary (`just tokens <path>`) that measures and reports the token cost of some text/file — likely the MCP tool schema/prompt text — using a `tok` function to count tokens, `pct`/`row`/`big` as formatting helpers to print a breakdown or histogram table, and `main` to parse the path argument and drive the report. Its purpose is to make the per-reading token overhead (tool contracts, subagent prompt) visible and measurable rather than left to guesswork.
-- found: CLI binary printing a token budget report: fixed per-reader prefix (MCP tool schemas + subagent prompt), the orchestrator-only protocol text, then scans a target repo to compute per-function payload/body size distributions (median/p90/max), and projects a whole-repo token total, including the savings from splitting reader vs orchestrator tool surfaces.
-- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
-- note: Doc explains the motivation (batching hid the fixed-prefix cost) in real depth I couldn't have predicted, but the functional shape matched my guess closely.
-
-### `tok`
-- spec 2 · read at `a3cf659559cc` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:01:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Converts a character count into an estimated token count using a simple fixed-ratio heuristic, most likely dividing by 4 (the common rough chars-per-token approximation for English text), rounded somehow — used to estimate the token cost of tool-schema descriptions and prompts without calling a real tokenizer.
-- found: Simple integer division of chars by a CHARS_PER_TOKEN constant — a fixed-ratio heuristic tokenizer estimate, exactly as predicted (didn't confirm the constant is 4 but the mechanism is right).
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `row`
-- spec 2 · read at `37b1893f0661` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:06:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Prints one line of the token-cost report: given a label and a character count, converts chars to an estimated token count (via `tok`) and prints them formatted (likely using `big` to comma-format the number), e.g. "label: N chars (~M tokens)".
-- found: Prints a formatted row with label, char count, and estimated token count via tok(chars), aligned columns.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `pct`
-- spec 2 · read at `cf8ee2539f59` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:55:49Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Computes the p-th percentile (p as a 0-1 fraction) of a pre-sorted slice by indexing at round(p * (len-1)) or similar, returning that element. Probably has a guard for an empty slice returning 0.
-- found: Empty-slice guard returns 0; otherwise indexes at round((len-1) * p) into the sorted slice.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `big`
-- spec 2 · read at `607385e1263f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:51:15Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Formats large counts into a compact human string — checks thresholds (>=1_000_000 → divide by 1e6, one decimal, "M" suffix; >=1_000 → divide by 1e3, "K" suffix; else just the plain number as a string), likely using format!("{:.1}M", ...).
-- found: Match on thresholds: >=1M formats as one-decimal millions with 'M', >=1000 as one-decimal thousands with lowercase 'k', else the plain integer string.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `main` — PREDICTED SOME
-- spec 3 · read at `e78bb93fe69d` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:48Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Parses a path argument, loads/builds the repo's function data (docs, schemas), and computes how many tokens a single reader pays per reading — the fixed prefix cost (tool contract + subagent prompt) plus the per-function payload (name, owner, signature, peers, docs). Using the tok/row/pct/big helpers it prints a breakdown/table, likely sorted by size, showing which components (e.g. long doc strings) dominate the token cost, similar in spirit to a histogram like `just scan`.
-- found: Computes and prints a token budget report: the fixed per-reader prefix (reader tool schemas + subagent prompt, plus separately the orchestrator-only protocol and held-back tools), then scans the given repo path to build per-function task payloads and reports median/p90/max distributions of task JSON, peers, docs, signature, and body-line sizes, then projects whole-repo token totals (fixed prefix × n, payloads, estimated bodies) with percentage breakdown and a note that real cost is a 3-4x multiple of this floor.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-
 ## src-tauri/src/blame.rs
 
 ### the file itself
@@ -2265,12 +2191,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/cli.rs
 
-### the file itself — LEGIBLE SOME
-- spec 3 · served in 6 parts · read at `59152a98b990` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:51:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: The CLI entry point for a Tauri app: parses verbs (serve, check, status, findings, verify, export, etc.), ensures a per-machine background backend is running (spawn lock, probe/health, endpoint file), talks to it over local HTTP (get/post), and renders results as terminal text with progress bars. Also contains main dispatch and tests for arg parsing and spawn locking.
-- found: The whole CLI: a clap definition of verbs plus a main dispatcher, a per-machine daemon lifecycle (O_EXCL spawn lock, probe/health, stale-build retirement, serve loop with idle/supersede exit), a blocking HTTP client, and verbs. Some verbs go through the backend (check with a live-tailing terminal UI, status, trace); others run in-process (findings, callers, decide/clear/balance, refresh, verify gate, export-data, summary). Tests are included.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: The header explains the daemon design and which verbs use the backend, but says nothing about the in-process findings/decision verbs, verify, export-data or the clap surface that make up much of the file.
+### the file itself
+- spec 3 · served in 6 parts · read at `3a281dccc5c9` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: The CLI entry point: arg parsing and verb dispatch (main, is_verb, launch_target), a spawn-lock/ensure_backend layer that starts or reuses a per-machine backend process over HTTP (get/post/health/probe), the serve command, and verbs like check/survey/status/findings/verify/export that talk to the backend or run offline. Plus terminal formatting helpers (bar, plural, grade_ink) and tests at the bottom.
+- found: The whole headless CLI: spawn-lock and ensure_backend lifecycle, the idle/supersede daemon loop in serve, the interactive init/check/tail/status/summary verbs, offline in-process verbs (findings, callers, decide, clear, balance, refresh, verify gate, export-data), the clap definitions, launch_target/main dispatch, and tests. Prediction matched the shape but missed that many verbs are deliberately in-process rather than via the backend and the CI verify gate.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The header covers only the backend/daemon model and which verbs use it; it says nothing about verify, refresh, export-data, findings decisions, or launch_target, which make up much of the file.
 
 ### `spawn_lock_path`
 - spec 2 · read at `d361e1076438` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -2610,10 +2536,10 @@ What this is and how to add to it: [README.md](README.md)
 - note: Missed that a None value collapses to one placeholder column rather than four zero columns, and missed the thousands-separator formatting via commas().
 
 ### `export_of`
-- spec 3 · read at `8812964af840` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:27:52Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds a full Export for the CLI's headless path, mirroring how the app builds a project: untraced scan first (hits tree cache), then deepens in memory via trace::deepen to the requested depth or the repo's last-banked depth when None. Then restores/loads readings, retests classifications via links::retest_tree, and runs survey for findings, calling lap to report progress at each stage, returning the Export or an error string.
-- found: Matches predicted pipeline (untraced scan, deepen, load/retest reports, findings via project_report) but also assembles the rest of the Export struct: resolves project display name (index lookup falling back to dir name), sets up/prunes a render cache directory slot, fetches git remote/head, counts grammars, and builds a summary via agentapi::report_summary — with lap() called at each major stage (scan, depth tag, readings, findings, git).
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `b9f39bd49e99` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:46Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Resolves the path to a repo, picks depth (given, else banked, else Files), scans untraced, calls trace::deepen, loads readings, runs links::retest_tree, then assembles an Export struct of findings/files/readings. Calls lap with progress labels between phases; returns Err(String) on scan failure.
+- found: Scans untraced with a scan cache, deepens to the requested/banked/Files depth, loads readings, retests links, stamps reports, builds findings groups and summary, resolves the project name from the index (else directory name), creates and prunes a render cache dir, and assembles Export with remote/head/grammar count, calling lap between phases.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `export_data`
 - spec 3 · read at `c4e416078619` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2621,6 +2547,12 @@ What this is and how to add to it: [README.md](README.md)
 - found: Canonicalizes path (exit 2 on failure), builds an export via export_of with a per-stage `lap` timing callback that eprintln's elapsed time between stages, writes the JSON to `out` file or stdout via a buffered writer (exit 1 on failure), then prints a final summary line (name, trace depth, reading/group counts, byte size if written to file, total elapsed) to stderr; returns 0 on success.
 - predicted: most · documented: none · derivable: yes · legible: most · trap: no
 - note: The file doc describes the whole CLI module, not this function specifically, so per-function coverage is partial.
+
+### `after_help`
+- spec 3 · read at `60fb9276099f` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:07Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Returns a static help string listing the hidden verbs (serve, check) and a line saying what bare `sanity` does, chosen by cfg(feature = "gui"): opens window vs prints help/headless message.
+- found: Builds the help footer: ANSI-styled "Internals" section listing serve and mcp (not check), then a gui-gated line saying whether bare sanity opens the window or the build has no window.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `launch_target`
 - spec 3 · read at `7577a8b27d92` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -2676,10 +2608,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ### `stamping_marks_size_expiry_and_dating`
-- spec 3 · read at `2058f7a36187` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:34:30Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A test that builds a small tree and a set of agent reports, calls stamp_reports on it, then asserts: an orphaned report (node no longer in the tree) gets loc=0 and is not marked stale, a report whose function body moved/changed is marked stale, and the size/expiry/dating fields on surviving reports are stamped correctly per spec.
-- found: Builds a tree with a live function, one whose body changed ('moved'), and one report with no matching node ('gone'), runs stamp_reports, and asserts loc/stale/legible_dated/trap_dated per case: live keeps its spec and is fresh, moved's body mismatch marks it stale and both dating flags true, gone gets loc=0, not stale, but legible_dated true.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: yes
+- spec 3 · read at `2c8b64a974d8` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Test builds a small tree and reports, calls stamp_reports, and asserts: an orphan report gets loc 0 and is not stale, a report whose body moved is stale, and the dating field follows the spec. Likely uses temp files and a hand-built Report or two.
+- found: In-memory test: builds a two-function tree and three reports (live with current SPEC, moved with a stale body hash, gone/orphan), stamps them, and asserts loc, stale, legible_dated and trap_dated for each. No temp files; dating differs by spec and trap flag.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ### `clearing_a_finding_takes_back_every_rule_under_it` — PREDICTED SOME
 - spec 3 · read at `724afdbc953d` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:10:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -2769,12 +2701,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/commands.rs
 
-### the file itself
-- spec 3 · served in 3 parts · read at `87d2d76bdaab` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A flat collection of #[tauri::command] functions, thin wrappers exposing scanning, history, tracing, project management, rules/decisions, export and CLI install to the frontend. Each takes State/AppHandle, delegates to core modules, and returns serde results or String errors; a few helpers and a small test module at the end.
-- found: The Tauri command surface: scan and history commands, trace, findings and rules, project list management, source snippets, commit detail, CLI install, exports and reader runs. Some commands hold real logic beyond thin wrapping, such as scan_repo orchestration, project_report caching and stamp_reports. It also has a global cancel flag, a few helpers and one test.
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The one-line header covers only the transport; the file has stray doc comments, including a duplicated line and a project_report comment merged into another, so the header could say what lives here.
+### the file itself — LEGIBLE SOME
+- spec 3 · served in 3 parts · read at `f7a38d9522bf` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:06Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A flat collection of #[tauri::command] functions, thin wrappers exposing the lib (scan, history, traces, projects, rules/findings, decisions, exports, CLI install, reader/check) to the frontend. Each mostly locks app state, calls into sanity_lib, and maps errors to strings; some spawn threads with cancel flags and emit progress events.
+- found: The Tauri command surface: scan/history/trace, project state polling, per-function panels (links, forks, sources, history, commit detail), findings rules and decisions, project management, CLI symlink install, exports, and reader runs. It is thicker than thin wrappers: it does path-escape checks, caching, and a git show parse, and it holds the CANCEL global.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+- note: The one-line header says nothing about the file's contents; also, some doc comments are spliced (scan_repo's doc sits above languages, and project_report's doc is fused with a findings-panel doc), which misleads readers.
 
 ### `languages`
 - spec 3 · read at `aa465757b9b8` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:53:01Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
@@ -2809,23 +2741,16 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `repo_remote`
-- spec 3 · read at `81f0db8182d8` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:21:51Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Opens the repo at `path` with git2 (or shells out to git), looks up the `origin` remote URL, falling back to the first remote if `origin` doesn't exist, and returns None if there's no remote or the path isn't a git repo. It then parses the URL's last two path segments (handling both `git@host:owner/name.git` scp-form and `https://host/owner/name` URL form via string splitting rather than a proper URL parser) and joins them as `owner/name`, stripping a trailing `.git` if present.
-- found: Shells out to `git -C <path> remote get-url origin`, falling back to the first listed remote if origin doesn't exist; returns None if git fails or there's no remote. Delegates the actual owner/name extraction from the URL (scp-form or https) to a separate `slug_of` helper rather than parsing inline.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: URL-shape parsing lives in the peer `slug_of`, not in this function — I'd assumed it was inline here.
+- spec 3 · read at `5ad90821bde3` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Tauri command wrapper that delegates to crate::stamp::repo_remote(path) and returns its result.
+- found: One-line delegation to crate::stamp::repo_remote.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `repo_head`
-- spec 3 · read at `a39c7f85411f` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:41:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Runs `git rev-parse HEAD` (and probably `git status --porcelain`) in the given path via std::process::Command, builds a RepoHead struct with the sha and a `dirty` bool indicating uncommitted changes, returning None if the path isn't a git repo or the git invocation fails.
-- found: Uses `git -C <repo>` to get a short 10-char HEAD sha (returns None if that fails/empty), and separately runs `git status --porcelain` excluding the .sanity directory to compute the dirty flag (as Option<bool>, not plain bool as I guessed).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `slug_of`
-- spec 3 · read at `460d4258690f` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Strips trailing ".git" and slashes from the URL, handles https and scp-style (git@github.com:owner/name) forms by taking the last two path segments, returns Some("owner/name") or None if fewer than two segments.
-- found: Trims, strips trailing slash and .git, splits on / and :, takes last two segments as name and owner, rejects empties or owner containing "://", returns owner/name.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `d74a590d6532` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Thin Tauri command wrapper: calls crate::stamp::repo_head(Path::new(&path)) and returns the result.
+- found: Pure passthrough to crate::stamp::repo_head(path).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `history_scoped`
 - spec 3 · read at `34d7298820c1` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:43Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
@@ -2901,16 +2826,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: Missed the hand-rolled percent-encoding (avoiding a crate dependency) and the macOS-specific titlebar/traffic-light styling to match the main window — both called out in code comments as deliberate.
 
 ### `agent_reports`
-- spec 3 · read at `cf0412c0f53a` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:46:17Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: agent_reports locks/reads the shared state's accumulated reports and filters them down to only those belonging to the project identified by key (rather than whatever project is "active" for the agent), returning a cloned Vec<Report>; if key is None it likely returns all or none.
-- found: Locks shared state, uses given key or falls back to the agent's active project, looks up that project by key in the per-project map, and returns its reports stamped with the project's root path (or empty if no key/project found).
+- spec 3 · read at `c444eace2f78` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:46Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Locks the shared agent API state and returns the list of reports recorded for the project identified by `key` (the window's shown project). If key is None it likely falls back to the active project; returns an empty Vec if the project has no reports.
+- found: Locks shared state, uses key or falls back to active project, returns empty if none; otherwise returns the project's reports passed through stamp_reports (using the scan root), which my prediction missed.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `stamp_reports` — PREDICTED SOME
-- spec 3 · read at `ebfdee89d1de` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:30:37Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: For each report in `reports`, looks up the corresponding node in `root` (by path/id) and stamps onto a copy of the report the live values that node currently has — line count (loc), staleness, and last-modified/dating info — so the returned Vec<Report> reflects the current state of the tree rather than whatever was true when the report was generated; entries with no matching node are presumably skipped or left unstamped.
-- found: Builds a one-time map of live Func nodes (body/bytes/loc) from the tree, then for each report stamps loc (0 if the function is gone), recomputes `stale` via is_stale (false if gone), and also recomputes `legible_dated` and `trap_dated` against current assessment constants/specs — none of these are persisted, all recomputed fresh per call/build.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: Docs explain why key exists but not that reports are stamped via stamp_reports.
 
 ### `projects`
 - spec 2 · read at `609bd3dd15cc` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3169,13 +3089,6 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Looks up the running wave/check identified by `key` in the shared Tauri state and sets a cooperative stop flag (e.g. an AtomicBool or channel signal) that the wave's loop polls between readers, rather than forcibly killing it mid-read. Returns Ok(()) on success, or an Err string if the key isn't found.
 - found: Locks shared state, looks up the project by key, gets its current run (erroring with descriptive messages if the project isn't open or nothing is running), and sets the run's `stop` AtomicBool to true with Relaxed ordering.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `a_remote_url_reduces_to_owner_and_name`
-- spec 3 · read at `beabaabb2a39` · commit `50b4d0a` · read by claude-sonnet-5 · via claude · when 2026-08-19T08:22:25Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A #[test] function asserting slug_of's behavior across the URL shapes git remotes actually take: https://host/owner/name(.git), git@host:owner/name.git (scp-form), and a deeper GitLab-subgroup-style path, checking each reduces to "owner/name". It also asserts the two must-be-None cases the docs mention — likely a URL with too few path segments (no owner) and something degenerate like an empty string or a bare host — asserting slug_of returns None rather than fabricating a partial owner/name.
-- found: Table-driven test asserting slug_of over scp-form, https (with/without .git), ssh://, a GitLab subgroup path, a plain filesystem path (which also reduces to its last two segments), and two None cases: a URL with no owner/name segments and a bare string with only one segment.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: I didn't anticipate that slug_of is also exercised against a plain filesystem path (not just git remote URL shapes) and reduces it the same way — the fallback-to-directory-name behavior implied in repo_remote's docs is actually tested here via slug_of itself.
 
 ## src-tauri/src/edges.rs
 
@@ -5700,17 +5613,29 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/main.rs
 
 ### the file itself — PREDICTED SOME
-- spec 2 · read at `85fd5a79591b` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:52:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Standard minimal Tauri desktop entry point: a windows_subsystem attribute to suppress the console window on Windows release builds, and a fn main() that just delegates to a run() function defined in the crate's lib.rs to build and launch the Tauri application. No real logic lives here — it's boilerplate wiring, not the app's responsibility.
-- found: Single-binary dispatch: the windows_subsystem attribute is there as expected, but main() isn't a pure passthrough to a run() function — it branches on argv. `mcp` as first arg runs the stdio MCP server; any other args go to a CLI dispatcher (serve/check/read verbs); no args opens the Tauri window. The comments explain this is deliberate: one binary avoids a second installable (the CLI/MCP server) drifting from the GUI app.
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
-- note: Same binary serves as GUI app, CLI, and MCP server depending on argv — not the boilerplate-only entry point I expected.
+- spec 3 · read at `f0cefea97050` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:01Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Tauri binary entry point: main() builds the Tauri app, registers the command handlers and shared state, and runs it; likely a windows_subsystem attribute. The 'window' items are probably helpers or closures that create/configure app windows (main window and a code window).
+- found: Entry point for a dual GUI/headless binary: `mcp` arg runs the stdio MCP server; otherwise cli::launch_target decides between opening the window (on a repo or bare) or running the CLI verbs. Two cfg-gated `window` variants exist: the GUI one opens the app, the headless one prints help or an error and exits 2. I expected a plain Tauri builder and missed the CLI/MCP dispatch.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `main` — PREDICTED NONE
-- spec 3 · read at `0ad89071bff7` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:27:55Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Tauri app entry point: builds a tauri::Builder, registers plugins and invoke handlers, maybe sets up state, and runs with generate_context!(), expecting an error message on failure. Possibly has cfg attribute to hide the console window on Windows release.
-- found: Single binary dispatcher: `mcp` arg runs the stdio MCP server; otherwise launch_target decides between erroring, opening the window on a repo, opening a bare window with no args, or running the headless CLI and exiting with its code.
+- spec 3 · read at `5b159627d1e8` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Tauri entry point: builds tauri::Builder::default(), registers plugins/setup (probably creating a window or configuring window state), and runs with generate_context!(), expecting an error message on failure.
+- found: Dispatches on args: "mcp" runs stdio MCP server; otherwise cli::launch_target decides between error exit, opening the window on a repo, opening the window with no repo, or running the CLI and exiting with its code.
 - predicted: none · documented: none · derivable: no · legible: full · trap: no
+
+### `window`
+- spec 3 · read at `541f8bffc2e1` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Calls the lib's run function with the optional repo to launch the Tauri window; `_bare` is unused (maybe cfg-gated variant). Probably a couple of lines that stores the repo as initial project then runs the app.
+- found: With a repo, it registers a window name via cli::name_for_window and calls run_opening(Some(repo)); otherwise it calls run(). `_bare` is ignored.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `window` #2
+- spec 3 · read at `f7375c8d6fff` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:07Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Headless variant: if a repo was given and not bare, eprints that this build has no window; otherwise prints help via cli::main --help; then exits with code 2.
+- found: Headless window(): with a repo and not bare, prints a no-window error; otherwise prints help; always exits 2.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Warm reading: I had already seen this function's source when the whole file main.rs was assigned at position 3, so the prediction is not independent.
 
 ## src-tauri/src/mcp.rs
 
@@ -7703,6 +7628,46 @@ What this is and how to add to it: [README.md](README.md)
 - found: A unit test using the real ceph repo fixture: it searches "objecter" and asserts the file src/osdc/Objecter.cc ranks above the directory src/objecter, confirming stem-based exact matching beats a directory of the same name.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
+## src-tauri/src/stamp.rs
+
+### the file itself
+- spec 3 · read at `dd4117ba2c62` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:24Z · by ross@rossturk.com · warm reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Small git-metadata helper module: repo_remote gets origin URL slug via slug_of; repo_head gets short sha and dirty flag; stamp_reports takes readings and marks each as current/expired against the live tree (e.g. by comparing file hashes/sizes). One test for slug parsing.
+- found: Git-metadata and stamping helpers: repo_remote (origin slug for export captions), repo_head (short sha and dirty flag excluding .sanity), slug_of, and stamp_reports, which annotates readings with loc, stale, legible_dated and trap_dated against the live tree. Plus a slug test.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: Header omits stamp_reports' staleness and dating logic, the largest piece of the file; it only mentions the sha and the name.
+
+### `repo_remote`
+- spec 3 · read at `447df0230ba9` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:02Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Opens the git repo at path with git2, finds remote "origin" else first remote, takes its url, and reduces it via slug_of to owner/name; returns None if no repo or remote.
+- found: Shells out to `git -C path remote get-url origin`, falling back to the first listed remote, then reduces the URL with slug_of; None on any failure. Uses the git CLI, not git2 as I guessed.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `repo_head`
+- spec 3 · read at `d97b11efa634` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:51Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Runs `git rev-parse HEAD` and `git status --porcelain` in the path, returning RepoHead{sha, dirty}; dirty ignores lines under root .sanity/. Returns None if git fails.
+- found: Runs git -C path for rev-parse --short=10 HEAD (None if it fails or is empty) and status --porcelain excluding .sanity via pathspec. dirty is Option<bool>, None if the status call fails. Returns RepoHead{sha, dirty}.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `slug_of`
+- spec 3 · read at `6511eba401ac` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:01Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Trims whitespace and trailing ".git"/slashes from the URL, splits on '/' or ':' and takes the last two non-empty segments, returning "owner/name"; None if fewer than two segments.
+- found: Trims trailing slash and .git, takes the last two segments split on '/' or ':', rejects empty name/owner or an owner containing "://" (e.g. host-only URL), returns "owner/name".
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `stamp_reports` — PREDICTED SOME
+- spec 3 · read at `50581af4e84f` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:08Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds a lookup of live functions from the tree by id; for each report, clones it, sets loc from the live node, marks stale if the recorded loc/hash differs or the function is gone, fills in a date, and returns the vec sorted.
+- found: Builds a live-function lookup (only if reports exist), then clones each report and sets loc (0 if function gone), stale via is_stale, legible_dated and trap_dated from spec-currency checks (only a true trap expires). Unsorted, and the date flags are spec-version checks, not dates as I guessed.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+
+### `a_remote_url_reduces_to_owner_and_name`
+- spec 3 · read at `a56ebfeb4f42` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Test asserting slug_of maps https, ssh (git@host:owner/name.git), and ssh:// URLs, with/without .git and trailing slash, to "owner/name", and that empty or malformed ones (no owner, bare host) give None.
+- found: Table-driven test of slug_of over scp-style, https, ssh:// URLs, a nested gitlab group (last two segments) and a local path (still yields a slug), plus two None cases. The local path returning Some("projects/sanity") is a surprise.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+- note: The doc says a local path must come back empty, but the test pins a local path to Some("projects/sanity"); the doc and test disagree.
+
 ## src-tauri/src/tangle.rs
 
 ### the file itself
@@ -8294,3 +8259,83 @@ What this is and how to add to it: [README.md](README.md)
 - found: Builds a fake bare-minimum git repo (just a .git dir with a HEAD file) plus one source file, probes it, then edits only .git/HEAD (simulating what a commit/checkout does to repo state) and probes again — asserting the tree field is unchanged (no file touched) but the git field differs.
 - predicted: most · documented: some · derivable: no · legible: full · trap: no
 - note: Expected a real `git commit`, but the test fakes it cheaply by just rewriting .git/HEAD; also didn't anticipate probe() returning a struct with separate .tree/.git fields.
+
+## src-tauri/tools/src/bin/findings.rs
+
+### the file itself
+- spec 3 · read at `1a049263f5fd` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:26Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A headless CLI binary: scans a repo path, evaluates the finding catalog rules (default or from text-form rules) against all functions, and prints per rule the hit count and a calibrated threshold that would yield a target hit rate, plus sample hits. fmt formats numbers.
+- found: Headless bench CLI for the finding catalog: scans a repo, loads readings, builds rules (catalog, raw, bare, plus ad-hoc --rule appended), subtracts archived decisions, and prints per-rule hits, marginal-only, wrong/never verdict counts and calibrated threshold, then sample hits with rendered sentences. Also has caveats about missing evidence, and fmt.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- note: Header is thorough on purpose and flags; it omits the wrong/never archive columns, but the inline comments cover them.
+
+### `main`
+- spec 3 · read at `99ac601a3f0f` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Parses CLI args (path, maybe rule text/flags), loads the analysis of the path, evaluates the default catalog of rules (or user-given rule text), and prints per-rule hit counts plus calibrated thresholds. Long because it handles arg parsing, formatting tables and options.
+- found: Parses flags, scans the repo with a throttled stderr progress ticker, loads readings, builds the rule set (repo-amended catalog, raw, or bare plus ad-hoc --rule), subtracts archived decisions, then prints a per-rule table (hits, only, wrong, never, calibrated threshold) and example hits per rule.
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
+
+### `fmt`
+- spec 3 · read at `0ed57cf5165c` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:13Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Formats an f32 compactly: integers print without decimals, non-integers with one or two decimals.
+- found: Prints whole-number floats as integers, others with two decimals.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: The docs are for the file, not this function.
+
+## src-tauri/tools/src/bin/history.rs
+
+### the file itself
+- spec 3 · read at `855b2edad4c9` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:25Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A headless dev binary with one main(): takes a repo path, runs the git-history replay walk, and prints a summary of the timeline (commit count, final function count, largest frames by change) so regressions like renames-as-adds can be spotted by eye.
+- found: Headless CLI for the history replay: parses flags (--limit, --files, --json, --cached), runs history::read or read_cached with a stderr progress line, then either dumps JSON or replays the delta frames to report commits, functions ever, functions alive at HEAD, peak, optional per-file table, and the eight busiest commits. I missed the flags, the JSON mode and the per-file reconciliation with `just scan`.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The header explains purpose but not the flags, the JSON payload mode, or the --files view used to reconcile against scan.
+
+### `main` — PREDICTED SOME
+- spec 3 · read at `905f1f341977` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:52Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Reads a repo path from args, runs the history replay walk over git commits, then prints commit count, final function count, and the largest frames (biggest adds/removes), possibly with timing. Exits with usage message if no path.
+- found: Parses flags (path, --limit, --files, --json, --cached), runs history::read or read_cached with a throttled stderr progress ticker, then either dumps JSON or replays the delta frames to compute live function count, lines and peak, prints summary, optional per-file table, and the 8 busiest commits.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+
+## src-tauri/tools/src/bin/tokens.rs
+
+### the file itself
+- spec 3 · read at `f9ef6d6755a2` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A dev CLI binary that estimates token cost per reader: measures the byte sizes of the MCP tool contract/schema descriptions and subagent prompt (via a rough bytes-to-tokens tok helper), plus per-function payload for a scanned repo, and prints a table (row, pct, big for number formatting) and totals in main.
+- found: Dev CLI that prices the reader's fixed prefix (reader tool surface plus subagent prompt), then scans a repo and reports per-function payload distributions and a whole-repo token projection at 4 chars/token. Also reports how many orchestrator tokens the role split keeps out of readers.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `tok`
+- spec 3 · read at `a3cf659559cc` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:19Z · by ross@rossturk.com · warm reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Converts a character count to an estimated token count by dividing by CHARS_PER_TOKEN, likely rounding up.
+- found: Integer-divides chars by CHARS_PER_TOKEN, rounding down; I guessed it would round up.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm reading: I had already read main() in this file, which uses CHARS_PER_TOKEN and tok(). The docs are none; the file doc covers the tool, not this helper.
+
+### `row`
+- spec 3 · read at `37b1893f0661` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:18Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Prints one table row: the label padded, the char count, and the estimated token count via tok(chars).
+- found: Prints a label (padded to 34), char count, and estimated tokens from tok(chars).
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Docs describe the file, not this function.
+
+### `pct`
+- spec 3 · read at `cf8ee2539f59` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:18Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Percentile of a sorted slice: returns 0 if empty, otherwise indexes at round(p*(len-1)) clamped, returning that element.
+- found: Nearest-rank percentile on sorted slice: 0 if empty, else element at round((len-1)*p). Assumes p in [0,1].
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: File doc covers the tool, not this helper.
+
+### `big`
+- spec 3 · read at `607385e1263f` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:13Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: If n >= 1_000_000 returns format!("{:.1}M", n/1e6); else if n >= 1000 returns "{:.1}k" style; otherwise the plain number as a string.
+- found: Formats a count as "N.NM" at a million or more, "N.Nk" at a thousand or more, otherwise plain digits.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Warm reading: I had already read main() in this file at position 2, which uses big(), so the prediction is partly informed.
+
+### `main` — PREDICTED SOME
+- spec 3 · read at `e78bb93fe69d` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Parses a path arg, gathers the tool contract/inputSchema descriptions and subagent prompt text, estimates token counts via tok(), and prints a table of rows with byte/token sizes and percentages, flagging big ones. Also computes per-reading cost multiplied by function count.
+- found: Prints the reader's fixed token prefix (tools list plus subagent prompt), then scans the target repo, builds all tasks, prints median/p90/max distributions of payload parts, and projects whole-repo input tokens with the saving from the role split. I covered the prefix table but missed the repo scan, distributions and projection.
+- predicted: some · documented: some · derivable: no · legible: most · trap: no
+- note: The file doc covers the motivation but not that main also scans the repo and projects whole-repo cost.
