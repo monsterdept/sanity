@@ -36,15 +36,16 @@ const sub = (f, re, to) => {
 json('src-tauri/tauri.conf.json', 'version')
 json('web/package.json', 'version')
 // Anchored to the FIRST `version =` at the start of a line, which is the one in [package] — a
-// blind replace would hit every dependency pin in the file.
-sub('src-tauri/Cargo.toml', /^version = ".*"$/m, `version = "${v}"`)
+// blind replace would hit every dependency pin in the file. Every pattern here allows `\r\n`:
+// Git on a Windows runner checks the tree out with Windows line endings.
+sub('src-tauri/Cargo.toml', /^version = "[^"]*"/m, `version = "${v}"`)
 // The lockfile entry for this package, found by its own name line. Cargo would rewrite it
 // quietly — fine today, an error the moment anything builds --locked.
-sub('src-tauri/Cargo.lock', /(name = "sanity"\nversion = )".*"/, `$1"${v}"`)
+sub('src-tauri/Cargo.lock', /(name = "sanity"\r?\nversion = )"[^"]*"/, `$1"${v}"`)
 
 const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8')
 const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'))
-if (!cargo.match(new RegExp(`^version = "${v.replaceAll('.', '\\.')}"$`, 'm'))) {
+if (!cargo.match(new RegExp(`^version = "${v.replaceAll('.', '\\.')}"\r?$`, 'm'))) {
   console.error(`::error::Cargo.toml not stamped to ${v}`)
   process.exit(1)
 }
