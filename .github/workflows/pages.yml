@@ -1,0 +1,73 @@
+name: Pages
+
+# The website, served by GitHub Pages at sanity.monster.
+#
+# Deployed when website/ changes on main, and by release.yml once a release is published, so the
+# download links move to the new version the moment its files exist. Every `__VERSION__` in the
+# page is pinned to the latest published release: a versioned URL can be cached forever, where a
+# mutable "latest" can serve a stale file after a release.
+#
+# **Called by release.yml rather than triggered by the release.** release.yml publishes with
+# GITHUB_TOKEN, and GitHub starts no workflow from an event that token caused, so a `release:
+# published` trigger here would never fire.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one halfway: a release and a website edit landing
+# together should both go out, in order.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Pages is free on public repos only. While this one is private there is nothing to deploy
+    # to, and a failing run would say the site is broken when it simply does not exist yet.
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pin the page to the latest release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # `gh release view` with no tag is the latest release that is neither a draft nor a
+          # prerelease — the one a visitor should be offered.
+          tag=$(gh release view --json tagName --jq .tagName)
+          version="${tag#v}"
+          mkdir -p _site
+          cp -R website/. _site/
+          sed -i "s/__VERSION__/${version}/g" _site/index.html
+          if grep -q "__VERSION__" _site/index.html; then
+            echo "::error::unsubstituted __VERSION__ remains in index.html"
+            exit 1
+          fi
+          echo "pinned to $version"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

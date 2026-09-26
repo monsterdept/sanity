@@ -27,8 +27,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq libegl1 libgl1 libgbm1
-      # The release that judges staleness. It cannot be the one being tagged, which is
-      # not on dl.dept.monster until `just publish`; move it when `just expiry` says a
+      # The release that judges staleness. It cannot be the one being tagged, which has
+      # no published build until this gate has passed; move it when `just expiry` says a
       # release changes what a reading is taken against.
       - uses: monsterdept/sanity-action@v1
         with:

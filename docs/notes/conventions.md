@@ -38,18 +38,19 @@
   'command -v …'`, which reads the profile that put the tool there), then a short fixed
   list — and readers are spawned by the ABSOLUTE path it returns, so a run means the same
   thing however Sanity itself was started.
-- **The app and the CLI are one binary, and that is what makes shipping the CLI a PATH
-  problem rather than a build one.** `sanity` with no arguments opens the window; with a
-  verb it is the CLI. `just publish` GENERATES the cask (into `monsterdept/homebrew-tap`),
-  so the `binary` stanza that puts `sanity` on PATH is in the justfile beside the rest of
-  the release, not in the tap — the tap holds no hand-written file to keep in step. A
-  direct download gets the app's own "Install `sanity` command" instead, which symlinks
-  into `/usr/local/bin` or `~/.local/bin`. Never an alias, which no script can see.
+- **The app and the CLI are one binary, and that is what makes shipping the CLI a PATH problem
+  rather than a build one.** `sanity` with no arguments opens the window; with a verb it is
+  the CLI. The release workflow GENERATES the cask (into `monsterdept/homebrew-tap`, the
+  `cask` job in `release.yml`), so the `binary` stanza that puts `sanity` on PATH lives beside
+  the rest of the release, not in the tap — the tap holds no hand-written file to keep in
+  step. A direct download gets the app's own "Install `sanity` command" instead, which
+  symlinks into `/usr/local/bin` or `~/.local/bin`. Never an alias, which no script can see.
 - **There is one implementation and two builds of it, and where each is installed is part of
   the design.** `gui` is a default feature; `--no-default-features` is the headless `sanity`,
-  every verb and no window, released beside the bundles as `sanity-<version>-<target>` archives
-  by `headless.yml`. Same source, same version, same release job, so the two cannot disagree
-  about `.sanity/` — the worry behind "one binary", which a second codebase (the old
+  every verb and no window, released beside the bundles as
+  `sanity-headless-<version>-<target>` archives by `headless.yml` (0.33.0's lack the
+  `headless`). Same source, same version, same release job, so the two cannot disagree about
+  `.sanity/` — the worry behind "one binary", which a second codebase (the old
   `mcp/sanity.mjs`) made real. What the headless build does add is a second installable, so
   the placement is the rule: **on a desktop the app is the only `sanity`; the headless build
   is for CI runners and servers where the app is not installed.** Nothing would show a

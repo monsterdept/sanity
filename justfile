@@ -1,26 +1,11 @@
 # Sanity — task runner. See docs/ARCHITECTURE.md.
 #
-# Shipping is two steps on purpose (same split as tally / metalbug):
-#   just release <version>   validate + tag + push; CI builds all four targets,
-#                            signs + notarizes the Mac bundle, and attaches
-#                            everything to a GitHub release
-#   just publish <version>   pull those bundles, verify, and distribute to
-#                            dl.dept.monster + refresh the website
-# publish runs from a workstation because it needs SSH to the servers — no
-# server credential ever lives on GitHub, and CI never touches them.
-
-# --- deployment targets ------------------------------------------------------
-# Downloads: Hetzner, served by Caddy behind Cloudflare.
-dl_host := env_var_or_default("SANITY_DL_HOST", "rturk@hz.rtrk.us")
-dl_path := env_var_or_default("SANITY_DL_PATH", "/srv/dl.dept.monster/sanity")
-dl_url  := "https://dl.dept.monster/sanity"
-# Website: DreamHost (same as tally.monster / metalbug.monster / fussy).
-site_host := env_var_or_default("SANITY_SITE_HOST", "rtrk@dreamy.rtrk.us")
-site_path := env_var_or_default("SANITY_SITE_PATH", "sanity.monster/")
-site_url  := "https://sanity.monster"
+# Shipping is one step: `just release <version>` validates, tags and pushes, and
+# .github/workflows/release.yml does the rest — builds every target, signs and
+# notarizes the Mac bundle, checks it, publishes the GitHub release, updates the
+# Homebrew cask and redeploys the website on Pages. Downloads are served from
+# GitHub Releases; dl.dept.monster is frozen at 0.33.0 for anyone pinned there.
 repo := "monsterdept/sanity"
-# The department's shared tap — cluster, metalbug and tally already live here.
-tap_repo := "monsterdept/homebrew-tap"
 
 # Bare `just` lists the recipes.
 [private]
@@ -302,10 +287,10 @@ icons-mac source="icons/source.png":
 release version:
     #!/usr/bin/env bash
     # Validates, tags v<version> with a changelog body, and pushes the tag → CI
-    # (.github/workflows/release.yml) builds all four targets, signs/notarizes the
-    # Mac bundle, and attaches everything to a GitHub release. The tag is the source
-    # of truth — CI stamps the bundle version from it (no committed version bump).
-    # Then run `just publish`.
+    # (.github/workflows/release.yml) builds every target, signs/notarizes the Mac
+    # bundle, publishes the GitHub release, and updates the cask and the website. The
+    # tag is the source of truth — CI stamps the bundle version from it (no committed
+    # version bump).
     set -euo pipefail
     tag="v{{version}}"
 
@@ -404,7 +389,7 @@ release version:
         body=$(printf '%s\n\n%s%s%s\n' "$tag" "$warning" "$recompute" "$(git log --pretty='- %s')")
     fi
     if [[ "{{version}}" == *-* ]]; then
-        echo "==> $tag is a prerelease — bundles publish, but don't run \`just publish\` on it"
+        echo "==> $tag is a prerelease — it builds and publishes as one, and moves neither the cask nor the site"
     fi
 
     echo "==> tagging $tag"
@@ -412,227 +397,6 @@ release version:
     git tag -a "$tag" -m "$body"
     git push origin "$tag"
     echo "==> pushed. CI: https://github.com/{{repo}}/actions/workflows/release.yml"
-    echo "    when it goes green:  just publish {{version}}"
-
-# From a workstation: it needs SSH to the servers, which CI never has.
-[group("ship")]
-[doc("Ship a released version to dl.dept.monster, the tap and the website")]
-publish version:
-    #!/usr/bin/env bash
-    # Pulls the signed bundles CI attached to the GitHub release, verifies the
-    # macOS DMG (notarized + stapled), uploads all of them to dl.dept.monster,
-    # then refreshes the site pinned to this version. Needs SSH to the servers —
-    # split from `release` so no server credential ever lives on GitHub.
-    set -euo pipefail
-    VERSION="{{version}}"
-    TAG="v$VERSION"
-    DMG="Sanity_${VERSION}_aarch64.dmg"
-
-    if [[ "$VERSION" == *-* ]]; then
-        echo "error: $TAG is a prerelease — not publishable to real users" >&2; exit 1
-    fi
-
-    work=$(mktemp -d)
-    trap 'rm -rf "$work"' EXIT
-
-    echo "==> Fetching $TAG bundles from GitHub"
-    gh release download "$TAG" --repo {{repo}} --dir "$work"
-    ls -1 "$work"
-
-    # Verify the macOS bundle before distributing — the last point a bad build is
-    # caught. (Linux/Windows bundles can't be verified from a Mac; they ride along.)
-    # The DMG is notarized + stapled by CI.
-    echo "==> Verifying $DMG"
-    [ -f "$work/$DMG" ] || { echo "error: $DMG missing from the release" >&2; exit 1; }
-    xcrun stapler validate "$work/$DMG" >/dev/null || { echo "error: DMG is not stapled/notarized" >&2; exit 1; }
-    echo "    notarized + stapled"
-
-    # And that the app inside says what the filename says. CI stamps the version
-    # from the tag into four files before building; nothing downstream checked,
-    # and for every release up to 0.8.1 it stamped only ONE of them — so a bundle
-    # named 0.8.1 held a binary introducing itself to every MCP client as 0.1.0.
-    # The filename is not evidence: it is chosen by the same job whose stamping is
-    # in question. Info.plist is what the machine will actually report.
-    echo "==> Checking the bundle's own version"
-    mnt=$(mktemp -d)
-    hdiutil attach "$work/$DMG" -mountpoint "$mnt" -nobrowse -readonly -quiet
-    # Detached even if the read fails — a left-behind mount outlives this shell and
-    # the next run's `hdiutil attach` inherits the mess.
-    app=$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)
-    got=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist" 2>/dev/null || echo "")
-    hdiutil detach "$mnt" -quiet || true
-    rmdir "$mnt" 2>/dev/null || true
-    if [ "$got" != "$VERSION" ]; then
-        echo "error: $DMG contains version '$got', expected '$VERSION'" >&2
-        echo "    the release build did not stamp the version — do not distribute this" >&2
-        exit 1
-    fi
-    echo "    bundle reports $got"
-
-    # The same question of the headless archive, which is built by a different job. Extracted
-    # outside $work, because everything in $work is uploaded.
-    TGZ="sanity-${VERSION}-aarch64-apple-darwin.tar.gz"
-    echo "==> Checking $TGZ's own version"
-    [ -f "$work/$TGZ" ] || { echo "error: $TGZ missing from the release" >&2; exit 1; }
-    headless=$(mktemp -d)
-    tar -xzf "$work/$TGZ" -C "$headless"
-    got=$("$headless/sanity" --version 2>/dev/null || echo "")
-    rm -rf "$headless"
-    if [ "$got" != "sanity $VERSION" ]; then
-        echo "error: $TGZ reports '$got', expected 'sanity $VERSION'" >&2
-        exit 1
-    fi
-    echo "    headless reports $got"
-
-    echo "==> Uploading to {{dl_host}}:{{dl_path}}"
-    ssh "{{dl_host}}" "mkdir -p '{{dl_path}}'"
-    scp "$work"/* "{{dl_host}}:{{dl_path}}/"
-
-    # A download URL that 404s is worse than none — confirm the primary artifact
-    # is actually reachable before pointing the site at it.
-    echo "==> Checking {{dl_url}}/$DMG"
-    code=$(curl -sL -o /dev/null -w '%{http_code}' "{{dl_url}}/$DMG")
-    [ "$code" = "200" ] || { echo "error: {{dl_url}}/$DMG returned HTTP $code" >&2; exit 1; }
-    echo "    reachable"
-
-    # ── Homebrew cask ──
-    #
-    # Generated from the artifact we JUST verified and uploaded, not from the
-    # release page: the sha256 has to describe the exact bytes brew will fetch
-    # from {{dl_url}}, so it is taken from the served file rather than the local
-    # copy. A cask whose checksum doesn't match what the URL serves fails on
-    # every user's machine and nowhere else.
-    echo "==> Updating the Homebrew cask"
-    served_sha=$(curl -sL "{{dl_url}}/$DMG" | shasum -a 256 | awk '{print $1}')
-    local_sha=$(shasum -a 256 "$work/$DMG" | awk '{print $1}')
-    if [ "$served_sha" != "$local_sha" ]; then
-        echo "error: {{dl_url}}/$DMG does not match the file we uploaded" >&2
-        echo "    served $served_sha" >&2
-        echo "    local  $local_sha" >&2
-        exit 1
-    fi
-
-    git clone --depth 1 "https://github.com/{{tap_repo}}.git" "$work/tap"
-    mkdir -p "$work/tap/Casks"
-    {
-    echo "# Generated by sanity's \`just publish\`. DO NOT EDIT."
-    echo 'cask "sanity" do'
-    echo "  version \"${VERSION}\""
-    echo "  sha256 \"${served_sha}\""
-    echo ''
-    echo "  url \"{{dl_url}}/Sanity_#{version}_aarch64.dmg\""
-    echo '  name "Sanity"'
-    echo '  desc "See where the thinking in your codebase actually is"'
-    echo "  homepage \"{{site_url}}\""
-    echo ''
-    echo '  # arm64 only — CI builds a single aarch64-apple-darwin bundle.'
-    echo '  depends_on arch: :arm64'
-    echo '  # Big Sur is the floor by arithmetic, not by choice: tauri.conf.json sets no'
-    echo '  # minimumSystemVersion, and no earlier macOS ran on Apple Silicon.'
-    echo '  depends_on macos: :big_sur'
-    echo ''
-    echo '  app "Sanity.app"'
-    # The CLI, which is the SAME binary — `sanity` with no arguments opens the window and
-    # with a verb is the command line, so there is nothing extra to build or version. Brew
-    # symlinks it into its own bin, which is already on PATH.
-    #
-    # Pointed at the binary inside the bundle rather than at a copy: two copies of one
-    # thing is how the app and its CLI drift apart, and `sanity check` spawns readers by
-    # `current_exe()`, which resolves the symlink back to the bundle either way.
-    #
-    # A direct download gets none of this, which is what the app's own "Install `sanity`
-    # command" button is for.
-    echo '  binary "#{appdir}/Sanity.app/Contents/MacOS/sanity"'
-    echo ''
-    echo '  zap trash: ['
-    echo '    "~/Library/Application Support/Sanity",'
-    echo '    "~/Library/WebKit/sanity",'
-    echo '    "~/Library/Preferences/monster.sanity.plist",'
-    echo '    "~/Library/Saved Application State/monster.sanity.savedState",'
-    echo '  ]'
-    echo 'end'
-    } > "$work/tap/Casks/sanity.rb"
-    ruby -c "$work/tap/Casks/sanity.rb" >/dev/null
-
-    cd "$work/tap"
-    # Stage before comparing: `git diff` ignores untracked files, so the very
-    # first cask would report "no change" and never be pushed.
-    git add Casks/sanity.rb
-    # A regenerated cask may only ADD. The generator is this justfile, so a workstation
-    # publishing from a stale checkout writes an OLDER cask over a newer one and the only
-    # evidence is a line that stopped being there — which is how 0.11.0 shipped without
-    # `binary`, leaving every brew user with the app and no `sanity` on PATH. Nothing
-    # downstream could see it: the tap served the right version, the DMG was the right
-    # bytes, and the check below reads the version and nothing else.
-    #
-    # version and sha256 are the two lines that are SUPPOSED to change, so they are the
-    # only exemptions. Everything else disappearing means this tree is behind the one that
-    # published last — pull, don't force.
-    lost=$(git diff --staged -U0 -- Casks/sanity.rb \
-        | grep '^-' | grep -v '^---' \
-        | grep -vE '^-  (version|sha256) ' || true)
-    if [ -n "$lost" ]; then
-        echo "error: regenerating the cask would REMOVE lines — this checkout is probably stale" >&2
-        echo "$lost" >&2
-        echo "    pull sanity and re-run \`just publish $VERSION\`" >&2
-        exit 1
-    fi
-    if git diff --staged --quiet; then
-        echo "    cask already current"
-    else
-        git commit -q -m "sanity ${VERSION}"
-        git push -q
-        echo "    pushed to {{tap_repo}}"
-    fi
-    # Confirm the tap really serves this, rather than trusting the push. Read the file
-    # back at the exact commit just pushed, and separately confirm the remote branch
-    # points at that commit: raw.githubusercontent.com/<repo>/main/... is served from a
-    # cache that can lag the branch by an hour, and reported a good push as a failure.
-    # Commit SHAs are immutable, so that form is never stale, and ls-remote answers from
-    # the git endpoint rather than the CDN.
-    PUSHED=$(git rev-parse HEAD)
-    BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    REMOTE=$(git ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')
-    if [ "$REMOTE" != "$PUSHED" ]; then
-        echo "error: {{tap_repo}} $BRANCH is at ${REMOTE:-none}, expected $PUSHED" >&2
-        exit 1
-    fi
-    published=$(curl -sL "https://raw.githubusercontent.com/{{tap_repo}}/$PUSHED/Casks/sanity.rb" \
-        | awk -F'"' '/^  version/{print $2}')
-    if [ "$published" != "$VERSION" ]; then
-        echo "error: tap serves version '${published:-none}', expected $VERSION" >&2
-        exit 1
-    fi
-    echo "    tap serves $published"
-    cd - >/dev/null
-
-    just _publish-site "$VERSION"
-    echo
-    echo "==> Published $TAG → {{dl_url}}/$DMG"
-    echo "    brew install --cask monsterdept/tap/sanity"
-
-# Deploy website/ to the site host, pinning every __VERSION__ to <version>.
-_publish-site version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -z "{{site_host}}" ] || [ -z "{{site_path}}" ]; then
-        echo "==> Skipping website (SANITY_SITE_HOST / SANITY_SITE_PATH unset)"; exit 0
-    fi
-    work=$(mktemp -d)
-    trap 'rm -rf "$work"' EXIT
-    cp -R website/. "$work/"
-    # mktemp -d is 0700; rsync -a would apply that to the web root → 403. Widen.
-    chmod 755 "$work"; chmod -R a+rX "$work"
-    # Pin downloads to an immutable, versioned URL (a mutable "latest" defeats
-    # edge caching and can serve a stale artifact after a release).
-    if [[ "$OSTYPE" == "darwin"* ]]; then SED=(sed -i ''); else SED=(sed -i); fi
-    "${SED[@]}" "s/__VERSION__/{{version}}/g" "$work/index.html"
-    if grep -q "__VERSION__" "$work/index.html"; then
-        echo "error: unsubstituted __VERSION__ remains" >&2; exit 1
-    fi
-    echo "==> Deploying site to {{site_host}}:{{site_path}}"
-    rsync -az --delete "$work/" "{{site_host}}:{{site_path}}/"
-    echo "    {{site_url}}"
 
 # Serve website/ locally and open it. The habitat sheet is plain static files, but it
 # must be served rather than opened as file:// — its fonts are fetched with CORS, and a

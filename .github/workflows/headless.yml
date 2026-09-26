@@ -4,7 +4,7 @@ name: Headless
 # not installed. See docs/plans/open/headless-cli.md.
 #
 # Called by release.yml with the tag, it stamps the version, builds, checks the binary reports
-# that version, and uploads `sanity-<version>-<target>.tar.gz` (`.zip` on Windows) into the draft
+# that version, and uploads `sanity-headless-<version>-<target>.tar.gz` (`.zip` on Windows) into the draft
 # release. On a pull request that touches the build it does the same without a tag and keeps the
 # archives as workflow artifacts, so a change to how this is built is tried on the real runners
 # before a release depends on it.
@@ -131,7 +131,11 @@ jobs:
         run: |
           set -euo pipefail
           version="${TAG#v}"; [ -n "$version" ] || version="dev"
-          name="sanity-${version}-${{ matrix.triple }}"
+          # `headless` in the name, because on a release page this sits beside the app's own
+          # bundles and `sanity-0.33.0-aarch64-apple-darwin.tar.gz` next to
+          # `Sanity_0.33.0_aarch64.dmg` said nothing about which one opens a window. 0.33.0
+          # shipped as `sanity-<version>-<target>`; every release after it uses this.
+          name="sanity-headless-${version}-${{ matrix.triple }}"
           rm -rf dist && mkdir -p "dist/$name"
           cp "$BIN" LICENSE "dist/$name/"
           cd dist
@@ -149,7 +153,7 @@ jobs:
         if: inputs.tag == ''
         uses: actions/upload-artifact@v4
         with:
-          name: sanity-${{ matrix.triple }}
+          name: sanity-headless-${{ matrix.triple }}
           path: ${{ steps.package.outputs.file }}
           retention-days: 7
 

@@ -47,6 +47,10 @@ jobs:
           # No checkout here, so gh has no local .git to infer the repo from —
           # the same reason the publish job at the bottom sets it.
           GH_REPO: ${{ github.repository }}
+          # **A `-suffix` tag is a prerelease, and GitHub has to be told.** Created without
+          # the flag, `v0.32.0-rc.1` would publish as the latest release — the one
+          # `gh release view`, the website and anyone reading "latest" would pick up.
+          PRERELEASE: ${{ contains(github.ref_name, '-') }}
         run: |
           set -euo pipefail
           # Idempotent: a re-run of this workflow finds the draft it made the
@@ -54,9 +58,48 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "draft already exists for $GITHUB_REF_NAME"
           else
+            # **Which file is which, before the list of files.** A release carries fifteen
+            # assets, and the app's bundles and the headless archives share every word but
+            # one — a visitor could not tell which of them opens a window. Prepended to the
+            # generated changelog, so it is the first thing on the page.
+            #
+            # Two versions: the bundler stamps the app with the tag's MAJOR.MINOR.PATCH (it
+            # refuses a prerelease suffix), while the headless archives keep the tag whole.
+            v="${GITHUB_REF_NAME#v}"; a="${v%%-*}"
+            dl="https://github.com/${GH_REPO}/releases/download/${GITHUB_REF_NAME}"
+            notes=$(cat <<NOTES
+          ## Which file do I want?
+
+          **The app**: the map, the window, and the \`sanity\` command.
+
+          | Platform | Download |
+          |---|---|
+          | macOS (Apple silicon) | [Sanity_${a}_aarch64.dmg](${dl}/Sanity_${a}_aarch64.dmg), or \`brew install --cask monsterdept/tap/sanity\` |
+          | Windows x64 | [Sanity_${a}_x64-setup.exe](${dl}/Sanity_${a}_x64-setup.exe) |
+          | Windows ARM | [Sanity_${a}_arm64-setup.exe](${dl}/Sanity_${a}_arm64-setup.exe) |
+          | Linux x64 | [.deb](${dl}/Sanity_${a}_amd64.deb) · [.rpm](${dl}/Sanity-${a}-1.x86_64.rpm) · [.AppImage](${dl}/Sanity_${a}_amd64.AppImage) |
+          | Linux ARM | [.deb](${dl}/Sanity_${a}_arm64.deb) · [.rpm](${dl}/Sanity-${a}-1.aarch64.rpm) · [.AppImage](${dl}/Sanity_${a}_aarch64.AppImage) |
+
+          **Headless**: every \`sanity\` command and no window, for CI runners and servers. In GitHub Actions, [\`monsterdept/sanity-action\`](https://github.com/monsterdept/sanity-action) fetches the right one for you.
+
+          | Platform | Download |
+          |---|---|
+          | Linux x64 | [sanity-headless-${v}-x86_64-unknown-linux-gnu.tar.gz](${dl}/sanity-headless-${v}-x86_64-unknown-linux-gnu.tar.gz) |
+          | Linux ARM | [sanity-headless-${v}-aarch64-unknown-linux-gnu.tar.gz](${dl}/sanity-headless-${v}-aarch64-unknown-linux-gnu.tar.gz) |
+          | macOS (Apple silicon) | [sanity-headless-${v}-aarch64-apple-darwin.tar.gz](${dl}/sanity-headless-${v}-aarch64-apple-darwin.tar.gz) |
+          | Windows x64 | [sanity-headless-${v}-x86_64-pc-windows-msvc.zip](${dl}/sanity-headless-${v}-x86_64-pc-windows-msvc.zip) |
+          | Windows ARM | [sanity-headless-${v}-aarch64-pc-windows-msvc.zip](${dl}/sanity-headless-${v}-aarch64-pc-windows-msvc.zip) |
+
+          NOTES
+          )
+            # The heredoc sits at this script's own indentation, which YAML strips: the
+            # markdown reaches gh flush left (indented, it would render as code), and NOTES
+            # closes it at column 0.
             gh release create "$GITHUB_REF_NAME" \
               --draft \
+              --prerelease="$PRERELEASE" \
               --title "$GITHUB_REF_NAME" \
+              --notes "$notes" \
               --generate-notes
           fi
 
@@ -79,12 +122,16 @@ jobs:
             platform: linux_x86-64
           - os: ubuntu-22.04-arm
             platform: linux_arm64
+          # `target` is the triple, stated for the tauri CLI rather than for
+          # cargo — see the Windows build step.
           - os: windows-latest
             platform: windows_x86-64
             msvc: x64
+            target: x86_64-pc-windows-msvc
           - os: windows-11-arm
             platform: windows_arm64
             msvc: arm64
+            target: aarch64-pc-windows-msvc
 
     runs-on: ${{ matrix.os }}
 
@@ -220,6 +267,32 @@ jobs:
             --wait
           xcrun stapler staple "$DMG_FILE"
 
+      # **The last point a bad Mac build is caught, and it used to be a workstation's.**
+      # `just publish` did both of these before distributing; nothing after this step looks
+      # at the DMG again, so they run here, before the upload.
+      #
+      # The version is read out of the bundle rather than off the filename, which is chosen
+      # by the same job whose stamping is in question: every release up to 0.8.1 stamped one
+      # file of four, and a DMG named 0.8.1 held a binary introducing itself as 0.1.0.
+      - name: Check the DMG (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${GITHUB_REF_NAME#v}"; BASE="${BASE%%-*}"
+          DMG_FILE=$(find src-tauri/target/release/bundle/dmg -name "*.dmg" | head -1)
+          xcrun stapler validate "$DMG_FILE"
+          mnt=$(mktemp -d)
+          hdiutil attach "$DMG_FILE" -mountpoint "$mnt" -nobrowse -readonly -quiet
+          app=$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)
+          got=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist" 2>/dev/null || true)
+          hdiutil detach "$mnt" -quiet || true
+          if [ "$got" != "$BASE" ]; then
+            echo "::error::$DMG_FILE contains version '$got', expected '$BASE'"
+            exit 1
+          fi
+          echo "notarized, stapled, and the bundle reports $got"
+
       # tauri-bundler downloads linuxdeploy-plugin-gtk.sh into ~/.cache/tauri/
       # on first use. Current upstream re-creates GTK
       # immodule/printbackend symlinks with `ln -s` (no -f) over libraries the
@@ -252,11 +325,19 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: cargo tauri build
 
+      # **The target is named, because the tauri CLI otherwise assumes its own.** There is
+      # no arm64 Windows build of tauri-cli to install, so binstall fetches the x86_64 one
+      # and it runs emulated on windows-11-arm. Cargo still built an arm64 `sanity.exe`,
+      # but the CLI named and configured the installer for the architecture IT was
+      # running on: v0.33.0's arm64 job uploaded `Sanity_0.33.0_x64-setup.exe`, the x64
+      # job overwrote it six minutes later, and the release shipped with no arm64
+      # installer. Had the jobs finished in the other order, x64 users would have been
+      # served the arm64 app.
       - name: Build Tauri app (Windows)
         if: runner.os == 'Windows'
         shell: bash
         working-directory: src-tauri
-        run: cargo tauri build --bundles nsis
+        run: cargo tauri build --bundles nsis --target ${{ matrix.target }}
 
       - name: Collect Tauri artifacts (macOS)
         if: runner.os == 'macOS'
@@ -281,19 +362,26 @@ jobs:
             done
           done
 
-      # Built natively, each installer is named for its own architecture —
-      # `_x64-setup.exe` and `_arm64-setup.exe` — so both land on the release
-      # under the names the website links to. The cross build used to need a
-      # suffix to stop the two colliding, and the suffix made the arm64 asset
-      # `_arm64-setup_arm64.exe`, which nothing linked to.
+      # Each installer is `_x64-setup.exe` or `_arm64-setup.exe`, the names the website
+      # links to. The cross build used to suffix its own, which made the arm64 asset
+      # `_arm64-setup_arm64.exe` and nothing linked to it.
       - name: Collect Tauri artifacts (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p artifacts
-          for f in src-tauri/target/release/bundle/nsis/*.exe; do
-            [ -f "$f" ] && cp "$f" artifacts/
-          done
+          # Both Windows jobs upload into one release with `--clobber`, so an installer
+          # named for the wrong architecture does not fail — it replaces the other job's.
+          # Refuse anything not named for this job's own.
+          shopt -s nullglob
+          found=(src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_${{ matrix.msvc }}-setup.exe)
+          if [ ${#found[@]} -ne 1 ]; then
+            echo "::error::expected one *_${{ matrix.msvc }}-setup.exe, found:"
+            ls src-tauri/target/${{ matrix.target }}/release/bundle/nsis/ || true
+            exit 1
+          fi
+          cp "${found[0]}" artifacts/
 
       # All platforms push their bundles directly to the draft GH release via
       # softprops/action-gh-release rather than actions/upload-artifact: release
@@ -367,6 +455,7 @@ jobs:
           # This job has no checkout step, so gh has no local .git to infer the
           # repo from. GH_REPO points the gh release calls at the repo directly.
           GH_REPO: ${{ github.repository }}
+          PRERELEASE: ${{ contains(github.ref_name, '-') }}
         run: |
           # The build jobs push their bundles directly to the draft release, so
           # nothing to download here. Ensure the release exists and publish it.
@@ -374,7 +463,116 @@ jobs:
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" \
               --draft \
+              --prerelease="$PRERELEASE" \
               --title "$GITHUB_REF_NAME" \
               --generate-notes
           fi
           gh release edit "$GITHUB_REF_NAME" --draft=false
+
+  # **The Homebrew cask, generated from the DMG this release just published.** It was the last
+  # thing `just publish` did from a workstation; the rest of that recipe is gone (dl.dept.monster
+  # is frozen at 0.33.0, and the site is Pages).
+  #
+  # TAP_TOKEN is a fine-grained token with contents: write on monsterdept/homebrew-tap and
+  # nothing else. The cask points at GitHub Releases, which serve nothing while this repo is
+  # private, so the job waits for public like Pages does.
+  cask:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') && !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update the cask
+        shell: bash
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAP_REPO: monsterdept/homebrew-tap
+        run: |
+          set -euo pipefail
+          [ -n "$TAP_TOKEN" ] || { echo "::error::TAP_TOKEN is not set — see the comment on this job"; exit 1; }
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG="Sanity_${VERSION}_aarch64.dmg"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DMG}"
+
+          # The sha256 has to describe the bytes brew will fetch, so it is taken from what the
+          # URL serves. A cask whose checksum does not match fails on every user's machine and
+          # nowhere else.
+          code=$(curl -sL -o dmg -w '%{http_code}' "$URL")
+          [ "$code" = "200" ] || { echo "::error::$URL returned HTTP $code"; exit 1; }
+          sha=$(sha256sum dmg | awk '{print $1}')
+
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          mkdir -p tap/Casks
+          {
+          echo "# Generated by sanity's release workflow. DO NOT EDIT."
+          echo 'cask "sanity" do'
+          echo "  version \"${VERSION}\""
+          echo "  sha256 \"${sha}\""
+          echo ''
+          echo "  url \"https://github.com/${GITHUB_REPOSITORY}/releases/download/v#{version}/Sanity_#{version}_aarch64.dmg\""
+          echo '  name "Sanity"'
+          echo '  desc "See where the thinking in your codebase actually is"'
+          echo '  homepage "https://sanity.monster"'
+          echo ''
+          echo '  # arm64 only — CI builds a single aarch64-apple-darwin bundle.'
+          echo '  depends_on arch: :arm64'
+          echo '  # Big Sur is the floor by arithmetic, not by choice: tauri.conf.json sets no'
+          echo '  # minimumSystemVersion, and no earlier macOS ran on Apple Silicon.'
+          echo '  depends_on macos: :big_sur'
+          echo ''
+          echo '  app "Sanity.app"'
+          # The CLI is the same binary, symlinked by brew into its own bin, which is on PATH.
+          # Pointed at the binary inside the bundle rather than a copy, so the two cannot drift.
+          echo '  binary "#{appdir}/Sanity.app/Contents/MacOS/sanity"'
+          echo ''
+          echo '  zap trash: ['
+          echo '    "~/Library/Application Support/Sanity",'
+          echo '    "~/Library/WebKit/sanity",'
+          echo '    "~/Library/Preferences/monster.sanity.plist",'
+          echo '    "~/Library/Saved Application State/monster.sanity.savedState",'
+          echo '  ]'
+          echo 'end'
+          } > tap/Casks/sanity.rb
+          ruby -c tap/Casks/sanity.rb >/dev/null
+
+          cd tap
+          git add Casks/sanity.rb
+          # **A regenerated cask may only ADD.** 0.11.0 shipped without `binary` because an older
+          # generator overwrote a newer cask, and nothing downstream could see a line that
+          # stopped being there. A re-run of an old tag is the same hazard here. version, sha256
+          # and url are the lines that are supposed to change — url once, when downloads moved
+          # from dl.dept.monster to GitHub Releases.
+          lost=$(git diff --staged -U0 -- Casks/sanity.rb \
+              | grep '^-' | grep -v '^---' \
+              | grep -vE '^-  (version|sha256|url) ' \
+              | grep -v "^-# Generated by" || true)
+          if [ -n "$lost" ]; then
+            echo "::error::regenerating the cask would REMOVE lines:"
+            echo "$lost"
+            exit 1
+          fi
+          if git diff --staged --quiet; then
+            echo "cask already current"
+            exit 0
+          fi
+          git -c user.name="sanity release" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "sanity ${VERSION}"
+          git push -q
+          # Read back at the exact commit pushed: raw.githubusercontent.com/<repo>/main is a CDN
+          # that can lag the branch by an hour; a commit SHA is never stale.
+          pushed=$(git rev-parse HEAD)
+          remote=$(git ls-remote origin "refs/heads/$(git rev-parse --abbrev-ref HEAD)" | awk '{print $1}')
+          [ "$remote" = "$pushed" ] || { echo "::error::tap is at ${remote:-none}, expected $pushed"; exit 1; }
+          served=$(curl -sL "https://raw.githubusercontent.com/${TAP_REPO}/${pushed}/Casks/sanity.rb" | awk -F'"' '/^  version/{print $2}')
+          [ "$served" = "$VERSION" ] || { echo "::error::tap serves '${served:-none}', expected $VERSION"; exit 1; }
+          echo "tap serves $served"
+
+  # The website follows the release, so its download links point at files that now exist.
+  # A prerelease is not offered to visitors, so it does not move the site.
+  pages:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
