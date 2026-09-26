@@ -433,7 +433,7 @@ jobs:
           exit 1
 
   # Every CLI verb with no window, for CI runners and servers — see
-  # docs/plans/open/headless-cli.md. Its own workflow so a pull request can build the same
+  # docs/plans/done/headless-cli.md. Its own workflow so a pull request can build the same
   # archives without a release.
   headless:
     needs: draft

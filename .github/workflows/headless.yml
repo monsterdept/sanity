@@ -1,7 +1,7 @@
 name: Headless
 
 # The headless `sanity`: every CLI verb, no window, for CI runners and servers where the app is
-# not installed. See docs/plans/open/headless-cli.md.
+# not installed. See docs/plans/done/headless-cli.md.
 #
 # Called by release.yml with the tag, it stamps the version, builds, checks the binary reports
 # that version, and uploads `sanity-headless-<version>-<target>.tar.gz` (`.zip` on Windows) into the draft

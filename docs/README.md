@@ -46,6 +46,7 @@ traded away. A leftover item that is still open is listed under open plans too.
 | [offline-renderer.md](plans/done/offline-renderer.md) | Vector PDF export drawn without the window |
 | [backward-scrubbing.md](plans/done/backward-scrubbing.md) | Checkpointed replay, so seeking backwards is instant |
 | [history-at-linux-scale.md](plans/done/history-at-linux-scale.md) | A streamed, stoppable trace on a repo the size of Linux |
+| [headless-cli.md](plans/done/headless-cli.md) | Every CLI verb without the window, released for five targets from 0.33.0; the dev tools left the app bundle |
 
 ## Plans — open
 
@@ -56,7 +57,6 @@ ships.
 |---|---|
 | [backlog.md](plans/open/backlog.md) | Decided-but-unbuilt items, each with its reasoning |
 | [blame-ownership.md](plans/open/blame-ownership.md) | What Blame and Age don't say yet: an Age partner, near-copy clones, bucket lists that follow the drawing |
-| [headless-cli.md](plans/open/headless-cli.md) | Every CLI verb without the window, for CI and servers; the dev tools leave the app bundle |
 | [local-readers.md](plans/open/local-readers.md) | A local model as reader: measured on an unmerged branch, not on `main` |
 
 ## Elsewhere

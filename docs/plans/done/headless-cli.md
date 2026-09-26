@@ -1,5 +1,20 @@
 # A headless CLI
 
+**Status:** shipped in 0.33.0. Every release carries `sanity-<version>-<target>` archives for
+Linux x86-64 and ARM64, macOS ARM64 and Windows x86-64 and ARM64, 15.2 to 17.0MB each, and
+`sanity-action@v2` runs them on all five. What differs from the plan below:
+
+- **Every target builds natively on a GitHub-hosted runner**, as the app bundles do, so there
+  is no cross-compiling. The Linux builds run on Ubuntu 22.04, which sets their glibc floor at
+  2.35; the musl question in phase 4 was never needed.
+- **Releases come from GitHub, not `dl.dept.monster`**, and `just publish` is gone. Phase 4's
+  copy step and publish check went with it; `headless.yml` checks each binary's `--version`
+  against the tag before uploading.
+- **Two edges the plan did not name.** A headless build is a Windows console program:
+  `windows_subsystem = "windows"` applies only under `gui`, or `sanity.exe` would print
+  nothing. And `sanity .`, which opens a repo in the window, says a headless build has no
+  window to open it in.
+
 ## Summary
 
 **The same `sanity`, every verb, with the window compiled out.** CI runs `sanity verify`

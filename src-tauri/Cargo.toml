@@ -129,7 +129,7 @@ default = ["gui"]
 # The window. On by default, so `cargo build`, `just dev` and the release bundles are the app.
 # `--no-default-features` is the headless build: the same `sanity`, every verb, no window —
 # for CI runners and servers where the app is not installed. See
-# `docs/plans/open/headless-cli.md`.
+# `docs/plans/done/headless-cli.md`.
 gui = [
     "dep:tauri",
     "dep:tauri-plugin-single-instance",
