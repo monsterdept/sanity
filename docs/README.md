@@ -1,7 +1,6 @@
 # Sanity docs
 
-Four kinds of document live here, and they are kept apart so that a reader can tell what the
-product does from what somebody once meant it to do.
+Four kinds of document live here, and they are kept apart so that a reader can tell what the product does from what somebody once meant it to do.
 
 ## Using Sanity
 
@@ -9,16 +8,12 @@ product does from what somebody once meant it to do.
 - [lenses.md](lenses.md): what each lens measures, and what it needs to have run first.
 - [findings.md](findings.md): findings, decisions, and how rules produce them.
 - [rules.md](rules.md): the rule grammar, every field, and what an edit does to decisions.
-- [ci.md](ci.md): checking committed readings with `sanity verify`, on GitHub Actions or
-  anywhere else.
+- [ci.md](ci.md): checking committed readings with `sanity verify`, on GitHub Actions or anywhere else.
 
 ## How it works — true of the code today
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): the metric, what it refuses to claim, and the pipeline.
-  Start here.
-- [notes/](notes/): one note per area. Each describes current behavior and keeps the record
-  of what was tried and thrown away, because most rules here exist because the obvious
-  alternative was built and failed.
+- [ARCHITECTURE.md](ARCHITECTURE.md): the metric, what it refuses to claim, and the pipeline. Start here.
+- [notes/](notes/): one note per area. Each describes current behavior and keeps the record of what was tried and thrown away, because most rules here exist because the obvious alternative was built and failed.
 
 | Note | Covers |
 |---|---|
@@ -38,8 +33,7 @@ product does from what somebody once meant it to do.
 
 ## Plans — finished
 
-Write-ups of work that shipped: what was measured, what was built, and what must not be
-traded away. A leftover item that is still open is listed under open plans too.
+Write-ups of work that shipped: what was measured, what was built, and what must not be traded away. A leftover item that is still open is listed under open plans too.
 
 | Plan | Shipped |
 |---|---|
@@ -50,8 +44,7 @@ traded away. A leftover item that is still open is listed under open plans too.
 
 ## Plans — open
 
-Decided but unbuilt, or measured and not yet usable. Nothing here describes the product as it
-ships.
+Decided but unbuilt, or measured and not yet usable. Nothing here describes the product as it ships.
 
 | Plan | State |
 |---|---|
@@ -61,7 +54,5 @@ ships.
 
 ## Elsewhere
 
-- [bugs/](bugs/): bugs in other people's software, written up to file upstream. The
-  NSOpenPanel one is diagnosed and not yet worked around.
-- [`.sanity/`](../.sanity/README.md) at the repo root is Sanity's assessment of itself. It is
-  product output, not documentation.
+- [bugs/](bugs/): bugs in other people's software, written up to file upstream. The NSOpenPanel one is diagnosed and not yet worked around.
+- [`.sanity/`](../.sanity/README.md) at the repo root is Sanity's assessment of itself. It is product output, not documentation.

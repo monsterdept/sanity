@@ -2,94 +2,30 @@
 
 ## The metric is the product
 
-The sunburst is not the product; anyone can draw a treemap of LOC and several people
-have. What makes this worth building is the second encoding: **boilerplate is code a
-model can predict from its context.** Everything below defends that.
+The sunburst is not the product; anyone can draw a treemap of LOC and several people have. What makes this worth building is the second encoding: **boilerplate is code a model can predict from its context.** Everything below defends that.
 
-- **The lens is Predictability, and it shows what a reading records.** A reading is a
-  prediction grade — `predicted: full · most · some · none` — and that is the word on screen,
-  in the key, the panel, the report and the findings. `surprise` is the internal number the grade
-  becomes (`Grade::surprise`, `GRADE_SURPRISE`), and it stays internal: a tab called Surprise over
-  grades that say how much was predicted read `none` as "no surprise" when it meant the opposite.
-  The rule grammar's `surprise` field is the one place the number is still spelled out, because
-  stored catalogs name it.
-- **Temperature IS surprise.** It used to be `surprise × (1 − explained)`, and that
-  double-counted: documentation now reaches the *instrument* — the comment stack is in
-  the model's prompt, and an agent is handed the docs before it predicts — so a doc that
-  explains the body already lowers the surprise. Discounting it again afterwards was
-  charging for the same thing twice. The map still drains as you document; it drains
-  because the next reading is genuinely less surprising.
-- **Documentation is graded, never counted — and it is a report, not a discount.**
-  The old lexical `explained` could only reward vocabulary OVERLAP, so a confidently
-  wrong comment sharing words with the code *cooled* the wedge. Exactly backwards:
-  stale docs are the common failure and must read hot. Through the prompt they do —
-  the model predicts what the comment describes, the body doesn't match, surprise
-  rises. `heuristic::documented` survives as the offline fallback and still subtracts
-  the signature's vocabulary from both sides, so a comment restating the function name
-  covers nothing. There is a test named for it — keep it passing.
-- **Model-authored text must not cool a wedge.** If a model could write the explanation
-  from the code alone, the explanation was already latent in the code and the wedge was
-  never hot. The degenerate failure this prevents: run an LLM over the repo, everything
-  turns green, the map is a liar. There is deliberately no `Provenance` variant with
-  weight for model-written docs — and the agent path asks the question outright, as
-  `derivable`, which is the one form of it a lexical score could never evaluate. A
-  derivable doc counts as `none` in the score always. The Docs lens has a reading beside it
-  that paints one as `none` (the default) or as `full` — the opinion that a complete
-  description is documentation however obvious — and it moves colour only. It was a pulse
-  over the `none` colour until that proved louder than the question.
-- **Surprise alone can't tell brilliance from mess.** Both are unpredictable. Age and
-  churn (`churn.rs`) are the second axis; the four quadrants come from the pair. A repo
-  with no git history gets a visible warning, never a confident-looking half-verdict.
-- **Never let a term claim confidence it hasn't got.** Every measurement returns
-  `UNDECIDED` (0.5) when it's out of evidence. They all degrade in the same direction on
-  short input, so untreated they compound — the first real scan ranked `fn main()` as
-  tally's most surprising code. Equally, don't "fix" that with a global length penalty:
-  that just makes the map say "long means hot", which is measuring length again.
+- **The lens is Predictability, and it shows what a reading records.** A reading is a prediction grade — `predicted: full · most · some · none` — and that is the word on screen, in the key, the panel, the report and the findings. `surprise` is the internal number the grade becomes (`Grade::surprise`, `GRADE_SURPRISE`), and it stays internal: a tab called Surprise over grades that say how much was predicted read `none` as "no surprise" when it meant the opposite. The rule grammar's `surprise` field is the one place the number is still spelled out, because stored catalogs name it.
+- **Temperature IS surprise.** It used to be `surprise × (1 − explained)`, and that double-counted: documentation now reaches the *instrument* — the comment stack is in the model's prompt, and an agent is handed the docs before it predicts — so a doc that explains the body already lowers the surprise. Discounting it again afterwards was charging for the same thing twice. The map still drains as you document; it drains because the next reading is genuinely less surprising.
+- **Documentation is graded, never counted — and it is a report, not a discount.** The old lexical `explained` could only reward vocabulary OVERLAP, so a confidently wrong comment sharing words with the code *cooled* the wedge. Exactly backwards: stale docs are the common failure and must read hot. Through the prompt they do — the model predicts what the comment describes, the body doesn't match, surprise rises. `heuristic::documented` survives as the offline fallback and still subtracts the signature's vocabulary from both sides, so a comment restating the function name covers nothing. There is a test named for it — keep it passing.
+- **Model-authored text must not cool a wedge.** If a model could write the explanation from the code alone, the explanation was already latent in the code and the wedge was never hot. The degenerate failure this prevents: run an LLM over the repo, everything turns green, the map is a liar. There is deliberately no `Provenance` variant with weight for model-written docs — and the agent path asks the question outright, as `derivable`, which is the one form of it a lexical score could never evaluate. A derivable doc counts as `none` in the score always. The Docs lens has a reading beside it that paints one as `none` (the default) or as `full` — the opinion that a complete description is documentation however obvious — and it moves colour only. It was a pulse over the `none` colour until that proved louder than the question.
+- **Surprise alone can't tell brilliance from mess.** Both are unpredictable. Age and churn (`churn.rs`) are the second axis; the four quadrants come from the pair. A repo with no git history gets a visible warning, never a confident-looking half-verdict.
+- **Never let a term claim confidence it hasn't got.** Every measurement returns `UNDECIDED` (0.5) when it's out of evidence. They all degrade in the same direction on short input, so untreated they compound — the first real scan ranked `fn main()` as tally's most surprising code. Equally, don't "fix" that with a global length penalty: that just makes the map say "long means hot", which is measuring length again.
 
 
 ## The real metric arrives from readers, not from a scorer
 
-The app scores with the offline proxy and takes its actual measurement from agents over
-MCP. **There is no model path in the app** — `OllamaModel` was removed, endpoint and all,
-because configuring a model is configuration rather than revelation, and `local.rs` followed
-it: local models were tried as readers and found lacking, and the headless scorer that was
-their only caller went too. Metric work is agentic readers now.
+The app scores with the offline proxy and takes its actual measurement from agents over MCP. **There is no model path in the app** — `OllamaModel` was removed, endpoint and all, because configuring a model is configuration rather than revelation, and `local.rs` followed it: local models were tried as readers and found lacking, and the headless scorer that was their only caller went too. Metric work is agentic readers now.
 
-**What the proxy is still for is ORDER.** It decides which functions a reader is offered
-first and nothing else — `Source::Proxy` is refused a colour, so the number never reaches
-the map. Judge a change to it by whether the queue puts better candidates first.
-It orders WITHIN bands, and the bands come first: stale readings, then unread code a live
-finding points at (`agentapi::findings_first`), then the rest of the unread, then readings
-with one answer out of date. The findings band is there so a `check --limit 50` reads what
-`sanity findings` just listed rather than fifty other bodies the proxy liked.
+**What the proxy is still for is ORDER.** It decides which functions a reader is offered first and nothing else — `Source::Proxy` is refused a colour, so the number never reaches the map. Judge a change to it by whether the queue puts better candidates first. It orders WITHIN bands, and the bands come first: stale readings, then unread code a live finding points at (`agentapi::findings_first`), then the rest of the unread, then readings with one answer out of date. The findings band is there so a `check --limit 50` reads what `sanity findings` just listed rather than fifty other bodies the proxy liked.
 
-Forced decoding was real and was measured — on krapow it scored **6/15** against a raw
-`wc -l` sort where the proxy scores 9/15, and the cobra boilerplate four earlier designs
-ranked at 96-98° dropped off entirely. `surprise.rs` and ARCHITECTURE.md carry the full
-table of what failed first, in the past tense. Read it before rebuilding anything here.
+Forced decoding was real and was measured — on krapow it scored **6/15** against a raw `wc -l` sort where the proxy scores 9/15, and the cobra boilerplate four earlier designs ranked at 96-98° dropped off entirely. `surprise.rs` and ARCHITECTURE.md carry the full table of what failed first, in the past tense. Read it before rebuilding anything here.
 
-**Which model reads is part of the measurement, so ask before the first wave — Sonnet
-unless the user says otherwise, and don't ask if they already named one.** Surprise is
-what *a competent reader* could predict, so the reader IS the scale: a smaller model is
-surprised by more, and its readings are not comparable with what is already banked.
-Never mix models within one repo to save money — that produces one map on two scales with
-nothing on screen saying which wedge is which. `model` is on every reading so the question
-stays answerable later; a mixture is merely unreadable. This is reasoning and not yet a
-measurement — an interleaved wave of two models over the same functions would settle it,
-and `model` is recorded for exactly that, the way `position` is.
+**Which model reads is part of the measurement, so ask before the first wave — Sonnet unless the user says otherwise, and don't ask if they already named one.** Surprise is what *a competent reader* could predict, so the reader IS the scale: a smaller model is surprised by more, and its readings are not comparable with what is already banked. Never mix models within one repo to save money — that produces one map on two scales with nothing on screen saying which wedge is which. `model` is on every reading so the question stays answerable later; a mixture is merely unreadable. This is reasoning and not yet a measurement — an interleaved wave of two models over the same functions would settle it, and `model` is recorded for exactly that, the way `position` is.
 
-**Do not go back to generating a rival body and diffing it.** That was tried three ways
-and the noise floor sits above the signal — a model never reproduces real code token for
-token whether or not the code was predictable.
+**Do not go back to generating a rival body and diffing it.** That was tried three ways and the noise floor sits above the signal — a model never reproduces real code token for token whether or not the code was predictable.
 
 
 ## Calibration is evidence, not taste
 
-`heuristic::calibrate` maps the raw mix onto the reported scale. It is monotonic — it
-changes no ordering — but the band and exponent are a standing claim about real code,
-measured on tally, slooth and krapow. **Monotonic is now the whole problem with it: the
-proxy only orders the queue, and a curve that changes no ordering changes nothing a queue
-does.** The band and the exponent shaped a number that was once painted and no longer is.
-Vestigial, still in the live path, and worth removing deliberately rather than by
-accident.
+`heuristic::calibrate` maps the raw mix onto the reported scale. It is monotonic — it changes no ordering — but the band and exponent are a standing claim about real code, measured on tally, slooth and krapow. **Monotonic is now the whole problem with it: the proxy only orders the queue, and a curve that changes no ordering changes nothing a queue does.** The band and the exponent shaped a number that was once painted and no longer is. Vestigial, still in the live path, and worth removing deliberately rather than by accident.
 

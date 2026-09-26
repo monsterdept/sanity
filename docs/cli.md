@@ -1,7 +1,6 @@
 # The CLI
 
-Every command takes a repo path and defaults to the current directory. `sanity <command>
---help` lists its options.
+Every command takes a repo path and defaults to the current directory. `sanity <command> --help` lists its options.
 
 ## Taking readings
 
@@ -14,9 +13,7 @@ sanity check --detach                         # start in the background and retu
 sanity status                                 # what the readers are doing, and how much is read
 ```
 
-`--harness` takes `claude`, `codex`, `opencode` or `agy`. `--model` takes any model the agent
-can use. If you stop a pass, you lose only the readings in progress. Finished readings are
-saved as they come in, and the next `check` continues where it left off.
+`--harness` takes `claude`, `codex`, `opencode` or `agy`. `--model` takes any model the agent can use. If you stop a pass, you lose only the readings in progress. Finished readings are saved as they come in, and the next `check` continues where it left off.
 
 ## Seeing results
 
@@ -37,9 +34,7 @@ Project: sanity
   623 unhelpful doc strings found
 ```
 
-Some findings depend on git history. `--edits` and `--blame` read that history first so those
-findings can appear. On a large repo this takes a few minutes. `sanity trace` reads the same
-history ahead of time.
+Some findings depend on git history. `--edits` and `--blame` read that history first so those findings can appear. On a large repo this takes a few minutes. `sanity trace` reads the same history ahead of time.
 
 ## Deciding on findings
 
@@ -70,8 +65,4 @@ sanity export-data --out report.json          # all the data behind the report, 
 sanity refresh                                # rewrite .sanity/ in the current format
 ```
 
-`sanity .`, or any path to a repo, opens that repo in the app, and so does `sanity` with no
-arguments, typed in a repo. From anywhere else it opens the app on whatever was open last.
-`sanity mcp` runs an MCP server over stdio, so a chat agent can open a project and read its
-status and summary. That agent can't take readings: it has already seen the repo, so its
-predictions wouldn't mean anything.
+`sanity .`, or any path to a repo, opens that repo in the app, and so does `sanity` with no arguments, typed in a repo. From anywhere else it opens the app on whatever was open last. `sanity mcp` runs an MCP server over stdio, so a chat agent can open a project and read its status and summary. That agent can't take readings: it has already seen the repo, so its predictions wouldn't mean anything.

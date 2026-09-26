@@ -1,9 +1,6 @@
 # The lenses
 
-Each lens colors the map by one measurement. **Needs** is the step that has to have run
-first: Scan (parse the repo), Trace (read its git history) or Read (take readings). They're the
-three buttons on each project in the app's sidebar. The descriptions come from the app's
-own help.
+Each lens colors the map by one measurement. **Needs** is the step that has to have run first: Scan (parse the repo), Trace (read its git history) or Read (take readings). They're the three buttons on each project in the app's sidebar. The descriptions come from the app's own help.
 
 | Lens | Needs | What it measures | Values |
 |---|---|---|---|

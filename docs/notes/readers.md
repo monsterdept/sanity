@@ -2,86 +2,22 @@
 
 ## Sanity runs the readers, and that is a reversal with a reason
 
-`sanity check` spawns the readers itself, as processes, one per reader (`harness.rs`,
-`agentapi::run_wave`). Three things this file used to say are no longer true, and each was
-right when it was written:
+`sanity check` spawns the readers itself, as processes, one per reader (`harness.rs`, `agentapi::run_wave`). Three things this file used to say are no longer true, and each was right when it was written:
 
-- **"`study` prints the sentence rather than running an agent."** The objection was owning
-  model choice, auth, concurrency and resumption — the configuration `OllamaModel` was
-  deleted to avoid. That was a fair price while a reader had to be a subagent of somebody's
-  session. It stopped being one when the reader became a plain MCP client: no filesystem, no
-  cwd, no repo, three tools. Spawning one is now shelling out to a CLI the user has already
-  installed and authenticated, and there is still **no model path in the app** — Sanity runs
-  an agent, it does not run inference.
-  **`study` is now deleted, and the role split is what killed it.** It survived the first
-  round of this as "the verb for driving by hand", which stopped being a thing anybody can
-  do: a session with no `SANITY_ROLE` gets the human tools — open, check, status, summary —
-  so the sentence it printed asked an agent to take readings with no tool that takes one.
-  Registering a repo is `init`; `--show` moved there. Deleting it also retired three
-  paragraphs of priming warning that guarded a door the role split had already bricked up,
-  and that had to be re-checked against every change to how readers are launched.
-- **"A project arrives exactly one way: an agent calls `sanity_open` in the repo it is
-  already working in."** Inverted. A reader cannot name a repo — it has no working directory
-  — so a person does, with the sidebar's `+` or `sanity init`. `sanity_open` called bare
-  answers with what the human added; a path it has never been given is refused.
-  **`add_project` takes any directory now, and the `.git` requirement it dropped was doing
-  two jobs.** Its own was the old hazard — a picker once handed a directory of many repos
-  and set thirty minutes of CPU on fire. The borrowed one was standing in for a macOS bug:
-  in the open panel's LIST view a double-click on a folder is eaten by the disclosure
-  toggle, the selection clears, and a directories-only panel with no selection confirms the
-  folder you are BROWSING — so the guard fired constantly at people who had pointed at a
-  repo. Nothing about scanning needs git; churn and blame degrade to "no history", which
-  the app already says out loud. The CPU hazard gets a warning instead of a rule: a folder
-  that is not itself a repo has the repos directly inside it counted, and one holding more than
-  one asks before it is scanned (`That folder holds N repos`, with `Scan it anyway`).
-  `docs/bugs/` holds the repro: list view fails, icon and column do not.
-- **"Do not read `.sanity/`" and "read only the lines you were given."** Both were rules
-  addressed to a model, and readers improvised around them three times. They are now absent
-  capabilities: source arrives from `sanity_reveal`, and a Claude reader is launched with
-  `--allowedTools` naming the three sanity tools and nothing else.
+- **"`study` prints the sentence rather than running an agent."** The objection was owning model choice, auth, concurrency and resumption — the configuration `OllamaModel` was deleted to avoid. That was a fair price while a reader had to be a subagent of somebody's session. It stopped being one when the reader became a plain MCP client: no filesystem, no cwd, no repo, three tools. Spawning one is now shelling out to a CLI the user has already installed and authenticated, and there is still **no model path in the app** — Sanity runs an agent, it does not run inference. **`study` is now deleted, and the role split is what killed it.** It survived the first round of this as "the verb for driving by hand", which stopped being a thing anybody can do: a session with no `SANITY_ROLE` gets the human tools — open, check, status, summary — so the sentence it printed asked an agent to take readings with no tool that takes one. Registering a repo is `init`; `--show` moved there. Deleting it also retired three paragraphs of priming warning that guarded a door the role split had already bricked up, and that had to be re-checked against every change to how readers are launched.
+- **"A project arrives exactly one way: an agent calls `sanity_open` in the repo it is already working in."** Inverted. A reader cannot name a repo — it has no working directory — so a person does, with the sidebar's `+` or `sanity init`. `sanity_open` called bare answers with what the human added; a path it has never been given is refused. **`add_project` takes any directory now, and the `.git` requirement it dropped was doing two jobs.** Its own was the old hazard — a picker once handed a directory of many repos and set thirty minutes of CPU on fire. The borrowed one was standing in for a macOS bug: in the open panel's LIST view a double-click on a folder is eaten by the disclosure toggle, the selection clears, and a directories-only panel with no selection confirms the folder you are BROWSING — so the guard fired constantly at people who had pointed at a repo. Nothing about scanning needs git; churn and blame degrade to "no history", which the app already says out loud. The CPU hazard gets a warning instead of a rule: a folder that is not itself a repo has the repos directly inside it counted, and one holding more than one asks before it is scanned (`That folder holds N repos`, with `Scan it anyway`). `docs/bugs/` holds the repro: list view fails, icon and column do not.
+- **"Do not read `.sanity/`" and "read only the lines you were given."** Both were rules addressed to a model, and readers improvised around them three times. They are now absent capabilities: source arrives from `sanity_reveal`, and a Claude reader is launched with `--allowedTools` naming the three sanity tools and nothing else.
 
-**What Sanity buys with the spawn is isolation it can guarantee instead of ask for.**
-Readers run outside the repo (`cwd`), without project settings (`--setting-sources user` on
-Claude, a private `CODEX_HOME` on Codex), and with only their own tool surface. That last one
-is why `SANITY_ROLE` exists: the process creating the connection knows what it is for, so a reader
-is offered `next`/`reveal`/`report` and never loads the orchestrator's tools. Measured, that
-took the per-reader fixed prefix from 2,752 tokens to 2,208.
+**What Sanity buys with the spawn is isolation it can guarantee instead of ask for.** Readers run outside the repo (`cwd`), without project settings (`--setting-sources user` on Claude, a private `CODEX_HOME` on Codex), and with only their own tool surface. That last one is why `SANITY_ROLE` exists: the process creating the connection knows what it is for, so a reader is offered `next`/`reveal`/`report` and never loads the orchestrator's tools. Measured, that took the per-reader fixed prefix from 2,752 tokens to 2,208.
 
-**The prediction is stamped before the body is served.** `sanity_reveal(id, expected)`
-records `expected` and only then returns the source; a second call serves the same bytes and
-cannot revise it. `Report.expected` is filled server-side from that, beside `body`, `by` and
-`at`, for their reason — it used to arrive in the same call as `found`, from a reader that
-had by then read the code.
+**The prediction is stamped before the body is served.** `sanity_reveal(id, expected)` records `expected` and only then returns the source; a second call serves the same bytes and cannot revise it. `Report.expected` is filled server-side from that, beside `body`, `by` and `at`, for their reason — it used to arrive in the same call as `found`, from a reader that had by then read the code.
 
-**A harness that cannot express those is absent rather than half-present**, on the same rule
-`.m` and `.v` follow: anything that would leak the repo into its readers produces warm
-readings indistinguishable from cold ones.
+**A harness that cannot express those is absent rather than half-present**, on the same rule `.m` and `.v` follow: anything that would leak the repo into its readers produces warm readings indistinguishable from cold ones.
 
-**The admission test is per-invocation MCP config, and only one of the four takes a flag.**
-Claude has `--mcp-config`; the rest read a directory, so the scratch directory that already
-exists for isolation becomes the config directory and the config is as per-invocation as a
-flag would be — opencode `opencode.json`, Codex a private `CODEX_HOME`, Antigravity
-`.agents/mcp_config.json`. **Writing a harness's GLOBAL config is not an acceptable
-substitute**: two runs would fight over one file, and a crash would leave the user's own
-sessions pointed at a backend that is gone.
+**The admission test is per-invocation MCP config, and only one of the four takes a flag.** Claude has `--mcp-config`; the rest read a directory, so the scratch directory that already exists for isolation becomes the config directory and the config is as per-invocation as a flag would be — opencode `opencode.json`, Codex a private `CODEX_HOME`, Antigravity `.agents/mcp_config.json`. **Writing a harness's GLOBAL config is not an acceptable substitute**: two runs would fight over one file, and a crash would leave the user's own sessions pointed at a backend that is gone.
 
-- **Antigravity (`agy`) replaces the Gemini CLI, which deprecated itself.** `gemini` is not
-  aliased to it — the two are different instruments, and silently redirecting a project's
-  configured harness would change what its readings mean without saying so. A stored
-  `harness: gemini` fails to parse, reads as "no agent configured", and asks the human.
-- **`--add-dir` is load-bearing and its absence is silent.** agy discovers `.agents/` from
-  the *workspace*, and being `cwd` does not make a directory the workspace: without the flag
-  it loads no MCP at all and a reader runs with only builtin tools. Its own `mcp_servers.md`
-  documents only the global and plugin scopes; the workspace scope is one file over, in
-  `agy-customizations/SKILL.md`.
-- **Probe a harness by asking it to LIST its tools, never whether it can call one by name.**
-  agy exposes MCP through a generic `call_mcp_tool` dispatcher rather than as named tools, so
-  "can you call `sanity_next`?" is answered *no* whether the server loaded or not. That one
-  wrong question cost a day and produced a confident, wrong conclusion that agy could not be
-  configured per run at all. The tells are `call_mcp_tool`, `list_resources` and
-  `read_resource` appearing in the list.
-- **A private `HOME` is Codex's isolation trick and does not generalise.** For agy the route
-  is properly closed: symlinking every entry of `~/.gemini`, then the whole directory, still
-  leaves it unauthenticated, so the credential lives somewhere `HOME` also moves. There is no
-  config-path override in the binary to reach past it.
+- **Antigravity (`agy`) replaces the Gemini CLI, which deprecated itself.** `gemini` is not aliased to it — the two are different instruments, and silently redirecting a project's configured harness would change what its readings mean without saying so. A stored `harness: gemini` fails to parse, reads as "no agent configured", and asks the human.
+- **`--add-dir` is load-bearing and its absence is silent.** agy discovers `.agents/` from the *workspace*, and being `cwd` does not make a directory the workspace: without the flag it loads no MCP at all and a reader runs with only builtin tools. Its own `mcp_servers.md` documents only the global and plugin scopes; the workspace scope is one file over, in `agy-customizations/SKILL.md`.
+- **Probe a harness by asking it to LIST its tools, never whether it can call one by name.** agy exposes MCP through a generic `call_mcp_tool` dispatcher rather than as named tools, so "can you call `sanity_next`?" is answered *no* whether the server loaded or not. That one wrong question cost a day and produced a confident, wrong conclusion that agy could not be configured per run at all. The tells are `call_mcp_tool`, `list_resources` and `read_resource` appearing in the list.
+- **A private `HOME` is Codex's isolation trick and does not generalise.** For agy the route is properly closed: symlinking every entry of `~/.gemini`, then the whole directory, still leaves it unauthenticated, so the credential lives somewhere `HOME` also moves. There is no config-path override in the binary to reach past it.
 

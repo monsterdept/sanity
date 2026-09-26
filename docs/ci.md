@@ -1,22 +1,16 @@
 # In CI
 
-You take readings on your own machine, against the code you're about to ship, and commit
-them. CI doesn't take readings, because that would mean putting model credentials in CI. It
-only checks what you committed. `sanity verify` fails unless the readings are:
+You take readings on your own machine, against the code you're about to ship, and commit them. CI doesn't take readings, because that would mean putting model credentials in CI. It only checks what you committed. `sanity verify` fails unless the readings are:
 
 - **complete**: every function and file in scope has a reading;
-- **current**: no reading is out of date for the code that's checked out, and none was taken
-  with an older version of the questions;
-- **from one model**: every reading was taken with the same agent and model. `--model` and
-  `--harness` require a specific one. `--mixed` turns this check off but still prints what
-  was used.
+- **current**: no reading is out of date for the code that's checked out, and none was taken with an older version of the questions;
+- **from one model**: every reading was taken with the same agent and model. `--model` and `--harness` require a specific one. `--mixed` turns this check off but still prints what was used.
 
 `verify` doesn't need git history, network access or credentials.
 
 ## GitHub Actions
 
-[`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action) runs `verify` on
-Linux, macOS and Windows runners, x86-64 or ARM64 (macOS: ARM64 only):
+[`monsterdept/sanity-action`](https://github.com/monsterdept/sanity-action) runs `verify` on Linux, macOS and Windows runners, x86-64 or ARM64 (macOS: ARM64 only):
 
 ```yaml
 name: Readings
@@ -36,22 +30,15 @@ jobs:
           # consistent-reader: false   # optional: allow mixed models
 ```
 
-**Pin `version`.** A new release can change the parser or the questions, which can make
-existing readings out of date. Pinning means your check only changes when you decide to
-upgrade.
+**Pin `version`.** A new release can change the parser or the questions, which can make existing readings out of date. Pinning means your check only changes when you decide to upgrade.
 
-`@v2` needs Sanity 0.33.0 or later, the first release with headless builds. For an older
-version, `@v1` runs the Linux x86-64 AppImage.
+`@v2` needs Sanity 0.33.0 or later, the first release with headless builds. For an older version, `@v1` runs the Linux x86-64 AppImage.
 
-To check releases instead of pull requests, add the job before your build with `needs:`.
-Sanity checks its own releases this way: see
-[`.github/workflows/readings.yml`](../.github/workflows/readings.yml).
+To check releases instead of pull requests, add the job before your build with `needs:`. Sanity checks its own releases this way: see [`.github/workflows/readings.yml`](../.github/workflows/readings.yml).
 
 ## Other CI systems
 
-Each release from 0.33.0 includes a headless `sanity`: every command, without the app's window,
-as a single binary of about 16 MB compressed. On Linux or macOS, the install script fetches the
-one for your runner and checks it against the release's `SHA256SUMS` before installing it:
+Each release from 0.33.0 includes a headless `sanity`: every command, without the app's window, as a single binary of about 16 MB compressed. On Linux or macOS, the install script fetches the one for your runner and checks it against the release's `SHA256SUMS` before installing it:
 
 ```sh
 curl -fsSL https://sanity.monster/install.sh | SANITY_INSTALL_DIR=. sh -s -- --headless --version=0.34.0
@@ -65,9 +52,4 @@ curl -fsSL https://github.com/monsterdept/sanity/releases/download/v0.34.0/sanit
 ./sanity verify
 ```
 
-The archives are named `sanity-headless-<version>-<target>`, for the targets
-`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`,
-`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`; Windows archives are `.zip`, and on
-Windows you download them directly. 0.33.0's lack the `headless`. Each release's notes say
-which file is which. The Linux builds need glibc 2.35 or later (Ubuntu 22.04). On a desktop,
-install the app instead: it includes the same `sanity`.
+The archives are named `sanity-headless-<version>-<target>`, for the targets `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`; Windows archives are `.zip`, and on Windows you download them directly. 0.33.0's lack the `headless`. Each release's notes say which file is which. The Linux builds need glibc 2.35 or later (Ubuntu 22.04). On a desktop, install the app instead: it includes the same `sanity`.
