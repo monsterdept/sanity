@@ -63,6 +63,25 @@ jobs:
           fi
           echo "pinned to $version"
 
+      # **install-headless.sh is install.sh with two defaults changed, and never a second
+      # script.** It is the CI line: the build without a window, into the current directory,
+      # so a job runs `./sanity` without touching PATH. Generated here so every fix to
+      # install.sh, the checksum check included, reaches it; the check below fails the deploy
+      # if install.sh's default lines ever stop matching, rather than serving an unchanged copy
+      # under a name that promises otherwise.
+      - name: Write install-headless.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -e 's/^headless=0$/headless=1/' \
+              -e 's|^dir="${SANITY_INSTALL_DIR:-$HOME/.local/bin}"$|dir="${SANITY_INSTALL_DIR:-.}"|' \
+              -e '1a\
+          # Generated from install.sh when the site is deployed: --headless, into the current directory.' \
+              _site/install.sh > _site/install-headless.sh
+          grep -qx 'headless=1' _site/install-headless.sh || { echo "::error::install-headless.sh did not get headless=1"; exit 1; }
+          grep -qx 'dir="${SANITY_INSTALL_DIR:-.}"' _site/install-headless.sh || { echo "::error::install-headless.sh did not get the current directory"; exit 1; }
+          chmod +x _site/install-headless.sh
+
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5

@@ -129,6 +129,12 @@ fi
 
 # The headless build has no window, so `sanity .` would have nothing to open.
 if [ "$headless" = 1 ]; then next="sanity --help"; else next="sanity . in a repo"; fi
+case "$dir" in
+  # A relative directory is a CI job installing beside itself: it runs the binary by path,
+  # and adding `.` to PATH would be bad advice.
+  /*) ;;
+  *) say "Run '$dir/$next' to start."; exit 0 ;;
+esac
 case ":$PATH:" in
   *":$dir:"*) say "Run '$next' to start." ;;
   *) say "$dir is not on your PATH. Add it, then run '$next'." ;;

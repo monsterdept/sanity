@@ -38,10 +38,10 @@ To check releases instead of pull requests, add the job before your build with `
 
 ## Other CI systems
 
-Each release from 0.33.0 includes a headless `sanity`: every command, without the app's window, as a single binary of about 16 MB compressed. On Linux or macOS, the install script fetches the one for your runner and checks it against the release's `SHA256SUMS` before installing it:
+Each release from 0.33.0 includes a headless `sanity`: every command, without the app's window, as a single binary of about 16 MB compressed. On Linux or macOS, `install-headless.sh` fetches the one for your runner, checks it against the release's `SHA256SUMS`, and installs it into the current directory:
 
 ```sh
-curl -fsSL https://sanity.monster/install.sh | SANITY_INSTALL_DIR=. sh -s -- --headless --version=0.34.0
+curl -fsSL https://sanity.monster/install-headless.sh | sh -s -- --version=0.34.0
 ./sanity verify
 ```
 
