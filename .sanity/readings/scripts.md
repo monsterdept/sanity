@@ -1,6 +1,6 @@
 # scripts — sanity assessment
 
-39 of 39 read · 4 unpredicted
+42 of 42 read · 4 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -271,3 +271,25 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recomputes each shipped ramp from its hue and compares per-stop RGB against SHIPPED_STOPS, tracking the worst per-channel rounding error. It also recomputes chips, margins, worst chip pair, family-step separation, and one_turn, printing all of these diagnostics (many of which are informational, not part of the pass/fail). Pass/fail (returned as 0/1) is determined only by worst_step<=1, one_turn being true, and family separation (across > inside).
 - predicted: some · documented: some · derivable: no · legible: most · trap: no · test: yes
 - note: The docstring says the check is against stops not margins, but the actual ok condition also depends on one_turn and family-step separation, which aren't 'stops' either — the docstring undersells how many conditions gate pass/fail.
+
+## scripts/stamp-version.mjs
+
+### the file itself
+- spec 3 · read at `c41c5f76795e` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:24Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A Node script taking a version from argv, validating it, then rewriting the version in tauri.conf.json, package.json and Cargo.toml (and maybe Cargo.lock) via a json helper and a regex sub helper. Exits with an error if a file lacks the expected version field.
+- found: Validates a MAJOR.MINOR.PATCH argument, then stamps it into tauri.conf.json, web/package.json, Cargo.toml (first line-anchored version) and Cargo.lock (the sanity package entry). It fails closed when a regex matches nothing and re-verifies Cargo.toml and tauri.conf.json afterwards.
+- predicted: full · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header explains the history (0.1.0 shipping in a 0.8.1 bundle) that the code cannot show.
+
+### `json`
+- spec 3 · read at `e8d5e627d559` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:12Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns a stamper for a JSON file: reads file f, parses it, sets key k (or version) to the version, writes it back with 2-space indentation and trailing newline.
+- found: Reads JSON file f, sets top-level key k to module-level version v, rewrites with 2-space indent and trailing newline. Immediate write, not a returned stamper.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Docs describe the file, not this helper; the function itself has none.
+
+### `sub`
+- spec 3 · read at `d8083f08bcb3` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Reads file f, applies regex replacement re -> to (the version), and writes it back. Likely throws or exits if the regex didn't match, so a missing version doesn't silently go unstamped.
+- found: Replaces regex in file; exits with a CI ::error if the pattern doesn't match at all (idempotent re-stamp with the same version is allowed), else writes back.
+- predicted: full · documented: some · derivable: no · legible: full · trap: no

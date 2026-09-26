@@ -1,0 +1,29 @@
+[package]
+name = "sanity-tools"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Sanity's dev tools: the findings bench, the history replay and the token counter"
+publish = false
+
+[dependencies]
+sanity = { path = ".." }
+serde_json = "1"
+
+# What a reader pays for the parts of its context we write. Separate from the scorer
+# because it answers a different question and must not slow that one down.
+[[bin]]
+name = "sanity-tokens"
+path = "src/bin/tokens.rs"
+
+# Replay a repo's history without opening a window. The app is the human's to launch, so
+# this is the only way a change to the commit walk gets checked.
+[[bin]]
+name = "sanity-history"
+path = "src/bin/history.rs"
+
+# The lead catalog, headless — and the instrument the catalog is titrated with. See
+# `docs/notes/findings.md`; the window's settings page is a UI over this same evaluator.
+[[bin]]
+name = "sanity-findings"
+path = "src/bin/findings.rs"

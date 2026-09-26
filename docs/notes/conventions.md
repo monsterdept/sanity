@@ -44,9 +44,24 @@
   so the `binary` stanza that puts `sanity` on PATH is in the justfile beside the rest of
   the release, not in the tap — the tap holds no hand-written file to keep in step. A
   direct download gets the app's own "Install `sanity` command" instead, which symlinks
-  into `/usr/local/bin` or `~/.local/bin`. **Never tell anyone to put `Contents/MacOS` on their
-  PATH** — `sanity-findings`, `sanity-history`, `sanity-sample` and `sanity-tokens` live there
-  too — and never an alias, which no script can see.
+  into `/usr/local/bin` or `~/.local/bin`. Never an alias, which no script can see.
+- **There is one implementation and two builds of it, and where each is installed is part of
+  the design.** `gui` is a default feature; `--no-default-features` is the headless `sanity`,
+  every verb and no window, released beside the bundles as `sanity-<version>-<target>` archives
+  by `headless.yml`. Same source, same version, same release job, so the two cannot disagree
+  about `.sanity/` — the worry behind "one binary", which a second codebase (the old
+  `mcp/sanity.mjs`) made real. What the headless build does add is a second installable, so
+  the placement is the rule: **on a desktop the app is the only `sanity`; the headless build
+  is for CI runners and servers where the app is not installed.** Nothing would show a
+  headless install drifting beside the app — a reading records who took it and with which
+  agent and model, not which build wrote it — so never tell anyone to install both. Bare
+  `sanity` in the headless build prints help and exits 2, and a Windows headless build is a
+  console program: `windows_subsystem` is set only under `gui`, or it would print nothing.
+- **The bundle holds `sanity` and nothing else.** The dev tools — `sanity-findings`,
+  `sanity-history`, `sanity-tokens` — are the `src-tauri/tools` crate, a workspace member,
+  because the Tauri bundler ships every binary the APP crate builds and each tool weighs about
+  what the app does: three of them were about 474MB of a macOS build. `just` runs them with
+  `-p sanity-tools`; nothing installed ever calls them. A new dev tool goes in that crate.
 - **The app draws no creature.** It had one in the middle of the map, behind a picker that
   also offered a balance wheel and an eye; the question settled on the circles, so the picker,
   the other two and the creature's bundle are gone from `web/`. The website draws none either:

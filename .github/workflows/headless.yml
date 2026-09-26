@@ -1,0 +1,178 @@
+name: Headless
+
+# The headless `sanity`: every CLI verb, no window, for CI runners and servers where the app is
+# not installed. See docs/plans/open/headless-cli.md.
+#
+# Called by release.yml with the tag, it stamps the version, builds, checks the binary reports
+# that version, and uploads `sanity-<version>-<target>.tar.gz` (`.zip` on Windows) into the draft
+# release. On a pull request that touches the build it does the same without a tag and keeps the
+# archives as workflow artifacts, so a change to how this is built is tried on the real runners
+# before a release depends on it.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag, e.g. v0.32.0. Empty for a trial build.
+        type: string
+        default: ""
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/headless.yml
+      - scripts/stamp-version.mjs
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - src-tauri/build.rs
+      - src-tauri/src/main.rs
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub-hosted, each target on its own architecture — the same runners release.yml
+          # builds the bundles on, for the same reasons. 22.04 because a Linux binary runs on
+          # distros whose glibc is at least the one it was built against.
+          - os: ubuntu-22.04
+            triple: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            triple: aarch64-unknown-linux-gnu
+          - os: macos-15
+            triple: aarch64-apple-darwin
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            msvc: x64
+          - os: windows-11-arm
+            triple: aarch64-pc-windows-msvc
+            msvc: arm64
+
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.msvc }}
+
+      # Git for Windows' coreutils `link` sits ahead of MSVC's link.exe under `shell: bash` —
+      # see release.yml.
+      - name: Keep Git's link out of the linker's way (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: rm -f /usr/bin/link.exe
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        if: inputs.tag != ''
+        with:
+          node-version: 20
+
+      - name: Set version from tag
+        if: inputs.tag != ''
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          BASE="${TAG#v}"; BASE="${BASE%%-*}"
+          node scripts/stamp-version.mjs "$BASE"
+
+      - name: Build
+        id: build
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --no-default-features
+          exe=sanity; [ "$RUNNER_OS" = "Windows" ] && exe=sanity.exe
+          echo "bin=src-tauri/target/release/$exe" >> "$GITHUB_OUTPUT"
+          echo "exe=$exe" >> "$GITHUB_OUTPUT"
+
+      # The binary is asked, not the filename: the filename is chosen by the same job whose
+      # stamping is in question.
+      - name: Check the binary
+        shell: bash
+        env:
+          BIN: ${{ steps.build.outputs.bin }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          got="$("$BIN" --version)"
+          echo "$got"
+          if [ -n "$TAG" ]; then
+            want="sanity ${TAG#v}"; want="${want%%-*}"
+            [ "$got" = "$want" ] || { echo "::error::binary reports '$got', expected '$want'"; exit 1; }
+          fi
+          "$BIN" verify --help >/dev/null
+          # Bare `sanity` in this build prints help and says there is no window.
+          out="$RUNNER_TEMP/bare.txt"
+          if "$BIN" >"$out"; then
+            echo "::error::bare sanity exited 0 in a build with no window"; exit 1
+          fi
+          grep -q "no window" "$out" || { echo "::error::bare sanity did not say it has no window"; exit 1; }
+
+      - name: Package
+        id: package
+        shell: bash
+        env:
+          BIN: ${{ steps.build.outputs.bin }}
+          EXE: ${{ steps.build.outputs.exe }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"; [ -n "$version" ] || version="dev"
+          name="sanity-${version}-${{ matrix.triple }}"
+          rm -rf dist && mkdir -p "dist/$name"
+          cp "$BIN" LICENSE "dist/$name/"
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -NoProfile -Command "Compress-Archive -Path '$name/*' -DestinationPath '$name.zip'"
+            file="$name.zip"
+          else
+            tar -czf "$name.tar.gz" -C "$name" "$EXE" LICENSE
+            file="$name.tar.gz"
+          fi
+          ls -l "$file"
+          echo "file=dist/$file" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the archive (trial build)
+        if: inputs.tag == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanity-${{ matrix.triple }}
+          path: ${{ steps.package.outputs.file }}
+          retention-days: 7
+
+      # Into the draft release.yml's `draft` job made, retried for the same reason the bundles
+      # are: the release service fails transiently on its own side.
+      - name: Push the archive to the draft release
+        if: inputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          FILE: ${{ steps.package.outputs.file }}
+        run: |
+          set -euo pipefail
+          command -v gh >/dev/null || { echo "::error::gh is not on PATH"; exit 1; }
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$TAG" "$FILE" --clobber; then
+              echo "uploaded on attempt $attempt"
+              exit 0
+            fi
+            echo "upload attempt $attempt failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::release asset upload failed after 5 attempts"
+          exit 1
