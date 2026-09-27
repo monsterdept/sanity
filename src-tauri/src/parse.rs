@@ -310,7 +310,12 @@ fn language(lang: Lang) -> tree_sitter::Language {
 /// [`PARSE_OUTPUT_STABLE_SINCE`] stays at 3: the text handed to a reader is untouched.
 /// 15 because `FuncDef` gained `ncloc`, and `end_line` stops counting the empty line some grammars
 /// end a definition on; the text handed to a reader is untouched.
-pub const PARSE_VERSION: u32 = 15;
+/// 16 because a JS test runner's `it`/`test`/hook callback is a unit now — see `runner_of`. New
+/// bodies appear in every JS-family test file, and the closures inside a test that were their
+/// own one-line units (`const st = () => …`) fold into it, so their readings stop matching
+/// anything. A reading of such a FILE expires too: `scan::file_surface` is its functions'
+/// signatures, and the list moved — so [`PARSE_OUTPUT_STABLE_SINCE`] moves to 16.
+pub const PARSE_VERSION: u32 = 16;
 
 /// The oldest [`PARSE_VERSION`] whose parse OUTPUT is identical to this one's.
 ///
@@ -332,7 +337,9 @@ pub const PARSE_VERSION: u32 = 15;
 /// their corpus is fine when it is not.
 ///
 /// 3 because 3 → 4 was `cargo fmt` wrapping one match arm of `header_end` in braces.
-pub const PARSE_OUTPUT_STABLE_SINCE: u32 = 3;
+/// 16 because a JS test file's `file_surface` gained its tests' signatures — see
+/// [`PARSE_VERSION`] 16.
+pub const PARSE_OUTPUT_STABLE_SINCE: u32 = 16;
 
 /// Node kinds that count as "a function with a body someone wrote".
 ///
@@ -342,6 +349,12 @@ pub const PARSE_OUTPUT_STABLE_SINCE: u32 = 3;
 /// text, which is where they belong. `variable_declarator` picks up the one case that
 /// does matter — `const Foo = () => {...}`, which is how most React components and half
 /// of modern TS is written, and skipping it would blank out entire frontends.
+///
+/// A `call_expression` is the other case that matters, and `accepts` narrows it to one shape:
+/// a test runner's registration call — see [`runner_of`]. Every jest, vitest, mocha and
+/// Playwright test is an anonymous callback handed to `it` or `test`, so without it a test
+/// file was drawn as its named helpers alone — 54 of sewcrates' 532 test lines — and every
+/// call a test made was dropped, because a call is recorded on the body that makes it.
 fn func_kinds(lang: Lang) -> &'static [&'static str] {
     match lang {
         Lang::Rust => &["function_item"],
@@ -350,6 +363,7 @@ fn func_kinds(lang: Lang) -> &'static [&'static str] {
             "generator_function_declaration",
             "method_definition",
             "variable_declarator",
+            "call_expression",
         ],
         Lang::Python => &["function_definition"],
         Lang::Go => &["function_declaration", "method_declaration"],
@@ -451,6 +465,139 @@ fn declarator_is_function(node: TsNode) -> bool {
             "arrow_function" | "function_expression" | "function" | "generator_function"
         )
     })
+}
+
+/// What a JS test runner's registration call registers — see [`runner_of`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Runner<'a> {
+    /// `it`, `test` and their spellings: a unit, named by its title.
+    Test,
+    /// `beforeEach` and the rest: a unit, named by the hook.
+    Hook(&'a str),
+    /// `describe`: walked THROUGH and never a unit, because [`collect`] stops descending at a
+    /// unit and a suite would swallow every test inside it. Its title prefixes theirs.
+    Suite,
+}
+
+const RUNNER_TESTS: &[&str] = &["it", "test", "specify", "bench", "fit", "xit", "xtest"];
+const RUNNER_HOOKS: &[&str] =
+    &["beforeEach", "afterEach", "beforeAll", "afterAll", "before", "after"];
+const RUNNER_SUITES: &[&str] = &["describe", "suite", "context", "fdescribe", "xdescribe"];
+
+/// Whether this call registers a test, a hook or a suite with a JS test runner.
+///
+/// **Read off the callee's whole chain, not its root.** `it.only`, `test.skip` and
+/// `test.each(table)(…)` are all tests rooted at the runner's name, but Playwright roots its
+/// suites and hooks there too — `test.describe(…)`, `test.beforeEach(…)` — and reading the root
+/// alone would make a unit of a suite and swallow every test in it. So any segment naming a
+/// suite makes a suite, any naming a hook makes a hook, and the modifiers (`only`, `each`,
+/// `skipIf`, …) are passed over rather than listed.
+///
+/// **By shape, not by path**, so `parse_functions` still needs nothing but the text: a bare
+/// runner name called with a function argument. A receiver the chain cannot walk to a name —
+/// `this.test(…)`, `re.test(s)`, `foo.it(…)` — is not a registration, and a call with no
+/// function argument never is. Whether the file is a test is still `edges::testness`'s
+/// question; this only finds the bodies to ask it about.
+fn runner_of<'a>(node: TsNode, src: &'a str) -> Option<Runner<'a>> {
+    if node.kind() != "call_expression" {
+        return None;
+    }
+    runner_callback(node)?;
+    let mut words: Vec<&str> = Vec::new();
+    let mut f = node.child_by_field_name("function")?;
+    // Bounded like `exported_of`'s walk: a real registration is `a.b.c(x)(…)` at most.
+    let root = 'walk: {
+        for _ in 0..6 {
+            match f.kind() {
+                "identifier" => break 'walk text(f, src),
+                "member_expression" => {
+                    words.push(text(f.child_by_field_name("property")?, src));
+                    f = f.child_by_field_name("object")?;
+                }
+                "call_expression" => f = f.child_by_field_name("function")?,
+                _ => return None,
+            }
+        }
+        return None;
+    };
+    words.push(root);
+    let named = |set: &[&str]| words.iter().copied().find(|w| set.contains(w));
+    if ![RUNNER_TESTS, RUNNER_HOOKS, RUNNER_SUITES].iter().any(|s| s.contains(&root)) {
+        return None;
+    }
+    if named(RUNNER_SUITES).is_some() {
+        Some(Runner::Suite)
+    } else if let Some(h) = named(RUNNER_HOOKS) {
+        Some(Runner::Hook(h))
+    } else {
+        Some(Runner::Test)
+    }
+}
+
+/// The function a runner call registers: its first function argument. Vitest takes options
+/// before or after it — `it("a", { timeout }, fn)`, `it("a", fn, 500)` — so not a position.
+fn runner_callback(node: TsNode) -> Option<TsNode> {
+    let args = node.child_by_field_name("arguments")?;
+    let mut cursor = args.walk();
+    let found = args.named_children(&mut cursor).find(|a| {
+        matches!(
+            a.kind(),
+            "arrow_function" | "function_expression" | "function" | "generator_function"
+        )
+    });
+    found
+}
+
+/// A test or suite's title, as the store can hold it — or `None` where the first argument IS
+/// the callback, which is how a bare hook is written.
+///
+/// A literal is unquoted; anything else — `it(c.name, …)` in a loop over cases — is named by
+/// its source text, which is as stable as the literal would have been. **Sanitized because it
+/// becomes a key**: `parse_shard` reads `### \`name\` #2 — verdict`, so a title holding an em
+/// dash, a backtick or a trailing `#2` would be read back as a different name than it was
+/// written under, and its reading would never be found again.
+fn runner_title(node: TsNode, src: &str) -> Option<String> {
+    let args = node.child_by_field_name("arguments")?;
+    let mut cursor = args.walk();
+    let first = args.named_children(&mut cursor).find(|a| a.kind() != "comment")?;
+    if runner_callback(node).is_some_and(|cb| cb.id() == first.id()) {
+        return None;
+    }
+    let raw = text(first, src);
+    let raw = match first.kind() {
+        "string" | "template_string" => raw.get(1..raw.len().saturating_sub(1)).unwrap_or(raw),
+        _ => raw,
+    };
+    let safe = raw.replace('—', "-").replace('`', "'").replace('#', "");
+    let title = safe.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!title.is_empty()).then_some(title)
+}
+
+/// A runner unit's name: the titles of the suites around it and its own, joined as vitest and
+/// jest print them — `tabs store > activates the neighbour on close`.
+///
+/// **The whole path, because the name is the key.** `key_of` tells same-named bodies apart by
+/// ordinal, and `it("works")` in two `describe`s is ordinary — so a bare title would key a
+/// reading on its position among its namesakes, and adding a test above it would hand its
+/// reading to a different body. A hook is named for the hook, which the suite path makes
+/// unique the same way.
+fn runner_name(node: TsNode, src: &str) -> Option<String> {
+    let own = match runner_of(node, src)? {
+        Runner::Test => runner_title(node, src)
+            .unwrap_or_else(|| text(node.child_by_field_name("function").unwrap_or(node), src).to_string()),
+        Runner::Hook(h) => h.to_string(),
+        Runner::Suite => return None,
+    };
+    let mut parts = vec![own];
+    let mut cur = node.parent();
+    while let Some(p) = cur {
+        if runner_of(p, src) == Some(Runner::Suite) {
+            parts.extend(runner_title(p, src));
+        }
+        cur = p.parent();
+    }
+    parts.reverse();
+    Some(parts.join(" > "))
 }
 
 fn text<'a>(node: TsNode, src: &'a str) -> &'a str {
@@ -1035,14 +1182,12 @@ fn locals_in(root: TsNode, lang: Lang, src: &str) -> Vec<String> {
     let mut cursor = root.walk();
     loop {
         let node = cursor.node();
-        if node.id() != root.id() && accepts(node, lang, kinds, src) {
-            let is_decl = node.kind() == "variable_declarator";
-            if !is_decl || declarator_is_function(node) {
-                if let Some(n) = name_node(node, lang) {
-                    let name = text(n, src);
-                    if !name.is_empty() && !out.iter().any(|o| o == name) {
-                        out.push(name.to_string());
-                    }
+        // A runner unit has no `name_node` and is skipped: nothing can call it by its title.
+        if node.id() != root.id() && is_unit(node, lang, kinds, src) {
+            if let Some(n) = name_node(node, lang) {
+                let name = text(n, src);
+                if !name.is_empty() && !out.iter().any(|o| o == name) {
+                    out.push(name.to_string());
                 }
             }
         }
@@ -1070,13 +1215,10 @@ fn collect(root: TsNode, lang: Lang, kinds: &[&str], src: &str, out: &mut Vec<Fu
         // that function's body, not a sibling wedge. Counting both would double the
         // enclosing function's lines and dilute its score with its own guts.
         let mut descend = true;
-        if accepts(node, lang, kinds, src) {
-            let is_decl = node.kind() == "variable_declarator";
-            if !is_decl || declarator_is_function(node) {
-                if let Some(f) = extract(node, lang, src) {
-                    out.push(f);
-                    descend = false;
-                }
+        if is_unit(node, lang, kinds, src) {
+            if let Some(f) = extract(node, lang, src) {
+                out.push(f);
+                descend = false;
             }
         }
         if descend && cursor.goto_first_child() {
@@ -1141,8 +1283,21 @@ fn accepts(node: TsNode, lang: Lang, kinds: &[&str], src: &str) -> bool {
         Lang::Prolog => {
             node.child_by_field_name("term").is_some_and(|t| t.kind() == "binary_operation")
         }
+        // Every call in the file is a `call_expression`; only a test or hook registration is a
+        // unit. A suite is walked through — see `Runner::Suite`.
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript if node.kind() == "call_expression" => {
+            matches!(runner_of(node, src), Some(Runner::Test | Runner::Hook(_)))
+        }
         _ => true,
     }
+}
+
+/// Whether [`collect`] makes a unit of this node — `accepts`, and for a declarator, bound to a
+/// function. One predicate for the three walks that ask, because `func_node_at` asking by kind
+/// alone would hand the panel whichever call happens to open the line.
+fn is_unit(node: TsNode, lang: Lang, kinds: &[&str], src: &str) -> bool {
+    accepts(node, lang, kinds, src)
+        && (node.kind() != "variable_declarator" || declarator_is_function(node))
 }
 
 /// The first named child of `kind`, searched one level down only.
@@ -1313,6 +1468,10 @@ fn body_node<'a>(node: TsNode<'a>, lang: Lang) -> Option<TsNode<'a>> {
         Lang::Prolog => return node.child_by_field_name("term")?.child_by_field_name("right"),
         // Godot's shader grammar spells the field `block` where C spells it `body`.
         Lang::GdShader => return node.child_by_field_name("block"),
+        // A runner unit's body is the callback's; the call around it is the header.
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript if node.kind() == "call_expression" => {
+            return runner_callback(node)?.child_by_field_name("body");
+        }
         _ => {}
     }
     if let Some(b) = node.child_by_field_name("body") {
@@ -1727,7 +1886,7 @@ pub fn forks_at(lang: Lang, src: &str, line: u32) -> Option<Forked> {
     parser.set_language(&language(lang)).ok()?;
     let tree = parser.parse(src, None)?;
     let kinds = func_kinds(lang);
-    let node = func_node_at(tree.root_node(), kinds, line)?;
+    let node = func_node_at(tree.root_node(), lang, kinds, src, line)?;
     let mut sites = Vec::new();
     let cognitive = cognitive_walk(node, lang, src, Some(&mut sites))?;
     let forks = sites
@@ -1757,11 +1916,17 @@ pub struct Forked {
 ///
 /// A cursor walk rather than recursion, for the reason `collect` gives: a tree's depth is not
 /// its source's indentation, and one frame per node has overrun a worker stack here before.
-fn func_node_at<'a>(root: TsNode<'a>, kinds: &[&str], line: u32) -> Option<TsNode<'a>> {
+fn func_node_at<'a>(
+    root: TsNode<'a>,
+    lang: Lang,
+    kinds: &[&str],
+    src: &str,
+    line: u32,
+) -> Option<TsNode<'a>> {
     let mut cur = root.walk();
     loop {
         let n = cur.node();
-        if kinds.contains(&n.kind()) && n.start_position().row as u32 + 1 == line {
+        if n.start_position().row as u32 + 1 == line && is_unit(n, lang, kinds, src) {
             return Some(n);
         }
         if cur.goto_first_child() {
@@ -1892,7 +2057,13 @@ fn chains(n: TsNode) -> bool {
 }
 
 fn extract(node: TsNode, lang: Lang, src: &str) -> Option<FuncDef> {
-    let name = text(name_node(node, lang)?, src).to_string();
+    let name = match lang {
+        // A test has a title rather than a name node — see `runner_name`.
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript if node.kind() == "call_expression" => {
+            runner_name(node, src)?
+        }
+        _ => text(name_node(node, lang)?, src).to_string(),
+    };
     let (body_start, body_end) = body_span(node, lang)?;
 
     let sig_end = body_start.min(src.len());
@@ -3238,6 +3409,19 @@ fn f(a: u32, b: u32) -> u32 {
             println!("\n===== {lang:?}\n{}", sexp(*lang, src));
         }
     }
+
+    /// The shapes a JS test runner's registration calls parse to — see `runner_call`.
+    #[test]
+    #[ignore = "diagnostic"]
+    fn print_runner_kinds() {
+        let src = "describe(\"s\", () => {\n  beforeEach(() => x());\n  it(\"a\", async () => { y(); });\n  it.only('b', function () {});\n  test.each([1])(`c %s`, (n) => {});\n});\n";
+        for lang in [Lang::TypeScript, Lang::JavaScript] {
+            println!("\n===== {lang:?}\n{}", sexp(lang, src));
+            for f in parse_functions(lang, src) {
+                println!("  name={:<24} signature={:?}", f.name, f.signature);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3999,6 +4183,87 @@ mod tests {
 
     fn names(lang: Lang, src: &str) -> Vec<String> {
         parse_functions(lang, src).into_iter().map(|f| f.name).collect()
+    }
+
+    /// **A JS test is an anonymous callback, and it is a unit.** Every one was invisible: a test
+    /// file drew as its named helpers — plus one-line closures from inside the tests — and a
+    /// suite the width of 10% of its lines.
+    #[test]
+    fn a_test_runner_callback_is_a_unit_named_by_its_suite_path() {
+        let src = r#"
+async function fresh() { return import("./tabs"); }
+beforeEach(() => localStorage.clear());
+describe("tabs store", () => {
+  it("opens a tab", async () => {
+    const st = () => store.getState();
+    expect(st().open("/a")).toBe(1);
+  });
+  describe.each([1, 2])("case %s", (n) => {
+    test.skip(`closes — #${n}`, function () {});
+  });
+  it("opens a tab", { timeout: 5 }, () => {});
+});
+"#;
+        for lang in [Lang::TypeScript, Lang::Tsx, Lang::JavaScript] {
+            assert_eq!(
+                names(lang, src),
+                vec![
+                    "fresh",
+                    "beforeEach",
+                    "tabs store > opens a tab",
+                    "tabs store > case %s > closes - ${n}",
+                    "tabs store > opens a tab",
+                ],
+                "{lang:?}: the suites are walked through, the closure folds into its test, and a \
+                 title the store could not read back is made one it can"
+            );
+        }
+        let f = parse_functions(Lang::TypeScript, src);
+        assert_eq!(f[2].signature, "it(\"opens a tab\", async () =>");
+        assert_eq!((f[2].start_line, f[2].end_line), (5, 8), "the whole call, not the callback");
+        assert!(f[2].body.contains("const st"), "{}", f[2].body);
+    }
+
+    /// Playwright hangs its suites and hooks off `test`, so the root alone would make a unit of
+    /// a suite and swallow every test in it.
+    #[test]
+    fn a_suite_or_hook_spelled_off_the_runner_is_still_a_suite_or_hook() {
+        let src = "test.describe('login', () => {\n  test.beforeEach(async ({ page }) => {});\n  test('works', async ({ page }) => {});\n});\n";
+        assert_eq!(names(Lang::TypeScript, src), vec!["login > beforeEach", "login > works"]);
+    }
+
+    /// **App code is untouched**: a call is a unit only when its callee walks to a runner's
+    /// name and it is handed a function.
+    #[test]
+    fn a_call_that_is_not_a_registration_is_not_a_unit() {
+        let src = r#"
+function f(xs) {
+  xs.map((x) => x + 1);
+  return /a/.test(s) || this.test("t", () => 1) || foo.it("x", () => 2);
+}
+const g = () => test("no callback");
+items.forEach(function (i) { describe(i); });
+setTimeout(() => go(), 5);
+"#;
+        assert_eq!(names(Lang::TypeScript, src), vec!["f", "g"]);
+    }
+
+    /// The whole point for the call graph: a call is recorded on the body that makes it, so a
+    /// test that is not a body tested nothing.
+    #[test]
+    fn a_test_body_records_its_calls() {
+        let src = "it('tiers', () => {\n  expect(exerciseTier('identity')).toBe(1);\n});\n";
+        let c = calls(Lang::TypeScript, src);
+        assert!(c.iter().any(|n| n == "exerciseTier"), "{c:?}");
+    }
+
+    /// The panel finds a body by its first line, and a line opening a test also opens the
+    /// `expect` inside it: asked by kind alone, it took whichever call came first.
+    #[test]
+    fn forks_are_read_off_the_test_on_its_line() {
+        let src = "setup(); it('a', () => { if (x) { y(); } });\n";
+        let forked = forks_at(Lang::TypeScript, src, 1).expect("the test is found");
+        assert_eq!(forked.cognitive, 1);
     }
 
     #[test]

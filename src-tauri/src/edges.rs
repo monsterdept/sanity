@@ -1383,6 +1383,29 @@ mod tests {
         assert_eq!(w.at(0, 3).map(|x| x.under_test), Some(Some(false)), "nothing reaches it");
     }
 
+    /// **A vitest suite tests what it calls**, parsed rather than built: its tests are anonymous
+    /// callbacks, and until they were units every call inside one was dropped — sewcrates' four
+    /// tiering functions were each called five times by a test file and none was under test.
+    #[test]
+    fn a_js_runner_test_is_a_caller_and_not_a_dependent() {
+        let app = crate::parse::parse_functions(
+            Lang::TypeScript,
+            "export function tier(id: string) { return id.length; }\n",
+        );
+        let suite = crate::parse::parse_functions(
+            Lang::TypeScript,
+            "import { tier } from './tiers';\ndescribe('tier', () => {\n  it('counts', () => {\n    expect(tier('ab')).toBe(2);\n  });\n});\n",
+        );
+        let w = wired(&[
+            ("web/src/tiers.ts", Lang::TypeScript, app),
+            ("web/src/tiers.test.ts", Lang::TypeScript, suite),
+        ]);
+        let tier = w.at(0, 0).expect("wired");
+        assert_eq!(tier.under_test, Some(true), "the test reaches it");
+        assert_eq!(tier.callers, 1, "and is counted where the lens paints");
+        assert_eq!(tier.dependents, Some(0), "but depends on nothing");
+    }
+
     #[test]
     fn under_test_says_a_test_calls_this_and_not_that_it_is_covered() {
         let w = wired(&[(
