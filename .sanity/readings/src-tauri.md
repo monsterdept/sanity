@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1300 of 1300 read · 228 unpredicted
+1312 of 1312 read · 227 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -3092,12 +3092,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/edges.rs
 
-### the file itself — PREDICTED SOME
-- spec 3 · served in 3 parts · read at `368ba46e76d7` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:31Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Builds a lightweight, deterministic, model-free call graph purely from the already-parsed source (no git, no LLM). Resolves raw call expressions to the functions they name, handling scoping rules (self/super/crate, visibility, shadowing, ambiguity), grouping file types into language "families", and distinguishing test callers from production callers, in order to compute two cheap per-function facts: caller count and locality (share of callers outside its own directory). Shape: a resolution pipeline (Declarations::of -> wire/wire_with -> resolve/reaches) producing Wire/Wiring structures, backed by a large unit-test suite pinning down edge-case semantics.
-- found: Correctly the file builds a deterministic, model-free call graph from parsed source to compute per-function callers/locality, with careful scoping/visibility/family/ambiguity resolution rules and a large pinning test suite. But it also bundles a second, undocumented-by-the-header concern: classifying whole files as generated/vendored/header code (kind_of, Attributes/.gitattributes parsing, glob_ish), a richer test-detection stack than I predicted (contract vs convention vs name-dispatch vs declared-silence, with Declarations tracking per-language manifest declarations), and a callers/dependents/under_test three-way distinction (a test counts as a caller but not a dependent, and under_test is computed via transitive BFS from test nodes, not a direct edge check) that I did not anticipate at all.
-- predicted: some · documented: some · derivable: no · legible: not judged · trap: no
-- note: The module doc only describes the call-edge/locality purpose; the substantial generated/vendored/header file-kind classification and the manifest-declared-silence test inference are separate concerns living in the same file with no header coverage.
+### the file itself
+- spec 3 · served in 3 parts · read at `4a90615dbad0` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A static-analysis module in a Tauri app's Rust backend that reconstructs a call graph from an existing source scanner's parsed functions. It resolves which function names call which others (handling ambiguity, shadowing, and directory-local vs cross-directory "locality"), computes per-function incoming-call counts, and identifies test functions across multiple language conventions (Rust cfg(test), shell naming, JS runners) to distinguish test callers from production dependents. Deterministic, model-free, no I/O; includes a large embedded test suite covering these resolution and locality/test-detection rules.
+- found: The file builds a repo-wide call graph from already-parsed functions (wire/wire_with), resolving each call name to candidate definitions through a careful tiered scheme (owner/self match beats module-qualifier match beats same-file beats same-directory beats globally-unique-name, with locals/shadowing and cfg(test) sealing handled specially), producing per-function Wire stats (callers, calls, dependents, under_test via transitive reachability from tests, incident/away for locality). It also independently classifies whether a given file/function is test code via a tiered evidence system (compiler contract > repo-declared manifests > path/name conventions), and classifies file "kind" (generated/vendored/header) via gitattributes/banners/paths. It's fully deterministic and pure, matching the module doc almost exactly, plus an extensive test suite encoding many specific historical bugs as regression tests.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
 
 ### `locality_gap`
 - spec 3 · read at `2d7696bf7f63` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:01:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -3362,6 +3361,12 @@ What this is and how to add to it: [README.md](README.md)
 - expected: Builds a call graph where a test calls `a`, `a` calls `b`, `b` calls `c`, and `c` calls back to `a` (a cycle), plus an unreached `lonely` function. Asserts `a`, `b`, `c` all report dependents = Some(true) (transitively reached from a test) while `lonely` stays Some(false), and the cycle doesn't cause the reachability walk to loop forever or panic.
 - found: Builds a chain a->b->c->a (cycle) reached by a test calling a, plus an unreached lonely function; asserts a/b/c all get under_test = Some(Some(true)) (transitively reached, cycle doesn't break the walk) and lonely gets Some(Some(false)).
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_js_runner_test_is_a_caller_and_not_a_dependent`
+- spec 3 · read at `9e56a21263c0` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:50:21Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Builds a small JS/TS source with a describe/it block whose callback calls some target function, runs the edge-extraction pipeline on it, and asserts that the target function's call edge is attributed to the test (so it counts as being called) rather than excluded because the callback is anonymous — mirroring a_test_is_a_caller_and_not_a_dependent but for JS-style runner syntax.
+- found: Parses a production TS file exporting `tier` and a separate test file that imports it and calls it inside a describe/it block, wires the two files together, then asserts `tier` is under_test=true, has 1 caller, but 0 dependents — confirming a JS test callback counts as a caller for coverage purposes without being counted as a normal calling dependent.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `under_test_says_a_test_calls_this_and_not_that_it_is_covered` — PREDICTED NONE
 - spec 3 · read at `61867779f3cd` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:10:21Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -6007,11 +6012,10 @@ What this is and how to add to it: [README.md](README.md)
 ## src-tauri/src/parse.rs
 
 ### the file itself
-- spec 3 · served in 8 parts · read at `636147129220` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:57:11Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: The core tree-sitter parsing engine: per-language grammar/extension tables (LangSupport), a cursor-based walk that matches AST node *kinds* (not queries) to find function definitions, extract their name/owner/signature/doc-comment/body span/ncloc, compute cognitive complexity via per-language branch/fork kind tables, resolve call sites for the call graph, and detect file-level module docs (including language-specific forms like Python docstrings). It carries a very large test suite (one function per language/feature) verifying each language's function-finding, complexity, and call-resolution behavior, since kind-matching breaks loudly when a grammar renames a node.
-- found: Confirmed the overall shape: per-language grammar dispatch, kind-matching function extraction (name/owner/signature/doc/body/ncloc), cognitive complexity via branch-kind and logical-operator tables with Fork/Chain/Logic charge types, call-site extraction with a Via enum recording how each call was spelled (Free/Dot/Path) rather than its resolved receiver, a token-shape hash for clone detection, file-doc extraction with license/truncation handling, and PARSE_VERSION/PARSE_OUTPUT_STABLE_SINCE cache-invalidation discipline. What I underestimated was the sheer density: dozens of extremely specific per-language grammar quirks (Objective-C's dual method/function kinds, Go's generic receiver bug, C++ operator_cast/reference_declarator chains, Elixir/lisps having no function node at all, PowerShell/Ruby/R identifier-character extensions) and a massive fixture-per-language test suite (one case per of ~60 languages, repeated for functions, complexity, calls, and ncloc).
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The file's top module doc only explains the kind-matching-vs-queries design choice; it says nothing about the versioning discipline, the Via/shape/cognitive machinery, or the scale of the per-language test suite, all of which dominate the file's actual content.
+- spec 3 · served in 8 parts · read at `11c63cf7338c` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:50:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Core tree-sitter-based, multi-language source analyzer: walks ASTs by node kind (not queries, since queries drift and fail silently) to extract function/method definitions with owner, name, doc comment, and span; computes cognitive complexity and fork/branch sites; resolves call sites/dependencies; detects test runners and suites; and counts non-comment lines of code — all driven by per-language lookup tables, backed by a large embedded test suite validating each language individually.
+- found: The file is the tree-sitter-based, 63-language function extractor for a codebase-visualization/scan tool ("sanity"/scancache). It builds `FuncDef` per function (name, signature, body, doc, owner, span, calls with spelling-preserving Via, locally-defined names, exported flag, clone-detection shape hash, cognitive complexity, ncloc, cfg(test) flag), all matched by literal tree-sitter node kind per language (never queries) so a grammar rename fails loudly in tests rather than silently returning empty. It also computes file-level doc headers, JS test-runner unit detection (it/describe/hooks), and carries a giant versioned cache-invalidation history (PARSE_VERSION) plus an enormous embedded test module validating each language/feature individually.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
 
 ### `loc`
 - spec 2 · read at `0e1677eba3db` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -6026,18 +6030,41 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 - note: More languages supported than I guessed (60+), impressively broad.
 
-### `func_kinds` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `dc54669653f3` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:45:21Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A match over Lang returning a static slice of tree-sitter node kind strings that count as function-like definitions for that language — e.g. function_definition/method_definition for C-like languages, function_declaration/method_declaration plus variable_declarator for JS/TS, def_statement for Python, etc. — with a default/fallback arm for languages not explicitly listed.
-- found: An exhaustive (no default/fallback arm) match over every Lang variant, each returning its own static list of tree-sitter node kinds that count as a function. Many arms carry real subtlety beyond a simple name lookup: Elixir/Lisp-family/OCaml/R match a generic node kind (call, list, let_binding, binary_operator) because the grammar has no dedicated function node, relying on a separate `accepts` check to disambiguate; Erlang matches per-clause rather than per-declaration; Objective-C and Groovy deliberately list two kinds to avoid undercounting methods-in-classes vs free functions.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-- note: Docs explain the JS variable_declarator/arrow_function tradeoff well but say nothing about the other ~35 language arms, several of which (Elixir, Lisps, Erlang, R) have non-obvious matching strategies.
+### `func_kinds`
+- spec 3 · read at `689376a436a8` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:34Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A match on lang returning a static slice of tree-sitter node-kind strings identifying function-like definitions per language (e.g. function_item, method_definition, function_declaration). For the JS/TS family it includes variable_declarator (for const Foo = () => {}) and call_expression (for test runner registrations), but deliberately excludes bare arrow_function/function_expression as per the doc comment.
+- found: A huge match over every supported Lang variant (40+), returning the tree-sitter node kinds that count as a function definition in each. Many languages have no dedicated function node at all, so their entries are load-bearing proxies paired with an `accepts` filter elsewhere: Elixir/Clojure use generic call/list nodes, R uses binary_operator (assignment-shaped), OCaml uses let_binding, Erlang uses per-clause nodes, etc. Each unusual choice is explained by an adjacent comment about a specific past bug (ObjC .m files, Groovy class methods, Erlang clauses).
+- predicted: most · documented: some · derivable: no · legible: most · trap: no
 
 ### `declarator_is_function`
 - spec 3 · read at `b42761bf14e5` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:24Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: Gets the node's "value" child field and returns true if its kind is arrow_function, function_expression, or function; false if absent.
 - found: Checks the declarator's "value" field is arrow_function, function_expression, function or generator_function.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `runner_of`
+- spec 3 · read at `f13d650a65a4` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Walks a call expression's callee member-chain looking at each segment name. Any segment matching a suite name (describe) yields a suite, any matching a hook name (beforeEach/afterEach/etc.) yields a hook, otherwise if the root/any segment matches a test name (it/test) it yields a test; modifier segments (only, skip, each) are skipped over. Requires the call to have a function argument; returns None if the chain can't be walked to a name or there's no function argument.
+- found: Confirms the node is a call_expression with a function argument, then walks the callee chain up to 6 hops (handling member_expression.property and curried call_expression.function, e.g. test.each(table)(fn)), collecting each segment name plus the root identifier into `words`. The root must be in one of RUNNER_TESTS/HOOKS/SUITES or it bails; then it returns Suite if any collected word matches a suite name, else Hook if any matches a hook name, else Test.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `runner_callback`
+- spec 3 · read at `21842a19e78c` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:50:03Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Gets the call node's arguments list and iterates over the argument nodes, returning the first one whose kind is a function-like node (arrow_function or function_expression/function), since Vitest allows the callback to appear in different positions relative to options/timeout arguments. Returns None if no argument is a function.
+- found: Gets the "arguments" field of the call node and returns the first named child whose kind is arrow_function, function_expression, function, or generator_function — a kind search rather than a fixed position, since Vitest allows options/timeout arguments before or after the callback.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `runner_title`
+- spec 3 · read at `3a2ca8467182` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Extracts a test/suite's display title from a tree-sitter call node like it("some name", () => {...}). Looks at the first argument — if it's a string literal, extracts and sanitizes the unquoted text (stripping characters like backticks, em dashes, #N that could collide with the reading-store's key format); if non-literal (e.g. it(c.name, ...) in a loop), falls back to that expression's source text as a stable name. Returns None when the first argument is itself the callback (a bare hook like beforeEach(() => {...})).
+- found: Gets the call's first non-comment argument; returns None if that argument is itself the callback (bare hook). Extracts raw source text, strips surrounding quotes for string/template_string literals, then sanitizes by replacing em dash with hyphen, backtick with apostrophe, and removing '#' entirely, and collapses whitespace. Returns None if the resulting title is empty.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `runner_name`
+- spec 3 · read at `fe84470f65ba` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:58Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Walks up from the given call_expression node through its enclosing describe/it/test ancestors (identified via runner_of), collects each one's title via runner_title, and joins them in outer-to-inner order with " > " to build the full suite path; returns None if the node itself isn't a recognized runner call.
+- found: Determines the node's own name based on its runner kind (a Test uses its title or falls back to the callback function's text; a Hook uses the hook's own name like 'beforeEach'; a bare Suite returns None immediately), then walks up through parent nodes collecting titles of any enclosing Suite ancestors, reverses to outer-to-inner order, and joins everything with ' > '.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `text`
 - spec 2 · read at `ec98efc5bd5b` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:18Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -6116,23 +6143,29 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `locals_in`
-- spec 3 · read at `86e3fdb3caf0` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:41:32Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Walks the tree with a cursor like collect, using the same acceptance/kind-matching logic to find function-defining nodes, extracts each one's name and pushes it into a Vec<String>; unlike collect it keeps descending into matched nodes since nested closures' names are still visible inside the outer body, and skips the root node itself.
-- found: Same cursor-walk shape as collect, skipping the root node by id comparison, matching function-defining nodes via accepts() plus the variable_declarator special case, extracting each match's name via name_node, and deduping into a Vec<String>; keeps descending into matches (unlike collect) since nested names are still visible; returns early if the language has no function kinds.
+- spec 3 · read at `06211f5b6770` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:14Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Walks the subtree rooted at `root` with a cursor, recursively visiting every descendant node. For each node whose kind matches this language's func_kinds (and passes the same declarator/acceptance check used by `collect`), it extracts the definition's name and pushes it onto a Vec<String>, then continues descending into that node's children too (since nested functions inside a matched function are also valid targets). The root node itself is never treated as a match/added to the list, even if it happens to itself look like a function definition, since a body doesn't shadow its own name.
+- found: Iteratively walks the subtree with a tree-sitter cursor (manual goto_first_child/goto_next_sibling/goto_parent traversal, not actual recursion), matching nodes against func_kinds via is_unit, skipping the root by id comparison, extracting names via name_node, and deduping into a Vec&lt;String&gt; before returning when the cursor climbs back past the root.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `collect`
-- spec 3 · read at `52e5d01b9045` · commit `6caa5f5` · read by claude-sonnet-5 · via claude · when 2026-09-16T20:40:17Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the tree-sitter cursor tree from root; for each node whose kind matches one in `kinds`, builds a FuncDef using helper functions (name_node, body_node, owner_of, exported_of, etc.) and pushes it into out, then continues recursing into children to find nested functions.
-- found: Iteratively walks the tree with a cursor (not true recursion) doing a manual pre-order traversal. When a node matches one of the target kinds (and, for variable_declarator nodes, only if it's actually a function), it extracts a FuncDef and pushes it, but deliberately skips descending into that node's children so nested closures aren't double-counted as separate top-level matches diluting the enclosing function's line count. Otherwise descends into children, and backtracks via goto_next_sibling/goto_parent when no children remain, terminating when goto_parent fails at the root.
+- spec 3 · read at `538bebf4d987` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:08Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Recursively walks the tree-sitter tree from root using a cursor. For each node whose kind matches one of the strings in `kinds`, builds a FuncDef (using helpers like name_node/body_node/owner_of) and pushes it to `out`. Recurses into all children regardless of match, to find nested functions too.
+- found: Iteratively walks the tree-sitter tree with a manual cursor (not plain recursion). When a node is a matched "unit" (function-like), it extracts a FuncDef and pushes it, but deliberately does NOT descend into its children — a nested closure is treated as part of the enclosing function's body, not a separate sibling, to avoid double-counting lines/score. Otherwise it descends into children, and climbs back up via sibling/parent when a subtree is exhausted, terminating when it can't go up past root.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `accepts` — PREDICTED SOME
-- spec 3 · read at `5b99000898b6` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:09Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: For most languages, just checks whether node.kind() is contained in the `kinds` slice. For Elixir specifically, since every function/module/import parses as a generic `call` node, it special-cases: when kind is "call" it looks deeper (e.g. at the callee identifier's text via `src`) to check if it's actually "def"/"defp"/"defmodule" etc., rather than trusting the kind alone.
-- found: First checks node.kind() is in `kinds`, then per-language disambiguates further since many languages reuse one node kind for both definitions and non-definitions: Elixir checks the call target is def/defp/defmacro/defmacrop, OCaml checks for a `parameter` child, F# checks for a function_declaration_left, R/Nix check the bound expression is a function definition, Clojure/Scheme/Racket inspect the list head symbol, and Prolog checks for a rule body. Default is to accept anything matching kind alone.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The handed docs only explained the Elixir branch; the function actually special-cases seven languages, each with its own structural disambiguation and its own inline comment.
+### `accepts` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `d88f6398281f` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:32Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: For most languages this just checks whether node.kind() is contained in `kinds`. For Elixir, since defs/modules/imports all parse as generic `call` nodes, it special-cases: when node.kind() == "call", it looks at the call's head/identifier text in `src` and compares it against the expected keyword(s) like "def", "defp", "defmodule" (derived from `kinds`) to decide whether this particular call node is actually a function-like one, returning false for other calls such as `import`.
+- found: First checks node.kind() is in `kinds`, then per-language disambiguation beyond kind alone: Elixir checks the call target is def/defp/defmacro/defmacrop; OCaml/F#/R/Nix check the binding is actually a function (parameter presence, function_declaration_left, rhs kind, expression kind); Clojure/Scheme/Racket check the lisp head symbol (defn/define/etc, plus for Scheme/Racket that the second form is a parenthesized list); Prolog requires a binary_operation body (rule vs fact); TS/JS/TSX call_expressions are only accepted as units when they're test/hook runner calls. Default case just returns true.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+- note: Docs only mention the Elixir case; the function actually special-cases eight+ languages, each with its own structural heuristic for distinguishing a function-like node from a superficially identical non-function node.
+
+### `is_unit`
+- spec 3 · read at `4b4c4d10a616` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:50:16Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Combines `accepts(node, lang, kinds, src)` with an additional check via `declarator_is_function` when the node is a variable-declarator-like node (e.g. `const f = () => {}`), so that a declarator is only treated as a unit if what it's bound to is actually a function value, not just any value.
+- found: Exactly as predicted: accepts(...) AND (not a variable_declarator OR declarator_is_function(node)).
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `first_of_kind`
 - spec 2 · read at `acfd540f9c99` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:21Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -6153,11 +6186,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: some · derivable: no · legible: some · trap: no
 - note: Docs correctly describe the function's philosophy (kind matching over queries, danger of silent empty results) but not the sheer scale/detail of the per-language special-casing.
 
-### `body_node` — PREDICTED SOME
-- spec 3 · read at `463255b4ca1d` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:46:40Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Given a tree-sitter node for a function/chunk and its language, locates and returns its body child node (e.g. a "block", "compound_statement", or similar per-language kind). It likely dispatches on `lang` to try `child_by_field_name("body")` first, falling back to scanning children for the appropriate block-like kind name for languages that don't expose a named "body" field, returning None if no body is found (e.g. for interface/abstract declarations).
-- found: First handles a handful of languages (R, Nix, Odin, Prolog, GdShader) whose body sits one or two levels down from the node in a language-specific field/kind path; then tries the common `child_by_field_name("body")`; then falls back to a per-language literal kind-name scan for languages with unnamed body fields (Kotlin, ObjC, Sql, Elixir, Haskell, D, Vhdl, PowerShell, Ada, Cmake); and as a final default, checks `value` → `body` to catch things like arrow-function initializers.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
+### `body_node`
+- spec 3 · read at `0ee327f8a05a` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:21Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Given a function-like node and language, returns its body block child. Likely tries node.child_by_field_name("body") as a common case, with per-language special-casing since grammars use different field/kind names for the body across languages, returning None if not found.
+- found: Returns the body node of a function-like node, first special-casing languages where field_by_name("body") doesn't directly work: R and Nix bind the name one level down so body is nested inside rhs/expression; Odin needs first_of_kind traversal; Prolog's body is the right operand of :-; GdShader uses field name "block"; TS/JS call_expression (a runner like it/describe) uses the callback's body. Falls back to child_by_field_name("body"), then to matching specific node/field kind names per language (Kotlin function_body, ObjC compound_statement, Haskell match, etc.), and finally to arrow-function-style value.body for the rest.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
 
 ### `body_span`
 - spec 2 · read at `1f2c8fc01706` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:26Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -6193,17 +6226,16 @@ What this is and how to add to it: [README.md](README.md)
 - note: Missed that it locates the actual operator token among unnamed children (for languages where the token itself must be read from source) rather than just comparing node kinds, and the Swift-specific comment about kinds with no operator token.
 
 ### `forks_at`
-- spec 3 · read at `514c8be45bbd` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:35:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Re-parses the given source with tree-sitter, locates the function whose definition starts exactly at `line`, then walks its body collecting every branching/decision node (ifs, loops, matches, logical operators) into a Forked result summarizing them (count + list), returning None if no function starts at that line or the language has no branch table.
-- found: Parses the source, finds the function node starting at `line`, then delegates to cognitive_walk (shared with the cognitive-complexity calculation) to collect fork sites with their line/cost/depth/kind, bundling them plus the overall cognitive score and start/end lines into a Forked struct.
+- spec 3 · read at `b9c0733165f7` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:11Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Locates the function that begins at `line` (likely via func_node_at), then walks its body collecting decision points/branches using helpers like branch_kinds or logical_fork, bundling them into a Forked struct (sites + count). Returns None if no function starts there or the language has no branch table.
+- found: Parses the source with tree-sitter, finds the function node starting at `line` via func_node_at, then calls cognitive_walk to compute a cognitive-complexity score while also collecting fork sites (line/cost/depth/kind tuples). Bundles the cognitive score, function start/end lines, and fork list into a Forked struct.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc explains why this is computed on-demand rather than cached, but not that it reuses cognitive_walk's own complexity accumulator/side-channel to gather fork sites — that's the key implementation link to the cognitive-complexity function.
 
 ### `func_node_at`
-- spec 3 · read at `0c1cf86e6cc7` · commit `27654c8` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:35:35Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Performs an iterative cursor-based walk of the tree-sitter tree (push/pop a manual stack rather than recursive calls), checking each visited node's kind against `kinds` and its start line against `line`, and returns the first matching node found, or None if no function node starts at that line.
-- found: Iteratively walks the tree using tree-sitter's own TreeCursor (goto_first_child/goto_next_sibling/goto_parent) in preorder, returning the first node whose kind is in `kinds` and whose 1-based start line equals `line`, or None if the walk returns to root without a match.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `2946a87b450e` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:23Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Does an explicit stack-based (non-recursive) walk of the tree using a cursor, pushing children onto a stack to avoid deep recursion on pathological trees. For each visited node, checks if its kind is in `kinds` and its start line (1-based) matches `line`; returns the first/innermost matching node found, or None if none match.
+- found: Uses a TreeCursor to do a manual pre-order traversal (child-then-sibling-then-parent backtracking) instead of recursion, checking each visited node against `is_unit(n, lang, kinds, src)` plus a matching start line; returns the first match, None if the walk exhausts back to root.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `cognitive_of`
 - spec 3 · read at `26e1b7ba50e3` · commit `fbd391a` · read by claude-sonnet-5 · via claude · when 2026-09-02T03:34:01Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
@@ -6226,11 +6258,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The doc describes only two of the three cases (own-kind vs. C-family else-wrapping); the third case (Swift's else-as-sibling) is explained purely in an inline comment on that branch, not in the function's leading doc comment.
 
 ### `extract`
-- spec 3 · read at `327f4fc0f157` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:54Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Takes a tree-sitter node identified as a function-like definition and assembles a FuncDef — pulling its name (name_node), signature/header span, body span, doc comment, owner (if a method), line counts (ncloc_of), and possibly cognitive complexity — returning None if the node doesn't actually have the shape a function needs (e.g., no identifiable name).
-- found: Builds FuncDef's name/signature/body/owner/lines, with language-specific doc-comment extraction (Python docstring-as-first-statement, Elisp docstring field, JS/TS walking out through const/export wrapper declarations to find a leading comment), plus calls/locals/exported/shape/cognitive/ncloc/in_cfg_test fields via other helpers.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: The wrapper_doc fallback for JS/TS exported arrow functions is the kind of detail you'd only find by reading the body — the signature gives no hint that doc lookup differs so much per language.
+- spec 3 · read at `8b5c973b98c7` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Checks whether the given tree-sitter node is a function-like kind for the language, and if so, extracts the name, body span, header end, and computes metrics (ncloc, cognitive complexity, shape) via sibling helper functions to build and return a FuncDef; returns None if the node isn't a recognized function-like kind.
+- found: Assembles a FuncDef for a matched node: resolves the name (special-cased for JS/TS test call_expressions via runner_name), computes signature/body text from body_span, extracts a per-language doc comment (Python docstring, Elisp docstring field, or leading/wrapper doc for others), then gathers calls, locals, exported status, owner, shape, cognitive complexity, ncloc, and cfg(test) status via helper functions.
+- predicted: most · documented: none · derivable: no · legible: most · trap: no
+- note: file_doc explains the file's kind-matching-over-queries design rationale, not what extract() itself does.
 
 ### `last_line`
 - spec 3 · read at `9de6481cf56b` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:58:12Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
@@ -6471,6 +6503,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: A dev/debug test helper with hardcoded control-flow-heavy source snippets for 8 languages, printing each one's parsed s-expression tree (via a `sexp` helper) so a developer can inspect tree-sitter node kinds to build/verify the kind-matching tables.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
+### `print_runner_kinds` — PREDICTED SOME
+- spec 3 · read at `2f61519145a0` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Iterates over the known JS test-runner registration call shapes (the table referenced by runner_call) and prints each kind/spelling to stdout — a manual debug/dev utility for eyeballing coverage, similar to the sibling print_visibility_kinds/print_control_flow_kinds.
+- found: A manual dev/debug test: parses a hardcoded JS snippet exercising describe/beforeEach/it/it.only/test.each against both TypeScript and JavaScript grammars, printing the raw s-expression tree plus the name/signature of every function `parse_functions` extracts from it, for eyeballing.
+- predicted: some · documented: none · derivable: no · legible: full · trap: no
+- note: The one-line doc ('shapes a JS test runner's registration calls parse to') actually describes a different item (a table near runner_call), not this printer.
+
 ### `walk`
 - spec 3 · read at `2c77c16e91dd` · commit `3e9155b` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:50:08Z · by ross@rossturk.com · warm reading · reading 10 of its run · priming: CLAUDE.md excluded
 - expected: Iteratively walks the directory tree under root using an explicit stack, skipping dotfiles and a fixed SKIP list of build/vendor directory names (node_modules, target, dist, build, out, vendor, etc.), collecting every file path into a Vec.
@@ -6603,6 +6642,36 @@ What this is and how to add to it: [README.md](README.md)
 - expected: A test-helper that parses `src` for the given language, extracts the functions (via the same machinery as parse_functions/extract), and maps them to a Vec<String> of just their names, so other tests can assert on names concisely instead of comparing full structs.
 - found: Test helper: calls parse_functions(lang, src) and maps the results to just their `.name` field, collecting into a Vec<String>.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_test_runner_callback_is_a_unit_named_by_its_suite_path`
+- spec 3 · read at `c810ad5524d7` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:50:12Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Parses a nested describe(...) { it(...) {...} } JS/TS snippet, runs parse_functions, and asserts the resulting unit for the test is named by its full suite path joining the describe block name(s) and the test name, confirming tests get distinct, traceable names derived from their nesting rather than being anonymous/collapsed.
+- found: Parses a snippet with a free function, a beforeEach hook, a describe block with a plain it, a describe.each with a skipped test using a template literal, and a duplicate-named it with an options object arg. Runs across TS/TSX/JS asserting the exact ordered name list (suite path joined with " > ", template literal turned into readable text, duplicate names kept as duplicates). Then separately asserts the test unit's signature is the whole call `it("opens a tab", async () =>`, its line range covers the whole call not just the callback, and its body includes the callback's inner statement.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no · test: yes
+
+### `a_suite_or_hook_spelled_off_the_runner_is_still_a_suite_or_hook`
+- spec 3 · read at `2eafe781ec60` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Verifies that Playwright-style suite/hook calls spelled as a property access off `test` (e.g. test.describe(...), test.beforeEach(...), test.afterEach(...)) are still recognized as suites/hooks rather than as ordinary test(...) units — guarding against a bug where treating bare `test` as the only registration marker would misclassify these member-access forms, causing a whole suite's nested tests to collapse into one swallowed unit.
+- found: Asserts that parsing a Playwright-style test.describe/test.beforeEach/test block produces named units "login > beforeEach" and "login > works" — confirming test.describe is treated as a suite (contributing its title as a path prefix) and test.beforeEach as a hook, both spelled as member access off `test` rather than bare calls.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: yes
+
+### `a_call_that_is_not_a_registration_is_not_a_unit` — PREDICTED SOME
+- spec 3 · read at `08573f943d9b` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:49Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Parses a small TypeScript/JavaScript snippet containing a plain function call (e.g. something like `doSomething(function() { ... })` or `foo(() => {})`) that is not `it`/`test`/`describe`/`beforeEach` etc., runs it through parse_functions, and asserts that no unit/wedge is produced for that call — i.e. only calls recognized as test/hook runner registrations become units, ordinary application calls passing a callback do not.
+- found: Parses a TS source with several look-alike traps — a plain arrow callback to .map, a regex .test() call, a `this.test(...)`/`foo.it(...)` method call, a `test(...)` call with no function argument, forEach(function(){ describe(i) }), and setTimeout — and asserts only the two real top-level functions `f` and `g` are picked up as units, none of the look-alike calls register as runner units.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no · test: yes
+
+### `a_test_body_records_its_calls`
+- spec 3 · read at `0e2de0732436` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:49:57Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Parses a small JS/TS snippet like it("name", () => { someFunc(); }), runs parse_functions, and asserts the resulting test unit's call list includes someFunc — confirming a test's callback body is the thing whose calls get recorded.
+- found: Parses `it('tiers', () => { expect(exerciseTier('identity')).toBe(1); });` as TypeScript, extracts calls via the `calls` helper, and asserts `exerciseTier` shows up among them — confirming calls inside a test callback are attributed to that test body.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no · test: yes
+
+### `forks_are_read_off_the_test_on_its_line`
+- spec 3 · read at `88effd9b66b4` · commit `ac6edd8` · read by claude-sonnet-5 · via claude · when 2026-09-27T21:50:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Guards against a bug where locating a function/test unit by "the call on this line" would ambiguously match either the test-registration call (test(...)) or an expect(...) call nested inside it when both sit on the same source line — since prior logic searching by node kind alone could grab whichever call happened to come first in traversal order. Asserts the line-based lookup correctly attributes to the test's own opening call rather than the assertion inside it.
+- found: Tests that forks_at, given a line with a preceding setup() call and then a test registration containing an if-branch, correctly locates the test's own callback body (not the setup() call) at that line and computes its cognitive complexity (1, from the if) correctly — confirming line-based lookup resolves to the right call among several sharing a line rather than whichever comes first by kind/traversal order.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: yes
 
 ### `rust_functions_and_doc_comments`
 - spec 2 · read at `e5e3f78997a1` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:15:52Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
