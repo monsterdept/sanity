@@ -997,10 +997,10 @@ pub struct Run {
     pub spawned: usize,
     pub finished: usize,
     pub failed: usize,
-    /// What failed readers said on the way out, deduped — see the drain in `run_wave`.
+    /// What failed readers said on the way out, deduped — see `read_one` and `tally_reader`.
     ///
-    /// Kept because the run's own summary cannot diagnose anything: "three waves finished
-    /// without a reading landing" describes the symptom of every possible cause, from an
+    /// Kept because the run's own summary cannot diagnose anything: "readers in a row exited
+    /// without a successful reading" describes the symptom of every possible cause, from an
     /// unsigned-in agent to a `--model` string the CLI rejects. The window shows the summary
     /// and puts this behind an info icon, which is the right split — one is the state of the
     /// run, the other is evidence, and evidence is what you want only once you are looking.
@@ -3943,9 +3943,9 @@ fn detached(fut: impl std::future::Future<Output = ()> + Send + 'static) {
 /// is asked for.
 ///
 /// A reader is a whole coding agent, so the failure to design against is not slowness but
-/// a wave that keeps launching against a queue that cannot give it work. The loop stops
-/// when `remaining` reaches zero and also when it stops FALLING while nothing is in flight
-/// — a harness that exits instantly, wrongly configured, would otherwise spin forever
+/// a pool that keeps launching against a queue that cannot give it work. The loop stops
+/// when `remaining` reaches zero and also when readers keep exiting without it FALLING —
+/// a harness that exits instantly, wrongly configured, would otherwise spin forever
 /// spawning processes that do nothing.
 #[allow(clippy::too_many_arguments)]
 async fn run_wave(
@@ -3985,7 +3985,10 @@ async fn run_wave(
         return;
     }
     let started_at = assessed_now(&state, &key);
+    let mut readers = tokio::task::JoinSet::new();
+    // Consecutive reader exits with no reading landing anywhere since the one before.
     let mut barren = 0;
+    let mut mark = started_at;
     let ended = loop {
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
             break "Stopped at your request.".to_string();
@@ -4000,138 +4003,90 @@ async fn run_wave(
         if remaining == 0 {
             break "Every function has an up-to-date reading.".to_string();
         }
+        let done = assessed_now(&state, &key).saturating_sub(started_at);
         if let Some(n) = limit {
-            if assessed_now(&state, &key).saturating_sub(started_at) >= n {
+            if done >= n {
                 break format!("Reached the limit of {n} readings.");
             }
         }
-        // Everything left is out with somebody. Waiting is right; another wave would only
-        // queue behind the leases.
-        if remaining == in_flight {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            continue;
-        }
 
-        let before = assessed_now(&state, &key);
-        // Sized by the work AND by what is left of the limit.
+        // Sized by the work AND by what is left of the limit, counting the readers already
+        // out against both.
         //
-        // A reader does ten readings, so a wave is `readers × 10` and the limit could only
-        // ever be honored to that granularity — measured on a real run, `--limit 6` with
-        // two readers banked 19. That is the documented behavior and it makes a small cap
-        // useless, which matters because a small cap is exactly what somebody sets to try
-        // this cheaply. Spawning `ceil(left / 10)` readers brings the smallest step down to
-        // ten, and the run still reports what it actually did rather than what was asked.
-        let mut wave = remaining.saturating_sub(in_flight).min(width).max(1);
+        // A reader does ten readings, so the limit could only ever be honored to that
+        // granularity — measured on a real run, `--limit 6` with two readers banked 19.
+        // That makes a small cap useless, which matters because a small cap is exactly what
+        // somebody sets to try this cheaply. Holding `ceil(left / 10)` readers out brings
+        // the smallest step down to ten, and the run still reports what it actually did
+        // rather than what was asked.
+        let mut want = width.min(remaining);
         if let Some(n) = limit {
-            let done = assessed_now(&state, &key).saturating_sub(started_at);
-            let left = n.saturating_sub(done);
-            wave = wave.min(left.div_ceil(BATCH).max(1));
+            want = want.min(n.saturating_sub(done).div_ceil(BATCH).max(1));
         }
-        let mut handles = Vec::new();
-        for _ in 0..wave {
-            let mut cmd = crate::harness::reader_command(
+        // Topped up as readers exit, not launched in waves. It was waves: start `width`,
+        // await every one, start `width` more — so each wave ran at the pace of its slowest
+        // reader and the rest of the slots sat empty behind it, while this function's own
+        // doc promised `width` in flight. Unless everything left is already leased, in
+        // which case another reader would only queue behind the leases.
+        let mut started = 0;
+        while readers.len() < want && remaining > in_flight {
+            let cmd = crate::harness::reader_command(
                 harness, &exe, &backend, &key, &model, &prompt, &away,
             );
-            let stop = stop.clone();
-            let live = live.clone();
-            handles.push(tokio::spawn(async move {
-                let Ok(mut child) = cmd.spawn() else {
-                    return (false, format!("{} could not be started.", harness.program()));
-                };
-                // Counted from the moment there is a process, and decremented on every way
-                // out of this task — see `Run::live`.
-                live.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let _guard = LiveGuard(live);
-                // **Drained, not merely piped.** It was piped and never read, so a reader
-                // that died in one second saying `error: invalid model` threw the one useful
-                // sentence away and the run reported "three waves finished without a reading
-                // landing" — true, and no help at all. Draining also matters mechanically: a
-                // pipe nobody reads fills, and a chatty agent then blocks on its own stderr.
-                //
-                // Concurrently with the wait, on its own task, because reading after the
-                // child exits is the deadlock this is written to avoid.
-                let err = child.stderr.take();
-                let tail = tokio::spawn(async move {
-                    use tokio::io::AsyncReadExt;
-                    let mut buf = String::new();
-                    if let Some(mut e) = err {
-                        let _ = e.read_to_string(&mut buf).await;
-                    }
-                    buf
-                });
-                // Waited on alongside the stop flag rather than simply awaited. A reader
-                // is a coding agent that will happily run for minutes, so "stop" has to be
-                // able to reach one that is already going — otherwise quitting leaves
-                // every reader in the current wave spending tokens on readings that have
-                // nowhere to land.
-                loop {
-                    tokio::select! {
-                        st = child.wait() => {
-                            let said = tail.await.unwrap_or_default();
-                            return (matches!(st, Ok(s) if s.success()), said);
-                        }
-                        _ = tokio::time::sleep(Duration::from_millis(250)) => {
-                            if stop.load(std::sync::atomic::Ordering::Relaxed) {
-                                let _ = child.start_kill();
-                                let _ = child.wait().await;
-                                // Killed on purpose. Whatever it was saying is not a
-                                // failure worth reporting to anybody.
-                                return (false, String::new());
-                            }
-                        }
-                    }
-                }
-            }));
+            readers.spawn(read_one(cmd, harness, stop.clone(), live.clone()));
+            started += 1;
         }
-        if let Some(p) = lock(&state).projects.get_mut(&key) {
-            if let Some(r) = p.run.as_mut() {
-                r.spawned += wave;
-            }
-        }
-        for h in handles {
-            let (ok, said) = h.await.unwrap_or((false, String::new()));
-            // **A reader killed by Stop is not a failure.** Every non-zero exit was counted,
-            // so interrupting a run reported "1 reader failed" about a process the run had
-            // just killed on purpose — and `failed` is the number that exists to tell a
-            // misconfigured agent apart from a slow one. Reading the stop flag rather than
-            // the exit code, because from the outside the two deaths look identical.
-            let killed = stop.load(std::sync::atomic::Ordering::Relaxed);
+        if started > 0 {
             if let Some(p) = lock(&state).projects.get_mut(&key) {
                 if let Some(r) = p.run.as_mut() {
-                    r.finished += 1;
-                    if !ok && !killed {
-                        r.failed += 1;
-                        let said = said.trim();
-                        // Deduped, because a misconfiguration fails every reader the same
-                        // way and five copies of one sentence is not five findings. Capped
-                        // for the same reason a log tail is: nobody reads the sixth.
-                        if !said.is_empty()
-                            && r.failures.len() < 5
-                            && !r.failures.iter().any(|f| f == said)
-                        {
-                            r.failures.push(said.to_string());
-                        }
-                    }
+                    r.spawned += started;
                 }
             }
         }
-        // A whole wave that banked nothing. Once is a harness hiccup; three times running
-        // is a misconfiguration, and spawning into it forever is worse than stopping.
-        if assessed_now(&state, &key) == before {
+
+        // Woken by a reader exiting, or by a tick: the stop flag, the limit and a queue
+        // that has stopped being fully leased are all things to notice without one.
+        let exited = if readers.is_empty() {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            None
+        } else {
+            tokio::select! {
+                j = readers.join_next() => j,
+                _ = tokio::time::sleep(Duration::from_secs(1)) => None,
+            }
+        };
+        let Some(joined) = exited else { continue };
+        tally_reader(&state, &key, &stop, joined);
+        // A run of readers that banked nothing. Once is a harness hiccup; `width` three
+        // times over — what three barren waves used to be — is a misconfiguration, and
+        // spawning into it forever is worse than stopping. Measured against the whole
+        // project rather than the reader that exited, because readings land while readers
+        // run and nothing ties one to the process that took it.
+        let now = assessed_now(&state, &key);
+        if now > mark {
+            mark = now;
+            barren = 0;
+        } else {
             barren += 1;
-            if barren >= 3 {
+            if barren >= 3 * width {
                 // No guess about the cause. It used to add "check that the agent is
                 // installed and signed in", which was the best available advice while
                 // nothing captured what the readers said — and wrong at least as often as
                 // right, since a rejected `--model` looks identical from here. The readers'
                 // own output is kept now (`Run::failures`), so the summary states what
                 // happened and the evidence answers why.
-                break "Three waves in a row finished without a successful reading.".to_string();
+                break format!("{barren} readers in a row exited without a successful reading.");
             }
-        } else {
-            barren = 0;
         }
     };
+    // **Every reader is gone before the run is over.** The leases are cleared below on the
+    // strength of it, and a reader still running past that would have its functions handed
+    // to somebody else. Stop reaches each of them within a tick; any other ending lets the
+    // ones already out finish, since killing a reader part-way through costs a prediction
+    // and banks nothing.
+    while let Some(joined) = readers.join_next().await {
+        tally_reader(&state, &key, &stop, joined);
+    }
     if let Some(p) = lock(&state).projects.get_mut(&key) {
         // **The run's leases die with the run.** A lease means "a reader is working on
         // this", and once the wave is over that is false however it ended: Stop kills
@@ -4148,6 +4103,93 @@ async fn run_wave(
         if let Some(r) = p.run.as_mut() {
             r.ended = Some(ended);
             r.ended_at = Some(Instant::now());
+        }
+    }
+}
+
+
+/// One reader, from spawn to exit: whether it exited cleanly, and what it said on stderr.
+async fn read_one(
+    mut cmd: tokio::process::Command,
+    harness: crate::harness::Harness,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    live: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) -> (bool, String) {
+    let Ok(mut child) = cmd.spawn() else {
+        return (false, format!("{} could not be started.", harness.program()));
+    };
+    // Counted from the moment there is a process, and decremented on every way out of this
+    // task — see `Run::live`.
+    live.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _guard = LiveGuard(live);
+    // **Drained, not merely piped.** It was piped and never read, so a reader that died in
+    // one second saying `error: invalid model` threw the one useful sentence away and the
+    // run reported "three waves finished without a reading landing" — true, and no help at
+    // all. Draining also matters mechanically: a pipe nobody reads fills, and a chatty agent
+    // then blocks on its own stderr.
+    //
+    // Concurrently with the wait, on its own task, because reading after the child exits is
+    // the deadlock this is written to avoid.
+    let err = child.stderr.take();
+    let tail = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = String::new();
+        if let Some(mut e) = err {
+            let _ = e.read_to_string(&mut buf).await;
+        }
+        buf
+    });
+    // Waited on alongside the stop flag rather than simply awaited. A reader is a coding
+    // agent that will happily run for minutes, so "stop" has to be able to reach one that is
+    // already going — otherwise quitting leaves every reader out spending tokens on readings
+    // that have nowhere to land.
+    loop {
+        tokio::select! {
+            st = child.wait() => {
+                let said = tail.await.unwrap_or_default();
+                return (matches!(st, Ok(s) if s.success()), said);
+            }
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    // Killed on purpose. Whatever it was saying is not a failure worth
+                    // reporting to anybody.
+                    return (false, String::new());
+                }
+            }
+        }
+    }
+}
+
+/// Count a reader that has exited into the run.
+fn tally_reader(
+    state: &Shared,
+    key: &str,
+    stop: &std::sync::atomic::AtomicBool,
+    joined: Result<(bool, String), tokio::task::JoinError>,
+) {
+    let (ok, said) = joined.unwrap_or((false, String::new()));
+    // **A reader killed by Stop is not a failure.** Every non-zero exit was counted, so
+    // interrupting a run reported "1 reader failed" about a process the run had just killed
+    // on purpose — and `failed` is the number that exists to tell a misconfigured agent
+    // apart from a slow one. Reading the stop flag rather than the exit code, because from
+    // the outside the two deaths look identical.
+    let killed = stop.load(std::sync::atomic::Ordering::Relaxed);
+    if let Some(p) = lock(state).projects.get_mut(key) {
+        if let Some(r) = p.run.as_mut() {
+            r.finished += 1;
+            if !ok && !killed {
+                r.failed += 1;
+                let said = said.trim();
+                // Deduped, because a misconfiguration fails every reader the same way and
+                // five copies of one sentence is not five findings. Capped for the same
+                // reason a log tail is: nobody reads the sixth.
+                if !said.is_empty() && r.failures.len() < 5 && !r.failures.iter().any(|f| f == said)
+                {
+                    r.failures.push(said.to_string());
+                }
+            }
         }
     }
 }
