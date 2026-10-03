@@ -16,10 +16,10 @@ one and read it like notes from a code review.
 |---|---|---|---|---|
 | [docs](readings/docs.md) | 2 | 2 | 1 | 0 |
 | [scripts](readings/scripts.md) | 42 | 42 | 4 | 0 |
-| [src-tauri](readings/src-tauri.md) | 1312 | 1312 | 227 | 0 |
+| [src-tauri](readings/src-tauri.md) | 1314 | 1314 | 228 | 0 |
 | [web](readings/web.md) | 1127 | 1127 | 254 | 0 |
 | [website](readings/website.md) | 5 | 5 | 0 | 0 |
-| **total** | **2488** | **2488** | **486** | **0** |
+| **total** | **2490** | **2490** | **487** | **0** |
 
 ## Seeing it as a map
 

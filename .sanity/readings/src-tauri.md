@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1312 of 1312 read · 227 unpredicted
+1314 of 1314 read · 228 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -31,12 +31,12 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/agentapi.rs
 
-### the file itself
-- spec 3 · served in 16 parts · read at `f44a15331720` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:56Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: The axum loopback HTTP server and state machine for the agent-reader protocol: shared AppState/Project holding scans, reports, leases, predictions; task queue construction (stale, findings, unread, interleaved by file); reveal/report handlers with validation; run/wave management; endpoint publishing; plus a large test module.
-- found: The loopback axum API plus core state for sanity's agent-reader protocol: Project/AppState, Task/Report types, queue building (collect_tasks, findings_first, spread_across_files), open/reveal/report/status/summary/check/trace handlers, run_wave reader spawning, startup restore with big/small lanes, watch_tick rescans, endpoint publishing, and a large test module. My prediction covered the shape but missed the restore/scan/trace-budget machinery, the window-facing ProjectList, and the wave orchestration.
-- predicted: most · documented: some · derivable: no · legible: not judged · trap: no
-- note: The header covers the predict-then-look rationale only; nothing in it mentions that this file also owns app state, scan restore, tracing, wave spawning and the sidebar list, so it should be split or the header widened.
+### the file itself — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · served in 16 parts · read at `b048900f2226` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:28:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This is the loopback HTTP API that sanity readers drive: it hands out one function or file per task, records the reader's prediction before revealing the source, serves the body in parts, and accepts reports. Beneath that it owns the per-project app state (open, persist, focus, queue, leases, runs, restore, retire) and the endpoint file, with a long test module covering the protocol invariants.
+- found: A 5,863-line Rust module that is the loopback HTTP server (axum, 127.0.0.1, ephemeral port published to a pid-stamped endpoint file) the sanity reader agents drive. It owns the whole per-project state machine: AppState/Project with open/rescan/persist/forget/unload, leases and file-rest windows for the queue, predict-then-reveal (predictions and paged bodies recorded server-side), report validation and stamping, status/summary aggregates, a background restore in two size lanes, a watch tick that rescans on repo change, trace/scan budgets, findings caching, and reader-process orchestration (run_wave, read_one, retire, stop). Roughly the last 4,000 lines are a test module. The header's rationale (predict first, then look; a loopback API so the agent does not need the filesystem) matches the body, but the body is far larger than a header about the protocol would suggest.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no · test: no
+- note: The header describes the protocol and why the server exists; it says nothing about the state machine that carries it (restore lanes, leases, watch tick, budgets, findings cache), which is most of the file. Anyone editing it needs a map of Project/AppState fields and which ones persist, and that map is not in the file.
 
 ### `of` — PREDICTED SOME
 - spec 3 · read at `0a9549426a85` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -463,11 +463,24 @@ What this is and how to add to it: [README.md](README.md)
 - found: Spawns on the current Tokio handle if one exists, else spins up a new thread with its own current-thread runtime and blocks on the future; logs on runtime-build failure instead of panicking.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `run_wave` — PREDICTED SOME — LEGIBLE SOME
-- spec 2 · read at `c7890249c53c` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:46:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Runs a loop that spawns async reader tasks (up to `width` concurrent) pulling items off the project's work queue, invoking the harness executable per item and feeding results back into shared state/reports, tracking in-flight count via the `live` atomic. It keeps topping up the pool as tasks finish until the queue is empty, `limit` is hit, or `stop` is set, and includes a stall-guard that exits if `remaining` stops decreasing while `live` is zero (a misbehaving harness producing no work). Likely uses tokio::spawn and a channel or shared mutex-protected queue, joining/awaiting outstanding tasks at the end.
-- found: Writes reader config to a scratch dir, then loops spawning waves of reader subprocesses sized by remaining work, width, and the limit's granularity (10 readings/reader). Each spawned reader is tracked via a live counter, has its stderr drained concurrently to avoid deadlock/blocking, and is raced against the stop flag via tokio::select so it can be killed mid-run; failures are deduped/capped, stop-kills aren't counted as failures, and three consecutive wave-wide zero-progress rounds ends the run. Leases are cleared when the loop ends so the map doesn't show phantom in-flight work.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
+### `run_wave` — LEGIBLE SOME
+- spec 3 · read at `58a5e9c64ef6` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:27:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: run_wave is an async driver that keeps up to `width` reader harness processes in flight, pulling work from the queue and stopping when the limit is reached, the stop flag is set, or the remaining count reaches zero. It also halts if readers keep exiting without any progress, so a misconfigured harness cannot spin forever. The live counter tracks how many readers are currently running, and key/backend/model identify the run in shared state.
+- found: Builds one reader prompt and a scratch dir (writes harness config there, fails the run if that errors). Loop: stops on the stop flag, project closed, remaining==0, or reaching the limit. Each pass it sizes the pool to min(width, remaining, ceil(left/10)) and spawns readers into a JoinSet until that count, skipping spawns when all remaining work is already leased. It waits on a reader exit or a 1s tick, tallies each exit, and counts consecutive exits that bank no new reading; 3*width of those in a row stops the run. On exit it joins all remaining readers, clears the project's leases, and records the end reason.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
+- note: Sizing uses BATCH (ten readings per reader), so the limit is honored only in steps of ten, and the leases are cleared only after every reader has joined, so a stop never hands a live reader's functions to someone else.
+
+### `read_one`
+- spec 3 · read at `10ae9f51789c` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:27:41Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Spawns the given tokio Command, which is one reader process for the harness, and waits for it to finish. It presumably increments the live counter while it runs, polls or watches the stop flag and kills the child if stop is set, and afterwards returns a tuple of (exited cleanly as a bool, captured stderr as a String).
+- found: Spawns the child process (returns (false, "<harness> could not be started." ) if spawn fails). Increments the live counter with a drop guard, drains stderr on a separate tokio task so the pipe can't fill, then loops selecting between child exit and a 250ms tick that checks the stop flag. On exit it returns (success, captured stderr). On stop it kills the child, waits, and returns (false, "") with no stderr.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `tally_reader` — PREDICTED SOME
+- spec 3 · read at `2c227f5f5c03` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:27:42Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes the outcome of a finished reader task and records it against the run identified by key in the shared state. On a join error it logs or marks the reader as failed, and on success it stores the bool and string result into the tally, unless the stop flag is set, in which case it skips the write. It probably also updates a counter of completed readers so the run can progress.
+- found: Unwraps a finished reader's (ok, said) result, defaulting to failure on a join error. Increments finished for the run under key. If the reader failed and was not killed by Stop (checked via the stop flag, not the exit code), increments failed and records its trimmed output as a failure message, deduped and capped at five.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
 
 ### `rescan`
 - spec 3 · read at `c186693633ee` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
