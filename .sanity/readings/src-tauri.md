@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1314 of 1314 read · 228 unpredicted
+1375 of 1375 read · 217 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -29,1181 +29,1311 @@ What this is and how to add to it: [README.md](README.md)
 - found: Emits cargo rerun-if-changed=icons (so icon changes trigger rebuild), and calls tauri_build::build() only when the "gui" feature is enabled.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-## src-tauri/src/agentapi.rs
+## src-tauri/src/agentapi/coverage.rs
 
-### the file itself — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · served in 16 parts · read at `b048900f2226` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:28:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is the loopback HTTP API that sanity readers drive: it hands out one function or file per task, records the reader's prediction before revealing the source, serves the body in parts, and accepts reports. Beneath that it owns the per-project app state (open, persist, focus, queue, leases, runs, restore, retire) and the endpoint file, with a long test module covering the protocol invariants.
-- found: A 5,863-line Rust module that is the loopback HTTP server (axum, 127.0.0.1, ephemeral port published to a pid-stamped endpoint file) the sanity reader agents drive. It owns the whole per-project state machine: AppState/Project with open/rescan/persist/forget/unload, leases and file-rest windows for the queue, predict-then-reveal (predictions and paged bodies recorded server-side), report validation and stamping, status/summary aggregates, a background restore in two size lanes, a watch tick that rescans on repo change, trace/scan budgets, findings caching, and reader-process orchestration (run_wave, read_one, retire, stop). Roughly the last 4,000 lines are a test module. The header's rationale (predict first, then look; a loopback API so the agent does not need the filesystem) matches the body, but the body is far larger than a header about the protocol would suggest.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no · test: no
-- note: The header describes the protocol and why the server exists; it says nothing about the state machine that carries it (restore lanes, leases, watch tick, budgets, findings cache), which is most of the file. Anyone editing it needs a map of Project/AppState fields and which ones persist, and that map is not in the file.
-
-### `of` — PREDICTED SOME
-- spec 3 · read at `0a9549426a85` · commit `ca9b12d` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:55:30Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a FindingsAt value holding the on-disk location(s) for a project's findings/report data, derived from project_key(p) (likely a hashed or sanitized identifier) combined with some base data directory, so callers can find where to read/write reports without duplicating path logic.
-- found: Builds a FindingsAt snapshot: copies scanned/reads counters and trace depth from the Project, plus mtimes of two specific .sanity files (rules/catalog.md and findings/decisions.md) via a small local closure — capturing project + findings-catalog state at a point in time, not file paths for storage.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: Field names (scanned, reads, depth, rules, decisions) suggest this is used to detect staleness/drift (e.g. has the rules catalog changed since this was last computed) rather than to locate where to persist data.
-
-### `persist` — TRAP
-- spec 3 · read at `6b38c32ca845` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:41Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Loads the on-disk project index, then for each project this session actually has loaded in memory, updates/inserts its entry (touched, files, scan_ms, harness, model, etc.) into the loaded index by key — leaving entries for projects not currently loaded (still restoring, or unreadable) untouched rather than dropped — then saves the merged index back to disk. This avoids a half-restored in-memory map from clobbering the full on-disk list.
-- found: Loads the on-disk index, builds fresh KnownProject records for every currently-loaded project (carrying forward harness/scan_ms/trace_depth/model from the EXISTING banked index entry rather than from memory, since AppState doesn't track those), drops on-disk entries for keys that are currently loaded, extends with the live records, conditionally merges `active` and `order` only when this session has them set, sorts by touched, and saves. A test-thread debug_assert guards against writing outside a sandboxed data_home during tests.
-- predicted: most · documented: full · derivable: no · legible: most · trap: yes
-- note: The trap: if a caller ever builds the KnownProject fields for harness/scan_ms/trace_depth/model from the live in-memory project instead of re-reading `banked` from the freshly-loaded index, any other code path that writes those fields directly to the index gets silently erased on the next persist() — this already happened twice per the comment.
-
-### `forget`
-- spec 3 · read at `239b5a112963` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:33:10Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Removes a project identified by `key`: looks up its path from the INDEX before removing the entry, drops it from the in-memory `projects` map, and rewrites/edits the persisted index directly (not just live state, since unloaded entries need it too). It also purges derived cache files (tree, scan log, blame, timeline) under Application Support for that path, but does NOT touch the repo's own `.sanity/` directory, since those readings are meant to survive removal/re-add.
-- found: Looks up the repo path from the persisted index before mutating anything, removes the key from in-memory projects/awaiting/restoring and clears active if it matches, then removes it from the persisted index and saves it, then calls self.persist() (which merges live state over disk, so it must run after the index save to avoid writing the entry back), and finally purges derived cache files via forget_all(&repo) — done last since it's the irreversible/orphan-prone step and not gated on the rest succeeding.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `unload` — PREDICTED SOME
-- spec 3 · read at `05182537667e` · commit `a624db6` · read by claude-sonnet-5 · via claude · when 2026-08-29T07:34:18Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Removes the in-memory scan/tree state (and any cached derived data) for the project keyed by `key` from AppState's live maps, so the app forgets what it has scanned without removing the project's row from the project list/index. Also clears that key's entries from the declined and pending lists, since those refer to a scan that no longer exists in memory.
-- found: Removes the project's entry from `self.projects` (the live scan state) and `self.awaiting`, drops it from `self.restoring`, and clears `self.active` if it was the active project — but does not touch the project list/index itself.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: The doc's language ('declined and pending lists') doesn't map cleanly onto the actual field names (`awaiting`, `restoring`) — a reader matching doc prose to fields has to guess the correspondence — and the doc doesn't mention the `active` clearing at all.
-
-### `touch` — PREDICTED SOME
-- spec 2 · read at `55fd28ba8d19` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:33:19Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Finds key in AppState's project history list (likely a Vec<String>), removes any existing occurrence of it, and inserts it at the front — implementing most-recently-used ordering for the sidebar — without touching the separate field that tracks the currently focused/active project.
-- found: Not a Vec reorder as I guessed: projects is a map keyed by project key, and recency is tracked via a monotonically incrementing logical clock (self.clock) stamped onto the project's `touched` field, then persisted to disk. Ordering is presumably derived by sorting on `touched` elsewhere rather than list position.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-
-### `focus`
-- spec 2 · read at `082b08f3133b` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:34Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: This sets which project the UI window is showing. If `asked` is true, it switches unconditionally. Otherwise it only switches when nothing is currently being actively viewed — fresh launch, headless/no window yet, or the currently-active project key no longer refers to a loaded project — and returns whether it actually moved the view.
-- found: Checks whether the active slot is vacant (no active key, or the active key names a project no longer in the map). If not asked and not vacant, declines and returns false. Otherwise sets active to the given key, persists state, and returns true.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: I didn't predict the persist() call after switching, but otherwise matched the logic exactly.
-
-### `pend`
-- spec 3 · read at `579edff39004` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:49:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Registers the project (key, root) into AppState's restoring/pending set so the sidebar can show it before the scan lands, derives a display name from the path, removes any matching entry from the awaiting/declined list since the question is now answered, and returns the derived name string.
-- found: Derives a display name from root's file_name (falling back to key), removes any existing restoring entry with the same key, removes it from awaiting, pushes a new placeholder KnownProject with zeroed/None scan stats into restoring, and returns the name.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `settle`
-- spec 3 · read at `383cc08d35c3` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:56:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Removes the entry for key from AppState's pending/in-flight tracking structure, called unconditionally on both success and failure paths so nothing is left stuck as pending forever.
-- found: Removes key from two separate tracking structures: retains only non-matching entries in self.restoring (a list of in-progress restore keys) and removes the key from self.restoring_progress (a progress map) — clearing both regardless of scan outcome.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: The doc's rationale (failure paths are where cleanup is easiest to forget) explains WHY callers must call this on every path, which isn't visible from the two-line body alone.
-
-### `land_restored`
-- spec 3 · read at `c014f0fc74cf` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:43:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the projects map already contains key; if so returns false and drops the restored project. Otherwise inserts the project under key, likely persists or touches state, and returns true.
-- found: Calls settle(key), removes key from the shallow map, then returns false if a project already exists; otherwise inserts and returns true. The settle and shallow removal happen even when the restore is rejected.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Docs explain the don't-replace rule but not the settle/shallow.remove side effects that run unconditionally.
-
-### `publish_asked` — TRAP
-- spec 3 · read at `774516b5f9fc` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:51:36Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Inserts/updates the project entry for `key` in AppState with the new repo path, scan tree, trace state, and reports (replacing prior state, single source of truth for both the window's "Open" and the agent's sanity_open), drops/releases any in-flight lease claims for that project (since function ids may no longer correspond to unchanged bodies after a rescan), and if focus is true calls into the focus/select machinery to bring it to the front — returning whether the focused view actually changed.
-- found: Builds a new Project via Project::rescan (which preserves an in-flight scan run rather than dropping it) using the prior project state if any, sets its trace, clears leases and recent_files, inserts it into the projects map, removes the key from an awaiting-declined set, touches it, and calls focus(key, focus), returning whether the focused view moved.
-- predicted: most · documented: most · derivable: no · legible: full · trap: yes
-- note: The comment warns that rebuilding a Project from scratch (rather than via Project::rescan) detaches a live scan run from its handle, causing orphaned readers — a real hazard for anyone tempted to simplify this by constructing Project directly.
-
-### `select` — PREDICTED SOME
-- spec 3 · read at `23ae5d01c5de` · commit `3528c54` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:04:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Sets an internal "current/selected project" field on self to the given key (a plain field assignment), without touching or updating any last-used timestamp — deliberately avoiding what commands::select_project used to do by calling touch, since selection should not reorder the most-recently-used sidebar list.
-- found: A one-line delegate: calls self.focus(key, true) — presumably the bool signals "selection, not touch" to focus's internal logic, avoiding the touched-timestamp bump that plain opens trigger.
-- predicted: some · documented: full · derivable: no · legible: full · trap: no
-- note: The body itself is just a delegating call; the real logic and the touch/focus distinction live in focus(), which is where the meaningful prediction target actually is.
-
-### `ping`
-- spec 3 · read at `dd134536911b` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Sets a last_call timestamp on self to Instant::now(), maybe incrementing a counter, so the UI knows an agent is active.
-- found: Sets self.last_agent to now.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `most_recent`
-- spec 2 · read at `8f2248ffb5a5` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:14Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the AppState's map of projects, finds the entry with the maximum `touched` timestamp field (the one bumped by every open), and returns a clone of its key as Some(String); returns None if the map is empty.
-- found: self.projects.iter().max_by_key(|(_,p)| p.touched).map(|(key,_)| key.clone()) — returns the key of the project with the max touched timestamp, or None if empty.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `for_client`
-- spec 2 · read at `ba69fe737561` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:34Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Matches on `project`: if Some(key), looks it up in the loaded-projects map and returns Some(key) only if it's actually loaded, otherwise None (no fallback to active); if None, returns the current `active` project key as the fallback.
-- found: Matches on project: Some(k) returns Some(k) only if k is in the loaded projects map (else None, no fallback), None delegates to most_recent() for the active-project fallback.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `owner_of`
-- spec 2 · read at `7996e7e9c902` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:44:09Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Determines which project a task id belongs to: checks the caller-provided `asked` key first, but that's not authoritative; the real check is whether a live in-flight lease matches this id (via holds_id or similar), and failing that, scans loaded projects' stored reports/tasks for one that still recognizes the id. Returns None if no loaded project claims the id.
-- found: Checks the asked project first if it actually holds the id (lease or scan); otherwise collects all loaded projects that hold the id, sorts for determinism, and on ties prefers the most-recently-opened project, else the first alphabetically.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-
-### `holds_id`
-- spec 2 · read at `7b2894141274` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:17Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Looks up whether `id` is present among the scan's current nodes (functions/files), returning true only if found exactly as-is right now — since ids embed @line, a stale id from before a rescan won't match. Likely a simple iteration/contains check over scan's function or file list.
-- found: Recursively visits the scan's tree (scan.root.visit) checking each node's id against the target, returning true if any node matches.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `load_reports`
-- spec 3 · read at `7b1039fe5902` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:44Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Reads the .sanity directory in the given repo (the sole source of truth for readings) and deserializes it into a HashMap<String, Report>. It also applies the test-classification info from those reports onto scan (calling something like retest_tree) so that dependents/under_test reflect which bodies readers marked as tests, mutating scan in place before returning the map.
-- found: Delegates loading to crate::assessment::load(repo, scan), then applies crate::links::retest_tree(scan, &reports) to fold test classifications into the scan, returning the reports map.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `save_reports`
-- spec 2 · read at `8a688d237d03` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:17Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Writes the given reports map into the repo's assessment file at its real path (derived from repo/scan), returning Err(String) with a clear message if the write fails (permission denied, read-only checkout) instead of silently falling back to writing somewhere else like a temp or hidden directory.
-- found: Delegates to assessment::save, mapping any error into a descriptive message naming the assessment directory and warning the reading is only held in memory and will be lost, rather than silently falling back elsewhere.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `project_key`
-- spec 2 · read at `6a33b539f2ed` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:02Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Canonicalizes the given path (resolving symlinks, `.`, `..`, and expanding to an absolute form) and converts it to a String, so that different textual representations of the same directory map to the same key in AppState's project maps.
-- found: Canonicalizes the path via std::fs::canonicalize, falling back to the original path unchanged if canonicalization fails (e.g. path doesn't exist), then converts to a lossy String.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
-
-### `lock`
-- spec 2 · read at `ca72bf09f016` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:29Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Calls state.lock(), and on Err(poisoned) recovers via poison.into_inner() rather than propagating the error, always returning a usable MutexGuard since the state holds nothing precious enough to protect via poisoning.
-- found: Exactly as predicted: state.lock().unwrap_or_else(|e| e.into_inner()).
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `surprise` — PREDICTED SOME
-- spec 2 · read at `f4498e5794ce` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:00Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A match over the Grade enum (Full, Most, Some, None) returning an f32 in [0,1]. Full and Most are close together near the low end since both mean "I basically knew this", while Some and None are spread further apart at the higher end to separate "partially right" from "completely wrong". E.g. something like Full=0.0, Most=0.15, Some=0.5, None=1.0.
-- found: Match over Grade returning fixed f32 constants: Full=0.08, Most=0.30, Some=0.62, None=0.92 — none of them at the extremes 0/1, and the spacing is fairly even rather than the two-close-together pattern the doc implied.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: I predicted Full/Most would be tightly clustered near 0 per the doc's framing, but the actual gaps are closer to evenly spaced (~0.22-0.32 apart) and nothing touches 0 or 1.
-
-### `documented`
-- spec 2 · read at `aa3d2140395e` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:58Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: A match over the Grade enum (Full/Most/Some/None) that converts the qualitative documentation-coverage grade into a numeric score in [0,1], e.g. Full -> 1.0, Most -> 0.66, Some -> 0.33, None -> 0.0, used for aggregating/averaging documentation quality across many reports.
-- found: Match over Grade enum mapping Full->0.95, Most->0.7, Some->0.35, None->0.0 as f32.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Got the enum-to-score mapping shape right but the exact constants (0.95/0.7/0.35, not 1.0/0.66/0.33) — Full is deliberately capped below 1.0.
-
-### `blank`
-- spec 3 · read at `d43e41925186` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:04:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a Report struct with every field set to its default/empty value (empty strings, Nones, zeroed numbers) — a bare skeleton meant to be filled in field by field by parsers or test code.
-- found: Constructs a Report with every field set to its zero/empty/None default, matching the fields I predicted plus report-protocol-specific ones (harness, agent_docs, spec, legible_dated, trap_dated, by, at).
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `grades` — TRAP
-- spec 3 · read at `ff2b681f16b3` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Returns a tuple (predicted_grade, documented_grade) derived from the Report's raw fields. If the report only has the old `surprised` boolean (no `predicted` grade), it maps true/false to the extreme ends of the Grade scale rather than inventing a middle value. Separately, if `derivable` is true, it forces the documented grade to None regardless of what `documented` field the reader actually set, since a doc a model could regenerate explains nothing.
-- found: Computes predicted grade from self.predicted, falling back to Grade::None/Full based on the old surprised boolean when absent; computes documented grade by forcing Some(Grade::None) when derivable is true, otherwise passing through self.documented unchanged.
-- predicted: full · documented: most · derivable: no · legible: full · trap: yes
-- note: The docs note this exact issue: the TS mirror `reportGrades` documents both override rules while this Rust version's doc comment only mentions the derivable-forces-None rule inline, not the surprised-boolean fallback, so a reader diffing the two implementations could miss that this one applies a second silent rule.
-
-### `neighbors`
-- spec 2 · read at `946e01897a8c` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:06:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Computes a window of nearby entries around index i in names — probably up to ~20 total, split before/after i, sliding toward the array edges when i is near the start or end so it still returns a full window rather than padding with nothing. Returns the selected slice of names plus a count of how many were left out of the window.
-- found: Builds a window of up to PEER_WINDOW+1 names centered on index i, sliding toward the edges of the array when i is near the start or end (via saturating_sub and min clamp against len), excludes the entry at i itself, and returns the peer names plus how many were omitted from the full list. If the whole list already fits within the window, it just returns everyone else with 0 omitted.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `qualify`
-- spec 2 · read at `eb82576b9d9d` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:49:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Given a function name, an optional owner type name, and an optional language, builds the display string used to label a task (e.g. "Tag::parse" for Rust, "Tag.parse" for other languages like Python/JS/TS). If owner is None, just returns name.to_string(). The lang match picks the separator: Rust uses "::", everything else uses ".".
-- found: Matches owner: None returns bare name; Some with lang in {Rust, Cpp, Php} uses "::" separator; all other langs (including Ruby, deliberately excluded due to its Foo::bar vs Foo#bar ambiguity) use ".".
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Docs shown were for the whole file, not this function; qualify itself had no doc comment, just an inline code comment explaining the Ruby exclusion.
-
-### `collect_tasks` — PREDICTED SOME
-- spec 3 · read at `c9eb23613a3d` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the tree Node, and for each function/chunk not already in `done` and not currently leased (or lease expired), builds a Task with the file doc, declared test info, and neighbors, pushing (priority score, Task) into `out`. It recurses into children, passing file_doc down from file nodes. Score likely derives from a surprise/size metric on the node.
-- found: Recursive queue builder: function nodes yield a task unless oversize, read-and-current, or leased, with priority bands (stale +2, unread 0-1, dated -1); file nodes yield a whole-file task (unless excluded/empty/oversize/leased) then recurse into children, attaching each child's neighbor window; other nodes just recurse. Also sets the test-ask field conditionally.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The parameter comments cover why, but the priority bands and the oversize-only-this-node rule live only in inline comments, not in the signature docs.
-
-### `all_tasks`
-- spec 3 · read at `9e20b6781528` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:04:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds the complete list of Tasks the queue could ever hand out by calling collect_tasks over the scan tree with empty reports and lease maps (so nothing is filtered as already-read or leased), returning every function/file as a Task — used by a measurement tool to weigh total payload size, not for actual dispatch.
-- found: Calls collect_tasks with empty reports/leases maps but real declarations (from declared_from_scan) to build every task in the scan tree, then discards the id keys and returns just the Vec<Task>.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `default_n`
-- spec 2 · read at `368876d2ad6b` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Returns 1, the default batch size for a single handout, since the doc explains one-at-a-time fetching is preferred over a shared batch fetch even though 10 total readings are done per reader.
-- found: Returns 1, exactly as predicted from the extensive doc explaining the one-at-a-time protocol.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `priming_note`
-- spec 2 · read at `46e73a09a277` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the repo has a CLAUDE.md/AGENTS.md-style file and, if so, returns Some with a carefully-hedged one-sentence message asking (not asserting) whether that file was loaded into the current session's context, since the file's existence on disk doesn't prove it was injected. Returns None when the repo has no such file.
-- found: Checks agent_docs(repo) for CLAUDE.md/AGENTS.md-style files at the root; if any exist, returns a detailed hedged message telling the orchestrator to check its own context (not trusting file-on-disk or this message as evidence), explaining the two branches (clean run vs priming risk) and what to do in each, and noting each reader still self-reports `primed`. Returns None if no such docs exist.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `contract_note`
-- spec 2 · read at `3ed19309ec38` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:01Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Compares the tool-contract version/hash the caller claims to have (`sent`) against the shim's own current in-process contract version; if they differ (or `sent` is None while a contract is expected), returns Some(warning string) noting the shim may be serving a stale schema from before a rebuild; returns None when they match.
-- found: Compares `sent` against crate::mcp::contract_fingerprint(): matching Some returns None (silent); mismatched Some returns a detailed warning about a stale shim process serving an older schema; None (no fingerprint sent at all) returns a softer warning that the client predates the contract check.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I assumed None meant no warning (nothing to compare); actually a missing fingerprint is itself treated as suspicious and produces a (milder) warning — only an exact-match Some is silent.
-
-### `reader_prompt`
-- spec 3 · read at `55520503d7ca` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:59:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Returns a formatted string built with format!, substituting n as a literal digit (not spelled out) into a sentence like "you are assessing EXACTLY {n} THINGS, ONE AT A TIME." The rest of the string lays out the sanity_next/sanity_reveal/sanity_report loop tersely — predict before revealing, report before requesting the next, one at a time — plus a note that a repo's CLAUDE.md/AGENTS.md may already be injected into context and the reader should disclose that via the primed field rather than pretend it wasn't seen. It deliberately avoids restating the full tool schema since the tool definitions already carry that.
-- found: format!-builds the exact protocol text with n substituted as a digit — this is verbatim the system prompt governing my own current task (predict-reveal-report loop, one-at-a-time rule, parts-outstanding rule, primed/brief disclosure clause, don't-read-.sanity/ rule).
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: Meta observation: this function's output is byte-for-byte the instructions I was given for this very assessment run.
-
-### `resolve_open`
-- spec 3 · read at `a5f5592c1666` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:24:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Takes the optional asked path/name and checks it against the list of repos already registered in state (via init/check/Add project). If asked is None, picks the current/default project. If asked matches a known project, returns that PathBuf. If asked doesn't match any registered project, refuses to resolve arbitrarily and returns an error Value listing candidate matches for the human to choose from, rather than guessing.
-- found: If asked is Some and matches a known/loaded project by key, returns its path; otherwise errors with a hint and the candidate list. If asked is None: zero known projects errors, exactly one known project is returned automatically (not ambiguous), and more than one also errors asking the human to disambiguate.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I assumed a 'default project' concept for the None case that doesn't exist — it's really 'auto-pick only if there's exactly one, otherwise refuse'.
-
-### `scan_asked`
-- spec 3 · read at `50a8a4f2daee` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:53:51Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Runs a full repo scan for an explicit "open" request (agent or window) — first parsing the tree (reporting progress/shape via callbacks, respecting `cancel`), then walking the commit log/blame to build history/trace data. The `budgeted` flag decides whether the trace step is skipped when the log exceeds crate::trace::BUDGET (returning an untraced TraceState with pricing info) or performed in full; agent-initiated calls presumably pass budgeted: false since they explicitly asked. Returns the parsed Scan plus resulting TraceState.
-- found: Opens the scan cache, runs an untraced ordering-fidelity scan; if `budgeted` and the commit log exceeds trace::BUDGET, returns early with an untraced TraceState carrying a pending price estimate; otherwise deepens to Depth::Files (walking the commit log/blame), redraws the treecache if depth actually changed, and returns the scan plus resulting TraceState.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `open_for_person`
-- spec 3 · read at `86b9dc8a71b2` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Calls open_project with the repo and a focus=true flag (via resolve_open), discarding the result since failures are shown by the window sidebar. Roughly 8 lines, maybe locking state to build the key first.
-- found: Builds an OpenRequest with the path and focus=true, calls the open_project handler, and ignores the result.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `open_project`
-- spec 3 · read at `976a6cf6620b` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: resolves the requested repo path, scans it (tree-sitter, git churn) possibly on a blocking thread, scores with the offline proxy, inserts a project into state without changing focus, and returns JSON with counts, notes and reader prompt/contract. Handles already-open projects and errors.
-- found: Validates path (dir, git repo), always rescans on a blocking thread even if already held, loads reports, refreshes the assessment index, counts stale/assessed, publishes to state, and returns a large JSON with counts, warnings, shape, unscanned, and protocol text.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: Docs describe focus/proxy behavior but not the always-rescan, index refresh side effect, or the response fields.
-
-### `scan_note`
-- spec 2 · read at `229afd11d13f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:42Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Returns None if ms is below some threshold (fast open needs no comment). Otherwise returns Some(message) explaining the wait, distinguishing a first-time full scan/parse/blame (reopened=false) from an incremental rescan of only changed files (reopened=true), so the caller understands the delay wasn't a fault.
-- found: Returns None under a 5s threshold; otherwise a message explaining the scan took N seconds due to per-machine caching of parse/blame, noting retry restarts it rather than being a hang, with an extra clause when reopened=true.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
+### the file itself — LEGIBLE SOME
+- spec 3 · read at `cf0fe713b18e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:09Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: This file computes coverage counts for a repo: how many functions and files are read, stale, remaining, excluded or too large. It likely walks the scan and looks each item up against its reading, with helpers like count_funcs, count_files, count_stale, plus an offline variant and a verify path used by the release gate and CLI.
+- found: A file of coverage arithmetic over the scan and the reports store: work_left (remaining, in-flight leases, outstanding ids and ages), each_unit and count_stale/assessed, count_funcs and count_files split into kept, excluded and oversize, offline_counts for the CLI, verify for the release gate with an instrument tally, unread_lines, shape_of and unscanned_of for repo-shape reporting. Its header covers the counting rules but not the lease/in-flight half, the verify gate, or the shape and unscanned reports.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The header describes the counts but leaves out the lease-driven in_flight/outstanding split and the release-gate verify, which carry most of the file's reasoning.
 
 ### `work_left` — PREDICTED SOME
-- spec 3 · read at `7c730edd1055` · commit `6d1592e` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:00:32Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Aggregates unread/unassessed counts (functions, lines, files, staleness) into a WorkLeft struct describing how much of the project remains to be read, used to report reading progress or decide what to hand an agent next.
-- found: Collects unread tasks via collect_tasks, then cross-references them against currently-held reader leases (project.leased) to find which unread tasks are actively in flight and not yet expired (age < LEASE), returning counts of remaining/in_flight plus the outstanding leased task ids sorted by age.
-- predicted: some · documented: none · derivable: no · legible: full · trap: no
-- note: The function is about lease bookkeeping for in-progress reader work, not raw line/file/staleness counts as the peer names (count_files, unread_lines, count_stale) suggested it might aggregate.
+- spec 3 · read at `0b0fb23c9487` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:38Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Takes a read-only Project and returns a WorkLeft summary of how much remains to be read. It likely walks the scan's functions and files, looking up each one's stored reading to classify it as read, stale, remaining, set aside by ignore rules, or too large, and tallies counts and lines for each bucket. Probably delegates the per-unit classification to helpers like count_funcs and count_files.
+- found: Collects every task from the scan against an empty reports map, so all of them count as unread. It keeps only those with a lease younger than LEASE, sorted oldest-first, and returns WorkLeft with remaining as the unread count, in_flight as the number of live leases, and the outstanding list of task ids with lease ages. It does not classify into read, stale, or ignored buckets.
+- predicted: some · documented: some · derivable: no · legible: full · trap: no
 
 ### `each_unit`
-- spec 2 · read at `d600b20192db` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:53:19Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Recursively walks the scan's node tree, tracking whether the current file/branch is excluded (via Node::excluded, set at the file level), and invokes the callback f on each node that represents a unit of work (function or file header) as long as it isn't under an excluded file — propagating exclusion down to children rather than checking each node in isolation, unlike a plain `visit`.
-- found: Recursive inner `walk` that ORs exclusion down the tree (out_of_scope || node.excluded), calls f on Func/File nodes only when not excluded, then recurses into children with the propagated flag.
+- spec 3 · read at `468f6c13f1de` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:54Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: each_unit walks the scan's tree and calls the closure f on every unit of work, meaning functions and file headers, skipping any subtree whose file is excluded by .sanityignore. It probably recurses with an excluded flag carried down, and it is a 12-line helper used by all the coverage counters.
+- found: A recursive walk from scan.root that carries an out_of_scope flag, OR-ing in node.excluded at each level. It calls f on each node that is a Func or File and is not out of scope, and recurses into all children regardless. The excluded flag is inherited, so a whole excluded file drops out with its functions.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `count_stale`
-- spec 3 · read at `50c1ec3faf55` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:26Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Walks the `reports` map, looks up each report's corresponding node in the current `scan`, and counts how many have changed since the reading was taken (e.g., a content hash/signature mismatch or a node no longer found at the same location) — the same "stale" condition `render_entry` displays with the `— STALE` marker.
-- found: Walks every unit (file or function) in the scan via `each_unit`, and for each one that has a matching report, calls `assessment::is_stale` against the node's current body/bytes to decide if the reading is stale, incrementing a counter. Explicitly covers both files and functions, per the comment, since both kinds are handed out and can expire.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `832e654053d8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: count_stale walks the scan's functions and counts those that have a report in the reports map but whose report is out of date with the current code, probably by comparing a stored hash or revision to the function's current one. It returns that count as usize. It likely skips functions with no report, since those are unread rather than stale.
+- found: It visits every unit (files and functions) via each_unit, and for each one that has a report it calls crate::assessment::is_stale with the report, the node's body and its byte count. Each stale one adds 1 to the count, which is returned. Unread nodes are ignored. The comment notes that files must be counted too, because assessed subtracts this from reports.len(), which includes file readings.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: no
 
 ### `assessed`
-- spec 3 · read at `0d410d0599ad` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:19:19Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks every function node in the live scan, looks up whether it has a matching entry in `reports`, and counts those that exist and are not stale — mirroring count_stale's approach of iterating the current scan rather than the reports map, so deleted or renamed functions aren't counted toward coverage.
-- found: Iterates the live scan via each_unit, and for each node with a report, counts it if the report is not stale relative to the node's current body/bytes.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `65a4ab5ea6e3` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Counts how many live units in the scan have a current reading. It iterates the scan's functions, skipping ignored files and anything over the read ceiling, and counts each one whose reports entry exists and is not stale against its live node. Deleted functions never get visited, so their orphaned readings are not counted.
+- found: Walks every unit in the scan via each_unit, looks up each unit's reading by node.id in reports, and increments the count when the reading exists and is_stale(reading, body, bytes) is false. Returns that count. No explicit ignore/ceiling handling here; that is presumably inside each_unit.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `offline_counts`
-- spec 3 · read at `6f0dd12536b4` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:49Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Computes summary counts (total functions/files, how many have been assessed, how many reports are stale) purely from the in-memory `scan` and `reports` map, without touching disk or the agent — likely calling helpers like count_funcs, count_files, count_stale, assessed to populate an OfflineCounts struct used for quick UI stats.
-- found: Matches prediction for functions/files/assessed/stale, but also tracks `excluded`/`oversize` counts from count_funcs, and computes `remaining` by running collect_tasks (which normally builds review tasks) just to count the unread ones, discarding the task details.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+### `offline_counts` — PREDICTED SOME
+- spec 3 · read at `36a797c26b8e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:36Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: offline_counts walks the scan and the reports map and tallies the coverage numbers: how many units are read, stale, remaining, excluded by .sanityignore, or over the read ceiling. It does this by calling the same helpers the queue uses (work_left, each_unit, count_stale, verify), so the offline CLI gets the same answer the backend would give, and it returns an OfflineCounts struct.
+- found: Builds an OfflineCounts from the scan and reports: function count, oversize, files (counted separately via count_files, not folded into functions), excluded, assessed, remaining (via collect_tasks with default declarations, so no file reads), and stale. Not the queue helpers I named (work_left, each_unit, verify) — it uses count_funcs, collect_tasks, count_files, assessed, count_stale.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+- note: The files count is deliberately kept out of functions, and remaining is computed with empty declarations on purpose; a reader changing either would miscount.
 
 ### `verify` — PREDICTED SOME
-- spec 3 · read at `65c15f0c2674` · commit `83a90f8` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:21:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the scan's units, looks up each one's report, and tallies how many reports are consistent/valid versus missing or stale (e.g. checks the report's id exists in the scan and its fields are well-formed). Returns a Verification struct with counts and perhaps a list of problems.
-- found: Computes which units still owe a reading (unread/stale/dated, via collect_tasks queue) sorted by path/line, and tallies non-stale readings per (harness, model) instrument sorted by count.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: File doc describes the API's purpose, not this function; the outstanding/instruments split isn't explained.
+- spec 3 · read at `f64b6f9d4cb6` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:04Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Computes the coverage verification by walking the scan's functions and files and looking each one up in the reports map, counting how many are read, stale, remaining, excluded or too large. It skips reports whose code no longer exists and honours the ignore file and read ceiling, then returns a Verification with those counts.
+- found: Collects the queued tasks, then walks every unit in the scan. For each queued unit it records an Outstanding entry (Unread, Stale, or Dated) with its path, line and name, sorted by path and line. For each non-stale reading it tallies counts by harness and model into Instrument entries, sorted by count descending. Returns Verification{outstanding, instruments}, not the read/stale/remaining totals the doc describes.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `unread_lines`
-- spec 3 · read at `116ffcdcd1ae` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the project's functions, filters to those that are unread or whose reading is stale, and sums each function's line count (end_line - start_line + 1, or a loc() helper) into a running total, returning that as the outstanding-work estimate in lines of code. Files/containers are excluded to avoid double-counting their functions' lines.
-- found: Recursively walks the project's node tree, tracking an `out_of_scope`/excluded flag inherited down from parents; at each func node not out of scope, checks whether it has a report that is not stale (via `assessment::is_stale`), and if unread/stale adds its `loc` to a running total. Returns the sum.
+- spec 3 · read at `edc70d5eeea4` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:59Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: unread_lines takes a Project and sums the lines of code (loc) across its function nodes that have no current reading, counting stale readings as unread. It probably walks the project's scan with each_unit and checks a reading lookup per function. It returns a usize total.
+- found: Its own recursive walk over project.scan.root, carrying the excluded flag down and skipping excluded functions. For each non-excluded Func it checks project.reports for a reading that is not stale, and if there is none it adds node.loc to the total. It does not descend into function children and does not count files.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: The doc explains the WHY (unit consistency, avoiding double-count, stale-counts-as-outstanding) very well but doesn't mention the tree-walk mechanics or the inherited exclusion flag, which is fine since that's implementation rather than the contract.
 
-### `count_funcs`
-- spec 3 · read at `52854f698849` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T19:40:51Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Walks the Scan's list of discovered functions and tallies two numbers: the total count of functions found, and how many of those were excluded via .sanityignore. Returns them together as a Counts struct (e.g. Counts { total, excluded }) so callers can't report one without the other.
-- found: Recursively walks the scan's node tree, inheriting an out_of_scope flag down through children (a node is out-of-scope if it or any ancestor is excluded). At each Func leaf it buckets into one of three Counts fields — excluded, oversize (unreadable), or kept — checking scope before size, per an explicit comment explaining that a function which is both should read as excluded rather than oversize.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+### `count_funcs` — PREDICTED SOME
+- spec 3 · read at `52e16fa3e63f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:33Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Takes a scan and returns Counts for functions, probably by iterating the scan's functions, splitting them into in-scope and excluded by the .sanityignore set and the read ceiling, and counting how many have a reading attached that matches current code. It likely fills total, read, stale, remaining and excluded fields.
+- found: Recursively walks the scan tree, carrying an out_of_scope flag set by excluded nodes. Each Func node is counted once into exactly one bucket: excluded if out of scope (checked first), oversize if unreadable, otherwise kept. It does not consult readings or the ignore file itself, only the node flags. Returns the Counts.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `count_files` — PREDICTED SOME
-- spec 3 · read at `6fd69ff26cc7` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:54:16Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Filters scan's files down to those treated as their own reading (whole-file tasks) and not excluded by .sanityignore, further dropping files with zero declarations (mirroring count_funcs's rule that there must be something to grade against). Tallies the result into a Counts struct (total vs. assessed/read count) so file-level coverage can be reported alongside function-level coverage without double counting.
-- found: Recursively walks the Node tree (not a flat file list), threading an out_of_scope flag down from parent directories so a node under an excluded ancestor counts as excluded even if not itself marked. For each File node with children (declarations), it buckets into one of three counts: excluded, oversize (node.unreadable(), e.g. the 856KB file case mentioned in the doc comment), or kept — a three-way split I didn't anticipate (I expected a simpler total/assessed tally).
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-
-### `shape_of` — PREDICTED SOME
-- spec 3 · read at `3524c9a2971f` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:46:28Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Walks the scan tree's top-level (first-level) directories and, for each, counts files and functions beneath it (likely via count_files/count_funcs helpers), building a Vec<serde_json::Value> of objects like {"path": name, "files": N, "functions": M} — counts only, no function names — so an agent can see which top-level directories are large and propose .sanityignore entries. Probably sorted by size descending.
-- found: Recursively walks the tree counting functions (not files) per top-level directory, splitting each directory's count into kept vs. already-excluded (propagating an `out` flag once a node is `excluded`), sorts directories by total (kept+excluded) descending, takes the top 15, and emits {"dir","functions","excluded"} JSON rows.
+- spec 3 · read at `e4c39a8702e9` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: count_files walks the scan's files, skipping those with no declarations and those excluded by .sanityignore, and looks up each one's reading to tally how many are read, stale, remaining, set aside, or too large. It probably mirrors count_funcs over the file unit and returns a Counts struct. It is a pure tally over the Scan with no I/O of its own.
+- found: Recursively walks the scan tree and buckets each file that has children (declarations) into one of three counters: excluded (under an excluded ancestor or node), oversize (node.unreadable()), or kept. It never looks up readings; it's a pure structural tally with no I/O, returning Counts.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `shape_of`
+- spec 3 · read at `3ec1230798e9` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds a per-top-level-directory breakdown from the scan, returning a Vec of JSON objects with counts of functions and files per directory. It probably groups the scanned units by their first path component and totals them, with ignored and unread items tallied separately. The counts come from the same helper functions the coverage queue uses, so the numbers agree with the rest of the reporting.
+- found: Walks the scan tree, counts Func nodes per top-level path segment into two buckets: kept (functions not excluded) and excluded (inside an excluded node). Sorts by total descending, keeps the top 15, and returns JSON objects {dir, functions, excluded}. It counts functions only, not files, and does not split out unread or stale items.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `unscanned_of` — PREDICTED SOME
-- spec 3 · read at `423103b95ec2` · commit `841cc43` · read by claude-sonnet-5 · via claude · when 2026-09-02T00:52:44Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Builds a JSON object with two lists describing what the scan skipped: one list of unrecognized file extensions (with counts) that had no parseable function unit, and one list of directories/paths excluded (e.g. by .sanityignore), the latter capped at some number (e.g. 15) with the excess folded into a "remaining"/"more" count field rather than silently dropped, mirroring the peers_omitted pattern.
-- found: Builds JSON with: unparsed extensions capped to 12 rows plus an unparsed_omitted count, a not_code count (files with no function unit at all), and a skipped list grouped by exclusion reason with file counts.
+- spec 3 · read at `dee3644e175c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: unscanned_of walks the Scan and returns a serde_json Value with the unscanned work as two lists rather than a percentage, probably per-directory file counts for files without a function unit, capped and with the remainder counted. It likely checks each file against the scan's readings and the ignore rules so that only files that are neither read nor excluded appear. It is pub(super) so the coverage and verify paths can call it.
+- found: Projects scan.stats.unscanned into JSON: "unparsed" is the first 12 extension groups as {ext, files}, "unparsed_omitted" counts the rest, "not_code" passes through as a count, and "skipped" maps each entry to {reason, files}. It does no walking or ignore checks itself; it only reshapes precomputed stats.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
-### `interleave_by_file`
-- spec 2 · read at `52681135f9b4` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:53:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Groups the ranked (score, Task) pairs by file path, keeping each file's tasks in descending score order, then round-robins across the groups (taking one from each file's bucket in turn, cycling through files) to build an n-long output list — so the top picks span many files instead of being dominated by one file's cluster of high scores, while still roughly respecting the original ranking within each file's turn.
-- found: Sorts descending by score, buckets tasks by file (files ordered by first/best appearance), then round-robins one task per file per round in file order until n items are collected, so the top of the queue never gives two functions from the same file back to back while other files have candidates.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: Matched almost exactly, including the file-ordering-by-strongest-candidate detail.
+### `outstanding_itemises_only_live_leases_on_unread_work`
+- spec 3 · read at `389339a63f8e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:47Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A test that checks the outstanding list only includes leases whose work is still unread: it sets up functions with some readings and some leases, including a lease over an already-read function that should be excluded, then asserts the outstanding items match in_flight and exclude stale or finished leases.
+- found: Test: two-function fixture with a file. Asserts no leases gives zero in_flight and empty outstanding; one lease gives remaining 3 (two functions plus file), in_flight 1, outstanding[0] is that id; after a reading lands for it, remaining 2, in_flight 0, outstanding empty (stale lease dropped).
+- predicted: full · documented: most · derivable: no · legible: most · trap: no · test: yes
 
-### `mark_of`
-- spec 2 · read at `c13c189db655` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:07Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Stats the file at repo joined with rel_path and returns Some((modified_time, len)) reflecting its current state on disk, or None if the file cannot be read/stat'd. Used to detect staleness by comparing against a previously recorded mark.
-- found: Gets fs::metadata for repo.join(rel_path), returns Some((modified_time, len)) or None if metadata/modified fails.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `resync_file`
-- spec 3 · read at `1e8a2cfa8d6f` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:38:17Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Reads and reparses the file at repo/rel_path, then for each existing function node under that file in root it matches by durable key (key_of(path, name, ord)), updates position/signature/doc/body-hash in place while leaving the node's id untouched, removes nodes for functions that no longer exist, and does not add nodes for brand-new functions — returning true if the resync succeeded (file readable/parseable) and false otherwise.
-- found: Finds the file node, re-parses the file's source, and matches each existing child by (name, ordinal) to a freshly-parsed FuncDef, updating line range/loc/signature/doc/owner/body-hash in place (dropping children with no match, never adding new ones); also refreshes the file node's own doc and body-hash from the same fresh bytes so file-level and function-level hashes stay consistent with each other.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
-
-### `stamp_marks`
-- spec 2 · read at `fe22a15ea032` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:24:10Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Iterates the files in `scan` and, for each one, reads its current on-disk state (mtime and byte length, or similar) via the filesystem, building a HashMap from file path to that (SystemTime, u64) mark. This is called at scan time so the mark reflects the exact moment positions were cut, avoiding the lazy-first-resync bug described in the docs.
-- found: Walks scan.root's tree via visit(), and for each File node computes its mark (mtime/size, via mark_of) at repo-relative path, inserting into a HashMap keyed by path; skips files where mark_of returns None.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `resync_changed`
-- spec 3 · read at `bc80ab8137e4` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:46:17Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Walks the project's tracked files, checking each against its last-seen mtime/hash to detect which have changed on disk since the last scan. For each changed file it calls `resync_file` (or similar) to re-parse and re-cut that file's function line ranges so any queued/outstanding ranges point at current code, skipping files whose first pass just recorded their shape with nothing yet to correct. Returns the count of files that were re-cut.
-- found: Visits every file node in the scan tree, computes its current mark (mtime/size) via mark_of, and diffs against the stored file_marks map (updating it in place via insert's return value) to find which files moved; for each moved file calls resync_file to re-cut it, then re-runs aggregate() on the tree root so rollups reflect the changed sizes, returning the moved-file count.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `findings_first`
-- spec 3 · read at `c5d1b55632c0` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:25Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Gets the project's flagged (cached) finding set, and for each unread task (score in [0,1)) whose id is in that set, remaps its score into the [1,2) band, e.g. adding 1.0. Leaves stale/dated tasks (score >= 2) untouched. Mutates tasks in place.
-- found: Returns early if no flagged set; otherwise adds 1.0 to priority of tasks whose subject (path for file tasks, id for functions) is flagged and has no stored report (file tasks use file_key for the report lookup).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc comment on this function is mostly about spread_across_files and appears misattached; the file-vs-function key difference is undocumented.
-
-### `flagged`
-- spec 3 · read at `5bb0333da01f` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:32Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Memoizing accessor: if project.flagged is Some, clone the Arc; else compute the findings for the project's scan (and settled/dismissed exclusions), collect the subject ids/paths into a HashSet, store it in project.flagged as an Arc and return it. Cache is keyed to be invalidated elsewhere when reports change.
-- found: Memoized by a FindingsAt snapshot (with reads zeroed, so new readings don't invalidate); on miss builds subjects, rules, archive and pins, collects keys of live hits across all rules into an Arc<HashSet>, and caches it.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-- note: Doc doesn't say the cache key deliberately ignores the read count, which is the non-obvious part.
-
-### `spread_across_files`
-- spec 3 · read at `1dca907ddc75` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:27:55Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes scored tasks and picks up to n, preferring tasks from files not recently handed out (per the `recent` map of file -> Instant). Likely sorts by score, penalizes or defers files seen recently relative to now, and returns the chosen tasks so consecutive handouts aren't all from the same file.
-- found: Partitions tasks into those whose file was not handed out within FILE_REST and those still resting; passes the fresh set (or resting if none are fresh) to interleave_by_file with n. No penalty scoring; the actual spreading is delegated.
+### `an_excluded_file_leaves_the_queue_and_stays_in_the_count`
+- spec 3 · read at `eb6038559280` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A test that sets up a repo with a file listed in .sanityignore, then checks that the excluded file's functions are absent from the work queue but still counted in the coverage totals (e.g. as set aside). It probably builds a fixture scan, calls the queue and count helpers, and asserts on the numbers.
+- found: A test on a tempdir: with no .sanityignore, 3 functions counted in scope and 0 excluded. After writing .sanityignore with "tests/", it expects 1 kept and 2 excluded; the work queue yields only "one"; and shape_of reports tests/ with excluded 2 and functions 0.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `queue`
-- spec 3 · read at `456e006753f4` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:03Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: HTTP handler: locks shared state, reads query params (batch size, maybe file filter), picks the next unassessed functions using helpers like findings_first, interleave_by_file or spread_across_files, and returns them as a JSON list of Task (id, name, signature, docs, peers) without bodies. Probably caps to default_batch when no n given.
-- found: Handler that resolves the client's project, resyncs changed ranges, collects unreported unleased tasks, ranks findings first, spreads across files, leases the handed tasks and marks recent files so concurrent callers get different work, logs feed notes, and returns them as JSON.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The leasing/recent-file reservation side effect on a read-looking endpoint is explained only by inline comments, not docs.
+### `a_reading_for_a_deleted_function_is_not_coverage`
+- spec 3 · read at `9520734e0a6e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test that creates a reading for a function, then removes that function from the scanned tree, and asserts the assessed count does not include the orphaned reading. It probably checks that count_stale or assessed reports the deleted function's reading as not counting toward coverage.
+- found: Writes a two-function file, records a reading for each, and checks assessed() is 2. Then deletes one function, rescans, swaps in the new scan, and checks assessed() drops to 1, so the orphaned reading is not counted.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `default_batch`
-- spec 2 · read at `be58df657f50` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:26:31Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Returns a hardcoded constant usize (likely 10, matching the "ten functions" batch size referenced elsewhere in the docs) representing the default number of functions handed to a reader per batch, exposed for external callers that need to estimate pricing/cost.
-- found: Returns the module-level BATCH constant rather than an inline literal; I predicted a constant value correctly but didn't know it was named/shared as BATCH elsewhere.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
+## src-tauri/src/agentapi/depth.rs
 
-### `reading_curve`
-- spec 3 · read at `f76c6492825c` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Looks up project by key in shared state, builds the queue as if a run started now (no leases, empty recent_files), then walks it in BATCH-sized chunks accumulating the lines of each task, pushing the cumulative total per step. Returns empty vec if project is missing.
-- found: Locks state, gets project (empty vec if missing), collects tasks with no leases, applies findings_first, orders by spread_across_files with empty recent map, then emits cumulative line totals at every BATCH boundary and at the tail.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
+### the file itself
+- spec 3 · read at `453c8143d9db` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:37Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This file is the controller for how deep a repo's git history is traced. The trace endpoint spends the budget on request, stop_trace halts a running pass, and banks_over decides whether a new trace replaces a deeper existing one. Background restores and watchers pass through trace_within_budget, which applies the cost cap. A test checks that a declined restore keeps the trace already paid for.
+- found: Controls how deep a repo's git history is traced. TraceState holds depth, pending estimate, resolved fraction, running progress and a stop flag. trace() takes files/lines/edits or budget (default one step deeper), clears the stop flag, runs deepen() in spawn_blocking, never drops below the rung already held, then stores the reached depth and banks it with note_trace. stop_trace sets the flag. banks_over returns true only if the new depth's rank is at least the banked one, so a declined restore cannot erase a deeper trace. trace_within_budget gates background restores via trace::go, returning Ask with an estimate when over budget, and restores lines or edits from cache when relines or depth1 say it is free. One test checks that a declined restore keeps the banked depth.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
-### `check` — PREDICTED SOME
-- spec 2 · read at `093c37e54faa` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:27:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Reads project/harness/model/batch settings from CheckRequest, spawns the wave-orchestration loop (calling something like run_wave or start_run) as a detached background task via tokio::spawn, and immediately returns a JSON acknowledgment without awaiting the run's completion.
-- found: It's a one-line Axum handler that just delegates entirely to start_run(&state, req) and wraps the result in Json — no validation logic of its own.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-- note: The docs handed to me for this task actually describe run_wave (a different function), not check — mismatched docs, so I graded documented as none.
-
-### `start_run` — PREDICTED SOME
-- spec 3 · read at `aa8261fdfe31` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:54:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a new check/scan session in the shared app state from the CheckRequest — resolving defaults (batch size, model) via helpers like default_batch/reading_curve, building the file queue (queue, spread_across_files), and registering it in Shared so progress can be tracked. Likely kicks off the actual work asynchronously/in background and returns a JSON value summarizing the started run (an id, file count, etc.) rather than the check results themselves.
-- found: Validates project/harness/backend availability, guards against a second concurrent run per project (checking both `ended` and live reader count to avoid a race), resolves model via a fallback chain, registers a new Run in shared state, then spawns the actual wave detached (handling both async and sync/Tauri calling contexts) and returns an immediate JSON status describing the started run.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The comments carry load-bearing rationale (the ended-vs-live race, the sync-vs-async spawn context) that the code alone wouldn't fully convey.
-
-### `stop`
-- spec 2 · read at `67720eec2400` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:17Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the run/project from StatusParams, marks it stopped/cancelled in shared state (clearing its queue), and forcibly kills any live child reader processes tracked for that run (e.g. via a stored child handle), then returns a simple JSON acknowledgment like {"ok": true}.
-- found: Looks up the project via for_client, and if it has an active (unended) run, sets an atomic `stop` flag on that run to true. Returns JSON {ok, stopped} — it does not itself kill any process, just signals; the actual killing (per the doc, described elsewhere) must happen wherever that flag is polled/checked.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The doc says 'kill the readers it has out' but the code just flips an atomic flag — the actual kill must live in whatever polls run.stop, not in this function.
-
-### `trace` — LEGIBLE SOME
-- spec 3 · read at `bf7ad329c91c` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:00Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: resolves the project from params (path/depth), checks a scan exists, clears the stop flag, runs the depth 1 or 2 trace on a blocking thread, applies it to the stored scan, saves/caches, updates project notes and scan stats, and returns JSON with timing, depth, and any error such as no scan or cancelled.
-- found: Resolves project and current depth; maps the depth string to a rung (files/lines/edits, budget = decided by affordable(), default one step on); clears the stop flag and marks running; runs trace::deepen on a blocking thread with progress and snapshot callbacks; then installs the scan, resets TraceState to the reached depth, banks it, bumps scanned, and returns JSON including stopped and declined-rung price.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: The doc covers intent (synchronous, invited spend) but not the depth vocabulary, the never-below-current-rung rule, or the stopped = reached != asked logic.
-
-### `scan_now`
-- spec 3 · read at `b0588c5d3d0d` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: looks up the project by params (path/id) in shared state, calls open_project with a flag overriding the cost budget so the scan runs, then returns JSON with status/ok or an error message if the project isn't found.
-- found: Resolves the client's project key, looks up its repo path in the saved reports index, and delegates to open_project with that path; returns NO_PROJECT error if either lookup fails. No budget override appears here.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Docs explain why it exists but not that it resolves repo path via the reports index; the budget bypass is implicit in open_project being an explicit request.
+### `trace` — LEGIBLE SOME — TRAP
+- spec 3 · read at `63a78d06e37f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: An async axum handler taking shared state and TraceParams, which deepens a project's history trace to the requested depth, spending without a budget ceiling because a person asked. It probably resolves the project, refuses if a trace is already running, runs the git history walk synchronously for depth 1 or 2, records the new depth and price in the project's TraceState, and returns a JSON status including the cost. It likely honours the stop flag.
+- found: Parses the requested depth (files, lines, edits, or budget, defaulting to one rung above the current one), clears the stop flag and marks a trace running, then runs deepen on a blocking thread. For budget it takes the affordable rung and never drops below the current depth. On completion it stores the reached depth, coverage, and scan snapshot, banks the depth, and returns depth, stopped flag, seconds, and any declined rung with its price.
+- predicted: most · documented: full · derivable: no · legible: some · trap: yes
+- note: If the blocking task returns None (no cached scan on the project, or a panic), the handler returns NO_PROJECT after `trace.running` was already set to Some(progress) and `pending` cleared, and nothing resets `running`, so the project can keep reporting a pass that is not running. Not checked by running it.
 
 ### `stop_trace`
-- spec 3 · read at `19a264cb9cb5` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:48Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: resolves the project from params, sets its trace cancel flag if a trace is running, and returns JSON like {ok, stopped} or an error if no project/trace. Partial results are kept since the trace merges incrementally.
-- found: Resolves project key; if missing returns ok:false NO_PROJECT; otherwise stores true into the trace stop flag and returns ok:true, stopped:true if project exists. stopped is true even if no trace is running.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+- spec 3 · read at `109dbde07688` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:58Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: stop_trace is an axum handler that takes the shared state and a StatusParams JSON body, finds the project's TraceState, and sets its stop flag if a trace is running. It returns a JSON response saying whether anything was stopped. Partial results are kept, as the doc says.
+- found: Axum handler. Resolves the project from the request via for_client; if none, returns {ok:false, error:NO_PROJECT}. Otherwise stores true into that project's trace.stop flag unconditionally (whether or not a trace is running) and returns {ok:true, stopped:bool} where stopped means the project exists. Does not check whether a trace is running.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `detached`
-- spec 2 · read at `f2536bd31875` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether a Tokio runtime handle is currently available (Handle::try_current()); if so, spawns fut on that handle. If not, spawns a new OS thread that builds its own runtime (likely single-threaded) and blocks on fut, so the caller never hits the tokio::spawn-without-runtime panic regardless of whether it's called from an axum handler or a synchronous Tauri command.
-- found: Spawns on the current Tokio handle if one exists, else spins up a new thread with its own current-thread runtime and blocks on the future; logs on runtime-build failure instead of panicking.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `run_wave` — LEGIBLE SOME
-- spec 3 · read at `58a5e9c64ef6` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:27:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: run_wave is an async driver that keeps up to `width` reader harness processes in flight, pulling work from the queue and stopping when the limit is reached, the stop flag is set, or the remaining count reaches zero. It also halts if readers keep exiting without any progress, so a misconfigured harness cannot spin forever. The live counter tracks how many readers are currently running, and key/backend/model identify the run in shared state.
-- found: Builds one reader prompt and a scratch dir (writes harness config there, fails the run if that errors). Loop: stops on the stop flag, project closed, remaining==0, or reaching the limit. Each pass it sizes the pool to min(width, remaining, ceil(left/10)) and spawns readers into a JoinSet until that count, skipping spawns when all remaining work is already leased. It waits on a reader exit or a 1s tick, tallies each exit, and counts consecutive exits that bank no new reading; 3*width of those in a row stops the run. On exit it joins all remaining readers, clears the project's leases, and records the end reason.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: Sizing uses BATCH (ten readings per reader), so the limit is honored only in steps of ten, and the leases are cleared only after every reader has joined, so a stop never hands a live reader's functions to someone else.
-
-### `read_one`
-- spec 3 · read at `10ae9f51789c` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:27:41Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Spawns the given tokio Command, which is one reader process for the harness, and waits for it to finish. It presumably increments the live counter while it runs, polls or watches the stop flag and kills the child if stop is set, and afterwards returns a tuple of (exited cleanly as a bool, captured stderr as a String).
-- found: Spawns the child process (returns (false, "<harness> could not be started." ) if spawn fails). Increments the live counter with a drop guard, drains stderr on a separate tokio task so the pipe can't fill, then loops selecting between child exit and a 250ms tick that checks the stop flag. On exit it returns (success, captured stderr). On stop it kills the child, waits, and returns (false, "") with no stderr.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-
-### `tally_reader` — PREDICTED SOME
-- spec 3 · read at `2c227f5f5c03` · commit `4469f85` · read by claude-sonnet-5 · via claude · when 2026-10-03T07:27:42Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes the outcome of a finished reader task and records it against the run identified by key in the shared state. On a join error it logs or marks the reader as failed, and on success it stores the bool and string result into the tally, unless the stop flag is set, in which case it skips the write. It probably also updates a counter of completed readers so the run can progress.
-- found: Unwraps a finished reader's (ok, said) result, defaulting to failure on a join error. Increments finished for the run under key. If the reader failed and was not killed by Stop (checked via the stop flag, not the exit code), increments failed and records its trimmed output as a failure message, deduped and capped at five.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-
-### `rescan`
-- spec 3 · read at `c186693633ee` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Builds a new Project from the fresh scan and reports, then if prev exists copies over volatile state (predictions, leases, run, recent files, etc.), possibly pruning entries whose node ids no longer exist in the new scan. Without prev it returns a Project with defaults.
-- found: Struct literal building a fresh Project: recomputes marks, resets trace/behind/findings/flagged, carries over leases, recent_files, predictions, revealed, run, events, counters and last_agent from prev, and bumps scanned. No pruning by node id.
+### `banks_over`
+- spec 3 · read at `eecc2910d90c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: banks_over returns true when the reached depth may overwrite the banked one. With no banked value it returns true. Otherwise it parses the banked string into a depth and returns true only when reached is at least as deep, so a shallower result never overwrites a deeper one.
+- found: Returns reached.rank() >= Depth::from_tag(banked or "").rank(). No explicit None branch; a missing banked tag maps to "" and parses to a rank that the comparison treats as lowest, so the result is the same as my guess. Mechanism differs from what I wrote.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `note`
-- spec 2 · read at `6e0184e00ac2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:12:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds a small record (stage, name, path, plus a status/summary derived from `found` if present) and pushes it onto a ring buffer (likely a VecDeque field on Project) representing recent activity. If the buffer exceeds some fixed capacity, it pops/removes the oldest entry to keep it bounded.
-- found: Assigns a monotonically increasing seq number, extracts predicted/documented/legible/derivable grades from the optional Report (via r.grades() and fields, with legible filtered if dated), pushes an Event onto the events VecDeque, then pops from the front while length exceeds EVENTS_KEPT.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Docs were a one-line accurate summary; the seq numbering and grade-extraction details weren't derivable from the doc alone but matched my structural guess.
+### `trace_within_budget` — LEGIBLE SOME
+- spec 3 · read at `5df7fdb596b5` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:38Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This traces the repo's history only as deep as the budget allows, returning a TraceState that records the depth reached and the price of the next rung if it was declined. It uses the scan cache, reports progress through on_progress, and uses `banked` (a previously traced depth) so a declined trace doesn't discard a deeper one already paid for. The budget check is the gate for unrequested work.
+- found: If trace::go says Run, it restores a banked lines/edits depth cheaply when relines/estimate allow (edits only if HEAD unchanged), otherwise deepens to the budgeted depth, redraws the tree cache when anything was traced, and returns a TraceState with depth/resolved. If the budget says Ask, it returns Untraced with the estimate as pending and no work done.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The budget gate and the banked-restore branches are explained in comments, but the edits-restore condition (estimate zero) only makes sense if you know the cache is keyed on HEAD; a maintainer changing that key would silently lose the restore.
 
-### `recent_model`
-- spec 2 · read at `7f9da50f6140` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:44:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Finds the newest dated reading among the project's readings (by `when` timestamp) and returns its `asked` field if present, falling back to that reading's `model` field if `asked` is absent. Returns None if there are no dated readings at all, since undated readings predate the `when` field and can't be identified as most recent.
-- found: Filters reports to dated ones, finds the max by `when` (lexicographic = chronological), prefers `asked` over `model` as fallback, and filters out empty strings before returning.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `suggested_model` — PREDICTED SOME
-- spec 3 · read at `a76a0a9715fd` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:24:30Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: First checks the project's own corpus of existing reports (via something like model_tally) for a dominant/most-common model that assessed this repo, and only if none is found falls back to recent_model(key) (the last model a run for this key asked for), returning None if neither yields anything.
-- found: Falls back through three sources in order: `recent_model(p)` (what the last run for this project asked for — the repo-traveling corpus signal per the doc), then `one_model(&p.reports)` (a single model if all/most existing reports agree), then `crate::reports::model_for(key)` (a stored, presumably machine-local preference), returning None if none apply.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: I had the two ends of the fallback chain swapped — I assumed a `model_tally`-style corpus check came first and `recent_model` was the local fallback, but per the doc `recent_model` IS the repo-traveling corpus signal that goes first, and the machine-local preference is `model_for` at the end.
-
-### `report_summary` — PREDICTED SOME
-- spec 3 · read at `bbe565a9640a` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:59:57Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Aggregates counts across the reports map (assessed, surprised, coverage) combined with scan data into a ReportSummary, incorporating trace_depth to summarize repo coverage.
-- found: Builds a ReportSummary by pulling together function/file counts (kept), assessed count, stale count, banked model/harness info, a model tally, and passing trace_depth through unchanged — pure aggregation via helper functions, no logic of its own.
-- predicted: some · documented: none · derivable: yes · legible: full · trap: no
-- note: I predicted 'surprised' counts and trace_depth being used for coverage logic; actually trace_depth is just passed through verbatim and there's no surprised-count field here, plus fields like stale/banked_model/banked_harness/model_tally weren't anticipated.
-
-### `model_tally`
-- spec 3 · read at `e0742e0edd2d` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:42:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the reports map, groups/counts them by the `model` field recorded in each Report, and returns a Vec<ModelCount> (model name + count), likely sorted descending by count so the UI can show which models did most of the assessing.
-- found: Counts reports by trimmed model field (skipping empty), sorts descending by count with a secondary alphabetical tiebreak to keep ordering stable across polls (avoiding UI reshuffle on ties).
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `one_harness`
-- spec 3 · read at `c156505745b8` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:46:28Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: one_harness iterates the reports' harness/agent identifier field, collects the distinct values, and returns Some(harness) only if every report shares the same one — None if the map is empty or the reports disagree, mirroring one_model.
-- found: Scans report values' harness field (skipping blank ones), returns Some(harness) if all non-empty values agree, None if empty or disagreeing.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `one_model`
-- spec 3 · read at `f0ec322cc8be` · commit `c767ce2` · read by claude-sonnet-5 · via claude · when 2026-09-15T21:46:35Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Scans the `reports` map's `model` fields and returns `Some(model)` only if every report shares the same model string, otherwise `None` (mixed models or empty map) — used to decide whether a single model label can represent the whole batch rather than needing a per-report breakdown.
-- found: Iterates report models, skipping blank ones, and returns Some(model) only if all non-empty model strings agree; returns None on the first disagreement or if none were non-empty.
+### `a_declined_restore_does_not_forget_what_was_paid_for`
+- spec 3 · read at `ff8ea499c43b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:05Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This is a test in depth.rs for the case where a launch declines to restore a trace. It probably traces a repo to a deeper level, then runs a declined or over-budget restore through trace_within_budget or banks_over, and asserts the stored trace depth stays at the deeper level rather than being reset to the shallower files-only depth. It checks that a declined restore never overwrites an already paid-for trace.
+- found: Unit test of banks_over as a pure predicate: a declined trace (Untraced or Files stored, or Lines stored with a later "edits" request) must not bank; a restore that matches or exceeds the stored depth banks; an untraced repo banks anything, including None; an unknown later-build tag is treated as untraced and banks.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `drop`
-- spec 2 · read at `5a9ffd6b98d7` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:00Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: LiveGuard is an RAII guard tracking an in-flight/live agent task; its Drop impl decrements an in-flight counter or removes the task's id from some shared "active" set/map, ensuring cleanup happens even if the task is cancelled or panics, so state doesn't leak as "still running" forever.
-- found: Decrements an atomic counter (self.0) with Relaxed ordering — an in-flight count, matching the "in_flight" field seen in tool responses. Simpler than a set/map as I guessed, just a raw counter.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+## src-tauri/src/agentapi/landing.rs
 
-### `assessed_now`
-- spec 3 · read at `28ee238bf8f9` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:24:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the project by `key` in the shared state and returns the count of non-stale reports, resolving the project by key rather than taking it directly, returning 0 if the project isn't found.
-- found: Locks state, looks up the project by key, and returns `assessed(&scan, &reports)` (non-stale reading count), or 0 if the project isn't loaded.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `whole`
-- spec 3 · read at `bdf59408b742` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:01:10Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Returns true if every part of the revealed body has been fetched — comparing the count (or set) of seen part indices against `self.parts`, the total number of parts the body was split into. Used by the report handler to refuse a report when parts are still outstanding.
-- found: Exactly as predicted: `self.seen.len() >= self.parts`, a one-line check that every part has been fetched.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `missing`
-- spec 3 · read at `a01eaa4d9cdf` · commit `3528c54` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:04:20Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Revealed::missing likely holds a total part count and a record of which parts have been fetched so far (e.g., a Vec<Option<..>> or a set). This method computes the complement — the part indices not yet fetched — and returns them so an error message can tell the caller exactly which parts are still owed.
-- found: Returns the part numbers 1..=self.parts not present in self.seen, i.e. exactly the complement/missing set, using a filter over the range.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `parts_of`
-- spec 3 · read at `5a2aa1752db3` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:00:40Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Splits `source` into a Vec of string slices, each at most PART_BYTES, breaking only on line boundaries (using split_inclusive to keep the newlines so the parts concatenate back to the original exactly). It greedily accumulates lines into the current part until the next line would push it over budget, then starts a new part; a single line longer than PART_BYTES becomes its own oversized part rather than looping or splitting mid-line.
-- found: Exactly as predicted: short-circuits if the whole source already fits in one PART_BYTES budget, otherwise walks lines via split_inclusive('\n') tracking byte offsets, flushing a part whenever the next line would push it over budget, with a single overlong line simply becoming its own part.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `reveal`
-- spec 3 · read at `fd42167fd9ea` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: checks the task id has a live lease (else returns an error JSON), records the prediction, re-cuts the extent via resync_changed, reads the source lines from the file (whole file for file tasks), and returns JSON with the source, possibly split into numbered parts. Repeat requests return the same code without changing the recorded prediction.
-- found: Handler that routes by owner project, checks lease, resyncs, refuses over READ_CEILING, reads file lines, records prediction with or_insert, splits into parts, tracks seen parts, and returns JSON with next_step hint.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+### the file itself
+- spec 3 · read at `d70eb29c3bc0` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:16Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the server side of the reading protocol: a `report` handler that validates an incoming reading and refuses bad ones (a trap with no note, a mangled prose field, a report with parts still outstanding, no matching project id). Accepted readings get server-stamped fields (body hash, prediction, spec, paging, who, when, run) and are written through to the .sanity/ directory. The tests peers suggest the validation rules are pinned by unit tests.
+- found: The server side of `/report`. It refuses a reading before storing it in four cases: prose that carries the rest of its own tool call (a truncated call that lost grades), a trap with no note, no open project holding the id, or a body served in parts the reader has not all taken. Accepted readings are stamped server-side (body from the live scan, the prediction recorded before reveal, spec, paging, who, when, head, run, agent docs, and the test-code reclassification pass), then written through to .sanity/. Refusals bump a counter and ping. The tests pin each rule.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
 
 ### `trap_without_note`
-- spec 3 · read at `a445b5c3d632` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:50:32Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: One-line function: returns r.trap && r.note.trim().is_empty() — true when trap is flagged but the note is empty or whitespace-only.
-- found: Exactly r.trap && r.note.trim().is_empty(), as predicted (and as already inferred from the prior test's behavior).
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: Already saw this function's behavior fully specified via the preceding test, so this reading was effectively warm despite not having opened this exact file/line before.
+- spec 3 · read at `e4f364124328` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:19Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns true when a report has trap set to true but a missing or blank note, meaning a trap flag with nothing said about the hazard. It probably checks r.trap and whether r.note is None or trims to empty.
+- found: Returns r.trap && r.note.trim().is_empty(), i.e. true only when trap is set and the note is blank after trimming whitespace. note is a String, so no Option handling.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `mangled` — PREDICTED SOME
-- spec 3 · read at `847515da75be` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:43:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Inspects a Report struct for a malformed/garbled text field (likely `found`, `note`, or similar) — checking for things like empty strings, truncation, or corrupted/non-sensical text — and returns a static string naming which field is mangled, or None if the report looks clean. Used to flag low-quality reports from weaker models.
-- found: Two checks: (1) if predicted/documented/legible grade fields are all present, returns None early (report is fine); (2) otherwise scans expected/found/note text fields for tool-call XML leakage markers (</parameter>, <parameter name=, or a closing tag matching the field name) and returns which field name leaked, indicating the model's report text accidentally contains raw tool-call payload rather than prose.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: This checks two unrelated things (missing grade fields vs. XML-leak detection in text fields) but only returns info about the leak case — the missing-fields case just returns None without saying which field was missing, so callers can't distinguish "clean" from "grades absent but no leak".
+### `mangled`
+- spec 3 · read at `76d4824b1d98` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:33Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Returns Some(static message) when a report's free-text field has swallowed the rest of the tool call, meaning a required grade such as predicted is missing, otherwise None. It probably checks the found field for an XML-like leak marker and whether the predicted grade is absent, and the message tells the reader to resend with grades first.
+- found: Returns None early if predicted, documented and legible are all present. Otherwise scans expected, found and note for tool-call closing tags or '<parameter name=' markers and returns Some with the offending field's name, else None. It returns the field name, not a message.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `report` — LEGIBLE SOME
-- spec 3 · read at `8459d25966e2` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: validates the request (mangled prose, trap without note, unknown id, missing parts) returning saved:false with hints; otherwise looks up the project and the recorded prediction, stamps server-side fields over the caller's, stores the reading, and returns JSON with counts/remaining.
-- found: Handler refuses mangled/trap-without-note/unplaceable/partially-revealed reports; otherwise releases lease, stamps server-side provenance (body, expected, spec, paged, by/at, harness, agent_docs), records feed note, inserts report, retests tree if test classified, writes through to disk, and returns counts plus a low-surprise hint or write error. Prediction missed write-through, retest, hint logic.
+### `report` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `05bec9cc1702` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:08Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: An async axum handler that takes the shared state and a ReportRequest, validates it (refuses mangled prose, traps without a note, unknown ids, or unfinished parts), then builds a stored reading with server-stamped fields like body hash, prediction, spec and timestamps, and writes it through to the .sanity directory. It returns a JSON response saying whether it was saved and, on refusal, how to resend.
+- found: The /report handler. It refuses mangled prose, traps with no note, unknown ids, and bodies with unseen parts, each with saved:false and a resend hint, and pings and counts refusals. Otherwise it looks up the owning project, stamps body hash, the stored prediction, spec, paged, who/at/asked/harness/when and agent docs, notes the read, inserts into reports, reclassifies test code via retest_tree when the test field is set, saves to disk, and returns counts and a surprise-rate hint.
+- predicted: some · documented: full · derivable: no · legible: some · trap: no
+
+### `a_trap_must_say_what_it_is`
+- spec 3 · read at `5d6a3bdb22f8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:47Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a report with trap set to true but an empty or missing note, sends it through the report landing path, and asserts it is refused. It probably also checks that a trap with a note is accepted. The check is on trap_without_note, with the refusal being an error rather than storing trap false.
+- found: Test of trap_without_note. A report with trap=true and no note is flagged; whitespace-only note also flagged; a real note clears it; trap=false is never flagged. Checks the predicate directly, not the landing path.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `a_report_with_parts_outstanding_is_refused`
+- spec 3 · read at `7dd8ffdb462a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:04Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: An async test that reveals a multi-part body, submits a report before taking every part, and asserts the report endpoint refuses it with an error and stores nothing. It probably then fetches the remaining parts and checks the same report is accepted.
+- found: Builds a 3000-line function so the reveal pages. It reveals part 1, submits a report and asserts ok=false and saved=false. It checks the lease survives so the remaining parts can be fetched, reveals parts 2 to N with a different expected string that must not overwrite the prediction, resubmits and asserts acceptance, and checks the stored report has paged set to N and the original prediction.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `a_report_carrying_its_own_tool_call_is_refused`
+- spec 3 · read at `10d0ca28afaf` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:23Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A test that sends a report whose prose contains a leaked tool-call markup fragment, such as an opening parameter or invoke tag, and asserts the mangled check rejects it before storage. It probably also checks that a clean report with the same content passes, to ensure the check is not overbroad.
+- found: Builds three reports and checks mangled(): a found field containing a closing tag followed by a leaked parameter tag returns Some("found"), and its grades() still fold predicted to Full; an expected field with a trailing closing tag returns Some("expected"); and an honest report whose prose mentions <p>, <div>, <hr> and a closing </p> in backticks returns None.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The test pins the grade fold too: a mangled report would have banked a Full grade had it been stored, which is why the refusal matters. The honest-prose case is the regression guard against over-refusing markup discussion.
+
+### `a_leak_with_its_grades_intact_is_a_reading_and_is_kept`
+- spec 3 · read at `d8baf137bcf6` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:09Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that builds a report whose prose contains a leaked tool-call fragment but whose grade fields are all valid, then asserts the report is accepted and stored rather than refused. It probably calls the report landing function and checks the result is Ok and the stored reading keeps the trailing tag as sent.
+- found: Test: a report whose found text contains a leaked closing tag but with all three grades set is not flagged by mangled(), and grades() keeps the chosen Most rather than Full. Then removing one grade (predicted) makes mangled() return the "found" field name. Does not check storage.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/agentapi/mod.rs
+
+### the file itself
+- spec 3 · read at `edde4393cefd` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:27Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This is the agentapi module root: it declares the submodules (coverage, sidebar, server, queue, tally, open, project and others), defines the shared AppState and Project types and the Shared handle, and holds test helpers such as data_home and project_of. It is mostly mod declarations and re-exports with a few shared types, not logic of its own.
+- found: The module root for the agent backend: a long header explaining the predict-then-reveal protocol and a map of each submodule's role, then private mod declarations and a wide set of pub re-exports, then a cfg(test) module of shared fixtures: DataHome, a process-wide data-dir guard, project_of building a real scan-backed Project, and lease_kind to draw a task of a given kind through the queue.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- note: The header is the best guide here; the test fixtures (DataHome serialising the environment, lease_kind going through the queue so reveal has a lease) are the non-obvious part and are not mentioned in it.
+
+### `drop`
+- spec 3 · read at `782c854c0e77` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A Drop impl for the test helper DataHome that restores or removes a temporary data directory and the environment variable it set, so tests don't leak state. It probably restores the previous env var value if one existed, otherwise unsets it, and removes the temp dir.
+- found: Clears HOME_THREAD under its lock (recovering from poison), then restores SANITY_DATA_DIR to the previous value if one was saved, or removes the variable if not. Does not delete any temp directory.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `data_home`
+- spec 3 · read at `1b837ddb52ef` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:37Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This is a test helper in the tests module that returns a DataHome guard. It most likely creates a fresh temporary directory and points the app's data-home environment at it, so tests don't touch real user data. DataHome's Drop impl presumably restores the previous setting and removes the directory.
+- found: Test helper. Takes a global ENV_LOCK (poison-tolerant), makes a tempdir, saves the previous SANITY_DATA_DIR, sets it to the tempdir, records the current thread id in HOME_THREAD, and returns a DataHome guard holding the lock, the dir and the prior value. Restoration is in DataHome's Drop, not here.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `project_of`
+- spec 3 · read at `90e0bfc151b1` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This test helper takes a directory, runs the project scanner over it, and returns a Project. It probably also runs the line-tracing step so the result holds Lines, but it does not read file contents or produce any output. It exists to give the test modules a ready-made project fixture.
+- found: Builds a Project fixture for tests: runs crate::scan::scan over dir at Depth::Lines with an ephemeral scan cache and Ordering fidelity (unwraps the result), computes file_marks via stamp_marks and marks via watch::probe, then returns a Project with reads=0, no findings/flagged, name "t", empty maps and events, trace depth Lines, scanned=1, touched=0. Nothing is read or output.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `lease_kind` — PREDICTED SOME — TRAP
+- spec 3 · read at `13a5b4cd6484` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:49Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This async Rust function loops over the shared task queue, leasing each task it pulls, until it gets one whose kind matches want_file (file versus function) and returns that Task. Tasks of the other kind are probably released back to the queue or held, and the loop presumably waits on a notify or sleep when the queue is empty. The docstring stresses the lease and the ordering, so it likely guards against handing out a task without a lease.
+- found: A test helper: loops up to 16 times calling the queue endpoint for one task at a time; returns the first task whose file flag equals want_file, otherwise discards the handed-out task and tries again; panics if the queue empties or 16 attempts fail.
+- predicted: some · documented: most · derivable: no · legible: most · trap: yes
+- note: Up to 16 queue pulls, each leasing one task; wrong-kind tasks are dropped with their leases still held, not released, so they stay unavailable until lease expiry. If the queue empties or 16 tries fail, it panics rather than returning an error.
+
+## src-tauri/src/agentapi/open.rs
+
+### the file itself
+- spec 3 · read at `ea840efccb2f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This file implements the /open and /scan HTTP handlers: it resolves a requested path against projects a human already added (refusing others), runs a fresh scan each time, and builds the response with counts, exclusions, directory shape and protocol. resolve_open and open_for_person handle the lookup, scan_asked and scan_now run the scan, scan_note formats the note, and the tests cover depth, pathless opens, and refusing unknown paths.
+- found: The file implements the /open and /scan handlers. resolve_open only accepts a path a human already added (or one already loaded), otherwise returns the candidate list, and with no path it answers only when exactly one project exists. scan_asked runs a fresh scan on every open, with an optional budget check that can defer the git-log trace and then deepens to file-level history. open_project resolves, scans, counts functions and files, builds shape, unscanned lists, refreshes the index, publishes the project and returns a large JSON response with warnings, the sanityignore note, scan timing and the protocol text. open_for_person and scan_now are the human-initiated entry points, and scan_note adds a message for slow scans. The tests check trace depth on open, pathless resolution, and refusal of unadded paths.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `resolve_open`
+- spec 3 · read at `0fc8aea40d02` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:11Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Turns an optional path into the repo path to open. With no path it returns the single human-added project, or an error listing candidates if there are several or none. With a path it accepts it only if it matches a project the human added, otherwise returns an Err JSON explaining the refusal and listing candidates.
+- found: With a path: accepts it if already loaded in state or among the human-added index projects, else returns a refusal JSON with candidates. With no path: 0 projects gives an error, exactly 1 returns that repo, and several returns an error asking the human to choose, never guessing.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `scan_asked`
+- spec 3 · read at `fd8e8081c55e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:11Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: scan_asked runs the scan for an open requested by an agent, reporting progress and shape through the callbacks and honoring the cancel flag. It probably calls the parse and commit-log trace, and when budgeted is true it skips the history/trace step if the log is over BUDGET, returning the Scan and a TraceState describing how deep it went.
+- found: Runs an untraced scan (ScanCache, Fidelity::Ordering). If budgeted and trace::go says Ask, returns immediately with TraceState.pending set to the estimate and no history. Otherwise reports "reading the commit log" and deepens to Depth::Files (not blame), then redraws the treecache if depth is not Untraced. Returns the Scan and the resulting TraceState.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `open_for_person`
+- spec 3 · read at `cedcc0fa1c3a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:52Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: An async function taking shared state and a repo path, used for the human-typed open. It likely checks the repo is on the known list (refusing otherwise), then opens it as a project with focus enabled and returns an error or outcome if the open fails.
+- found: Builds an OpenRequest with the path and focus set to true, then calls open_project with that request and discards its result. It does not check the known list itself; that presumably happens inside open_project.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `open_project` — LEGIBLE SOME
+- spec 3 · read at `c24185fc8e8f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: An axum handler that takes shared app state and an OpenRequest JSON body, then resolves the requested project against repos a human already added, refusing any path the human never added. It runs a scan of the repo on every call and returns a JSON summary of functions, files, exclusions, directory shape, and the protocol to run next. The bulk of the 154 lines is probably the resolution branch plus response assembly.
+- found: An axum handler. It resolves the path against human-added projects, checks it is a git repo, marks the project pending in the sidebar, runs a blocking scan timed for scan_ms, then settles the project. It refreshes the .sanity/README.md index, merges saved readings, publishes the project to state (possibly moving the window only if focus was asked), and returns a large JSON payload: counts of functions, files, excluded, oversize, directory shape, unscanned languages, stale count, sanityignore guidance, contract and priming warnings, scan timing, and the reader protocol.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The handler has side effects beyond what the name says: it rewrites .sanity/README.md on every open and moves sidebar state; the response carries the protocol text the orchestrator follows.
+
+### `scan_note`
+- spec 3 · read at `fcb89235ab6f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns an Option<String> note describing how long an open took, given elapsed ms and whether the repo was reopened. Probably returns None when ms is under some threshold, and otherwise a sentence saying the first open parses and blames every file while later opens only process changed files, with different wording for reopened versus first open.
+- found: Returns None when ms is under 5000, otherwise Some of a message stating the scan took N seconds, that parse and blame are cached per machine so later opens only cost what changed, and that the wait is one-off and retrying restarts it. Adds a parenthetical about the cache being in use when reopened is true.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `scan_now` — PREDICTED SOME
+- spec 3 · read at `c1be0adf7b01` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: scan_now is an async axum handler that takes the shared state and status params, resolves the requested project, and runs a scan on it even though it was previously declined for cost. It probably calls open_project with a flag forcing the scan through, and returns the resulting JSON response. The docs say it routes through open_project and is the counterpart to the cost-declined scan path.
+- found: Resolves the client's project key from shared state, looks up that project's repo path in the reports index, and if found calls open_project with that path and default options. Returns NO_PROJECT error JSON if either lookup fails. It doesn't force anything through a cost gate itself; it just re-opens the already-added project path.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `an_asked_open_lands_at_the_depth_it_was_traced_to` — PREDICTED SOME
+- spec 3 · read at `617c21ff46ed` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:41Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that does an open through the agent API path and asserts the resulting project's trace depth equals the depth it was traced to, not Untraced. It probably opens a repo that has a commit log, then checks the trace field is set (e.g. to a Traced or history level) and possibly that a later trace call does not re-walk. It likely fixture-builds a repo with git history.
+- found: Test of the asked-open path on a temp repo with a stale lease. It checks that pend puts a row in restoring and settle clears it, then runs scan_asked and publish_asked and asserts the project's trace depth is Files, that its leased map is emptied by the rescan, and that the project becomes active.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The test pins the regression where the window's Open never set trace, so the depth is asserted at publish time, not via a separate trace call.
+
+### `a_pathless_open_answers_from_what_a_human_added`
+- spec 3 · read at `169b97d4154e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:12Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A test of the open path with no path argument. It probably checks that with exactly one human-added repo the open resolves to it, with several it returns a question or refusal listing candidates rather than picking one, and with none it returns an error saying a person must add a repo. It likely uses resolve_open against an index fixture.
+- found: Calls resolve_open with no path. With an empty index it errors with ok=false and a hint containing "add". With one indexed repo it resolves to that path, and with two it errors with ok=false and lists both paths under projects so the human chooses.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_path_the_human_never_added_is_refused`
+- spec 3 · read at `8f80e4a4568e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:16Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A test that sets up a known project list, then calls resolve_open (or open) with a path not in that list and asserts it returns an error or refusal. It may also check that a path that was added resolves fine. It is a single assertion-driven test with no side effects on the repo.
+- found: Sets up an index with one added project "/added" in an isolated data home, asserts resolve_open accepts "/added", then asserts resolve_open refuses "/somewhere-else" with ok:false and an error message naming the requested path. Pure resolution test; no scan or write to the repo.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/agentapi/project.rs
+
+### the file itself
+- spec 3 · read at `850dda660281` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file defines the Project struct that holds one repo's scan tree, the reports loaded from and saved to the .sanity directory, and the in-flight leases, predictions and activity feed. It provides rescan (which replaces the tree but keeps the run), note for feed entries, the load_reports/save_reports persistence helpers, project_key, and FindingsAt::of, plus a tests module checking that a rescan keeps the run.
+- found: The file defines the Project struct, one repo's state: scan, reports, leases, predictions, revealed-part tracking, run, event feed, file marks, findings cache keys, and watcher marks. It provides load_reports and save_reports (which fail visibly rather than fall back), project_key canonicalisation, the Event type and Project::note feed, FindingsAt::of as a cache key derived from file and counter state, and Project::rescan, which replaces the tree but carries over leases, predictions, revealed parts, run and events while resetting findings and trace. It ends with a test confirming a rescan keeps in-flight work.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `of` — PREDICTED SOME
+- spec 3 · read at `2728f007f75d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:46Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: An associated constructor on FindingsAt that builds one from a Project reference. It probably copies the project's findings or reports and its scan root or path into a FindingsAt struct, likely cloning the store rather than borrowing it, so the findings view can be built without holding the project lock.
+- found: Builds a FindingsAt from a Project by copying scanned, reads and trace depth as plain values, and reading the modification times of .sanity/rules/catalog.md and .sanity/findings/decisions.md under the repo, each as Option (None if the file is missing). It does not copy reports or the repo path.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `load_reports`
+- spec 3 · read at `ecb05c0e5b98` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:02Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Reads the saved readings for a repo from its .sanity store and returns them as a map of report keys to Report, while also retesting the scan tree in place using the loaded readings so test classifications apply on load. It probably returns an empty map when nothing is saved.
+- found: Loads the readings from the repo's assessment store against the scan, then calls links::retest_tree on the scan with those readings so test classifications apply on load, and returns the readings map.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `save_reports` — PREDICTED SOME
+- spec 3 · read at `eec2d3f483d9` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:12Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Writes the readings map into the repo's .sanity store, probably by calling a save function that serializes each report keyed to its scan node and returns Err with a string on failure. It likely iterates the scan's units and looks up each report, skipping any with no reading, the same way assessed does.
+- found: Thin wrapper: delegates to assessment::save(repo, scan, reports) and, on error, maps it to a user-facing string naming the .sanity directory and warning that the reading is only in memory and will be lost on close. No fallback location. My guess about iterating units was the save function's job, not this one's.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `project_key`
+- spec 3 · read at `cca9dbdb932f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:32Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: project_key takes a &Path and returns a String. The doc says it canonicalises, so it probably calls fs::canonicalize (falling back to the raw path on error) and then converts to a display string. The result is a stable key for the project map, so the same repo reached via different relative or ~ paths maps to one entry.
+- found: fs::canonicalize(path), falling back to the raw path if that fails, then to_string_lossy into a String. Single expression.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `rescan`
+- spec 3 · read at `3b714d5dcf12` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:39Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: rescan is an associated constructor that builds a new Project from a fresh scan, repo path, name and reports. When a previous project is given it copies over the run state (leases, predictions, feed, run) so that an in-flight wave survives; otherwise it starts those fields empty. It probably also keys the reports against the new tree by node id, and it is the only constructor that takes prev.
+- found: Builds a Project from the new scan, repo, name and reports. Carries over from prev (when present): leased, recent_files, predictions, revealed, run, events, touched, reads, last_agent, and scanned (bumped by one, not copied). Recomputes file_marks and marks from the repo and resets trace and behind. Drops findings and flagged, since the old report described a gone tree.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `note`
+- spec 3 · read at `719d6d058e90` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:10Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Project::note appends one event to the project's feed for a function going out to a reader or coming back, recording stage, name and path plus a summary of the report if found is present. It likely increments a sequence number, pushes onto a bounded deque and pops the front when it exceeds a cap, so the oldest entry is dropped.
+- found: Appends an Event with seq = last seq + 1 (or 1), copying grades from the optional report (predicted/documented; legible hidden if dated; derivable), then pops oldest events while the deque exceeds EVENTS_KEPT.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_rescan_does_not_throw_away_the_run_it_lands_in_the_middle_of`
+- spec 3 · read at `7adde6aa93d5` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:00Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This is a test that builds a project, starts a run with leases and predictions (a reader has been handed a function and a prediction is recorded), then calls Project::rescan with the old project as prev and checks that the run, leases and predictions survive, probably asserting the predictions map still holds the expected text and the run is still Some.
+- found: Test. Builds a project with a lease, a prediction, a Run (spawned 3) and one event, rescans it with the old project as prev, and asserts the prediction text, the lease, the run and its spawned count, and events length survive, and that scanned increments by one. Then checks a rescan with no prev yields an empty run, leases and predictions.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+## src-tauri/src/agentapi/protocol.rs
+
+### the file itself
+- spec 3 · read at `9731b83356fd` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:10Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: protocol.rs is the text the orchestrator and each reader receive. It holds the protocol prompt given once to the driving session, the reader prompt that gets repeated per reader, and short response notes such as priming_note and contract_note. It is mostly string constants and small builders, with no I/O.
+- found: Whole file of agent-facing text: NO_PROJECT, priming_note (reads the repo for CLAUDE.md/AGENTS.md via agent_docs and returns a warning), contract_note (compares a contract fingerprint), PROTOCOL const, reader_prompt(n) format!, and tests. Mostly strings, but priming_note and contract_note do real work, so "no I/O" was wrong.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `priming_note`
+- spec 3 · read at `c1bf99c2d5c7` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:45Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: It checks whether the repo directory contains an agent-instructions file such as CLAUDE.md or AGENTS.md. If it does, it returns Some with a fixed warning sentence asking the human whether readers were given that file as context; if not, it returns None. It does not read the file's contents.
+- found: Asks crate::assessment::agent_docs(repo) for the repo's agent instruction files. If any exist, returns Some with a long fixed message telling the orchestrator to check its own context (not the disk) for those files, and to warn the human before the first wave if they were loaded, since readers would then be primed; the remedy is relaunching with --setting-sources user. Otherwise None.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `contract_note`
+- spec 3 · read at `7e3184fd1368` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Takes the contract version string the shim reported, if any. If it is missing or does not match the current contract, it returns a Some(String) telling the caller to restart the shim so its tool schema is refreshed; otherwise it returns None. The peer test name about a stale shim being told to restart suggests the message is a restart instruction.
+- found: Compares the contract fingerprint the shim sent against crate::mcp::contract_fingerprint(). A match returns None. A different fingerprint returns a warning to restart or reconnect the MCP server, since it is serving a stale tool schema. An absent fingerprint (a server predating the check) returns a softer warning suggesting a restart if it has run since the last rebuild.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `reader_prompt`
+- spec 3 · read at `0b40f9592c10` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:20Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Takes a count n and returns a String: the instructions given to each subagent reader, telling it to assess n functions one at a time via sanity_next, predict from the handout, call sanity_reveal then sanity_report, and not to open the repo or the .sanity directory. It likely formats the batch size into the text, which is probably the BATCH constant. It is a single format string with a few sentences about the brief and about grading.
+- found: Returns a format! string of the reader's instructions with n substituted in: assess n things one at a time via sanity_next, predict, reveal in parts if needed, report, do not open the repo or the .sanity directory, grade against what was written, and report primed honestly. Nothing computed beyond the substitution.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `a_shim_serving_a_stale_contract_is_told_to_restart`
+- spec 3 · read at `e55e5bc8cd22` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:02Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: This is a test. It probably calls contract_note with a stale contract version or a schema missing legible and trap, and asserts the returned note tells the user to restart the shim. A second assertion likely checks that a matching contract returns no note, since silence on the happy path is part of the contract.
+- found: Test. A matching fingerprint from crate::mcp::contract_fingerprint() gives no note from contract_note; a made-up fingerprint "0000000000000000" gives a note containing "restart"; and None (an old shim that sends no fingerprint) also gives a note.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no · test: yes
+
+### `the_priming_warning_asks_rather_than_asserts`
+- spec 3 · read at `50c23419f710` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:01Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A test that calls priming_note and checks its wording: the returned text should ask or hedge (for example "if your session has a brief") rather than state the reader is primed, and it should name the --setting-sources flag. It probably asserts the string contains the flag and does not contain a flat assertion phrase like "already holding".
+- found: Test of priming_note wording. No instructions file gives None; a CLAUDE.md gives a note naming it, the --setting-sources user flag, "cannot see", "CHECK YOUR OWN CONTEXT", and "the run is clean"; adding AGENTS.md lists both as "CLAUDE.md, AGENTS.md".
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+## src-tauri/src/agentapi/queue.rs
+
+### the file itself
+- spec 3 · read at `59521b5a6384` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:18Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: queue.rs is the scheduler that decides which reading task goes out next. It ranks stale and unread functions, with findings first, then interleaves them across files so a reader gets no long run from one file. It holds the lease that reserves a handed-out task, and reading_curve projects the same order in lines. It is mostly ordering logic over the queue and its helpers, not I/O.
+- found: Scheduler for reading tasks: queue() locks state, resyncs changed ranges, collects tasks, applies findings_first bands (+1 for unread code a live finding flags), spreads across files with FILE_REST (300s) memory, leases handed-out tasks for 600s, and logs "out" notes. reading_curve projects cumulative line counts per BATCH. default_n is 1, not 10. Missed that findings_first and flagged() read the findings archive, so "no I/O" was wrong.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+
+### `default_n`
+- spec 3 · read at `21a8bb472d39` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:20Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: default_n returns a usize, the default batch size for a reader handout. Given the doc, it most likely returns the constant 1 (one task per handout), since the protocol asks for one at a time, and the doc is about why it is one. The body is probably a single literal expression.
+- found: Returns the literal 1. The one-line body is the size of one handout; the reasoning for it lives in the doc, not the code.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `interleave_by_file`
+- spec 3 · read at `93a55f4d5af2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:53Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: interleave_by_file takes tasks already ranked by score with their f32 scores, and n, the number to hand out. It probably picks the highest-ranked task each round while skipping any task whose file was just used, so that consecutive tasks come from different files, and returns the first n as a Vec of Task. It is a pure reordering step with no lease or I/O.
+- found: It sorts the ranked tasks by score descending, groups them into per-file lists in order of each file's best task, then round-robins across files taking each file's k-th task per pass until n tasks are out or nothing is left. Result: no two consecutive tasks from the same file while others remain. It is pure, with no lease or I/O.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no · test: no
+
+### `spread_across_files` — TRAP
+- spec 3 · read at `7e6a6e103060` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:48Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Takes the scored candidate tasks, a map of recently-drawn file paths to when they were last drawn, the current time, and a count n, and returns up to n tasks. It likely filters out tasks whose file was touched recently (within some window) while preferring rested files, then calls interleave_by_file to spread the rest across files, falling back to recent files if too few remain.
+- found: Partitions tasks into fresh (file not drawn from within FILE_REST, or never drawn) and resting; uses fresh if non-empty, else resting, then interleave_by_file to take up to n tasks spread across files. Does not top up from resting when fresh is short.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: Resting files are dropped outright whenever any fresh task exists, even if fresh yields fewer than n, so the queue can return short while resting tasks sit unused; the docs say resting files are "preferred, not forbidden", which this does not do. Only when fresh is empty does it fall back to resting ones.
+
+### `findings_first`
+- spec 3 · read at `0a4b4dc2c8a7` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:32Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Mutates the task list in place, bumping the band of tasks whose target has an unread live finding into the [1,2] band. It probably collects the finding-pointed function ids from project, checks each task for no report, and adjusts the f32 score by a fixed offset, then re-sorts. Settled or dismissed findings are skipped.
+- found: Early-returns if flagged(project) is empty. Otherwise, for each (priority, task): a file task is keyed by its path via file_key, a function task by its id. If the subject is flagged and has no report, its priority gets +1.0. It only adjusts scores in place and does not re-sort.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `flagged` — LEGIBLE SOME
+- spec 3 · read at `ab9d0b182f93` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:29Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns a shared set of strings, the keys of functions that a live finding points at, computed for the project. It probably caches the result on the Project so it is only worked out once per key, scanning the project's findings and collecting the function keys into a HashSet wrapped in an Arc. Likely a short body with a cache check first.
+- found: Builds a snapshot key FindingsAt from the project with reads zeroed, and returns the cached Arc set if the stored snapshot matches. Otherwise it recomputes: traces the scan stats, derives subjects and rules, loads the archive and its pins, collects the keys of every live hit across the rules into a new Arc HashSet, stores it with the snapshot on the project, and returns it.
 - predicted: most · documented: most · derivable: no · legible: some · trap: no
 
-### `status` — PREDICTED SOME
-- spec 3 · read at `87bdda30e001` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:38Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: resolves the caller's project from query params, computes counts (assessed, remaining, surprised, in-flight leases, warm reports) and returns them as JSON along with repo name/path and active project. Returns an error JSON if no project is found.
-- found: Pings activity, lists all projects, resolves caller's project, and returns a large JSON: counts, trace depth, model/harness, remaining/in_flight/outstanding/stale, run state, events, done flag and next_step text; else open:false with a hint.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: Doc explains the routing-by-caller fix but not the many fields or the next_step logic returned.
-
-### `add`
-- spec 2 · read at `5fc70728b6d5` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:01Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Increments a counter on self corresponding to the given grade (matching on Grade::Full/Most/Some/None variants), and if g is None (no grade given) increments a separate "missing" or "unset" counter, building up a tally of how many functions fell into each grade bucket.
-- found: Matches the Option<Grade> and increments the corresponding counter field (full/most/some/none/ungraded) on self.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `add` #2
-- spec 3 · read at `94a6842dfb80` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:39Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Takes a Report and increments running counters on self (Tally) — bumping grade-spread counts (delegating to something like GradeCounts::add), legibility counts, a trap counter, and possibly other totals — mutating in place with no return value.
-- found: Increments running counters on self from a Report: readings count, predicted/documented grade tallies via a sub-add, derivable count, cold count, and traps count — but legible and trap are only counted if the report's spec is still 'current' (not superseded by a schema/question change), filtering out stale-question answers so the aggregate reflects only answers to the currently-asked questions.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: The legible_current/trap_current filtering (excluding answers to superseded questions from aggregates) isn't guessable from the signature alone — worth flagging for anyone extending Tally with a new gradable field.
-
-### `aggregate`
-- spec 2 · read at `ecaf4c953547` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:27:59Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A thin wrapper that pulls the project's reports/assessments and calls the more general `aggregate_of` helper on them to build an Aggregate summary (tallying grades like predicted/documented/etc.), returning it.
-- found: Thin wrapper calling aggregate_of with the project's scan and reports.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `aggregate_of`
-- spec 3 · read at `84e742d5ed13` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:56:31Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Walks every reading in `reports` against the scan's tree, tallying grade histograms (via GradeCounts/Tally) into an Aggregate: overall totals, a breakdown by which model produced each reading, a breakdown by position-in-batch (the warming curve), a priming exposed/clean count, and a stale count — mirroring whatever the peer `aggregate` function computes from a live Project, just sourced from a raw Scan+HashMap instead of live state so the two answers never drift apart.
-- found: Walks func nodes via each_unit (honoring exclusions), skips ones with no report, and for stale ones increments agg.stale and stops there (excluded from every other bucket). For live ones: adds to agg.total, buckets by_model (missing model name becomes an explicit 'unattributed' bucket rather than being merged), computes a three-way priming split (not_applicable/exposed/clean — I only predicted the two-way exposed/clean and missed that 'no brief in the repo at all' gets its own bucket), and buckets by_position using only the predicted grade (not the full grade set) or an 'unrecorded' bucket when there's no position.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `summary`
-- spec 3 · read at `d8acecd87905` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Axum handler: resolves the caller's project, calls aggregate over its non-stale reports to get repo-wide grade tallies (predicted/legible/documented counts, traps), and returns them as JSON along with a stale count. Returns an error JSON when no project is open; no function or file names.
-- found: Resolves project, calls aggregate, and returns JSON with the project/count header fields, grade tables (total, by_model, by_position, priming) and a long explanatory note; open:false hint otherwise.
+### `queue`
+- spec 3 · read at `f4e79921be88` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: An async axum handler that takes shared state and query params, computes the ordered list of pending review tasks (ranked by band and proxy, with spreading across files), and returns them as JSON. It probably locks the state, builds the queue with the helper functions named in the docs, and truncates to the requested count. Any lease bookkeeping for the handed-out tasks likely happens here too.
+- found: Locks shared state, resolves the client's project (returning empty if none), marks it as recently polled, and resyncs changed ranges. It collects tasks, applies findings-first ordering, then spread_across_files picks up to n. Handed tasks are leased and recorded in recent_files so concurrent callers get different work, each is logged to the feed as "out", and the state is pinged before returning JSON.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `unloaded`
-- spec 3 · read at `68987a5f6365` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:58Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Builds a ProjectSummary for a known project that has no scan loaded: carries over name, path, configured harness and model from `known`, and sets every count/reading field to zero/empty/None since nothing has been measured, leaving `loading` and `scan_cost` as defaults the caller is expected to override for their specific case (declined-for-cost, not-yet-restored, etc).
-- found: Builds a ProjectSummary struct literal with every count/reading field zeroed or empty (functions, files, scanned, assessed, commits, trace/resolve counts, events, run, banked model/harness info), carries over key/name/repo/harness/model/touched from `known`, hardcodes loading:false and scan_cost:None as the base case, and sets an explicit `unloaded: true` flag marking the row as not-measured.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Missed the explicit `unloaded: true` marker field and that `touched` is carried over from `known` rather than zeroed like the other counts.
+### `reading_curve`
+- spec 3 · read at `4f3c67636d80` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:33Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Given shared state and a project key, returns a Vec of u32 giving the cumulative line count the queue would hand out at each batch step. It probably builds the queue projection for that project with no leases and no recent files, walks it in BATCH-sized chunks, and sums the line counts of each function into a running total pushed per step.
+- found: Returns an empty Vec for an unknown project key. Otherwise it collects every task from the scan, applies findings_first ordering, and spreads the tasks across files. It then walks that order accumulating line counts with saturating add, and pushes the running total at every BATCH boundary and at the final task, so the result is cumulative lines per stoppable step.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
 
-### `from_state` — PREDICTED SOME
-- spec 3 · read at `79186ec14394` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:44Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Builds a ProjectList snapshot from AppState: iterates projects in order, computing per-project summary info (name, repo, counts, active flag, run status) and returns list with the active key.
-- found: Builds project summaries for loaded projects (counts, run, working flag, leases), then appends declined-scan, restoring, and any other index-known unloaded rows, deduped, and sorts by user order then recency. Prediction covered only the loaded-project part.
-- predicted: some · documented: none · derivable: yes · legible: most · trap: no
-- note: Doc lives on the type's parent file, not this function; the three-source merge and sort order are only explained in inline comments.
+### `task`
+- spec 3 · read at `30dc40ab87d7` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:26Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This is a test helper in the queue tests that builds a minimal Task for a given path and name. It probably sets the id to path#name or the path, fills the owner and signature with placeholders, and leaves docs and peers empty so the queue ordering tests have something to rank.
+- found: Test fixture builder: returns a Task with id "path#name", line 1, end_line 10, lines 10, owner None, empty signature, peers, docs, file_doc and ask, peers_omitted 0, file false.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: yes
+- note: The file doc describes the queue endpoint, not this test helper; the helper itself has no doc.
+
+### `findings_come_before_the_rest_of_the_unread_and_stale_before_both` — PREDICTED SOME
+- spec 3 · read at `f5a65cbd37d8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:22Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A Rust test that builds a small tree with a few unread functions, marks one as flagged by a repo-local rule and one as stale, then checks the queue ordering: flagged/finding-pointed reads come first, stale ones ahead of unread ones, with the rest after. It probably calls the queue function and asserts the exact order of returned ids.
+- found: Fixture with big.rs (a long flagged function), small.rs, and moved.rs, plus a repo-local catalog rule for long unread functions. It stores a report for moved with a stale body, then asserts exactly one flagged body, runs findings_first, and checks the band floors: moved at 2 (stale above everything), flagged at 1 (finding-pointed), plain at 0 (the rest). It asserts bands rather than a full order, since the proxy could otherwise pass by chance.
+- predicted: some · documented: full · derivable: no · legible: most · trap: no
+
+### `an_oversize_function_leaves_the_queue_and_is_counted_apart`
+- spec 3 · read at `36fd74d841f8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:06Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This is an async test. It probably sets up a repo with one function above the size ceiling and one below, then asserts the oversize function does not appear in the queue output, is counted in the oversize number rather than excluded, and is refused when a reader asks to reveal it. It likely calls the queue and coverage endpoints and checks the three agree.
+- found: Test. Builds a temp file with one function over READ_CEILING and one small function, then asserts count_funcs gives oversize 1, kept 1, excluded 0. Then calls the queue endpoint up to 8 times and asserts "small" is handed out and "huge" never is. It does not check reveal.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no · test: yes
+
+### `a_file_just_drawn_from_is_passed_over_on_the_next_call`
+- spec 3 · read at `c95fd6773510` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:04Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A test that sets up a queue with tasks across at least two files, draws one task from the first file, then draws again and asserts the next task comes from a different file rather than the one just drawn from. It probably uses the queue and tests::task helpers and checks the second call's file differs from the first, and falls back when only one file remains.
+- found: Tests spread_across_files directly. First call with no recent files returns the top-ranked hot.rs. After hot.rs is marked recent, the next call prefers other.rs. If only the rested file remains, it still returns work (a preference, not a lock). After the rest window expires, ranking goes back to hot.rs.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `queue_spreads_across_files`
+- spec 3 · read at `9415ea4cb4a0` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:22Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This test builds a set of tasks spread across several files, calls the queue, and asserts that consecutive handed-out tasks never come from the same file while other files still have work. It probably uses the tests::task helper to build fixtures and checks adjacency of file ids in the returned list.
+- found: Builds 15 ranked tasks across hot.rs, mid.rs and cold.rs (five each, descending scores), runs interleave_by_file for 6, and asserts the result has length 6, no two adjacent tasks share a path, and the first task is hot.rs/h0 so the top-ranked file still leads.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `queue_falls_back_when_one_file_remains`
+- spec 3 · read at `42f6e6a0a274` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:50Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A short test that sets up a queue state where only one file has unread functions, then calls the queue and asserts it still returns tasks rather than an empty result. It likely checks that the returned items come from that single file, in order, with no interleaving applied.
+- found: Builds four tasks all in only.rs with score 0.5 and asserts interleave_by_file(ranked, 3) returns exactly 3 items. Checks that with a single file the interleaver still hands out the requested count rather than starving.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `queue_never_repeats_or_overruns`
+- spec 3 · read at `ce6ccc1dfda2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:54Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test that requests a queue with n larger than the number of available tasks and asserts it returns all tasks once each, with no duplicates and no panic. It probably calls queue with a big n on a small fixture and checks length equals the task count and that ids are unique.
+- found: Two tasks on different files (a.rs, b.rs) are passed to interleave_by_file with n=25. It asserts exactly two come back and their ids differ, so the request is capped at what exists and nothing repeats.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/agentapi/reading.rs
+
+### the file itself
+- spec 3 · read at `2d0142db4561` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This file defines the Report record a reader submits and the Grade enum used to score it. It likely holds the struct with fields for predicted, documented, derivable and so on, the serde derives, and an impl with blank() and grades() that applies the grading rules. Its header says most of it is reasoning about which fields the reader judges versus which the server stamps.
+- found: A serde data file defining the Report struct (one field per reading attribute, most with #[serde(default)] for back-compat), the Grade enum with surprise() and documented() weights, and Report::blank() and Report::grades(). grades() applies the rule that derivable forces documented to None. Much of the file is long field-level rationale about which fields the reader judges versus the server stamps.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The Report struct is the record of a reading; most of the file is rationale comments on each field. grades() is where the derivable-overrides-documented rule is applied, so callers must use it rather than reading the raw fields.
+
+### `surprise`
+- spec 3 · read at `4444be892c31` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:47Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: surprise is a match on the four-step Grade enum that returns a fixed f32 constant for each variant. The two confident grades, full and most, get low values close together. Some and none get higher values, with none the largest. It does not compute anything from the report's fields.
+- found: Match on Grade returning fixed constants: Full 0.08, Most 0.30, Some 0.62, None 0.92. Uneven spacing as the doc said; the exact numbers were not predicted.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `documented`
+- spec 3 · read at `7a9d27dff465` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:47Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Grade::documented takes self (the four-step Grade enum) and returns an f32. It most likely matches each variant to a fixed number, e.g. full=1.0, most=0.75, some=0.5, none=0.0, perhaps used for scoring the docs axis. It's a pure match with no I/O.
+- found: Match on the Grade: Full 0.95, Most 0.7, Some 0.35, None 0.0. Pure mapping to a float.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `blank`
+- spec 3 · read at `16a0f909dedb` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:22Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Report::blank returns a Report with every field set to its empty default, probably None or empty collections, with the server-stamped fields also zeroed. Parsers and tests fill it in field by field. It has no side effects and takes no arguments.
+- found: Constructs a Report literal with empty strings for text fields, zero for loc and spec, false for booleans, None for optional fields (paged, predicted, documented, legible, test, position), and empty for by/at/when. Pure constructor, no arguments, no side effects.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `grades`
+- spec 3 · read at `2026b2ef58c8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:31Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: It returns a tuple of the predicted grade and an optional documented grade. The predicted grade comes from the legacy surprised boolean when the new field is absent, mapping true and false to the extremes. The documented grade is forced to None when the derivable flag is true, regardless of what the reader sent, and otherwise it is taken from the documented field.
+- found: Predicted grade is the explicit field, else legacy surprised maps to None or Full. Documented is forced to Some(Grade::None) when derivable is true, otherwise it is passed through as the reader gave it (possibly absent). Returns the (predicted, documented) pair.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+## src-tauri/src/agentapi/restore.rs
+
+### the file itself
+- spec 3 · served in 2 parts · read at `bd116d770fa2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:30Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file runs the startup restore: it walks every project the index knows and rescans them in the background, through two lanes (small and big) with the focused project first, skipping repos over the scan budget and listing them with their price. drain and claim_next pull work off the queue, restore_one does a single project, and restore_progress reports how far along it is, with tests covering lane ordering and the focused project.
+- found: The file is the background launch restore. restore() loads the index, publishes known projects as loading, sets the active project and sort order, then spawns a thread that splits projects by size (BIG_REPO_FILES = 2000, unknown sizes measured first) into a big lane and a small lane, each drained by drain(). restore_one settles missing repos, shows cached maps, declines over-budget unscanned repos with their price (declined_at_launch), scans unasked (scan_unasked), and lands the project; restore_progress streams progress and banks size once. claim_next lets a clicked project jump the lane without being consumed by the wrong lane. After the lanes join it corrects active if it never arrived and persists the index once. The tests pin click-to-front, lane assignment, that a lane does not reset the active view, and that restored or opened projects compute test dependents the same way the export does.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `drain`
+- spec 3 · read at `a746e4d6aeda` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:33Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This drains one lane's queue of known projects: while the queue is nonempty it takes the next project (the one the window is waiting on first, via claim_next against shared state) and calls restore_one on it, passing the shape and tick callbacks through for progress reporting. It does not change the active project, and returns nothing.
+- found: Loops while the queue is nonempty: claim_next picks an index (preferring the wanted project under the state lock), removes it from the queue, and calls restore_one with the callbacks. Does not touch active.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `restore_one`
+- spec 3 · read at `c43e46657d71` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:24Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Restores one known project: if its repo path is gone it settles the project off the pending list, otherwise it publishes any cached map via on_shape, checks the scan budget and declines over-budget scans with their price, runs the scan reporting progress through on_tick, and on success lands the result as the project unless an open already landed it. Every early exit removes the project from the pending list. It is a sequence of guard clauses ending in the scan and land calls.
+- found: Settles and returns if the repo directory is gone. Otherwise it loads a cached shallow map via treecache::stale into the shallow store without re-verifying it, builds a progress callback, and if declined_at_launch prices the scan it parks the price in awaiting and settles. If scan_unasked yields nothing it settles and returns; else it builds the project from the scan and lands it with land_restored.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `restore_progress`
+- spec 3 · read at `0900d2e9faa6` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:52Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: restore_progress returns a closure that receives scan Progress values and forwards them to on_tick along with the project key. It likely records the repo's total size the first time a phase reports a count, banks it in shared state for the project, and throttles or dedupes the updates. The closure captures state and the key by move so it can be called from the scan thread.
+- found: Returns a closure that, on each scan Progress tick, calls on_tick with the key and progress, then under the state lock records the repo size via note_size once (first tick with total > 0, guarded by an AtomicBool), and stores the progress into restoring_progress keyed by project.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `declined_at_launch`
+- spec 3 · read at `19ee4b71b915` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:43Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Returns Some(Estimate) when a scan of the repo would be over the budget and there is no cached tree to make it cheap, and None otherwise. It probably estimates the scan cost from the known project and path, compares it to a budget constant, and checks whether a tree cache exists for the path before declining.
+- found: Prices the scan from the stored file count and last scan duration via scan::estimate, with no directory walk. It declines, returning Some(price), only if the price does not fit the budget and treecache::warm reports no cached tree for the path at Ordering fidelity and untraced depth. Otherwise returns None, so a small repo never triggers the cache check.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `scan_unasked` — PREDICTED SOME
+- spec 3 · read at `cfc740f30472` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:08Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Runs a parse-only scan of the repo at path, reporting progress and shape through the callbacks, and returns the Scan with its scan cache as an Option. It probably checks the known project's previous size or cost first and refuses if over budget, then calls the scan function and saves the resulting cache. It returns None if the scan fails.
+- found: Opens the scan cache for path, runs a scan with Fidelity::Ordering and Depth::Untraced (no git history), returning None on error via .ok()?. On success it banks the files-scanned count and elapsed time with reports::note_scan so the next launch can price the repo from its own measurement, then returns the scan and cache. There is no budget refusal inside this function; the budget is decided later by the caller.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `project_at_launch`
+- spec 3 · read at `cdc70f057603` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: project_at_launch builds a Project for one known repo at startup from its path and a Scan. It probably takes the scan through the ScanCache, reporting progress via on_progress, and loads any saved readings or history depth recorded in known. It returns the assembled Project, and it likely caps history tracing to the budget in scan, keeping any deeper trace already stored.
+- found: Runs trace_within_budget with the saved trace depth, records a trace note if banks_over says the new depth doesn't exceed the stored one, loads reports, builds the Project via Project::rescan with no prior project, then sets trace to the pending result and copies touched from the saved entry.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `claim_next` — PREDICTED SOME
+- spec 3 · read at `3a399a4f3331` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:52Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: claim_next returns the index of the project this lane should scan next. If the wanted slot names a project in the queue that this lane can serve (probably by size or lane check), it takes that one and clears wanted; otherwise it falls back to the first eligible entry in queue order, and it probably removes or marks that entry so the other lane doesn't take it.
+- found: If wanted names a key present in queue, clears wanted and returns that index; otherwise returns 0 without touching wanted. No lane-size check and no removal from the queue: "can this lane serve it" is decided only by whether the key is in the slice the caller passed.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `restore` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `dc9c4cce8d74` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:10Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: restore is a public function that runs at launch on a background thread, given the shared AppState and two callbacks for shape and progress. It probably lists the known projects from the index, marks each as loading, then drains two scan lanes, calling project_at_launch on each and streaming shape and tick events keyed by project key. It persists the index only once every project has finished, and skips any repo whose path is gone.
+- found: Loads the index (returns if empty), sets clock from the max saved touched, publishes all known projects as restoring, restores order and active, then in a thread sizes unknown repos by counting files and banks the count, splits into a big and small lane at BIG_REPO_FILES, drains both lanes in parallel, joins them, falls back active to the most-touched loaded project if the saved one didn't load, and persists once at the end.
+- predicted: some · documented: full · derivable: no · legible: some · trap: no
+
+### `the_project_somebody_asked_for_is_scanned_next`
+- spec 3 · read at `9d5e88cb5598` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:15Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This is a test of the restore queue. It probably queues several projects, possibly a big one and a small one, then calls the function that moves a project to the front of its lane and asserts the asked-for project is claimed next. It likely checks the claim_next ordering against queued projects.
+- found: Test of claim_next. With queue [/linux, /sanity, /tally] and a request for /sanity, claim_next returns index 1 and spends the request (set to None). With no request it returns 0 (running order stands). A request for a project not in this lane returns 0 and is left unconsumed so the other lane can still claim it.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no · test: yes
+
+### `a_big_repo_scans_in_its_own_lane`
+- spec 3 · read at `569aa2e969ba` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test in the tests module that sets up a small project and a large project in the restore queue, then asserts that the small one gets scanned without waiting behind the large one, probably checking the lane assignment or queued state. It likely uses fixture sizes like the 77 and 65,757 file counts from the doc.
+- found: Builds a fixed set of four queued projects (linux 65,757, sanity 77, fresh unscanned, ceph 120,000), partitions them with BIG_REPO_FILES into big and small lanes, and asserts big is [linux, ceph] and small is [sanity, fresh], with unknown size counted as small. It does not exercise the real scheduler; it only tests the partition predicate.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `queued`
+- spec 3 · read at `3781e5a09f11` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:02Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A test helper in a tests module that takes a slice of project names with optional sizes and returns the KnownProject list used for the launch queue. It probably builds a KnownProject for each input, perhaps setting a queued flag or lane, and the expected behaviour is that every entry comes back in order with its size or price attached.
+- found: A test helper that maps (key, optional file count) pairs to KnownProject records, with the key used as repo and name, touched zero, and scan_ms, trace_depth, harness and model all None. It only builds fixtures and does no queueing itself.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: The file doc describes the launch scheduling; this test helper has no docs of its own, so the docs the reader saw describe the enclosing module, not this function.
+
+### `a_restore_lane_does_not_take_the_view_back`
+- spec 3 · read at `08024dbd7893` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:13Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that sets up a restore with a previously active project and another project clicked during the launch, runs the lane, and asserts the active project is not changed back to the old one. It probably builds a fixture state, calls the lane or restore_one, and checks the active key is still the one the user clicked.
+- found: Test. Creates a temp repo with one file, sets state.active to "somewhere-else", builds a KnownProject for it, runs drain over that lane, then asserts the project landed in projects and active is still "somewhere-else" (the lane did not move the view).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `a_restored_or_opened_project_counts_a_readers_tests_as_the_export_does` — LEGIBLE SOME
+- spec 3 · read at `d02dba505283` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:43Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This async test sets up a repo with a reader's test readings, then runs both the restore path (drain) and the open path (open_project) and checks that retest_tree marks the reader's tests as dependents, comparing against the CLI export order, probably in C++ fixture code. It asserts the under_test results match the expected numbers.
+- found: Test: git-inits a temp repo with a C++ file (helper, covers calling helper), scans, saves reader assessments marking covers as a test and helper not, runs retest_tree and expects helper to have dependents 0 and under_test true. Then checks that drain (launch) and open_project (open) produce the same answer for helper.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no · test: yes
+
+## src-tauri/src/agentapi/resync.rs
+
+### the file itself
+- spec 3 · read at `2aee99a9069e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the re-cutting step for the handout scan. It compares each file's stored marks (positions, signature, docs, body hash) against the current file, and re-cuts the functions in files that changed so handed-out line ranges stay accurate. It also holds helpers like mark_of and resync_file, plus tests covering moved files, deleted functions, and twin deletions.
+- found: A file-level re-cutter for a scan that has gone stale. stamp_marks records each file's mtime and length at scan time. resync_changed compares current marks against those (recording the first sighting as the baseline, which was once a bug) and, for each file that moved, resync_file re-parses it and refreshes line ranges, signature, doc, owner, body hash and the file's own hash, keyed by (name, ordinal). Functions that disappeared are dropped; new functions are deliberately not added, since scoring needs every peer. Node ids are never changed. The file ends with four regression tests: an edit before first handout, deleting one of two same-named functions, a function moving without its reading expiring, and a deleted function no longer being offered.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header explains why the re-cut exists and why ids are left alone, but not the sharp edges: first sighting must come from the scan stamp, and twins are matched by ordinal, so deleting an earlier twin hands the survivor's slot to the deleted one's reading (the body check catches it).
+
+### `mark_of` — PREDICTED SOME — TRAP
+- spec 3 · read at `f7ce03b39ae0` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:52Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: mark_of joins repo and rel_path, reads file metadata for its modified time, and reads the bytes to hash them, returning Some((mtime, hash)) or None if either fails. It's a fingerprint of the file on disk so a later scan can tell whether it changed. The doc says it returns nothing if the file can't be read, which fits the Option.
+- found: Stats the file at repo/rel_path and returns Some((modified time, byte length)); None if the metadata or mtime is unavailable. It does not read or hash contents.
+- predicted: some · documented: most · derivable: no · legible: full · trap: yes
+- note: The fingerprint is (mtime, byte length), not a content hash, though the file doc says resync compares a body hash. A same-length edit that does not advance mtime (coarse filesystem timestamps, or a tool that preserves mtime) reads as unchanged, so the file is not re-cut and its lines can go stale before a range is handed out.
+
+### `resync_file`
+- spec 3 · read at `eb927a15fa78` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: resync_file reads rel_path under repo, re-parses that file's functions, and updates the existing nodes under root in place with new line positions, signature, docs and body hash while keeping their ids. Functions that no longer exist are removed and new ones are not added. It returns a bool, likely true when the file was re-cut or something changed.
+- found: Finds the File node by path under root; returns false if it is missing, has no language, or the file cannot be read. Otherwise it parses functions, refreshes the file's doc and file-level body hash, then walks the file's children matching them by (name, ordinal): matched nodes get new line, loc, ncloc, signature, doc, owner and body hash; unmatched nodes are dropped. Returns true after a successful pass, regardless of whether anything actually changed.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: Returns true whenever the file was read and parsed, even if no function moved, so a caller cannot use the bool to tell a real change from a no-op. Also the file-level doc and body hash are refreshed here, which the docs do not mention.
+
+### `stamp_marks`
+- spec 3 · read at `d2a2eca10e13` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:10Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds a map from each file path in the scan to a pair of its modification time and a size or hash, read from the files under repo right now. It probably iterates the scan's file nodes, calls mark_of for each, and collects into a HashMap keyed by path. It does no re-cutting itself.
+- found: Visits the scan tree, and for each File node calls mark_of(repo, path) and inserts the result keyed by path when it exists. Returns the map of path to (mtime, size-or-hash) as of now. Files for which mark_of returns None are skipped.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `resync_changed`
+- spec 3 · read at `eda2ce2bfe17` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:40Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: It walks the project's files and, for each one whose current marks differ from the stamped marks recorded at scan time, calls resync_file to re-cut its ranges. It returns the count of files it re-cut. The first pass over a file likely just records the marks without counting it as changed.
+- found: Walks every File node, gets its mark, and compares with project.file_marks, keeping paths whose mark changed (a first sighting is not counted). If none moved it returns 0. Otherwise it re-cuts each moved file with resync_file, re-aggregates widths and roll-ups on the root, and returns the number of moved files.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `a_file_edited_before_the_first_handout_is_still_re_cut`
+- spec 3 · read at `3812ddf61601` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:14Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This test scans a file, edits it on disk before any resync_changed call, then calls resync_changed and asserts the function's lines and body in the handout are the post-edit ones, with the original mark stamped at scan time. It probably checks that the edited file is reported as changed and that a function below the edit gets its new line numbers.
+- found: Writes a two-function file, edits it to prepend three comment lines before any resync_changed call, asserts resync_changed returns 1 (one file re-cut), then asserts the function `second` now reports line 5.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `deleting_a_twin_expires_the_survivors_reading_rather_than_moving_it`
+- spec 3 · read at `20b574cf00ba` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:55Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This is a test. It sets up a file with two same-named functions, records a reading on one, deletes the first, runs resync_file, and asserts the survivor's reading is not carried over to it; instead it is marked stale or expired. It probably asserts the surviving function has no current reading (or is queued again) after resync.
+- found: Test. Writes a file with two `go` methods in different impls, makes a project, records a Report for each twin keyed by id and body. Rewrites the file to delete the first twin, runs resync_changed, then visits the remaining functions and asserts exactly one remains and its reading is stale (is_stale true) because the inherited reading's body belongs to the deleted twin.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `a_file_that_moved_is_re_cut_before_anything_is_handed_out`
+- spec 3 · read at `c6caa6e404e7` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:25Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A test in resync.rs that builds a temp repo with a file, scans it and stamps marks, then edits the file so functions move down, and calls resync_changed. It asserts that the functions' recorded line numbers now match the new positions, so the range handed out is correct. It probably also checks the signature or body hash changed as expected.
+- found: A test. It writes a two-function Rust file, checks second is at line 2, and records its body. Then it prepends three comment lines and adds a third function. It asserts resync_changed reports one re-cut, second moves to line 5 and first to line 4, the body hash is unchanged, and only first and second are known functions (the new one is not added).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+
+### `a_function_that_is_gone_stops_being_offered`
+- spec 3 · read at `16f6985f4ec3` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:58Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A Rust test that records a scan with a function, then removes that function from the file and runs resync_changed. It asserts the deleted function is no longer offered (dropped from the queue), probably checking that the remaining state contains no entry for it and no stale line numbers are returned.
+- found: Writes a temp a.rs with two functions, creates a project and checks resync_changed returns 0. Then it rewrites the file removing "go", checks resync_changed returns 1, and walks the scan tree asserting only the Func node "keep" remains.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/agentapi/reveal.rs
+
+### the file itself
+- spec 3 · read at `d6cd65336a4c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:40Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the reveal endpoint file. It holds the logic that takes a reader's prediction, records it before serving the source, re-cuts the extent for a function or whole file, pages large bodies into parts and records which parts were received, and refuses past a read ceiling. Peers suggest Revealed helpers, parts_of, and tests covering scoped extents, paging, single prediction, and lease checks.
+- found: The file is the sanity_reveal endpoint. It requires a live lease on the id, resyncs the scan, and then slices the source: a function gets its own lines, a file task gets the whole file. The prediction is stored with or_insert, so a second call cannot change it. Bodies over 32KB are split into parts on line boundaries, and the server records which parts were served so report can refuse an incomplete read. Anything over a 512KB ceiling is refused outright. Tests cover the bounded slice, paging round-trip, single-part bodies, the no-revise rule, the lease refusal, and whole-file file tasks.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `whole` — PREDICTED NONE
+- spec 3 · read at `85f7bf5b25da` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:38Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: whole returns true when this reveal is a whole-file task rather than a single function. It most likely checks the stored task kind or extent on the Revealed value. It does not read the source body.
+- found: Returns true when the count of seen parts is at least the total parts, i.e. every part of the body has been received. It means fully received, not whole-file.
+- predicted: none · documented: none · derivable: yes · legible: full · trap: no
+
+### `missing`
+- spec 3 · read at `42c906986e57` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:36Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: missing is a method on Revealed that returns the part numbers not yet received for this body. It likely iterates over the total number of parts and collects the indices absent from the recorded receipts, returning an empty vec when all are in. It is read-only and used to build the error telling the reader which parts are still owed.
+- found: Returns the 1-based part numbers from 1 to self.parts that are not in self.seen, as a Vec<usize>. Read-only; empty when every part has been received.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `parts_of`
+- spec 3 · read at `4996beaad33f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:36Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Splits the source string into a Vec of &str slices, each at most PART_BYTES, cutting on line boundaries. It probably iterates split_inclusive('\n') and accumulates lines into the current part until adding the next would exceed the budget, pushing the part and starting a new one. An over-long single line becomes its own part.
+- found: Returns the source whole if it fits PART_BYTES. Otherwise walks split_inclusive lines, starting a new slice when adding the next line would exceed the budget and the current part is non-empty, so an over-long line gets its own part. Slices are byte ranges cut on line ends, so concatenation reproduces the input.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `reveal` — LEGIBLE SOME
+- spec 3 · read at `269121be3522` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:48Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: An async axum handler taking shared state and a RevealRequest, returning JSON. It refuses if the task id has no live lease, records the prediction once on the server, re-cuts the extent of the function or whole file against the current file, and returns the source text, splitting larger bodies into numbered parts. It probably tracks which parts were served so a report can later be checked against them.
+- found: Checks the project and routes the task id to its owning project, refusing with a hint if none holds it or if it is not under a live lease. It re-cuts the scan, finds the node's path and line extent, and refuses bodies over READ_CEILING. It reads the file, slices the lines (or whole file), records the prediction once with or_insert, splits the body into parts, tracks which parts were seen, clamps the requested part, and returns the source with a next_step instruction when multi-part.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
+
+### `reveal_serves_the_functions_own_lines_and_no_more`
+- spec 3 · read at `8b72ab48b613` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A test function, async with no args, inside a tests module in reveal.rs. It probably sets up a repo or fixture with a function and calls reveal, then asserts the returned source contains exactly that function's lines and nothing from neighbouring code, and that the end line matches. It may also check the file's other functions are excluded.
+- found: A test. It writes a temp Rust file with two functions, one and two, registers a project, leases a task, calls reveal on it, and asserts the response is ok, contains the leased function's name, and does not contain the sibling's body (SECRET or "1") so no neighbouring body leaks.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+
+### `a_paged_body_reassembles_to_the_original`
+- spec 3 · read at `f9bc9ec48fe2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This is a test that builds a body large enough to exceed PART_BYTES, splits it with parts_of, and asserts that concatenating the parts equals the original source bytes. It probably also checks that every part is within the size limit and that Revealed::whole and Revealed::missing agree once all parts are received.
+- found: Test: builds a 4000-line fixture over twice PART_BYTES, cuts it with parts_of, asserts at least three parts, that concatenation equals the original, that each part is within PART_BYTES, and that every part but the last ends on a newline.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_small_body_is_served_whole_in_one_part`
+- spec 3 · read at `2bcc30314fb0` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:59Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This is a test in the tests module that checks a short function body is returned in a single part, with parts equal to 1 and no next_step. It probably builds a small fixture, calls the reveal path, and asserts on the part count and that the source equals the expected lines.
+- found: Test: runs parts_of on a four-line fn body and asserts it yields exactly one part equal to the input. Does not go through the endpoint or the next_step protocol.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_second_reveal_cannot_revise_the_prediction`
+- spec 3 · read at `8ac43ba04331` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:00Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This is a test in the tests module of reveal.rs. It calls reveal once with a prediction, then calls it again with a different prediction for the same task, and asserts that the second call returns the same source while the recorded prediction stays as the first one. It likely checks the stored prediction is unchanged after the second call.
+- found: Test: sets up a project with one file, leases a task, calls reveal twice with different predictions ("a wild guess" then "actually it prints 1"), asserts both return the same source, then files a report that carries the revised prediction and asserts the stored expected is still "a wild guess".
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `reveal_without_a_lease_is_refused`
+- spec 3 · read at `7f8967487c14` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:57Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: An async test that calls reveal with an id that was never leased, or whose lease is absent, and asserts the endpoint refuses it, returning an error or not-found status and no source body. It probably builds a server or state with no outstanding task and checks the response is a refusal.
+- found: Sets up a temp project with one file and a scanned function, takes that function's id from the scan without leasing it, and calls reveal. Asserts the response is not ok with null source, and that no prediction was recorded for that id.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The test also guards against a refused reveal silently recording the prediction; the docs only cover the no-source half.
+
+### `a_file_task_is_revealed_whole`
+- spec 3 · read at `2ef24c34aee1` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:16Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is a test that checks a file-kind task is returned as the whole file rather than sliced to the function's lines. It likely builds a fixture file with a header and declarations, calls reveal, and asserts the returned source contains everything including content after the last declaration.
+- found: Test: leases a file-kind task for a.rs (header, fn one, trailing comment), calls reveal, and asserts ok, whole_file true, and that the source still contains the header and the trailing comment after the last declaration.
+- predicted: full · documented: most · derivable: no · legible: full · trap: no · test: yes
+
+## src-tauri/src/agentapi/run.rs
+
+### the file itself
+- spec 3 · served in 2 parts · read at `bc44f86e5f71` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:25Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file is the reader pool: start_run resolves agent and model and refuses a second run per repo, run_wave keeps `width` reader processes alive and refills slots as they exit, and it stops when work runs out, the limit is hit, a stop is requested, or readers keep exiting empty. It also serves the /check and /stop endpoints and tears down live runs on drop. Each reader's stderr is kept for failure messages.
+- found: The reader pool behind /check and /stop. start_run refuses a second live run per repo, resolves harness and model (request, then project setting, else empty), checks the harness is installed, and launches run_wave via detached(), which borrows the caller's tokio runtime or spins a thread with its own. run_wave writes the reader config to a scratch dir, keeps up to width readers topped up with JoinSet, stops on remaining==0, the limit (sized in batches of BATCH=10), a stop flag, or 3*width barren exits, then waits for every reader and clears leases. read_one drains stderr, kills on stop, and LiveGuard tracks live processes. tally_reader counts finished/failed and dedupes failure text, excluding deliberate kills. stop_all_runs, used at shutdown, sets all stop flags and polls the live count up to 5 seconds. Tests cover detached() with and without a runtime.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `default_batch`
+- spec 3 · read at `e9fbcb2c5038` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:28Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Returns a usize, the default number of readings one reader process takes per batch. The doc says it's for outside callers to price a run, and the file doc says BATCH is defined in one place, so this most likely returns the BATCH constant, possibly after a clamp or cast.
+- found: Returns the BATCH constant unchanged. A one-line getter so outside callers can read the batch size without touching the constant.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `check`
+- spec 3 · read at `8ca94bd5d920` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:29Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: An axum handler for the /check endpoint. It takes shared state and a CheckRequest, resolves the project and starts a run via start_run (probably on a blocking or spawned task so the HTTP call returns immediately), then returns a JSON status such as launched or refused, with the run's details.
+- found: The handler is a one-liner: it calls start_run(&state, req) synchronously and wraps the returned serde_json::Value in Json. No spawning here; start_run is responsible for launching the background wave.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `start_run` — PREDICTED SOME — LEGIBLE SOME — TRAP
+- spec 3 · read at `f05262708991` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:59Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Takes shared state and a check request and returns a JSON value. It probably resolves the agent and model from the request, refuses if a run is already live for this repo, then spawns run_wave on a background thread or runtime and returns a JSON status like ok with the run's details. Limit and width handling likely live in the spawned wave, not here.
+- found: Resolves the project from the request (NO_PROJECT error if none), refuses if a run is live (ended unset or live readers >0) with an "already" flag and hint. Otherwise resolves harness from request or repo config, checks it is known and on PATH, requires a published endpoint, resolves model (request, else project suggestion), clamps readers to 1..32, installs a Run record under a second lock, and spawns run_wave via detached(). Returns ok JSON with started details and a note pointing to sanity_status.
+- predicted: some · documented: most · derivable: no · legible: some · trap: yes
+- note: The "already running" check takes the lock, reads it, and releases it; the Run is inserted under a second lock later with no re-check. Two concurrent start_run calls for the same project can both pass the check and both spawn run_wave, putting two waves on one queue, which the comment says is forbidden.
+
+### `stop` — PREDICTED SOME
+- spec 3 · read at `69b5ac61e54e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:19Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: An axum handler that takes shared state and a JSON StatusParams and returns JSON. It looks up the run for the repo in the params, signals it to stop, and kills the reader processes it has running, probably by aborting the wave task or killing child processes. Returns a small JSON status such as stopped or no run.
+- found: Resolves the project key from the params, finds that project's current run, and if it has not ended, sets its atomic stop flag to true. It does not kill any process itself; it returns {ok, stopped} where stopped says whether a live run was flagged. Readers are stopped later by run_wave observing the flag, not by this handler.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `detached`
+- spec 3 · read at `fff4203bbe45` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:29Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This runs the future in the background without assuming a Tokio runtime. If there is a current runtime handle (Handle::try_current), it spawns the future onto it; otherwise it starts a new OS thread that builds its own runtime and blocks on the future. Callers are start_run's wave and the Tauri window path, so it must not panic when called from a synchronous context.
+- found: Uses Handle::try_current: if a runtime is present, spawns the future on it; otherwise starts a std thread that builds a current-thread tokio runtime and block_on's the future, logging to stderr (and dropping the run) if the runtime fails to build.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- note: Docs cover the reason well; the only unstated behaviour is that a runtime build failure is swallowed to eprintln and the run silently never starts.
+
+### `run_wave` — LEGIBLE SOME
+- spec 3 · read at `330d922f2b98` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:21Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: run_wave is the async loop that runs a pool of reader processes for one repo. It presumably keeps up to width readers running, spawning read_one for each slot and refilling a slot when one exits, and it checks the stop flag, the optional limit, and the remaining work count. It also stops when readers exit without producing progress, so it does not spin. It updates the shared state and the live counter as readers start and finish, and returns nothing. It is about 160 lines.
+- found: It writes a reader prompt and a per-run scratch dir with the harness config, failing early with a recorded end reason if that fails. Then it loops: it stops on the stop flag, on a closed project, when no work remains, or at the reading limit (sized so it does not overshoot by more than a batch). It tops the JoinSet up to a width bounded by remaining work and leases, and waits on a reader exit or a 1-second tick. It counts consecutive barren exits and stops at 3*width. After the loop it drains all readers, clears leases, and records the end reason.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no · test: no
+
+### `read_one`
+- spec 3 · read at `5efa5b2e72da` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Spawns the command as one child process, streams or collects its stdout and stderr, and watches the stop flag so it can kill the child early. It probably decrements the live counter when done and returns a pair: whether the process exited successfully plus its captured stderr text.
+- found: Spawns the reader command; if spawn fails returns (false, "<program> could not be started."). Otherwise increments a live counter with an RAII guard, drains stderr on a separate task, then polls child exit every 250ms while watching the stop flag. On exit returns (success, stderr text); on stop it kills the child and returns (false, empty), so a deliberate kill is not reported as failure.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `tally_reader`
+- spec 3 · read at `12a9a0ffb7bb` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: tally_reader takes the result of a finished reader task and records it against the run's shared state under the key. A successful join with a landed reading counts toward the run totals, and a failed join or a stopped run is handled accordingly. It probably updates counters and stderr text, and it returns nothing.
+- found: Unpacks the join result (a JoinError becomes (false, "")). Reads the stop flag. Under the lock, if the run exists it always increments finished; if the reader failed and was not killed by stop, it increments failed and records the trimmed stderr, deduped and capped at five distinct messages. Nothing returned.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `drop` — PREDICTED SOME
+- spec 3 · read at `39763754d3c5` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:33Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: LiveGuard's drop is an RAII cleanup: it removes this repo's entry from the active or live-runs registry so the run is no longer marked as running. That covers early returns and panics. It may also signal the wave to stop.
+- found: One line: decrements the wrapped atomic counter with fetch_sub (Relaxed). It releases a slot in a live-run count; it does not touch a registry or signal a stop.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `assessed_now`
+- spec 3 · read at `67f0362224af` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:08Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: assessed_now takes the shared state and a project key and returns the number of readings that project holds right now, excluding stale ones. It most likely locks the state, looks up the project by key, and returns the length of its reports map filtered or counted through the assessed helper, returning 0 when the key is not loaded.
+- found: Locks state, looks up the project by key, returns assessed(&scan, &reports) for it or 0 if the key is absent. One line.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `stop_all_runs` — PREDICTED SOME
+- spec 3 · read at `4690e519a50c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:01Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: It locks the shared state, takes the list of active runs and sets a stop flag on each, then removes them from the map. It then waits a short bounded time for the reader processes to exit, killing any that remain or giving up after the timeout. It returns nothing.
+- found: Under the lock, sets the stop flag on every project's unended run and notes whether any exist; returns early if none. Then polls the summed live reader count every 50ms until it reaches zero or a 5-second deadline passes. It does not remove runs or kill processes itself; the per-reader tasks do the killing when they see the flag. Returns void.
+- predicted: some · documented: full · derivable: no · legible: full · trap: no
+
+### `work_detaches_from_a_thread_with_no_runtime`
+- spec 3 · read at `1b8954314455` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:54Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A plain synchronous test that calls the detached-work helper from a thread with no tokio runtime, passing a future that sets a flag or sends on a channel, then waits for that flag to show the future actually ran. It probably asserts no panic and that the work completed, using a timeout on the wait.
+- found: Plain sync test. Calls detached() with a future that sends on a channel, then waits up to 5s for the message, failing if the future never ran. No tokio runtime involved.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `work_detaches_from_inside_a_runtime`
+- spec 3 · read at `07a2ce461a25` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:04Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: This is an async test in the tests module of run.rs. It probably runs a work function that does blocking or runtime-sensitive work from inside an async runtime, and asserts that it completes without panicking, since the work must detach onto its own thread instead of blocking the runtime. It likely calls the same helper the sibling test uses, from within a tokio test context, and checks the result or that it returns.
+- found: It is an async test. It hands a future to detached() that sends on an mpsc channel, then waits for the message on a blocking thread via spawn_blocking with a 5-second timeout, and asserts the future ran. So it checks that detached can be called from inside a runtime and still runs the future.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+
+## src-tauri/src/agentapi/server.rs
+
+### the file itself — LEGIBLE SOME
+- spec 3 · read at `556dd975bb95` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:21Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This file is the HTTP backend's lifecycle: it builds the router, binds a loopback port and publishes the endpoint file with the pid, runs a watcher that rescans changed repos when no reading is out, and handles retiring or standing down an older daemon. Expect health and build_id endpoints, endpoint read and release helpers, and tests about withdrawing claims and not retiring a backend mid-wave.
+- found: The backend's process lifecycle: a router of about a dozen endpoints (health, retire, open, queue, check, report, trace, status and so on), the build_id fingerprint from version plus executable size and mtime, headless and retiring flags, and retire which refuses for a window or a live wave. It also publishes and reads the endpoint file with the pid, releases only its own claim on exit, and runs a 1.5s watch_tick that rescans moved repos when no lease is live, marking them behind when over budget.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
 
 ### `health`
-- spec 3 · read at `2f45dc0d6711` · commit `d8a6366` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:48:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Returns Json with ok true and the current process id via std::process::id(). Touches no state.
-- found: Returns JSON with ok, pid, build id and headless flag. It touches no state.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs mention only the pid; build and headless are also returned and go unmentioned.
+- spec 3 · read at `40f9c729afb9` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:57Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: health is an async handler that returns a Json value with a fixed ok status, the current process pid, and probably the build_id. It reads no shared state and does not call ping. That keeps it from resetting the standdown clock.
+- found: Returns JSON {ok: true, pid, build: build_id(), headless: headless()}. No state mutation, no ping. Got ok/pid/build right; missed the headless field.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `build_id`
-- spec 2 · read at `a1c6fdffb964` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:06:18Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Uses a OnceLock (or similar) to compute and cache, on first call, a fingerprint string combining CARGO_PKG_VERSION with the size and mtime of the current executable (via std::env::current_exe() and fs metadata), returning the same cached &'static str on subsequent calls. Falls back to a string like "unknown" if the executable can't be stat-ed, rather than panicking or guessing.
-- found: Exactly as predicted: a OnceLock caches a fingerprint of CARGO_PKG_VERSION plus the executable's size and mtime (as "len-secs"), computed once via a closure that returns None on any stat failure, falling back to "unknown".
+- spec 3 · read at `fe4eeec3baac` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:27Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: It returns a &'static str that is computed once and cached in a static (OnceLock or similar), combining the crate version with the size and mtime of the current executable. If the executable cannot be stat-ed it falls back to a sentinel like "unknown" rather than panicking. The one-time caching is what stops a rebuilt binary from changing the reported value mid-run.
+- found: Lazily initialises a static OnceLock string once per process. It stats the current executable and formats "<version>+<size>-<mtime secs>". If the exe cannot be stat-ed, it returns "unknown". The value is fixed at first call, so a later rebuild does not change it.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `set_headless`
-- spec 2 · read at `830fbd71bb3b` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:08Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Sets a global flag (likely an AtomicBool or OnceCell) to true, marking that the app is running in headless mode — probably used elsewhere (the headless() peer) to check whether to skip GUI-only behavior like opening windows.
-- found: Stores true into a global HEADLESS AtomicBool with Relaxed ordering, exactly as predicted.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `e552984ea163` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:24Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: set_headless takes no arguments and is a three-line body. It most likely flips a process-wide flag (an atomic or a static OnceLock/Mutex) to record that this backend runs without a window, so the retire and standing-down logic can tell a headless daemon apart from a window's own backend. It probably returns nothing and has no side effects beyond that flag write.
+- found: Stores true into the HEADLESS atomic flag with Relaxed ordering. One line of work; no return value and nothing else.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `headless`
-- spec 2 · read at `a2803c5c013f` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:09Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Reads a global/static flag (likely an AtomicBool set by set_headless) indicating whether the app is running headless (no GUI window, e.g. in CI or agent-driven mode), returning its current value.
-- found: Loads and returns the value of a static HEADLESS AtomicBool with Relaxed ordering.
+- spec 3 · read at `c5fa2db44dc7` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:24Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Returns a bool saying whether this backend is running headless (as the `sanity serve` daemon rather than inside the app window). It most likely reads a process-wide flag or static that set_headless writes at startup, so it is a cheap getter with no side effects.
+- found: Returns HEADLESS.load(Relaxed) — a plain read of a global atomic bool, no side effects. Nothing else.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `retiring`
-- spec 2 · read at `6d832360abdc` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:13Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A tiny accessor that reads a global/static AtomicBool flag (something like RETIRING) with a relaxed or acquire ordering and returns whether the backend process has been marked as retiring/shutting down, so other code paths (like retire() or watch_tick) can check it and stop accepting new work.
-- found: Reads a static RETIRING AtomicBool with Relaxed ordering and returns its value.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+### `retiring` — PREDICTED SOME
+- spec 3 · read at `dbe400a46c94` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:26Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Returns a bool saying whether this backend should stand down because a newer build exists. It probably reads the endpoint file or a build id, compares it with this binary's build_id, and returns false when a window or a live wave is using the backend (any_run_live or headless state).
+- found: Loads the static RETIRING atomic flag with Relaxed ordering and returns it. It does not compare build ids or check live runs itself; those decisions happen elsewhere when the flag is set.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
 
 ### `any_run_live`
-- spec 2 · read at `616cfd85f3a0` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:01Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Iterates over the projects held in the shared state and returns true if any of them has an in-progress "wave" (an active analysis run), likely by checking a run/wave status field or an Option/handle being Some. Probably just `state.projects.values().any(|p| p.wave.is_some())` or similar, used to gate whether the app can shut down or start a new run.
-- found: Locks the shared state and checks if any project has a `run` that is Some and whose `ended` field is None — i.e. a run that has started but not finished, meaning it's still live.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `a1148538b148` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: any_run_live takes the shared state and returns true if any loaded project has a run in progress. It most likely locks the state, iterates over state.projects, and checks whether each project's run is present and not ended, using any() to short-circuit. It is a read-only check used by the retirement logic.
+- found: Locks state and returns true if any project has a run whose ended is still None (not finished). One expression with any().
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `retire`
-- spec 2 · read at `a46b5cad45be` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:06:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Checks two conditions before agreeing to stand down: whether any window is currently open (refuse, telling caller a window is open) and whether any run is live via any_run_live (refuse, telling caller a wave is in flight). If neither blocks, it sets the shared "retiring" flag (e.g. via headless/set_headless-like atomic) to true and returns a JSON success response. It does not itself exit the process or stop the server — that's left to the watch loop in cli::serve to observe the flag.
-- found: Refuses if not headless (window reason) or if a run is live (busy reason), each with a JSON ok:false and hint string. Otherwise sets a global RETIRING atomic flag and returns ok:true with the process pid.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I guessed the flag was called "retiring" via set_headless-style state rather than a dedicated global RETIRING atomic, and I didn't anticipate returning the pid — the doc's rationale (why not exit here, why two refusals) was more thorough than the mechanism, which I got mostly right.
+- spec 3 · read at `477a16da55de` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:45Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: An async axum handler that takes shared state and returns JSON. It probably checks whether a window is open or a run is live, refusing if so, and otherwise sets a retiring flag and replies with a success JSON so the watch loop can shut the daemon down. It does not exit the process itself.
+- found: If not headless (owned by a window), returns ok:false reason "window". If any run is live, returns ok:false reason "busy". Otherwise sets the RETIRING flag and returns ok:true with the pid. It does not exit; the watch loop acts on the flag.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `router`
-- spec 3 · read at `a9ed9eba1878` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:10:02Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Builds and returns the Axum Router for the loopback agent API — registering routes like /open, /status, /next, /report, /trace, /health, etc. to their handler functions, attaching the Shared state, and probably layering in tracing/logging middleware. Mostly a flat list of .route(...) chained calls with little logic of its own.
-- found: Flat list of .route() registrations (health, retire, open, queue, reveal, check, stop, report, scan, trace, trace/stop, status, summary) with .with_state(state), no middleware.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Only the file-level doc exists; the function itself has none, which is appropriate since it's fully self-explanatory.
+- spec 3 · read at `034cb1569320` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:13Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Builds an axum Router that holds the shared state and registers the HTTP routes: health, build id, and the endpoints a backend exposes such as queue, open, check and reading. It probably attaches the state with with_state and returns the router without starting a listener.
+- found: Builds an axum Router registering 13 routes: GET /health, POST /retire, /open, /reveal, /check, /stop, /report, /scan, /trace, /trace/stop, GET /queue, /status, /summary, then attaches the shared state with with_state. Does not bind a listener; serve does that.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `endpoint_file`
-- spec 2 · read at `836f29d29a70` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Returns the filesystem path where the backend publishes its claimed port (and pid), likely under a temp or app-data directory (e.g. dirs::runtime_dir() or env::temp_dir() joined with something like sanity-endpoint.json), returning None if that base directory can't be determined.
-- found: Returns Some(path) joining reports::data_dir() with "agent-endpoint.json", or None if data_dir isn't available — the well-known file where the claimed port/pid gets published.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
+- spec 3 · read at `8afcc8353e98` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:17Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Returns the path of the endpoint file, probably an Option<PathBuf> built from a data directory helper plus a fixed filename such as an endpoint json. It returns None when the data directory cannot be determined. It is a pure path computation with no file I/O.
+- found: Returns Some(data_dir/agent-endpoint.json) using reports::data_dir(), or None if that directory is unknown. Pure path computation, no I/O.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `url`
-- spec 2 · read at `8cd0a583018e` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:06Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Formats and returns a loopback HTTP URL string built from the Endpoint's stored port (and possibly host), e.g. format!("http://127.0.0.1:{}", self.port).
-- found: Formats "http://127.0.0.1:{port}" from self.port.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
+- spec 3 · read at `a895c088a096` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:27Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Endpoint::url takes &self and returns a String. It most likely formats an http URL from the endpoint's stored port, something like http://127.0.0.1:{port}, possibly with a trailing path or base. It is a pure read with no I/O, so callers can build the address to send requests or publish it.
+- found: Returns format!("http://127.0.0.1:{}", self.port): loopback http URL built from the stored port, no path.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `read_endpoint`
-- spec 2 · read at `50286e4f7a32` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:45Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Gets the endpoint file path (likely via endpoint_file()), reads its contents, and parses out the published pid and url/port into an Endpoint struct, returning None if the file doesn't exist or fails to parse. Does not check process liveness.
-- found: Reads endpoint_file() path, parses its contents as JSON, and extracts port (u16) and pid (u32) into an Endpoint struct via chained Option combinators, returning None on any missing field, parse failure, or IO failure.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `stop_all_runs`
-- spec 2 · read at `508c278e30ca` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:59:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Iterates the shared state's active runs/tasks belonging to this backend and signals each to stop (e.g. aborting a handle or setting a cancellation flag), then performs a short, bounded wait (brief sleep or timeout) for those reader processes to exit. It does not block indefinitely — it's a best-effort tidy-up so that on normal app exit, orphaned agent readers aren't left running and spending tokens after the backend that spawned them is gone.
-- found: Sets an atomic stop flag on every project's active run, then polls (every 50ms, up to a 5s deadline) a per-run atomic 'live' counter summed across projects until it hits zero, rather than sleeping a fixed duration — an inline comment explains the fixed-sleep approach reliably left orphaned processes because it races the scheduler.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The doc block given describes the intent well but the specific polling-on-count-not-clock mechanism is explained only in an inline code comment, not in the header doc.
+- spec 3 · read at `3ada952e90a2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:32Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: read_endpoint reads the endpoint file from disk and parses it into an Endpoint, returning None if the file is missing or cannot be parsed. It does not check whether the process is alive, just reports what the file claims. Likely it reads the file contents and deserializes JSON.
+- found: Reads endpoint_file() to a string, parses it as generic JSON, and pulls "port" (must fit u16) and "pid" (must fit u32) as numbers. Returns Some(Endpoint) only if all of that succeeds; any missing path, read error, bad JSON, missing or out-of-range field yields None. No liveness check.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `release_endpoint`
-- spec 2 · read at `3d80e3d397a0` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:46Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Deletes the endpoint file written for this process (via endpoint_file(pid)), cleaning up the on-disk record of where this server's loopback API was listening, so a later read_endpoint doesn't find a stale/dead entry after the process exits.
-- found: Checks that the currently-recorded endpoint file actually belongs to this pid (read_endpoint().pid == pid) before removing it, so a newer process's endpoint file isn't accidentally deleted by an older process's shutdown/cleanup. I got the deletion right but missed this ownership guard, and wrongly assumed endpoint_file() took the pid as an argument.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `set_order`
-- spec 3 · read at `869b1f40f23e` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:03:37Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Takes the shared app state and a list of project keys representing the desired sidebar order, locks the shared state, and stores this list as the new ordering. Likely also persists this to the on-disk index (e.g. calling `touch`) so the ordering survives restarts.
-- found: Locks the shared state, replaces the order field with the given keys, and persists state to disk.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: The docs attached to this handout actually describe the `restore` function, not `set_order` — file_doc/docs field mismatch.
-
-### `drain` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `5423e05308db` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:43:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Loops over the queue of known projects; for each, scans the repo (calling on_tick for progress and on_shape with the file shapes), stores results/progress in the shared state under the lock, and publishes it. It skips projects that were dropped or already handled, and checks claim_next/wanted to see if this lane can serve it. Never modifies active.
-- found: Pops the claimed project, skips/settles missing dirs, preloads cached tree, prices the scan and declines (awaiting) if too expensive and no warm tree cache, else scans untraced, banks size/rate/trace depth, traces within budget, loads reports, builds Project and lands it under lock.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-
-### `claim_next`
-- spec 3 · read at `b95946e3ccb5` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T01:02:34Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Looks for the project named in `wanted` inside `queue`; if found, clears `wanted` to None (consuming it, since this lane can serve it) and returns that project's index. If `wanted` is None or the named project isn't in this lane's queue, leaves `wanted` untouched and returns index 0, defaulting to the front of the running-order queue.
-- found: Finds the position of the project named by `wanted` in `queue`; if present, clears `wanted` (consumes it) and returns that index; otherwise leaves `wanted` alone and returns 0 (head of the running order).
+- spec 3 · read at `c7927c7db1be` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:53Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Reads the endpoint file and deletes it only if it still names this pid, ignoring any read or removal errors. The check-then-delete means a newer backend's claim isn't wiped out by an older one exiting.
+- found: Reads the endpoint file; if it exists and its pid equals the given pid, removes the endpoint file. Errors are ignored. Otherwise does nothing, so it never deletes another backend's claim.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `restore` — PREDICTED SOME
-- spec 3 · read at `9b99ae8178bb` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:13Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Called at app relaunch to rebuild the sidebar: it first publishes every known project as "loading" so the UI fills in immediately, then scans each project, invoking on_shape(project_key, files) as each project's files parse and on_tick(project_key, progress) for scan progress — both callbacks explicitly passed the project key rather than the receiver inferring it, fixing a prior bug where progress from concurrent scans got attributed to the wrong project.
-- found: Restores the sidebar at relaunch: publishes all known projects as loading immediately, sets active/order from the saved index, then spawns a thread that orders projects (active one first, otherwise most-recently-touched first), measures file counts for repos of unknown size, partitions them into a big-repo and small-repo lane (each drained on its own thread) so a small repo doesn't queue behind a huge one competing for disk I/O during git blame, joins both lanes, picks a fallback active project if the intended one never arrived, and persists the final state.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: The two-lane big/small scheduling and unknown-repo-size measurement logic is entirely undiscoverable from the signature — only the project-key-passing rationale is covered by the file/function docs.
-
-### `banks_over`
-- spec 3 · read at `7a9a7d7c5d85` · commit `6168dc0` · read by claude-sonnet-5 · via claude · when 2026-09-02T04:09:38Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Converts `banked` (a tag string, possibly None) into a Depth via from_tag, then returns whether `reached.rank() >= that depth's rank()` — i.e. true only when the newly reached depth is at least as deep as what's already recorded, so a shallower launch-time trace never overwrites a deeper one banked previously.
-- found: reached.rank() >= Depth::from_tag(banked.unwrap_or("")).rank() — true only if the new depth is not shallower than what's already banked.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `trace_within_budget` — PREDICTED SOME
-- spec 3 · read at `f88207fe734a` · commit `6168dc0` · read by claude-sonnet-5 · via claude · when 2026-09-02T04:08:42Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Given a repo path and a mutable Scan, this walks/traces through the scan (likely resolving call sites or dependency edges) while respecting some budget constraint, consulting the ScanCache to avoid redoing work already banked (via the `banked` param), and calling on_progress periodically to report status. It returns a TraceState enum indicating whether the trace completed, was cut short by the budget, or hit some other terminal condition.
-- found: It asks crate::trace::go whether to run automatically or ask the user first (based on cost). If running, it tries to restore cached depth (lines/edits) cheaply via relines/estimate when the repo hasn't changed, then calls trace::deepen to walk to the requested depth, redraws the treecache if any tracing was reached, and returns a TraceState. If go() says Ask, it returns an Untraced state with a pending cost estimate instead of running.
-- predicted: some · documented: none · derivable: no · legible: most · trap: no
 
 ### `watch_tick` — PREDICTED SOME
-- spec 3 · read at `cbdcfd2ceb1b` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Runs periodically off a background timer, iterates over known/watched projects checking for filesystem changes, and for any project whose files changed, attempts a rescan — but skips or defers any project that currently has outstanding leases, since a timer-triggered rescan must never invalidate a reading in flight (unlike open_project, which rescans and drops leases unconditionally because a human/agent explicitly asked).
-- found: Correctly skips leased projects and only rescans changed ones, but the actual body does much more: probes each unleased project's marks, checks a cost estimate ('priced')/budget before committing to a rescan (setting a 'behind' flag and advancing marks if over budget), runs the scan+trace off the blocking pool, reloads reports/marks against the fresh tree, re-checks the lease state under the lock again after the async work completes (in case a lease was taken mid-scan), and uses post-scan marks (not pre-scan) to avoid re-triggering on changes the scan itself caused.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc comment explains the lease-refusal rationale well but says nothing about the budget/'behind' gating or the double lease-check race handling.
+- spec 3 · read at `8b1dd58a7033` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:59Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: An async watcher tick that checks whether the project's files have moved. If any lease is live it returns without rescanning. Otherwise it probes the scan off the lock, and if the tree changed it rescans and swaps the state, dropping leases. It probably also logs or notifies the window.
+- found: For each project with no live lease, probes the repo off-lock and, if the probe changed, checks the scan-cost estimate. Over budget: sets behind=true and advances marks, no rescan. Within budget: rescans (plus a budgeted trace) in spawn_blocking, reloads reports and file marks, then under the lock re-checks for live leases and, if none, swaps in the new scan/reports/trace, advances marks, clears behind, and bumps reads/scanned. A failed scan just retries next tick without touching marks.
+- predicted: some · documented: full · derivable: no · legible: most · trap: no
 
-### `serve`
-- spec 2 · read at `7b1cd59ca231` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:33Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: serve builds the axum router() for this state, binds a TcpListener on an ephemeral/loopback port, writes the resolved endpoint (host:port) out via endpoint_file/read_endpoint so other processes (the CLI, MCP clients) can discover it, spawns the server to run in the background, and returns the bound port number as a u16.
-- found: Binds a TcpListener on 127.0.0.1:0, writes port+pid to the endpoint file, spawns the axum router as a background task, spawns a second periodic loop calling watch_tick to keep repo staleness/blame state current over time, and returns the bound port.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `a_declined_restore_does_not_forget_what_was_paid_for` — PREDICTED SOME
-- spec 3 · read at `62bdb0071a6c` · commit `6168dc0` · read by claude-sonnet-5 · via claude · when 2026-09-02T04:09:31Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Test that bans a regression: set a project's trace_depth to "lines" (fully traced), then run a restore path that declines to retrace (e.g. over budget or asks-first), and assert the index still reports trace_depth as "lines" afterward rather than being overwritten/downgraded to "files" just because this launch didn't redo the trace.
-- found: Directly tests the pure helper `banks_over(new_depth, old_banked_depth_str)`, asserting it returns false when a declined/shallower restore (Untraced/Files/Lines-vs-edits) would overwrite a deeper banked depth, true when the new result matches or exceeds it, and true whenever there's nothing banked yet or the banked tag is from an unrecognized/later rung.
-- predicted: some · documented: full · derivable: no · legible: full · trap: no
-
-### `task`
-- spec 2 · read at `8b8a852f0203` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:11Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Constructs a `Task` value used to track a spawned background job for a given project — likely builds a Task struct/handle keyed by `name` and pointing at `path`, initializing fields like status/id/start time so it can later be found and stopped (via stop_all_runs) or reported on. Probably just field assignment, no real logic.
-- found: Test-fixture constructor building a minimal Task struct with id "path#name" and placeholder/default values for all other fields (line 1, end_line 10, empty signature/peers/docs).
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-- note: Not a real "spawned job tracker" as I guessed by name/peers — it's just a plain test helper for constructing Task fixtures with dummy field values, unrelated to process/run tracking.
-
-### `project_of`
-- spec 3 · read at `b1773b5c963f` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:10Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Test helper: scans the given directory and builds a Project from it with default/empty state (no reports, no leases), so tests can manipulate it. Likely calls scan::scan and Project::new with the dir as repo.
-- found: Test helper that scans dir with no-op callbacks, ephemeral cache, Ordering fidelity and Lines depth, stamps file marks, and builds a Project literal with empty maps and zeroed counters.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `a_superseded_answer_is_re_offered_after_everything_else` — PREDICTED NONE
-- spec 3 · read at `a353ed237654` · commit `a785576` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:03:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a scanned project, submits a report/reading for a function, then edits that function so the report becomes superseded/stale, then calls the task-fetching logic repeatedly and asserts that the superseded function is only re-offered after all other unread/pending functions have been handed out — i.e., it goes to the back of the queue rather than being reprioritized to the front.
-- found: Builds a fake tree with four functions (stale_one: body hash changed since report; unread_one: never reported; dated_one: reported but under an old spec version, still flagged as a trap; current_one: fully up to date) and asserts collect_tasks orders the offered ones worst-first: stale > unread > dated, with current_one omitted entirely. This is the opposite ordering from what I predicted — the test name misled me into thinking the stale/superseded one goes LAST, but it's actually prioritized FIRST since it describes code that no longer exists.
-- predicted: none · documented: most · derivable: no · legible: most · trap: no
-- note: The function name itself is actively misleading relative to what the test asserts (stale is first, not last) — worth flagging as a naming/doc mismatch.
-
-### `a_trap_must_say_what_it_is`
-- spec 3 · read at `8660069cfe98` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:04Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A unit test that submits a report with trap: true but no note (or an empty note) and asserts the API/handler rejects it (returns an error rather than silently accepting or coercing trap to false), enforcing the invariant described in the doc that a trap claim without an actionable note is not allowed to be stored.
-- found: A unit test for a `trap_without_note` predicate: trap=true with no note or whitespace-only note returns true (bare trap, not a finding); trap=true with an actual sentence returns false (stands); trap=false always returns false regardless of note.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `a_shim_serving_a_stale_contract_is_told_to_restart`
-- spec 3 · read at `df1e4e73450a` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:49:57Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test (name-as-sentence style) asserting that when an agent-facing shim/endpoint is serving an outdated contract version (e.g. mismatched schema/API version from a prior run), the loopback API detects the mismatch and responds by telling that shim to restart itself, rather than silently continuing to serve it stale data or crashing. Probably constructs an endpoint/state with an old contract stamp, invokes the relevant check (maybe via serve/watch_tick), and asserts a restart signal or error in the response.
-- found: Tests contract_note(): a matching fingerprint (crate::mcp::contract_fingerprint()) returns None (no warning needed); a mismatched fingerprint string returns Some(message) containing "restart"; and a caller sending no fingerprint at all (None) also gets Some(...) — an old-enough shim that can't even report its contract is treated the same as a stale one. Got the concept (stale contract -> told to restart) right but expected it to go through endpoint/serve/watch_tick machinery rather than a direct pure function test of contract_note.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
-
-### `a_file_edited_before_the_first_handout_is_still_re_cut`
-- spec 3 · read at `4ff4733ad210` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:47:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A regression test: it scans a project, edits a file's content BEFORE ever calling resync_changed/handing out a task for it (so file_marks would have been empty/lazily-populated), then triggers the handout/resync path and asserts the returned range/positions reflect the post-edit file rather than being silently wrong because the first sighting recorded post-edit content against pre-edit assumptions. It's asserting the fix described in the doc: marks are stamped at scan time, not lazily on first resync_changed call.
-- found: Writes a file, scans the project, then edits the file again before any resync_changed/handout call has run. Asserts resync_changed reports 1 changed file and that the `second` function node's line has been re-cut to its new post-edit position (line 5), confirming marks are stamped at scan time rather than lazily on first resync_changed call.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `the_project_somebody_asked_for_is_scanned_next` — PREDICTED SOME
-- spec 3 · read at `39be568f2d64` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:59:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Test sets up a queue with multiple projects (e.g. a large repo queued ahead of a small one), simulates a user clicking/selecting the small queued project, and then asserts that claim_next() returns that clicked project rather than following the normal last-active-then-recency order — verifying that clicking bumps a queued project to the front.
-- found: Tests claim_next(&mut requested_key, &queue) -> index: returns the index of the requested project and clears the request when found; returns 0 (default order) when nothing was requested; and importantly leaves a stale/not-found request un-consumed so another lane can still see and use it.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc only explains the UX motivation (clicking bumps a queued item), not the multi-lane claim_next(&mut Option<String>, &queue)->usize contract or the crucial 'do not consume a request meant for another lane' behavior.
-
-### `a_big_repo_scans_in_its_own_lane`
-- spec 3 · read at `8226d5e30436` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:54:36Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test that sets up two projects — one whose last-scan size is huge (like the 65,757-file linux example) and one small or unknown — enqueues scan work for both, and asserts that the small project's work becomes available/dequeued without waiting behind the large project's queue, i.e., they're served from separate lanes keyed by size class. It likely also checks that an unscanned (unknown-size) project is treated as small.
-- found: Builds a queued list of four projects with varying known file counts (including one never-scanned/None), partitions into big/small by BIG_REPO_FILES threshold, and asserts the big lane gets linux+ceph while the small lane gets sanity+fresh, confirming unscanned repos count as small.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `queued`
-- spec 3 · read at `7b0a66caa3f1` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:25Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Test-fixture helper that builds a Vec<KnownProject> from a slice of (key, files) tuples, likely used to seed KnownProjects.projects in tests about scan queue ordering/lane assignment. Each entry sets key/repo/name from the string and files from the Option<usize>, with remaining fields (touched, scan_ms, trace_depth, harness, model) defaulted.
-- found: Test-fixture helper building a Vec<KnownProject> from (key, files) tuples, using the key string for key/repo/name and defaulting all other fields (touched=0, scan_ms/trace_depth/harness/model=None).
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `a_project_added_but_not_yet_scanned_is_in_the_index` — PREDICTED SOME
-- spec 3 · read at `d548cff5aa96` · commit `443bab0` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:58:56Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Test that adds a project but does not let its scan complete (so `touch` never ran), then checks/persists the project index and asserts the project is still listed there rather than being dropped — verifying the fix where a quit before first scan completion used to lose the project entirely.
-- found: Test calls remember() to add a project and checks it appears in the on-disk index immediately (before any scan). It then also verifies that re-adding (remember called again, as happens on every add) does not duplicate the project or reset configured harness/model set via set_reader.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: The doc explained the historical bug (quit-before-scan lost the project) but the test body's second half, about remember() being idempotent and preserving reader config, wasn't hinted at by the docs.
-
-### `a_project_on_two_lists_is_still_one_row`
-- spec 3 · read at `f53e7257e771` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Builds a state with the same project key present in the loaded, declined-for-cost, and pending-scan lists, then calls the sidebar/rows builder and asserts exactly one row for that key (with the right precedence between lists). Likely uses project_of/task helpers.
-- found: Test: registers a temp repo in the reports index, puts its key in awaiting (declined) and restoring (pending), asserts ProjectList::from_state yields one row; then inserts it as loaded and asserts still one row.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `removing_a_project_takes_what_was_derived_from_it`
-- spec 3 · read at `6ea68bf0b325` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:49Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a project with cache slots of multiple kinds (e.g. scan cache, trace cache) written to disk, calls the forget/remove-project operation, and asserts that all of those cached files are actually deleted from disk — checked per kind since the deletion logic walks each cache directory separately and a single-kind check wouldn't catch a bug in the others.
-- found: Writes one cache slot per kind (trees/scans/traces/timelines/edits) for a project plus one slot for an unrelated other repo, forgets the project via AppState::forget, then asserts: the project list is empty, every one of this project's slots is gone, the other repo's slot survives (deletion is scoped by hash), and the actual repo files on disk are untouched.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I missed the cross-repo isolation check (spared slot) and the assertion that the source repo files themselves are never touched — both are real, deliberate parts of the test.
-
-### `a_restore_lane_does_not_take_the_view_back`
-- spec 3 · read at `ed5e253ec513` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:57:26Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: This test starts a restore (naming a prior session's project as `active`), then simulates the user switching to a different project mid-restore before that first project's scan lane finishes, and asserts that when the original lane's scan lands, it does not re-set `active` back to the old project — i.e., the user's later click wins and the restore lane's completion is a no-op for the active pointer.
-- found: Sets `active` to a different project name, then calls `drain` (a restore lane) with one known project; asserts the lane lands the project into `state.projects` but leaves `active` untouched, confirming a lane completing its scan does not reset the view to the project it just scanned.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no · test: yes
-
-### `an_asked_open_lands_at_the_depth_it_was_traced_to` — PREDICTED SOME
-- spec 3 · read at `a6ab1a094c63` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:54:05Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Opens a project via the agent API's 'ask' open path with a specific trace depth, then asserts the resulting project record shows that traced depth rather than defaulting to Untraced — verifying the fix so that both the window's Open and the API's asked-open set the trace field consistently.
-- found: Sets up a project with a held lease, pends and settles a restore, then runs scan_asked (which traces at depth Files by reading the commit log) and publishes the result via publish_asked. Asserts the published project's trace.depth is Files (not defaulting to Untraced), that the stale lease was cleared by the rescan, and that the project became active — bundling several invariants (restoring visibility, lease survival, trace depth, active project) into one test rather than isolating just the trace-depth fix the docs describe.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no · test: yes
-- note: The test covers more ground than its name/docs suggest — lease clearing and active-project state are asserted here too, not just the trace depth.
-
-### `a_reset_leaves_a_row_to_scan_again`
-- spec 3 · read at `4744d77d4a4f` · commit `61f7997` · read by claude-sonnet-5 · via claude · when 2026-09-06T18:35:47Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a project loaded in AppState, then calls unload() (the live-state-dropping half of reset) rather than the full reset_project command (which needs a Tauri handle), and asserts the resulting ProjectList still contains a row for that project — sourced from the index — with zeroed counts, loading: false, and trace_depth Untraced, confirming Reset leaves a row behind rather than removing it like Remove does.
-- found: Confirms exactly what I predicted: loads a project, calls unload() (the live-half of Reset), and asserts the row survives in ProjectList sourced from the index with zeroed/untraced state and loading:false.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-- note: I had already read this exact test verbatim while doing the whole-file reading of agentapi.rs a few items earlier in this session, so this is recall rather than a genuine prediction — reporting cold:false accordingly.
-
-### `a_touch_cannot_erase_what_only_the_index_knows`
-- spec 3 · read at `1b1e7991da45` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:16Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Test sets up two known projects in a temp data home, gives the index-owned fields (harness, last scan cost, trace depth) non-default values for both, then triggers a touch/select on one project which calls persist. It reloads the index and asserts every field of both projects, including the untouched one, is preserved.
-- found: Test writes one real project into the index via reports::remember/set_reader/note_scan/note_trace, touches it and a nonexistent other path, reloads the index, asserts trace depth, scan_ms, harness and model persisted. Only one real project, not two.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `a_save_mid_restore_does_not_erase_projects_it_has_not_loaded`
-- spec 3 · read at `5c9ab20ad609` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:42Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: This test seeds an index with several known projects, simulates a restore in progress where only one has been rescanned/touched so far, then triggers a save/persist mid-restore and asserts the on-disk index still contains all the original projects (not just the one loaded) — proving save merges against the existing record rather than overwriting it wholesale from the partially-populated in-memory map.
-- found: Seeds an on-disk index with projects /a and /b, then simulates a session that has only restored /b, updates its touched count, and calls persist(). Asserts the reloaded index still contains both /a and /b (no duplicates), that /b's touched value was updated in place, and that active reflects the session's choice.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `drop` #2 — PREDICTED NONE
-- spec 2 · read at `04e9140a98c8` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:47:34Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Drop for DataHome::drop performs cleanup when the struct goes out of scope — likely calling something like stop_all_runs() to cancel in-flight agent work and release_endpoint() to free a held port/lock, so the data-home doesn't leak background processes or a claimed endpoint when the app shuts down or the object is replaced.
-- found: A test-fixture guard's Drop impl: clears a global HOME_THREAD lock to None and restores (or removes) the SANITY_DATA_DIR env var to whatever it was before the guard was created, rather than doing any run-stopping or endpoint-release cleanup.
-- predicted: none · documented: none · derivable: no · legible: full · trap: no
-- note: Owner name DataHome and peer list (stop_all_runs, release_endpoint) misled me into expecting production shutdown logic; it's actually a test-only env-var/lock guard.
-
-### `data_home`
-- spec 3 · read at `6936aefd7812` · commit `6f88fc1` · read by claude-sonnet-5 · via claude · when 2026-08-14T04:57:26Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A test helper that creates a fresh temporary directory to act as an isolated data home (so tests don't collide with each other or the real user data directory), likely setting an env var or similar to point the app at it, and returns a DataHome guard struct whose Drop impl cleans the temp directory back up when the test ends.
-- found: Test helper: takes a global ENV_LOCK mutex guard (serializing tests that touch env vars), creates a tempdir, sets SANITY_DATA_DIR to it (saving the previous value), records the current thread id in HOME_THREAD, and returns a DataHome guard bundling the lock guard, tempdir, and previous env value for restoration on drop.
-- predicted: most · documented: none · derivable: no · legible: full · trap: no
+### `serve` — TRAP
+- spec 3 · read at `e337523935f4` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:05Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: An async function that binds a TcpListener to 127.0.0.1:0 to get an OS-chosen port, builds the router over the shared state, spawns axum::serve in a background task, and writes the endpoint file with this pid and port so other processes can find it. It probably also spawns the watcher loop, and returns the bound port as u16 or an error.
+- found: Binds 127.0.0.1:0, reads back the OS-picked port, and writes {port, pid} to endpoint_file() if one exists, ignoring any write error. Builds the router over the shared state and runs axum::serve in a spawned task, discarding its result. Spawns an endless loop that sleeps WATCH_TICK and calls watch_tick. Returns Ok(port). Only the bind can fail the call.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: Both the endpoint-file write and the axum::serve task result are discarded with `let _`. If publishing fails, the backend runs on loopback that no client can find, with no log and no error to the caller. If axum exits, the port stays published and nothing reports it. The watcher loop is spawned with no handle and never stops.
 
 ### `standing_down_withdraws_only_its_own_claim`
-- spec 2 · read at `47867a4f2199` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:37Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A test that writes the endpoint file with this process's own port/claim, then simulates a second writer overwriting it with a different port (as if the app already took over the backend), calls the stand-down/release cleanup that runs on daemon exit, and asserts the endpoint file still contains the second writer's data rather than being deleted — proving removal is conditional on the file still matching this process's own claim.
-- found: Three-part test: (1) release_endpoint with a pid that doesn't match the file's current pid leaves the file untouched (supersession case), (2) release_endpoint with a matching pid deletes the file, (3) calling release_endpoint again on an already-gone file doesn't panic (race-safety). I predicted case 1 correctly but missed the matching-pid deletion and the idempotent-double-call assertions.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `outstanding_itemises_only_live_leases_on_unread_work`
-- spec 3 · read at `a45c8fb765f0` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:04:06Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a function, claims/leases it (simulating an agent taking it to work on), then submits a report for that same function through another path (as if the reading landed before the lease was formally released), and asserts that outstanding/in_flight no longer counts that lease — i.e., leases on already-answered work don't inflate the outstanding count, only genuinely unread work with a live lease does.
-- found: Builds a real two-function file/project fixture, checks work_left() with no leases (0 in_flight, empty outstanding), then leases one function (in_flight=1, outstanding itemises its id, remaining still counts it since a lease isn't a reading), then inserts a report for that same function to simulate the reading landing, and asserts in_flight drops back to 0 and outstanding empties — the stale lease no longer counts.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `a_rescan_does_not_throw_away_the_run_it_lands_in_the_middle_of`
-- spec 3 · read at `96906e71410d` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:37Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a project with an agent-run in progress and predictions already committed for readings still in flight, triggers a rescan mid-run, and asserts the rescan doesn't discard the run or wipe its in-flight predictions back to empty, since that volatile state can't be reconstructed from a fresh scan.
-- found: Builds a project with an in-flight lease, a committed prediction, and a live Run, rescans it, and asserts predictions/leased/run survive with run.spawned preserved, events log length is 1, and the scanned counter increments; then checks a rescan with no prior project (None) starts completely empty (no run, no leases, no predictions).
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-- note: Docs explain the deeper rationale (predictions are the volatile, unrebuildable half) that isn't as explicit from the code/assertions alone.
-
-### `the_summary_counts_neither_stale_readings_nor_unknown_positions_as_good_news`
-- spec 3 · read at `7105c89174b5` · commit `bdc9440` · read by claude-sonnet-5 · via claude · when 2026-09-04T19:54:09Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Builds a small fixture with a stale reading and a reading that has no recorded position, runs whatever summary/coverage computation the orchestrator uses, and asserts both readings are excluded from the "good" counts (coverage, first-reading/freshness tallies) — i.e. neither staleness nor an unknown position get silently counted as progress.
-- found: Bank three readings (two normal at positions 1 and 7, one stale against a body that no longer matches); asserts stale is excluded from total/model coverage but tallied separately, and that position buckets are per-exact-position with no invented buckets. Then overwrites one reading with position=None and re-aggregates, asserting it counts as `unrecorded` rather than falling into position 1 or staying in its old bucket.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
-
-### `same_named_methods_arrive_with_the_type_they_hang_off`
-- spec 3 · read at `f3f41efed56f` · commit `d456616` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:02:15Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: This test sets up a scenario with two same-named methods on different owning types (like two `parse` methods on different structs), runs whatever produces the task/peer list (likely collect_tasks or the queue), and asserts both appear distinguishable — each qualified by its owner (e.g. TypeA::parse, TypeB::parse) — rather than being deduplicated down to one bare-name entry.
-- found: Writes a file with two impls each defining a `parse` method, runs collect_tasks, and asserts: two tasks come out, each tagged with its own owner type; each task's peers list contains exactly the other twin (qualified as `Owner::parse`, not bare); peers_omitted is 0; and a function never lists itself (via qualify) as its own peer.
+- spec 3 · read at `c8294826d3af` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:53Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: This is a test in the tests module. It probably writes an endpoint file naming some other pid or port, then runs the standing-down path and asserts the endpoint file is left alone, while a second case checks that a backend naming its own pid does remove it. It likely uses the release_endpoint or read_endpoint helpers from its peers to check the file contents.
+- found: Test. Writes an endpoint file naming port 4242 and pid 1234, calls release_endpoint(999) and asserts the file still names 1234 (a superseded daemon must not remove the successor's claim). Then release_endpoint(1234) must delete the file, and a second release_endpoint(1234) on the now-missing file must not panic.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no · test: yes
 
-### `an_excluded_file_leaves_the_queue_and_stays_in_the_count`
-- spec 3 · read at `660483c05bea` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:04:25Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a small repo/index with a file, applies a .sanityignore rule excluding that file, and asserts the file is no longer offered by the queue while the totals/counts still reflect its existence — proving exclusions are tracked rather than silently vanishing from completeness math.
-- found: Confirms no default exclusions exist (3 kept, 0 excluded with no .sanityignore), then after writing .sanityignore excluding tests/, checks kept/excluded counts become (1,2), the task queue only yields the non-excluded function, and the per-directory shape summary reports both the excluded count and zero functions for that dir.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no · test: yes
-
-### `a_reading_for_a_deleted_function_is_not_coverage`
-- spec 3 · read at `a04e2f65d7b0` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:23:47Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: This test creates a project with a function, records a reading/report for it, then triggers a rescan where that function has been deleted from the source, and asserts that the assessed/coverage count (e.g. via /status or summary) no longer counts that stale reading — verifying the bug described in the docs (deleted-function readings inflating assessed) stays fixed.
-- found: Writes a two-function file, inserts a Report for each function's id/body, asserts assessed()==2, then rewrites the file with one function removed, rescans, swaps in the new scan, and asserts assessed()==1 — confirming the orphaned reading no longer counts.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `deleting_a_twin_expires_the_survivors_reading_rather_than_moving_it`
-- spec 3 · read at `4a0eea5e5cf5` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:59:38Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Creates a file with two same-named functions (twins) with different bodies, records a report/reading for the first one, then rewrites the file deleting that first twin so the surviving second twin takes over ordinal 0 (the deleted one's old slot). After a resync, it asserts the survivor's reading is expired/stale rather than silently treated as valid coverage for the survivor, because the recorded body hash doesn't match the survivor's actual body — proving positional matching alone doesn't wrongly transfer a reading between twins.
-- found: Matches prediction closely: two same-named twin functions, reports recorded for both (body snapshot = original body text), first twin deleted so the survivor slides into ordinal 0, resync_changed runs, and it asserts the survivor's inherited reading is flagged stale via assessment::is_stale comparing recorded body against the survivor's actual current body.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `findings_come_before_the_rest_of_the_unread_and_stale_before_both`
-- spec 3 · read at `146300745e9c` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:40Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Test: creates a temp repo with three small files and a repo-local rule that flags exactly one function; builds project_of, adds a stale report for another function, then calls queue-like collect_tasks + findings_first and asserts order: stale first, flagged unread next, remaining unread last.
-- found: Test: three files, a repo-local rule flagging one long unread function, a stale report on another; asserts priority bands 2 (stale), 1 (flagged), 0 (plain) after collect_tasks and findings_first.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no · test: yes
-
-### `a_file_is_queued_as_its_own_reading`
-- spec 3 · read at `6fc15b301436` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:03:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Builds a scan containing a file that has a doc-comment header, drains the queue via next(), and asserts that the file itself appears as a queued task (not merely as context injected into its functions' readings) — so the file's banner prose is directly graded rather than silently escaping assessment.
-- found: Writes a file with a `//!` module-level doc header and two functions, runs collect_tasks, and asserts exactly one file-kind task exists keyed by path (not `#function`), carrying the header doc, all declarations as peers, a non-empty `ask` field, while the two functions still appear as ordinary non-file tasks.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no · test: yes
-
-### `a_file_reading_expires_on_its_header_and_its_surface` — PREDICTED SOME
-- spec 2 · read at `011abc3cd53e` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:23:57Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A test that creates a file, records a reading of it, then edits only the function body and asserts the reading is still valid (not expired), then edits the file's banner/doc comment or top-level declarations and asserts the reading is now expired.
-- found: Tests the underlying hash used to gate file-reading validity, not an actual reading/lease lifecycle: it computes a content hash for a file's declarations via project_of/scan, and asserts the hash changes when the doc banner changes, when a declaration's signature changes, or when a new declaration is added, but stays the same when only a function body changes.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: I expected an end-to-end expiry check via a reading/lease API, but it actually just compares a derived hash string across file edits.
-
-### `a_long_file_sends_the_neighborhood_and_counts_the_rest`
-- spec 2 · read at `f3ec72c0fa86` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:07:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A test that sets up a file with many functions (more than the neighborhood/peer window size), calls the next/open handler for one of them, and asserts that the returned peers list is capped/truncated to some fixed size while peers_omitted correctly reports the count of remaining functions not included, verifying the two numbers are consistent (peers.len() + peers_omitted == total siblings).
-- found: Unit test of a `neighbors` helper: for a 100-function file it checks the window is centered around the middle index and equals PEER_WINDOW size with the correct omitted count, that the window slides (not truncates asymmetrically) at the first and last index, that a function never appears as its own peer, and that a file small enough to fit entirely returns all peers with omitted=0.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: I predicted the general truncation/count invariant but missed the specific edge-sliding behavior and the self-exclusion assertion, which turned out to be the more interesting parts of the test.
-
-### `a_file_that_moved_is_re_cut_before_anything_is_handed_out`
-- spec 2 · read at `25a55854a18c` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:03Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Test that takes a scanned file, then edits it (e.g. inserts lines above a function so everything below shifts), and verifies that when a task/reveal is handed out for that file afterward, the line ranges are recomputed against the current file content rather than the stale scan — so the reader gets correct extents instead of code that has shifted underneath the recorded range. It probably asserts the returned source/lines match the function's new position, not the original cached one.
-- found: Writes a two-function file, scans it, then rewrites the file with three comment lines inserted above (shifting both functions down) plus a new third function. Calls `resync_changed` and asserts it reports 1 changed file, that the line numbers for the existing functions follow the shift, that the body hash for the unmoved function is unchanged (so its reading isn't expired by a pure line-shift), and that the brand-new function does NOT appear yet — new declarations only arrive on a full rescan, not resync.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-- note: Missed the specific mechanism name (resync_changed) and the important distinction that resync only re-cuts existing nodes' positions/hashes without inventing new ones — that's the real point of the test, which I only partially anticipated.
-
-### `a_function_that_is_gone_stops_being_offered` — PREDICTED SOME
-- spec 2 · read at `ac71df55ca7a` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:50Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: A test that scans a repo containing a function, queues it for assessment, then rewrites the file to remove that function and triggers a rescan, and asserts that a subsequent next/handout call never returns that now-deleted function — it's dropped from the queue rather than being served at a stale line range.
-- found: Writes a file with two functions, resyncs (0 changes), rewrites the file dropping one function, resyncs again (asserts 1 change detected), then walks the resulting scan tree and asserts only the surviving function's name remains — verifying the deleted function is scrubbed from the tree itself via resync_changed, not tested through a next/handout call.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: I assumed the test would go through the queue/next handout path since the doc says 'not handed out at stale lines', but it actually verifies removal at the scan-tree level via resync_changed.
-
-### `a_late_restore_does_not_replace_a_project_holding_a_run`
-- spec 3 · read at `282b21723351` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:49:32Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A test that opens a repo and attaches a run to the project, then simulates a late-landing restore for the same repo, and asserts the project (and its run/harness) is not replaced — the existing project remains and the run is still attached.
-- found: Test: builds a project with a run and a lease, inserts it, asserts land_restored refuses to replace it (run and lease kept), and that land_restored on an unopened path inserts the restored project.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Docs cover the scenario in prose; the second half (no project open, restore lands) is not mentioned.
-
 ### `a_backend_with_a_wave_in_flight_is_not_retired`
-- spec 3 · read at `c48d18075449` · commit `8e85a1e` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:43:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Test sets up an agent-API backend with an active wave/lease outstanding, then triggers the retire/cleanup path (e.g. a sweep or shutdown of idle backends) and asserts the backend is still present/not removed. Likely creates state, hands out a task, calls the retire function, checks it remains.
-- found: Test builds a project with an in-flight Run, calls retire(): refuses with reason "window" when not headless, then "busy" once headless (and not retiring), then after run.ended is set retire succeeds and retiring() is true. I missed the window-refusal stage and the run-ending stage details.
+- spec 3 · read at `9a1519e57bf4` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:35Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: An async test that starts a backend, marks a wave as in flight (a run that is live), then asks it to retire via a newer build id, and asserts the retire is refused so the daemon keeps running and the endpoint stays published. It probably also checks that once the run ends the retire goes through. Setup uses the router/retire/any_run_live helpers rather than a real signal.
+- found: An async test. Builds a project with an active run (3 spawned, none finished, ended=None). Calls retire() with no headless mode: refused with reason "window" because a window owns the backend. Then sets headless: refused with reason "busy" because readers are mid-wave, and retiring() stays false. Then marks the run ended, and retire() succeeds and sets retiring() true.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `endpoint_reads_back_what_was_published` — PREDICTED NONE
+- spec 3 · read at `ba6bc259be50` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that publishes an endpoint (port and pid) to the endpoint file using the writer, then reads it back with read_endpoint and asserts the port, pid and derived URL round-trip unchanged. It likely uses a temp directory and may also check that a mismatched or missing file yields None.
+- found: Builds an Endpoint literal {port 51823, pid 4242}, checks url() == "http://127.0.0.1:51823", then serializes port and pid to JSON with serde_json and checks the fields read back as those numbers. It never writes or reads an endpoint file and never calls read_endpoint or the publish path.
+- predicted: none · documented: some · derivable: no · legible: full · trap: no
+- note: The docs say this test round-trips the endpoint file through the shared parser, but the body only checks url() and a serde_json round trip of a literal. Either the test is weaker than its name or the docs overstate it; the file-level round trip is not covered here.
+
+## src-tauri/src/agentapi/sidebar.rs
+
+### the file itself — LEGIBLE SOME
+- spec 3 · served in 2 parts · read at `b2d23d4c44bd` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:16Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This file builds the sidebar's project list: a ProjectList made from the saved index plus any live project state, with each row showing counts and run status when loaded, and zeroes marked unmeasured for unloaded or reset projects. It likely has from_state, unloaded, an ordering setter, and a few helpers, with tests about adding, removing and deduplicating projects.
+- found: The file defines the ProjectSummary and ProjectList structs the sidebar serialises, and builds them in from_state: loaded projects get counts, run, events and trace state from live AppState, while the rest of the index (declined, restoring, reset) is added as zeroed unloaded rows, de-duplicated across lists and sorted by the user's order then recency. It also has set_order to persist the arrangement, plus tests for pending projects surviving, one row per project, Remove deleting caches, and Reset leaving a row.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The header covers the row rules, but the per-field docs and the index-is-the-list rule are where the real decisions live; anyone changing an unloaded row needs those, not the header.
+
+### `unloaded`
+- spec 3 · read at `c1ec651c82cc` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:09Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: unloaded builds a ProjectSummary for a KnownProject that is not loaded. It copies key, name and path, sets all counts and readings to zero or empty, keeps the configured harness and model from the index, and sets loading and scan_cost from the caller-supplied values or defaults. Most of it is a struct literal with zero fields.
+- found: A single struct literal that copies key, name, repo, touched, harness and model from the KnownProject. Every count, reading and the trace depth is zeroed or set to Untraced, and unloaded is set to true. loading is false and scan_cost is None; there are no caller-supplied parameters, despite the signature hinting at overrides.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `status_answers_about_the_callers_repo_not_the_window`
-- spec 3 · read at `207740eb8703` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:48:52Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: A test that sets up two projects, makes one of them the "open"/focused project in the window's shared state, then calls the /status endpoint passing the other project's key as a query param, and asserts the response describes that queried project (not whatever the window currently has open) — proving /status is keyed by request param, not window focus.
-- found: Sets up two projects, sets state.active to 'theirs' (simulating the window having drifted to a different repo) but touches 'theirs' then 'mine' last. Calls status() with an explicit project=/mine param and asserts it answers about mine, not the active window project. Then calls status() with no project param and asserts it still answers about 'mine' — the most-recently-touched/opened project, not state.active — proving status resolves by caller-supplied key or recency-of-open, never by whatever the window happens to be showing.
-- predicted: most · documented: none · derivable: no · legible: most · trap: no
-- note: Missed that the no-key case specifically tests recency-of-touch vs state.active, not just 'param vs window' — that's a second, distinct assertion beyond my prediction.
+### `from_state` — PREDICTED SOME
+- spec 3 · read at `a0268bffa3df` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:44Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: from_state walks the project index in AppState and builds one row per project, the list order coming from the index. For each row it checks the live state: a loaded project gets its counts, run status and active leases, while an unloaded, declined, or reset project gets only name and path with zeroes marked as unmeasured. The result is a ProjectList that the sidebar polls.
+- found: Builds a ProjectList from AppState in three sources: loaded projects (full summaries, including working flag, run, leases, trace state), declined-for-cost projects (awaiting, with scan_cost estimate), and restoring projects (loading with progress), then appends any index entry held by none of them as an unloaded zeroed row. Sorts by the user's arranged order first, then by most recently touched. Index is read once per call.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+- note: The index is the source of the list, not live state; Reset/Remove depend on that, so don't move rows to be derived from state.projects alone.
 
-### `lease_kind`
-- spec 2 · read at `ffaf4f3556c5` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:52:35Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test helper that repeatedly requests/pops tasks from the shared queue for the given project key, discarding (but leasing, so they're not handed out again) any task that doesn't match the wanted kind (file vs function, per want_file), until it finds and returns one that does match. This avoids tests being order-dependent on which kind of task the queue happens to serve first.
-- found: A test-fixture helper that calls the real `queue` endpoint in a loop (up to 16 times), requesting one task at a time for a given project key, and returns the first task whose `file` flag matches `want_file`. Panics with a descriptive message if it never finds a matching one within the retry budget.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-- note: The bounded retry (16 attempts) and panic-with-message on exhaustion were details I didn't predict, though the core mechanism matched.
+### `set_order`
+- spec 3 · read at `0fbec1e70b20` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:55Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: set_order takes the shared state and a list of project keys and stores that as the user's sidebar arrangement, probably by locking state and replacing a stored order vector, then persisting it to the index so it survives restarts. Keys missing from the list are likely appended or dropped, and it returns nothing. The doc suggests the order is remembered across sessions.
+- found: Locks state, overwrites s.order with keys verbatim (no merging, no dropping of missing keys), then s.persist(). Returns nothing.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `reveal_serves_the_functions_own_lines_and_no_more`
-- spec 3 · read at `436ea881c407` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:59:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Builds a small fixture scan with a file containing a function at a known line range, drives it through the agent API to get a task and then reveal it, and asserts the source returned is exactly the function's own lines (start_line..end_line) — not the whole file's contents and not neighboring lines outside that range.
-- found: Writes a fixture file with two functions (one printing "1", the other printing "SECRET"), leases a task, calls reveal, and asserts the returned source contains the leased function's own name but not the sibling function's distinguishing content — checking for leakage rather than an exact line-range slice equality.
+### `a_project_added_but_not_yet_scanned_is_in_the_index`
+- spec 3 · read at `b16524f6a477` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:50Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This is a unit test: it adds a project to the index without scanning it, then checks that the project still appears in the index (and so survives a quit), probably by building the state, calling the add/touch path, and asserting the index lists the project with its path and no scan counts.
+- found: Calls remember for "/big", asserts the index holds one project with that key; then sets reader harness/model, re-remembers, and asserts no duplicate and that harness and model survived. Tests that re-adding preserves configuration.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: Predicted the existence check but missed the second half: the test's real claim is that re-adding a project keeps its configured harness and model.
+
+### `a_project_on_two_lists_is_still_one_row`
+- spec 3 · read at `a58cb03d1468` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:45Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A test that puts the same project key into more than one source (loaded, declined, pending scan) and asserts the sidebar ProjectList still yields exactly one row for it. It probably builds state with a declined entry and a pending scan for one key, then counts rows matching that key and checks the name appears once.
+- found: Puts one key into the index via reports::remember, then into both awaiting and restoring, and asserts ProjectList::from_state lists it once. It then inserts a loaded project for the same key and asserts it is still listed once. The index-registration step is a required guard, since without it the declined row cannot appear and the test would pass regardless.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+- note: The remember() call is load-bearing: the test only exercises the bug if the key is in the index first, and the comment says so.
+
+### `removing_a_project_takes_what_was_derived_from_it`
+- spec 3 · read at `18e8aab70858` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:23Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A unit test that sets up a project with derived cache files for each kind of slot, runs the remove operation, and asserts that the project's cache directories and files are deleted as well as its index row. It likely also checks that a reset keeps the row, contrasting with remove.
+- found: Test: creates one cache slot per kind (trees, scans, traces, timelines, edits) for a temp repo plus a slot for an unrelated repo, forgets the project, then asserts the row is gone, every slot for this repo is deleted, the other repo's slot survives, and the source file is untouched. Does not test reset.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `an_oversize_function_leaves_the_queue_and_is_counted_apart` — PREDICTED SOME
-- spec 3 · read at `bb173b63af52` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:00:58Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a project/scan with a function whose byte extent exceeds READ_CEILING, then verifies the three places that must agree: the task queue never hands it out, the counts report it under `oversize` distinct from `excluded`, and calling reveal against it is refused rather than serving a body — proving the queue, the count, and reveal all treat it consistently as unreadable.
-- found: Writes a file with one oversize function (past READ_CEILING) beside one small readable one, then checks `count_funcs` reports oversize=1/kept=1/excluded=0, and drains the `queue` endpoint to confirm the small function is handed out while the huge one never is. It does not exercise `reveal` at all, and the real point of the test — that the small function survives having an unreadable sibling in the same file — is something I didn't anticipate.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc claims three places (queue, count, reveal) must agree, but this particular test only exercises two of them (queue and count) — reveal's agreement must be covered by a different test.
+### `a_reset_leaves_a_row_to_scan_again`
+- spec 3 · read at `2e6b993392c8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is a test that checks a project's row survives a reset. It likely builds state with a project, calls the reset logic or simulates it, then asserts the index entry still lists the project while its caches are gone and it is not loaded. Probably it asserts on the resulting state directly, since the doc says the reset call needs a Tauri handle.
+- found: Test that a reset leaves a listed row. Sets up a temp repo with a file, remembers its report key, inserts a project_of fixture into AppState and makes it active, checks the list has one row, then unload(key) and asserts the row still exists with the key, name "t" from the index, not loading, zero functions, and Depth::Untraced. Uses state.unload, not reset_project, so no Tauri handle is needed.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
 
-### `a_paged_body_reassembles_to_the_original`
-- spec 3 · read at `d2e1e5d13a4e` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:00:39Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Builds a large string body, calls the part-splitting function (likely `parts_of`) to cut it into multiple parts, then concatenates all the returned parts back together and asserts the result is byte-for-byte identical to the original body — proving paging doesn't lose or alter any bytes.
-- found: Confirmed the core reassembly assertion (`cut.concat() == body`), plus two things I missed: every part must be ≤ PART_BYTES, and every part but the last must end on a line boundary (`\n`) so a cut never lands mid-line and reads as a syntax error to the reader.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The doc only explains the reassembly guarantee, not the line-boundary-cut invariant, which is arguably the more interesting design constraint in the test.
+## src-tauri/src/agentapi/state.rs
 
-### `a_small_body_is_served_whole_in_one_part`
-- spec 3 · read at `f317231d8ef8` · commit `3528c54` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:04:29Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A unit test that constructs a small function body (a few lines) and passes it through the paging/reveal logic, then asserts the resulting response reports parts == 1 and has no next_step / continuation, confirming small bodies are served whole rather than entering the paging protocol.
-- found: A unit test that calls parts_of() directly on a small 3-line function body string and asserts it returns a single-element vec equal to the original body — simpler than going through a full reveal response object, but confirms the same "small bodies aren't paged" behavior.
+### the file itself
+- spec 3 · served in 2 parts · read at `7814de10686d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the process-wide state holder: an AppState struct that maps loaded projects by key, plus a list of unloaded or pending rows. Its methods manage the sidebar list (touch, focus, forget, unload, persist) and route each incoming call to the right project via for_client and owner_of, with lock() as the single guarded accessor that tolerates poisoning. The tests cover restore races, keyless routing, and which project a reading belongs to.
+- found: The file holds the AppState struct: loaded projects, plus pending lists (restoring, awaiting, progress, shallow trees), the active window key, sidebar order, and a global refusal counter. Methods change what the sidebar lists (touch bumps recency and persists, focus moves the view only when asked or vacant, forget and unload remove a project, pend/settle/land_restored/publish_asked handle scan lifecycle), and persist merges live state into the on-disk index rather than overwriting it. Routing is for_client (explicit key if loaded, else most recently opened) and owner_of (the project that issued the id, via lease or scan, with a sorted tie-break). lock() recovers from mutex poisoning. Roughly 500 lines are about a third code and two thirds comments and tests covering races and routing.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+- note: The file docs cover the verbs and routing but not persist's merge rule, which decides what survives a save: index entries for unloaded projects are kept, and for loaded ones the banked harness, model, scan cost and trace depth are carried over from the index. Anyone adding a KnownProject field must carry it through persist, and the test catches only the fields it names.
+
+### `persist` — LEGIBLE SOME — TRAP
+- spec 3 · read at `291a2b6d7f22` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:30Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: AppState::persist writes the project index to disk. It likely reads the existing index file first, then merges the in-memory loaded projects over it so projects not loaded this session are kept, and writes the merged result back, skipping on error or when nothing changed.
+- found: Loads the disk index, builds a KnownProject per live project carrying over scan_ms, trace_depth, harness and model from the banked record, drops live keys from the index and appends the live records, updates active and order only when non-empty/set, sorts by touched descending, and saves. Under cfg(test) it debug-asserts the thread holds the test home lock.
+- predicted: most · documented: full · derivable: no · legible: some · trap: yes
+- note: Each live record is built fresh, so any index-only field (scan_ms, trace_depth, harness, model) is copied from the banked entry by hand. Adding a field to KnownProject without copying it here silently erases it on the next touch. The tripwire test exists, but nothing else flags a new field.
+
+### `forget`
+- spec 3 · read at `0b74412b13eb` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:10Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: forget removes the project keyed by `key` from the AppState's loaded map and from the on-disk index, so the entry is gone from both and won't return on the next launch. It also deletes the derived caches for that project (tree, scan log, blame, timeline) under Application Support, and leaves the repo and its .sanity readings alone. Any run in flight is stopped implicitly because the next call finds no project.
+- found: Looks up the repo path from the on-disk index before removing anything. Removes the key from the loaded projects map, the declined (awaiting) list, and the restoring list, and clears active if it pointed at this key. Edits the index on disk: drops the project entry and clears index.active if it matched. Persists afterwards so live state doesn't write the entry back. Last, if the repo path was found, calls reports::forget_all to delete the derived caches. No run is explicitly stopped; the next call simply finds no project.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `unload`
+- spec 3 · read at `93c453f0ec56` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:24Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Method on AppState that removes the loaded project entry for the given key from the map of live projects, and probably clears its routing/ownership so no caller is sent to it. The project stays in the index and list, so it can be reloaded later.
+- found: Removes the key from the loaded projects map, the awaiting map, and the restoring list, and clears the active selection if it was this key. Leaves the index alone so the project stays in the list.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `a_report_with_parts_outstanding_is_refused`
-- spec 3 · read at `a30acc5a93ce` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:01:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Builds a fixture with a function large enough that its body pages into multiple reveal parts, leases the task, calls reveal for part 1 only (not fetching the remaining parts), then immediately submits a report and asserts the server rejects it (ok: false / an error) because outstanding parts were never revealed — the server enforces this itself rather than relying on the reader to have honestly fetched everything first.
-- found: Confirmed the refusal (ok:false, saved:false) when reporting with parts outstanding, but the test goes further than I predicted: it then fetches the remaining parts (each with a different, deliberately wrong `expected` string that "must not land"), resubmits the original report which now succeeds, and asserts the lease survived the refusal (same task still reportable) and that the stored prediction is still the very first one written, plus that `paged` is stamped with the server's own part count rather than anything reader-supplied.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `a_second_reveal_cannot_revise_the_prediction`
-- spec 3 · read at `335b6855eb85` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:00:15Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a fixture project, leases a task, calls reveal with expected="first guess" and again with expected="second guess" for the same task id, asserts both calls return the identical source text, and checks internal state (e.g. the task's stored prediction field, or the behavior of a subsequent report call) to confirm the recorded prediction is still "first guess" — the second call did not overwrite it.
-- found: Two reveal calls with different `expected` strings on the same task return identical source; a report is then submitted carrying the revised expected value ("actually it prints 1"), and the stored report's expected field is asserted to still be the original first guess ("a wild guess") — confirming the report handler ignores/discards a client-supplied expected rather than trusting it.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `reveal_without_a_lease_is_refused`
-- spec 3 · read at `cbb4e5bfda30` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:59:41Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test: spins up a test app/state with a scanned project, picks a valid node id that was never handed out via sanity_next (so it has no entry in `leased`), calls the `reveal` handler directly with that id, and asserts the JSON response comes back `ok: false` with an error mentioning the id isn't out with the caller — exercising the lease-check branch seen in `reveal`.
-- found: Builds a test project from a temp dir with one function, takes its id straight from the scan (never leased via sanity_next), calls the `reveal` handler directly, and asserts ok:false, null source, and — beyond what I predicted — that no prediction got recorded for that id despite the refused call.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Missed the extra assertion that a refused reveal must not record a prediction, which matters given `reveal`'s or_insert-into-predictions logic seen earlier.
-
-### `a_file_task_is_revealed_whole`
-- spec 3 · read at `6de8acc84299` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:59:51Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: This is a test verifying that when sanity_next hands out a file-kind task, sanity_reveal returns the entire file rather than truncating to the file node's end_line (which the docs say only reaches the last declaration). It likely sets up a scan with a file whose declarations end before the file's actual length, requests a file task, reveals it, and asserts the returned source spans the full file rather than being cut short.
-- found: Test: writes a small .rs file with a header comment before the one function and a trailing comment after it, leases a file-kind task for it, reveals it, and asserts the response is whole_file:true with source containing both the header and trailing comment — proving the file isn't sliced down to its last declaration's end_line.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `a_pathless_open_answers_from_what_a_human_added`
-- spec 3 · read at `6dfdb0f08d2c` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:53Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Exercises resolve_open(&state, None) across three scenarios: zero known projects (errors, since only a person can fix "none"), exactly one known project (succeeds, returning that project's path since it's the only candidate), and multiple known projects (errors rather than guessing, e.g. picking the most recent).
-- found: Tests resolve_open(&state, None) with zero projects (errors, hint mentions "add"), one project (succeeds with that path), and two projects (errors, and the error's "projects" array lists both candidate paths for the human to choose from).
+### `touch`
+- spec 3 · read at `78fce9eed611` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: touch moves the given project key to the front of the history list, the most-recently-used ordering. It does not change the active or focused project, per the doc. Probably it finds the key's position, removes it, and inserts at index zero, and may persist the change, with a no-op if the key is absent.
+- found: Increments the state's logical clock, stamps the project's `touched` field with the new value if the key exists, then calls persist(). It does not reorder any list; recency is the touched stamp. Persist runs even when the key is absent.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `a_path_the_human_never_added_is_refused` — PREDICTED SOME
-- spec 3 · read at `ddefb2243364` · commit `15a4bd8` · read by claude-sonnet-5 · via claude · when 2026-08-26T08:09:13Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Creates a real, valid temp directory/repo on disk that was never registered via the human "add project" flow, then calls the API function that resolves a project by path directly with that raw path, and asserts the call is refused/errors — proving realness of the path isn't enough, only being in the human-added project list matters.
-- found: Seeds the known-projects index with a single project at key "/added", then asserts resolve_open succeeds for that exact path but returns an error JSON (ok:false, error naming the requested path) for an unrelated path "/somewhere-else" that was never added, using fabricated paths rather than real filesystem repos.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
+### `focus`
+- spec 3 · read at `2c71cd00b16b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:22Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: focus sets self.active to the given key and returns true when the view moves. If asked is false, it only moves when nothing is currently active or the active key is no longer loaded; otherwise it returns false and leaves active alone. Probably it checks that the key is loaded before switching.
+- found: Computes vacant = active is None, or active names a key no longer in projects. If not asked and not vacant, returns false without change. Otherwise sets active to key (no check that key is loaded), calls persist, returns true. The function never checks the new key exists.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `a_restored_or_opened_project_counts_a_readers_tests_as_the_export_does`
-- spec 3 · read at `cb02e6ce98db` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:52Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a small repo with a function and a reading that classifies it as a test (or as testing something), saves that reading, then exercises both the restore-at-launch path (drain) and the /open handler (open_project), asserting that in both cases the resulting scan/state has retest_tree applied so `under_test`/dependents reflect the reader's classification — matching what export-data or survey would compute — rather than only updating when a fresh reading lands during the session.
-- found: Builds a tiny git repo with a helper() called only by covers(), saves a reading classifying covers as a test and helper as not, then computes the expected (dependents, under_test) for helper directly via load+retest_tree, and asserts both the launch-restore path (drain) and the /open handler (open_project) produce that same classification on their in-memory scans.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no · test: yes
+### `pend`
+- spec 3 · read at `bc36b59342d4` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: AppState::pend is a method that records a project as pending, so the sidebar shows a restoring row while its scan runs. It probably inserts a restoring entry for key at root, removes key from the declined list, and returns the project's display name derived from root. It likely also persists the state so the pending row survives a restart.
+- found: Derives the name from the root's final path component (falling back to key), drops any existing restoring entry for key, removes key from awaiting, pushes a fresh restoring KnownProject with zeroed counters and no scan data, and returns the name. It does not persist; my guess that it did was wrong.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `work_detaches_from_a_thread_with_no_runtime`
-- spec 2 · read at `fe845b17e4cf` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A plain #[test] (no tokio runtime) that calls start_run (or similar) from a bare OS thread with no tokio context, then blocks/polls on a channel or flag until the detached spawned work actually executes, asserting no panic occurs and that the work genuinely ran (not just that detachment returned without crashing).
-- found: A plain #[test] calling `detached` with an async block that sends on an mpsc channel, from a thread with no tokio runtime, then asserts recv_timeout succeeds within 5s — proving the future actually ran, not merely that detaching didn't panic.
+### `settle`
+- spec 3 · read at `21a51d7dd683` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: settle takes a project key and removes it from the pending list, the rows waiting to be loaded or restored. It probably does a single remove or retain on the pending collection and does nothing if the key is absent. Its doc suggests callers invoke it on every failure path too, so it's a plain unconditional cleanup with no return value.
+- found: Removes the key from two structures: retains only entries in `restoring` whose key differs, and removes the entry from `restoring_progress`. It has no return value and is a no-op for absent keys.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `land_restored`
+- spec 3 · read at `c9129908a617` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A method on AppState that inserts a restored project under key only if no project is already loaded there, returning true when it inserts and false otherwise. If the key is already present it probably keeps the existing one and drops the incoming project. It may also do the persist step afterward.
+- found: Calls settle(key) and removes key from shallow unconditionally, then returns false if key already has a loaded project, leaving it untouched. Otherwise inserts the restored project under key and returns true. No persist call here.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `publish_asked`
+- spec 3 · read at `ffb95d7580dc` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:53Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A method on AppState that inserts a freshly scanned project into the projects map under the given key, storing its repo, scan, trace state and reports, clearing any leases on it since the rescan may have replaced those bodies. It probably also removes the key from the pending or declined lists, and if focus is true it makes this the focused project. Returns a bool saying whether the focus moved.
+- found: Derives a display name from the repo's file name and builds the Project through Project::rescan using the existing entry under key, so any live run is carried over rather than dropped. It stores the trace state and reports, clears leases and recent files, inserts the project, removes the key from awaiting, touches it, and returns whether focus moved.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `select`
+- spec 3 · read at `271e223d8d2e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:32Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: AppState::select takes a project key and makes it the focused project without bumping its touched timestamp, so the sidebar order and for_client routing stay put. It likely looks up the loaded project by key and sets a focus/selected field, and it probably does nothing (or refuses) when the key isn't loaded, returning nothing.
+- found: A one-line wrapper: self.focus(key, true). The true flag is what makes it a selection rather than an open (no touch). All the logic lives in focus.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `ping`
+- spec 3 · read at `f0ba73c35e1b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:32Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: An AppState method that records activity, probably by setting a last-seen timestamp or a counter on AppState so the process knows an agent is still calling. It likely takes &mut self, updates a field to now, and returns nothing. The name suggests a heartbeat for keeping the backend alive.
+- found: Sets self.last_agent to Some(Instant::now()), recording the time an agent last called. Nothing else is touched.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `most_recent`
+- spec 3 · read at `cfd6904bef95` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:36Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: AppState::most_recent takes &self and returns Option<String>. Per the doc it should return the key of the project with the highest touched stamp, i.e. the most recently opened one, not the focused one. It likely locks state, then picks the max by touched among loaded projects, returning None when there are none. It has no side effects.
+- found: Max-by-touched over the loaded projects map, mapped to a cloned key; None when the map is empty. No lock taken inside it, so the caller must hold the lock.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `for_client`
+- spec 3 · read at `be43efb920e9` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:55Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: for_client returns the project key a call belongs to. If the caller supplied a project and that project is loaded, it returns that key; if the caller supplied one that is not loaded, it returns None rather than falling back. If the caller supplied no project, it falls back to the active key. It is a short routing function over the loaded projects and the active key.
+- found: Two-arm match: a supplied project key returns Some(key) only if that key is in self.projects, otherwise None; no supplied key falls back to self.most_recent(), not to the active key as the doc implies.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: The no-key fallback is most_recent(), not the active project, so the doc's account of the fallback is out of date with the code or the doc is describing a different path; check which one is intended before relying on it.
+
+### `owner_of`
+- spec 3 · read at `fea4c2e45072` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:37Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: A method on AppState that returns the project key owning a function id. It probably first checks the caller's asked key and returns it if that project holds the id, otherwise searches loaded projects for the one whose live lease or scan contains the id, returning None if none do. Likely it locks the state and iterates the projects map.
+- found: Holds a project if its lease map contains the id or its scan does. If the caller's asked key is loaded and holds the id, returns it. Otherwise collects all holding keys, sorts them, returns the sole match, or among several prefers the most recently opened one if it is among them, falling back to the first sorted key. Returns None when none hold it. Takes &self with no lock inside.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `holds_id`
+- spec 3 · read at `e6b8f928f614` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:56Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: holds_id takes a Scan reference and an id string and returns a bool. Ids embed @line, so it most likely checks whether any function in the scan has an id equal to the given one, e.g. scan.functions.iter().any(|f| f.id == id), possibly also checking files. Pure lookup, no mutation.
+- found: Walks every node of scan.root via visit and sets found if any node.id equals id; returns whether any matched. Full traversal, not a short-circuit.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `lock`
+- spec 3 · read at `a0adc97839de` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:36Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: lock takes the shared state mutex and returns its MutexGuard, recovering if the mutex is poisoned by using into_inner on the PoisonError rather than unwrapping. It's a free function, so it's the single entry point for locking AppState, and it returns a guard instead of a Result so callers can't swallow an error.
+- found: state.lock().unwrap_or_else(|e| e.into_inner()): takes the mutex and, if poisoned, returns the inner guard anyway instead of panicking. Returns a guard, not a Result.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 
-### `work_detaches_from_inside_a_runtime`
-- spec 2 · read at `47b1ca72e105` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:07Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Async test that verifies a "work" helper (likely spawning blocking work onto a separate thread/runtime for CPU-bound or blocking tasks) functions correctly even when invoked from within an already-running tokio runtime, mimicking the axum handler's calling context. It probably calls the helper inside an async fn (itself run on a runtime) and asserts the result comes back successfully without panicking (e.g., avoiding a "Cannot start a runtime from within a runtime" error), contrasting with a sibling test that calls it from a plain thread with no runtime at all.
-- found: Test confirms that `detached(async move { ... })` actually runs the given future even when called from inside an existing tokio runtime (the axum handler's context), by sending a signal over a channel and using spawn_blocking to wait on it with a timeout.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: I predicted it wrapped blocking/sync work onto a thread; actually `detached` takes an async future directly, and the test just proves it executes rather than testing panic-avoidance.
+### `a_touch_cannot_erase_what_only_the_index_knows` — TRAP
+- spec 3 · read at `767349d38655` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:47Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that touching one project does not wipe index-only fields of another. It probably creates two projects with banked values such as trace depth and scan cost, touches one, persists, and asserts the other's record is unchanged. It may also enumerate every KnownProject field to catch new ones not carried through persist.
+- found: Test that touching projects does not erase index-only data. Creates a temp repo with a project in AppState, writes index entries via reports::remember, set_reader, note_scan and note_trace, touches that key and an unrelated "/somewhere/else" key, then loads the index and asserts trace_depth "lines", scan_ms 1234, harness "agy" and model "sonnet" survived.
+- predicted: most · documented: most · derivable: no · legible: most · trap: yes
+- note: The doc says every KnownProject field is asserted and a new field fails this test, but the body checks only four fields (trace_depth, scan_ms, harness, model). A field added to KnownProject and dropped by persist will not fail here. Either assert the rest or fix the doc.
+
+### `a_save_mid_restore_does_not_erase_projects_it_has_not_loaded`
+- spec 3 · read at `1b1cec340241` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:43Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that sets up AppState with some projects loaded and some pending restore rows, simulates a sanity_open arriving mid-restore, then saves/persists and checks the unloaded index entries survive rather than being overwritten by the live map. It probably asserts the persisted index still lists the projects not yet loaded after the save.
+- found: Test. Seeds the saved index with projects /a and /b, then a fresh AppState holding only /b (touched 9, active) calls persist(). Asserts /a survives in the reloaded index, there are exactly two keys with no duplicates, /b is updated in place to touched 9, and the active key is /b.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `a_late_restore_does_not_replace_a_project_holding_a_run`
+- spec 3 · read at `4de1fa985f5c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:49Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A test where a project is already loaded with a run attached, then a restore for the same key lands late via land_restored, and it asserts the existing project (with its run and harness) is kept rather than replaced. It probably checks the run id survives and the harness field is still set.
+- found: Loads a project with a live Run (harness "claude") and a lease under "/p", then calls land_restored for the same key. It asserts that returns false and that the run and lease survive. It then checks that land_restored for an unopened key "/q" returns true and inserts it.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `a_project_key_that_is_not_loaded_is_refused_rather_than_swapped`
-- spec 2 · read at `65ead1581dca` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:44:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is a test function verifying that calling the API with a project key that isn't currently loaded returns a refusal/error, rather than silently falling back to the "active" project and misattributing a reading to the wrong repo.
-- found: A unit test that builds an AppState with one loaded project ("/loaded", active), then checks state.for_client(): asking for the loaded key returns it, asking for an unloaded key ("/not-restored-yet") returns None instead of falling back to active, and asking for no key (None) defaults to the active project.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `looking_at_a_project_moves_neither_the_list_nor_the_routing`
-- spec 3 · read at `c9c6a207ee69` · commit `3528c54` · read by claude-sonnet-5 · via claude · when 2026-08-24T22:04:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This test creates two projects, establishes an initial "most recently opened" ordering via an explicit open/touch, then calls a project-viewing/selection action (e.g. select_project) on the other project, and asserts two things together: that the sidebar ordering list is unchanged (the viewed project didn't jump to the top), and that for_client(None) still resolves to the originally-opened project rather than the one just viewed — i.e. viewing a project is read-only and distinct from opening it.
-- found: A test asserting that state.select() (the sidebar click action) leaves both the sidebar ordering (touched timestamps) and the keyless for_client(None) routing untouched — only touch()/open moves those — while still updating state.active to record what's currently being viewed, since a restart should resume on the last-viewed project.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The docs explain the motivation/design rationale well but don't mention the third assertion (state.active must still move) — that's the part not derivable from docs alone, only from reading the code.
-
-### `a_reading_lands_where_its_task_came_from` — PREDICTED SOME
-- spec 2 · read at `279e84fbe9f7` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:16Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: This test opens/leases a task from project A, then retargets the ambient/active key to project B (simulating another subagent calling sanity_open), submits the report for the leased task without specifying a project, and asserts the report was recorded against project A (the one the lease came from) rather than project B or being silently dropped.
-- found: Sets up two projects, each with one function, and directly exercises AppState::owner_of(id, caller_key) with three key variants for an id from /theirs: caller_key=Some(\"/mine\") (a sibling reader's ambient key), Some(\"/theirs\"), and None. All three resolve ownership to \"/theirs\" — the project the id actually belongs to — proving owner_of ignores/overrides a mismatched caller key rather than trusting it.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: I imagined a full lease/report round-trip through sanity_open and report submission; the actual test is narrower, unit-testing owner_of() directly rather than the end-to-end reporting flow.
-
-### `a_reading_for_an_id_no_project_holds_is_refused` — PREDICTED SOME
-- spec 2 · read at `ff711e283b82` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:55Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: A test that sets up a project/session, then calls the report endpoint with a bogus/nonexistent function id, and asserts the call returns an explicit error (not `saved: true`) since no function in the project matches that id — verifying the fix described in the docstring where an unmatched id used to be silently swallowed.
-- found: Tests `state.owner_of` directly: an id with no matching function and no lease returns None (both scoped to a project and unscoped), but once a lease exists for that id (even for a nonexistent function, keyed by line), owner_of resolves it to the owning project — leases outlive re-cuts.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-
-### `a_file_just_drawn_from_is_passed_over_on_the_next_call`
-- spec 2 · read at `67217c463b2e` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:23:49Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A test that draws one task from a queue spanning multiple files, then draws a second task and asserts it comes from a different file than the first draw — verifying that "last file drawn from" state persists across separate calls (not just within one batch), regression-testing the bug described in the file doc where a single-item batch had nothing to spread.
-- found: A four-part test of spread_across_files: (1) with no recent draws, ranking alone picks the top function; (2) after hot.rs was just drawn from, the next call prefers a lower-ranked function from a different, unopened file over hot.rs's sibling; (3) if the only file with remaining work is the rested one, it's still handed over rather than returning nothing; (4) once the FILE_REST window has elapsed, ranking decides again regardless of recency.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `queue_spreads_across_files`
-- spec 2 · read at `2d5ef9f4073a` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:35Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Sets up a scan/project with multiple files each having several functions, builds the queue, and asserts that consecutive items handed out don't come from the same file back-to-back — verifying the interleave-by-file behavior described in the doc, likely checking against a naive score-only ordering that would cluster by file.
-- found: Builds a ranked task list dominated by one file (hot.rs highest scores, mid.rs, cold.rs lowest), runs interleave_by_file to hand out 6, then asserts no two consecutive picks share a file, and that the top-ranked file/task still comes first (so interleaving doesn't degrade into ignoring the ranking).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `queue_falls_back_when_one_file_remains`
-- spec 2 · read at `fe50b27b0f2e` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:04Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test setting up a queue/project with only one file's readings left, then asserting that repeated draws still yield tasks (not none/starvation), since normally the queue interleaves across files but must fall back to serving from the single remaining file.
-- found: Builds 4 ranked tasks all from the same file "only.rs", calls interleave_by_file asking for 3, and asserts it still hands back 3 tasks despite there being only one file to interleave across.
+- spec 3 · read at `384bd200e8d2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:51Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A test that sets up AppState with one loaded project, then calls a route with a project key for a project that is not loaded, and asserts the call is refused (an error or None) rather than being silently routed to the active project. It probably also checks that no reading or write lands in the other project's store.
+- found: Builds an AppState with one loaded project at /loaded, active set to it. It asserts for_client(Some("/loaded")) returns /loaded, for_client(Some("/not-restored-yet")) returns None (a named but unloaded project is not answered by the active one), and for_client(None) falls back to /loaded. It checks routing only, not any write into another project's store.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `queue_never_repeats_or_overruns`
-- spec 2 · read at `5d37dac2518c` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:22:11Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test that populates the task queue with a known small number of items, then calls the "next" draw function more times than there are items, asserting that: each item is only ever returned once (no repeats), the total returned equals the number of items available (not more), and no panic occurs on the extra calls — matching the doc note that over-asking returns everything, not a panic and not a repeat.
-- found: Tests interleave_by_file: requesting 25 items from a ranked list of 2 tasks returns exactly 2, with distinct ids (no duplicate hand-outs).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: I predicted the right behavior (over-asking returns everything, no repeats) but expected a loop calling a 'next' function repeatedly rather than a single call to interleave_by_file with a large n.
+### `looking_at_a_project_moves_neither_the_list_nor_the_routing`
+- spec 3 · read at `49bd0aa33721` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:02Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A test that selecting a second project through the select path leaves the sidebar order and the keyless routing target unchanged. It probably opens two projects, selects the second, then asserts most_recent and for_client(None) still point at the originally opened one, and that the list order did not change.
+- found: Two projects, /mine and /theirs; touches /theirs then /mine so /mine is most recent. Snapshots touched timestamps, calls select("/theirs"), asserts timestamps unchanged, for_client(None) still "/mine", and active is "/theirs".
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `a_reading_lands_where_its_task_came_from`
+- spec 3 · read at `b646fc13cf97` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:17Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A Rust test that opens two projects, hands out a task from one (so the lease is recorded there), then changes the ambient "current" project via open or select, and checks that owner_of still routes the reading to the project that issued the id. It probably asserts that a report for an id goes to the owning project, and that an id no project holds is refused.
+- found: Test fixture with two temp repos, "/mine" and "/theirs", each with one function, both touched. It takes a function id from /theirs' scan, then asserts owner_of(id, Some("/mine")) returns "/theirs", owner_of with the matching key returns "/theirs", and owner_of with None returns "/theirs". It checks that the lease owner wins over the caller's ambient key.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `a_reading_for_an_id_no_project_holds_is_refused` — PREDICTED SOME
+- spec 3 · read at `482882f4dc8a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:18Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A test that submits a report for an id no loaded project holds, and asserts the call is refused (ok false or an error) rather than being stored, and that nothing gets saved. It probably builds an AppState with a project, sends a report with a made-up id, and checks the response.
+- found: Builds a state with one loaded project and checks owner_of returns None for an id 'a.rs@99#nothing' both with and without a project hint. Then inserts a lease for that id on the loaded project and checks owner_of now returns that project, showing a lease alone is enough to route the id.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+- note: The test is about routing ownership (owner_of), not about report rejection. A bare lease with no matching function counts as owned, on purpose, so a reader whose function was re-cut keeps its routing.
 
 ### `two_projects`
-- spec 2 · read at `ccdba1707d8d` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:08:10Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Test helper that creates a temp directory as a throwaway repo, builds a DataHome and AppState, then scans that same repo twice and inserts two Projects into the state keyed /x and /y (since focus reasons about keys, not distinct repos), returning all three so the caller can exercise touch/focus without losing the DataHome.
-- found: Creates a data_home, a tempdir with one file (a.rs), builds default AppState, and inserts project_of(dir) twice under keys /x and /y — matches predicted shape exactly, missed only that it writes one small source file into the repo first.
+- spec 3 · read at `ee727cf6bcd5` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:52Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: two_projects is a test fixture. It creates a temporary DataHome and a throwaway temp repo, loads two projects keyed "/x" and "/y" into a fresh AppState over that repo, and returns the DataHome, TempDir and AppState as a tuple. It makes no assertions.
+- found: Test fixture: data_home() and a tempdir; writes a.rs with a one-line Rust fn into the tempdir; inserts two projects keyed /x and /y, both pointing at that same dir, into a default AppState; returns (data, dir, state). Missed the a.rs file write.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `an_unasked_open_does_not_steal_the_window`
-- spec 2 · read at `ccd2b12870a2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:05:06Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test that opens a second project via a non-interactive/headless path (not a human's explicit "open" click) while a human's window is already pointed at another project, then asserts the active/current window pointer is unchanged — the new project becomes loaded and queryable, but doesn't steal focus.
-- found: A test of `state.focus(path, asked)`: with the active window on "/x", calling focus("/y", false) (an unasked/implicit open) returns false and leaves active as "/x"; calling focus("/y", true) (an explicit open, e.g. --show or the Open command) returns true and moves active to "/y".
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Docs matched the intent exactly; I got the behavior right but not the concrete boolean-parameter API shape (`focus(path, asked)`).
+- spec 3 · read at `38308db0f0aa` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:51Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: This is a unit test in the tests module of state.rs. It probably builds an AppState with a focused project, performs an open for another project without asking for focus, and asserts that the focused window still points at the original project while the new one is addressable through its key.
+- found: Test: sets active to /x, checks focus('/y', false) returns false and leaves active at /x, then focus('/y', true) returns true and moves active to /y.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: yes
+- note: The test name and file doc already say what it checks; nothing further needed.
 
-### `an_open_takes_a_window_that_nobody_holds` — PREDICTED SOME
-- spec 2 · read at `5fdf359bc236` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:16Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Test simulating a headless daemon with no window ever set as "active": it opens a project without any prior active claim and asserts the open call sets itself as the active project anyway, so that a subsequent keyless call resolves to it rather than finding no active window and failing.
-- found: Tests `state.focus()` (not "open" as the name suggests to an outsider): first with no active project set, focusing a project succeeds and becomes active; then with `active` pointing at a project path that isn't loaded ("/gone"), focus still succeeds and overwrites it — because a dangling active key isn't really "somebody's view" being taken away, so focus doesn't need permission to override it.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-- note: Got the headless/no-claimant idea right but missed that the real mechanism under test is `focus()` and its second, more interesting case: an active key pointing at an unloaded project is treated the same as no claim at all.
+### `an_open_takes_a_window_that_nobody_holds`
+- spec 3 · read at `07142cabb3e6` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is a test that opens a project with no window held, then asserts the open claims the active slot so a keyless for_client call resolves to that project rather than nothing. It probably builds an AppState, calls an open or focus method, and checks the routing result. It may also assert that a headless caller still gets an answer.
+- found: A test over two_projects(): focus("/y", false) on an unheld state returns true and sets active to "/y"; then with active set to an unloaded "/gone", focus("/y") still succeeds and replaces it. It asserts that a stale active key that names no loaded project is not treated as a window being taken from someone.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `a_keyless_call_follows_the_last_open_not_the_window`
-- spec 2 · read at `fa6903e398b2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:02Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A Rust test asserting that a keyless call (next/report with no explicit project key) resolves to the most-recently-opened project, not whatever project the UI window currently has focused on. Likely opens project A, then project B, simulates the window staying on A, and asserts a keyless call operates against B.
-- found: Test uses a two_projects() fixture, opens/focuses /x then touches /x and /y (touch = last-opened marker distinct from focus). Confirms active/focused view stays /x while a keyless for_client(None) call resolves to /y (last touched). Also checks explicit key always wins, and an unknown key resolves to None rather than falling back.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Also covers explicit-key-wins and unknown-key-returns-None cases beyond what I predicted, via state.focus/touch/for_client helpers I hadn't guessed the names of.
+- spec 3 · read at `c9b88829c53a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:04Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: This is a Rust test with no arguments. It sets up an AppState with two projects, opens one in the window and a different one later, then makes a keyless call and asserts it routes to the most recently opened project rather than the one the window shows. It probably uses for_client or most_recent and checks the result.
+- found: A test: opens /x via focus, then touches /x and /y, asserts the window still shows /x, and asserts for_client(None) returns /y. It also asserts an explicit key /x wins and an unloaded key /gone returns None rather than being redirected.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `endpoint_reads_back_what_was_published` — PREDICTED SOME
-- spec 2 · read at `f66a505968be` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:15:15Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This test publishes some in-memory state (e.g. project/queue state) to the endpoint file used for the loopback API, then reads that file back through the same parser used elsewhere in the app, and asserts the round-tripped data matches the original — verifying a single shared parser handles both write and read consistently.
-- found: Constructs an Endpoint{port,pid}, checks its url() formats as http://127.0.0.1:<port>, then serializes port/pid to JSON and parses it back with serde_json, asserting the values survive the round trip. No actual file I/O — the "published" file format is just simulated inline with json! and from_str.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-- note: Expected an actual file write/read through the app's endpoint-file mechanism; instead it's an inline serde_json round trip plus a URL-formatting assertion.
+## src-tauri/src/agentapi/status.rs
 
-### `the_priming_warning_asks_rather_than_asserts` — PREDICTED SOME
-- spec 2 · read at `c51236a9ccda` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:23:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Test that renders/fetches the priming-warning string and asserts it is phrased as a hedge/question rather than a flat assertion that the reader is primed (e.g. doesn't contain something like "you are primed" as fact), while still asserting the warning names the --setting-sources flag so a human can act on it.
-- found: Test asserts priming_note() returns None with no instructions file, and when CLAUDE.md exists returns a string naming the file, the --setting-sources user flag, admitting "cannot see", delegating with "CHECK YOUR OWN CONTEXT", offering "the run is clean" as the alternative, and when both CLAUDE.md and AGENTS.md exist, names both files together.
+### the file itself
+- spec 3 · read at `e4021cbdfb62` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:31Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This file holds the read-only /status and /summary endpoints. status builds a progress answer for the caller's repo: remaining, in_flight, the oldest leases, run state and feed. summary returns only aggregate counts and grades, with no function or file names. A test checks that answers come from the caller's project rather than the window's.
+- found: The read-only /status and /summary endpoints. status resolves the caller's project (never the window's active one, falling back to the last-opened repo when no key is sent), pings activity, and returns a large JSON: counts (functions, files, excluded, oversize, assessed, stale), remaining and in_flight from work_left, up to 10 oldest outstanding leases, trace depth and cost, suggested model and harness, the event feed, the run's state (spawned/finished/failed/live/stopping/failures), and a next_step sentence keyed to remaining, in_flight and stale. When no project matches, it returns open:false with a hint saying transient-or-call-sanity_open. summary returns repo-wide aggregates from aggregate(): total, by_model, by_position, priming exposure, plus counts, with a note that nothing names a function or file. Stale readings are excluded from counts. One test checks status answers about the caller's repo.
+- predicted: most · documented: none · derivable: yes · legible: not judged · trap: no
+
+### `status` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `e113536aec10` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: An axum handler for /status that resolves the project from the query params, not the window's active project, and builds a JSON object with progress: remaining count, in-flight leases oldest first, the current run state, and the recent feed of readings. It likely takes a lock on shared state, looks up the project's session, and returns serde_json values.
+- found: Locks shared state and pings activity, then answers for the caller's project (resolved from the key, not the window). With a project: returns a large JSON status (progress counts, leases outstanding oldest first capped, stale count, run state and events, trace depth and cost, model/harness, assessment dir) plus a done flag and a next_step hint. Without one: open:false with a hint to wait or call open.
+- predicted: some · documented: full · derivable: no · legible: some · trap: no
+
+### `summary` — PREDICTED SOME
+- spec 3 · read at `f8a00079847a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: summary is an async axum handler for the /summary endpoint that returns aggregate assessment results for the caller's repo only. It resolves the project from the query params, then tallies grades across readings while excluding stale ones, and returns repo-wide totals with no function or file names. The docs say it returns aggregates only and counts stale readings separately.
+- found: Locks shared state, pings it, resolves the caller's project; if none is open returns {open:false, hint}. Otherwise returns JSON with open:true plus project name, assessment dir, repo path, function and file counts, excluded and oversize counts, assessed and stale counts, remaining, total/by_model/by_position aggregates, priming, and a long note explaining the aggregates-only rule and how to read by_position as a curve.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
+
+### `status_answers_about_the_callers_repo_not_the_window`
+- spec 3 · read at `05b2aa39087a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:08Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: An async test that sets up two projects in shared state, makes one the window's active project and the other the caller's, then calls status with the caller's repo and asserts the response reports the caller's remaining/assessed numbers, not the window's. It likely checks the response's repo field matches the caller and that a different active project does not leak in.
+- found: Two projects (mine, theirs), window active on theirs, mine touched last. status() with project=/mine reports project "mine" and its repo path, not the window's. With no project key, status answers for the most recently opened repo, which is mine.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+## src-tauri/src/agentapi/tally.rs
+
+### the file itself
+- spec 3 · read at `20060b4fc9fa` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:20Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This file aggregates the stored readings into the summary tables: overall, per model, per batch position, and the primed count, skipping stale readings. It also picks the recent or suggested model, and the GradeCounts and Tally add methods accumulate the counts, with aggregate and aggregate_of doing the folding.
+- found: The file builds the grade summaries from stored readings: recent_model and suggested_model pick which model to ask for next, report_summary gives the sidebar row's counts, model_tally, one_model and one_harness detect whether readings agree, and GradeCounts/Tally/Drift/Aggregate/Priming fold readings into predicted, documented, derivable, legible, trap and cold counts, skipping stale readings and superseded answers. aggregate_of walks the scan so each reading is checked against its body, with per-model, per-position and primed/clean/not-applicable breakdowns. The test pins that stale readings and unrecorded positions are not counted as good news.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `recent_model`
+- spec 3 · read at `36a2b40bac27` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Returns Option<String> for the project: finds the newest dated reading and returns its asked value, falling back to model when asked is missing. It probably filters readings by when being present, sorts or takes max by date, and returns None if none are dated.
+- found: Over the project's reports, keeps those with a non-empty when, takes the one with the lexicographically greatest when (chronological for this format), and returns its asked trimmed, falling back to model if asked is blank. Returns None if the result is empty after trimming.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `suggested_model`
+- spec 3 · read at `66cc5ff4ef44` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:22Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Returns the model name a new run should default to for the given key, or None for the harness default. It probably looks at the corpus's recorded readings first (via recent_model, which reads what the last run asked for) and falls back to a stored per-machine preference only if the corpus has nothing.
+- found: Chains three fallbacks: recent_model(p), then the one model all reports share (one_model), then crate::reports::model_for(key) as the per-machine stored preference. Returns the first Some, else None.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `report_summary`
+- spec 3 · read at `ef2dba7da86b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:47Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: report_summary builds the ReportSummary for /summary from the scan and the per-function reports, probably by aggregating grade counts overall, per model, and per batch position, plus the count of readers that held the repo brief. It likely filters out stale readings and uses trace_depth to decide how much trace detail to include, then fills in the model/agent questions (one_model, model_tally, suggested_model).
+- found: Struct literal assembling ReportSummary from helpers: functions and files counts (kept), assessed, stale, banked_model, banked_harness, banked_models, and passes trace_depth through unchanged. No computation of its own; it delegates to count_funcs, count_files, assessed, count_stale, one_model, one_harness, model_tally. Does not include suggested_model.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `model_tally`
+- spec 3 · read at `59a3f0626bf8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:48Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: model_tally takes the map of reports and returns a Vec of ModelCount, one per distinct model name. It probably counts readings per model, skipping stale or undated ones so they do not count as current, and sorts the result by count descending, maybe with a share of total. Empty model names are likely grouped or dropped.
+- found: Counts readings per trimmed non-empty model name across all reports (no stale filtering), returns a Vec of ModelCount sorted by count descending then name for stable ordering. Empty model names are dropped.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `one_harness`
+- spec 3 · read at `c647171cd417` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:27Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Looks through the reports map and collects the harness name from each reading, returning Some of that name only if every reading shares the same harness, otherwise None. It probably skips empty or blank harness values, and returns None for an empty map.
+- found: Walks all reports, trimming each harness string and skipping blanks. It records the first non-blank harness and returns None as soon as a different one appears. Returns Some(name) only when every non-blank reading agrees, and None for an empty or all-blank map.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `one_model`
+- spec 3 · read at `408deef71231` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:29Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: It scans the reports map and returns Some(model name) if every report was taken by the same model, otherwise None. Likely it collects distinct model strings from the reports, ignoring empty or missing ones, and returns the single one when the set has exactly one entry.
+- found: Walks all reports, trimming each model string and skipping empty ones. Records the first non-empty model; a different one later returns None immediately. If all non-empty models match, returns that model as an owned String, or None if there were none.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `add`
+- spec 3 · read at `50daa17a2e2e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:49Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: A method on GradeCounts that takes an optional Grade and bumps a counter for it. Probably a match on the grade variants, incrementing a field for each, with None either ignored or counted separately as unknown.
+- found: Matches the optional grade: Full, Most, Some and None each increment their own counter, and None (no grade) increments the ungraded counter.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: The handout's file doc says this module covers grade tables and the model tally, but this method is a plain counter bump, so the docs say nothing it did not already show.
+
+### `add` #2 — PREDICTED SOME
+- spec 3 · read at `a66aa7115c4f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:45Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Adds one Report into a Tally's running counts: bumps the total, the per-model and per-position grade buckets, and the primed count, probably using the report's grade and model fields. It likely skips or separately counts stale readings so they don't inflate the good-news numbers.
+- found: Adds one Report to a Tally: increments the reading count, feeds the predicted and documented grades into their counters, adds the derivable flag, and counts legible and trap answers only when the question they answered is still current (superseded questions go to ungraded/excluded). Also adds the cold flag. Does not itself bucket by model or position; the primed count is not updated here.
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
-### `a_report_carrying_its_own_tool_call_is_refused` — PREDICTED SOME
-- spec 2 · read at `da4694a4ddef` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:20:03Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: This test checks the guard that rejects a submitted report whose text fields contain what looks like a leaked/truncated tool-call fragment (e.g. an XML-ish tag pattern), while still allowing legitimate report text that happens to mention markup like JSX. It constructs a report with a fake tool-call-like string in a field and asserts it's refused, and a report with ordinary JSX-mentioning prose and asserts it passes.
-- found: Tests the `mangled()` detector: a report field containing a closing tag like `</found>` or `</expected>` followed by leaked tool-call-ish text is flagged as mangled (returns Some(field_name)); it also checks that a missing `predicted` field would default to Grade::Full via grades(). A third report with ordinary prose mentioning HTML/JSX tags (`<div>`, `<p>`, `<hr>`) but no closing-tag-of-its-own-field pattern is not flagged (mangled returns None).
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: I got the overall refuse-leak/allow-prose behavior right but missed the specific heuristic — it's keyed on a field's own closing tag (e.g. </found> inside `found`) rather than generic tool-call-shaped text, and missed the Grade::Full-on-missing-predicted assertion entirely.
+### `aggregate`
+- spec 3 · read at `3255dee1896a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: aggregate takes the project and returns the combined Aggregate. It is a thin three-line wrapper: it collects the current readings from the project's tree, dropping stale ones, and hands them to aggregate_of to build the grade counts. It does no grading itself.
+- found: Single line: returns aggregate_of(&project.scan, &project.reports). It passes the project's scan and reports fields straight through; no filtering of stale readings happens here.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `a_leak_with_its_grades_intact_is_a_reading_and_is_kept` — PREDICTED SOME
-- spec 2 · read at `6a2a0bdf22b2` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:47Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Submits a report whose `found` text contains a leak-like trailing tag but has all grade fields present, and asserts the call succeeds (not refused) and the stored reading keeps the tag exactly as sent, rather than the server trying to strip or parse it back out.
-- found: Builds a Report with a leak-like trailing tag in `found` but all three grade fields present, and asserts mangled() returns None (not flagged) and the reader's actual grade is preserved rather than upgraded to Full. Then removes one grade field and asserts mangled() flags \"found\" as the culprit — showing the guard is about completeness of grades, not the leak text itself.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: Didn't anticipate the specific `mangled()` function name/API or the second contrasting case in the same test.
+### `aggregate_of`
+- spec 3 · read at `778eb5813a3a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:51Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: aggregate_of takes a Scan and a map of report ids to Reports and builds an Aggregate: overall grade counts, per-model tallies, per-batch-position counts, and how many readers had the repo brief. It likely skips stale readings and attaches the one model or harness used, plus a suggested next model. It is a pure computation with no I/O.
+- found: Walks each unit of the scan (honouring .sanityignore) and considers only function nodes that have a report. Stale reports, judged by assessment::is_stale, are counted in agg.stale and skipped. Otherwise it adds the report to the total and to by_model, with blank models bucketed as 'unattributed'. Priming is split into three buckets: not_applicable when there are no agent docs, exposed when the reader was primed, and clean otherwise. Finally it tallies the predicted grade by batch position, or unrecorded when there is no position.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `the_summary_counts_neither_stale_readings_nor_unknown_positions_as_good_news` — LEGIBLE SOME
+- spec 3 · read at `b327d091cd56` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds readings including a stale one and one with no recorded batch position, then checks that the summary's grade counts leave both out of the good-news figures. It probably asserts specific counts from report_summary or aggregate.
+- found: Builds three functions, banks three readings (two fresh with positions 1 and 7, one stale with a wrong body), then asserts aggregate: stale is 1, total readings 2, by_model has two entries with sonnet at 1, position buckets 1 and 7 are populated with no bucket 2, and a reading with no position goes to unrecorded and not to position 1. Note the bank closure has a duplicated p.reads increment, which is harmless but odd.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+
+## src-tauri/src/agentapi/tasks.rs
+
+### the file itself
+- spec 3 · served in 2 parts · read at `16511b800afa` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:46:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the Rust side of the reader's task queue: it collects which functions and whole files are owed a reading, ranks them into bands (stale, unread, dated), and hands out one task at a time with its signature, owner, peers and docs but never the body. It likely also has the neighbor and qualify helpers that build the peer list, the file-task path for large files, and a tests module that pins the ordering and expiry rules.
+- found: The file defines the Task struct handed to readers (name, owner, signature, repo-relative path, line span, peers window, docs and file header, file flag, test-question ask), and collect_tasks, which walks the scan tree and queues functions and whole files that are unread, stale, or carry a superseded answer, ranked into bands. It also holds the neighbors window (PEER_WINDOW = 20, with a count of omitted siblings), qualify for Owner::name or Owner.name, all_tasks for measurement, and tests covering ordering, same-named twins, file readings, expiry rules and the peer window.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `neighbors`
+- spec 3 · read at `66c81a581d3f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:57Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Given a list of names and an index, returns up to twenty neighbouring names as a window around index, plus a count of how many were left out. It probably centres the window on i, clamps the start and end at the list bounds so the window slides to the edges, and returns the slice as owned strings with the number of omitted names.
+- found: If the list is short (at most the window plus one) it returns every other name and zero omitted. Otherwise it takes a window of PEER_WINDOW+1 names centred on i, clamped to the list edges, drops i itself, and returns the rest with the count of names outside the window.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `qualify`
+- spec 3 · read at `ad4ebe8a9cf8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:36Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: It builds a display name for a function: when there is an owner it joins owner and name with a separator, chosen by language (for example "::" for Rust or "." for others), and when there is no owner it returns just the name. The lang argument picks the separator, and None probably falls back to a default like ".".
+- found: Returns the bare name when there is no owner. With an owner it joins as owner::name for Rust, C++ and PHP, and owner.name for every other language, including None. Ruby is deliberately not in the :: list (the comment says so).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `collect_tasks` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `f37b6fe1bdae` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:28Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: collect_tasks walks the code tree recursively and pushes a (score, Task) pair into `out` for each function or file that still needs a reading. It skips nodes already answered in `done` and nodes currently leased in `leased`, scores them into bands (stale, unread, dated), and attaches the file doc and neighbour context. The `declared` argument tells it whether the repo has tests, probably to decide which tasks to emit.
+- found: Recursive walk over the node tree. Function nodes: skipped if oversize, if a current reading exists and is neither stale nor dated, or if leased within LEASE; otherwise pushed with a priority (surprise score, +2 stale, -1 dated) and a Task carrying docs, file doc, signature, and a test-ask unless the toolchain already marks tests. File nodes: skipped if excluded by .sanityignore; a file task is queued when it is unread or stale, not leased, has children, and is not oversize, with peers listing every declaration. Children are recursed with their own neighbour windows assigned after collection; other nodes recurse with no file doc.
+- predicted: some · documented: some · derivable: no · legible: some · trap: no
+
+### `all_tasks`
+- spec 3 · read at `10016c32f341` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:08Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Takes a scan and repo path and returns every Task the queue could hand out, without applying leases or read-state filtering. It likely calls collect_tasks with no reports and no leases and collects the results into a Vec, so it's a measurement helper used by token-weighing code.
+- found: Calls collect_tasks with empty reports and empty leases maps and no filter, using declared_from_scan for the repo's declared set, then strips the ranking band and returns the Vec of Task. Nothing is read or leased, as the doc says.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `a_superseded_answer_is_re_offered_after_everything_else` — PREDICTED SOME
+- spec 3 · read at `8f63505b371f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: A Rust test that sets up a reading whose answer has gone stale, then calls collect_tasks and asserts the stale reading is queued after the unread functions and dated/other tasks, not at the front. It probably builds a small repo or fixture state, marks one answer as superseded, and checks the ordering of the returned task list.
+- found: A unit test building a root with one file and four function nodes: stale_one (body hash changed), unread_one (no report), dated_one (trap flagged under an older spec), current_one (up to date). It runs collect_tasks, sorts by score descending, and asserts the non-file tasks come out as stale_one, unread_one, dated_one, with current_one omitted.
+- predicted: some · documented: full · derivable: no · legible: most · trap: no
+
+### `same_named_methods_arrive_with_the_type_they_hang_off`
+- spec 3 · read at `83ec3fc87040` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:09Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a small repo with two or more methods sharing a name across different types (for example two `parse` methods on different impls), calls collect_tasks or all_tasks, and asserts each task carries its owner type so the two are distinguishable and both show up in each other's peers/neighbors list.
+- found: Writes a Rust file with two impls each defining parse, one on DescriptorTag and one on LogicalVolumeDescriptor. It runs collect_tasks on the scan, drops file-level tasks, and asserts exactly two function tasks. It then checks each task's owner is its type, and that each has exactly one peer, qualified as ...::parse, not its own name.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
+
+### `a_file_is_queued_as_its_own_reading`
+- spec 3 · read at `9d4dec0c5737` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:19Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that checks a file gets queued as its own reading task, separate from its functions. It likely builds a project with a file containing a header and functions, runs collect_tasks or the queue, and asserts a file-kind task appears with the header and the surface of the file included.
+- found: Test: writes gate.rs with a module header and two fns, calls collect_tasks, and asserts exactly one file task keyed "gate.rs" with the header docs, peers [open, shut], zero omitted, non-empty ask, and two non-file function tasks.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no · test: yes
+
+### `a_file_reading_expires_on_its_header_and_its_surface`
+- spec 3 · read at `8b1d1110a665` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:06Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A test that a file's reading goes stale when its header comments or its declared signatures change, but not when only a function body changes. It probably writes a file, records a reading, edits the body and checks the reading still stands, then edits a declaration or doc header and checks it expires.
+- found: Writes a gate.rs file repeatedly and reads the file node's body hash from the scan tree via a hash closure. Asserts hashes differ when the header doc changes, when a parameter type changes, or when a new fn is added, and are equal when only a function body changes. Checks the hash covers the surface, not bodies.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `a_long_file_sends_the_neighborhood_and_counts_the_rest`
+- spec 3 · read at `9c60fd1bed79` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:12Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This is a test in tasks.rs. It builds a file long enough to be truncated, asks for the file task, and asserts that the handed-over text contains only the neighborhood (the start of the file and nearby items) and that the response states how many lines or items were left out, so a truncated list never looks complete. It probably checks a marker or count string in the output.
+- found: Tests neighbors() on a 100-name list: from the middle, first, and last positions it returns a PEER_WINDOW-sized window excluding the item itself, with omitted = 99 - PEER_WINDOW; a 5-name file returns all four others with omitted 0. It asserts on the name window and the omitted count, not on rendered file text.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ## src-tauri/src/assessment.rs
 
@@ -2202,456 +2332,597 @@ What this is and how to add to it: [README.md](README.md)
 - found: Calls `read` on a nonexistent/non-repo path and asserts the resulting History is empty, with churn_of returning 0.0 and age_of returning None for any path — confirming graceful degradation rather than an error.
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
-## src-tauri/src/cli.rs
+## src-tauri/src/cli/backend.rs
 
 ### the file itself
-- spec 3 · served in 6 parts · read at `3a281dccc5c9` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: The CLI entry point: arg parsing and verb dispatch (main, is_verb, launch_target), a spawn-lock/ensure_backend layer that starts or reuses a per-machine backend process over HTTP (get/post/health/probe), the serve command, and verbs like check/survey/status/findings/verify/export that talk to the backend or run offline. Plus terminal formatting helpers (bar, plural, grade_ink) and tests at the bottom.
-- found: The whole headless CLI: spawn-lock and ensure_backend lifecycle, the idle/supersede daemon loop in serve, the interactive init/check/tail/status/summary verbs, offline in-process verbs (findings, callers, decide, clear, balance, refresh, verify gate, export-data), the clap definitions, launch_target/main dispatch, and tests. Prediction matched the shape but missed that many verbs are deliberately in-process rather than via the backend and the CI verify gate.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: The header covers only the backend/daemon model and which verbs use it; it says nothing about verify, refresh, export-data, findings decisions, or launch_target, which make up much of the file.
+- spec 3 · read at `570044aadfe4` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:31Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This file is the CLI's client-side handling of the single per-machine backend. It holds the spawn-lock machinery, probing and health checks to decide whether a backend is live, the get/post HTTP helpers, ensure_backend to find or start one, retire_stale_backend for other builds, and the serve daemon entry point. Its job is discovery, startup coordination, and talking to the backend.
+- found: The CLI's client side of the one-backend-per-machine design: endpoint discovery and liveness probing (live, probe, health), the O_EXCL spawn lock with stale-lock stealing, ensure_backend which spawns `sanity serve` in its own process group with null stdio, retire_stale_backend which asks a backend from another build to stand down, get/post HTTP helpers, and serve(), the headless daemon with idle timeout, takeover and retirement checks, and cleanup of its readers on every exit. Two modules-level tests cover the lock.
+- predicted: most · documented: full · derivable: no · legible: not judged · trap: no
+- note: The header and the long comments carry the why (O_EXCL over flock, no SIGTERM to a daemon, process group so Ctrl-C does not kill it, build_id stamped before rebuild) that the code cannot say. Those are the reasons to keep when editing; the code alone would not tell a reader them.
 
 ### `spawn_lock_path`
-- spec 2 · read at `d361e1076438` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:14:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Returns the path to the one-spawner-at-a-time lock file: locates the per-machine data directory (same one the endpoint file uses) and joins a fixed filename like spawn.lock, returning None if the data directory can't be resolved.
-- found: Joins crate::reports::data_dir() with "backend.lock", returning None via ? if the data dir can't be resolved.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `85c9e884fc81` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:55Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: It returns an Option<PathBuf> for a lock file in the per-machine data directory, probably a fixed name like spawn.lock joined onto the data dir, and None when the data dir can't be determined. It's a pure path builder; the O_EXCL creation happens in take_spawn_lock, not here.
+- found: Returns `backend.lock` inside the reports data dir, or None if that dir can't be resolved. Pure path construction; the O_EXCL create lives in take_spawn_lock.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `drop`
-- spec 2 · read at `69cf296adc7d` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:27:22Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A Drop impl for SpawnLock that releases the spawn lock by deleting the lock file on disk (best-effort, ignoring errors), so a subsequent take_spawn_lock call can acquire it again.
-- found: Drop impl removes the lock file at self.0, ignoring any error (best-effort cleanup) so the spawn lock is released.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `ce27907857ba` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Releases the spawn claim by removing the lock file at the stored path when the SpawnLock goes out of scope, so waiting callers can take it. Probably ignores a failure from the removal, since drop cannot return an error.
+- found: Calls remove_file on the lock path held in the tuple field and discards the result, so a failed removal is silently ignored.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: no
 
-### `take_spawn_lock` — PREDICTED SOME
-- spec 2 · read at `fa780535fef0` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:21Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Tries to create the spawn lock file with OpenOptions::new().create_new(true) (O_EXCL). On success, returns Some(SpawnLock) wrapping the path. On failure because it already exists, checks the file's age against SPAWN_LOCK_STALE; if stale, removes it and retries the atomic create once (racing safely with other processes), otherwise returns None to signal someone else already holds the lock.
-- found: Thin wrapper that just calls take_spawn_lock_after(SPAWN_LOCK_STALE) — the O_EXCL/staleness mechanism I described (from the docs) actually lives in the peer function, not here.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
+### `take_spawn_lock`
+- spec 3 · read at `4694cccfd78d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Attempts an exclusive create of the spawn lock file, returning Some(SpawnLock) if this process created it and None if it already exists. It likely delegates to take_spawn_lock_after with the lock path and a staleness check, so a leftover lock from a dead process is reclaimed rather than blocking forever.
+- found: A one-line wrapper: calls take_spawn_lock_after(SPAWN_LOCK_STALE) and returns its Option<SpawnLock>. The O_EXCL logic and stale-lock handling live in take_spawn_lock_after, not here.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
-### `take_spawn_lock_after`
-- spec 2 · read at `ed57494c5c9f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:26Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Tries to atomically create/lock the spawn-lock file; if it already exists, checks the file's age (mtime) against `stale` — if older than that threshold, treats the previous process as abandoned, removes/overwrites the lock, and takes it anyway; otherwise returns None since a live process presumably holds it. Returns Some(SpawnLock) wrapping the acquired lock (with a Drop impl to clean up), used so tests can pass a small stale duration instead of waiting for a real file to age.
-- found: Attempts an atomic create_new claim on the spawn-lock file (writing the pid); if that fails because it exists, checks the file's mtime elapsed time against `stale`, and if abandoned, removes the file and retries the claim once. Returns Some(SpawnLock(path)) on success, None otherwise.
-- predicted: full · documented: some · derivable: no · legible: full · trap: no
+### `take_spawn_lock_after` — TRAP
+- spec 3 · read at `1997a68626b2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:34Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: Tries to create the spawn lock file exclusively (O_EXCL). If the create fails because the lock already exists, it checks the file's age against `stale`; if the file is older than that, it removes it as abandoned and tries again, otherwise it returns None. Success returns Some(SpawnLock) holding the lock until dropped.
+- found: Creates the spawn lock file with create_new; if that fails and the existing file's mtime is at least `stale` old, removes it and tries once more. Returns Some(SpawnLock) on success, None otherwise. The steal is check-then-remove, not atomic.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: yes
+- note: The steal is not atomic: between the age check and remove_file, a second caller can steal and claim the lock, and this caller's remove_file then deletes the fresh live lock, letting two spawners run. Nothing enforces the ordering; the age check and removal need to be one atomic step (e.g. rename-then-check) to be safe.
 
 ### `await_backend`
-- spec 2 · read at `da14bbe73ef3` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:02:44Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Loops until deadline, repeatedly checking for a published endpoint (e.g. reading an endpoint/lock file written by whichever process is starting the backend) and probing it for liveness via probe/live, sleeping briefly between attempts. Returns Some(endpoint) once found and live, or None if the deadline passes first.
-- found: Loops calling live() to check for a published endpoint, returning Some(ep) if found; otherwise checks the deadline and returns None if passed, else sleeps 250ms and retries.
+- spec 3 · read at `66346b3e0836` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:36Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: await_backend polls until the deadline for a backend endpoint to appear and answer a probe, returning the Endpoint if one comes up or None if the deadline passes first. It likely sleeps briefly between attempts, reading the endpoint file and calling probe or health each time.
+- found: Loops calling live() and returning its Endpoint as soon as one is live; otherwise returns None once the deadline has passed, sleeping 250ms between attempts. The deadline is checked after each failed live() call, so one attempt always happens.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: I predicted it would also use probe() separately from live(), but live() alone does both lookup and liveness check.
 
 ### `probe`
-- spec 2 · read at `d164870d3169` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:26Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Makes a GET /health request to the given Endpoint's URL; on success, parses the JSON response and extracts the pid field, returning Some(pid); on any failure (connection error, bad response) returns None.
-- found: Delegates to a `health` helper (peer) to fetch the health response, then extracts the "pid" field as u64 and converts to u32, returning None on any failure via and_then/? chaining.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `health`
-- spec 2 · read at `9b63ec0a01c4` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:06:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Issues a GET request to the backend's health endpoint (via a helper like `get`) and returns the parsed JSON body as Some(Value) if the request succeeds, or None if the backend isn't reachable or the response isn't valid JSON. Unlike a simpler `live` check that just returns a bool, this returns the full deserialized health payload for callers that need details (e.g. project list, version).
-- found: Builds its own short-timeout blocking reqwest client, GETs {ep.url()}/health, and returns the parsed JSON body as Option<Value>, using ok() chaining to collapse any failure (client build, request, or parse) into None.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-
-### `retire_stale_backend`
-- spec 2 · read at `c829752846d6` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:06:31Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Probes the currently-registered backend (via the endpoint file) for its /health build_id, compares it against this process's own build_id() from agentapi, and if they differ, POSTs to a /retire endpoint asking that backend to stand down for future callers rather than killing it — since the window's own backend is excluded/reported-and-left-alone. Any failure to probe, an old backend without /retire, or a matching build_id all fall through to doing nothing further, and the function always lets the caller's run proceed afterward rather than blocking on the mismatch.
-- found: Reads the endpoint file, probes /health, compares build ids treating "unknown" on either side as indeterminate (not a mismatch). On a real mismatch, POSTs /retire; if that fails or isn't acknowledged, prints a hint (defaulting to a manual kill command) and returns, letting the run proceed against the stale backend. If retire succeeds, polls `live()` for up to START_WAIT, sleeping 250ms between checks, returning as soon as the endpoint clears or the deadline passes either way.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
-
-### `live`
-- spec 2 · read at `94a2ad12969a` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:25Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Reads the endpoint file to get a candidate Endpoint (via read_endpoint), then probes it with a health check to verify the backend process is actually up and responding, returning Some(endpoint) only if reachable, None if no endpoint file exists or the probe fails.
-- found: Reads the endpoint file, then probes it; if the probe succeeds (returning a pid), returns the Endpoint with that pid substituted in, else None.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: Didn't anticipate probe returning a pid that gets spliced back into the Endpoint rather than just a bool.
-
-### `get`
-- spec 2 · read at `311c7de833b5` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:12Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Sends a blocking HTTP GET request to ep's base URL joined with path, then parses the response body as JSON and returns it as serde_json::Value, converting any request or parse failure into an Err(String) with a description.
-- found: Blocking HTTP GET to ep.url() + path, chained into .json() parsing, with any error (request or parse) mapped to its string representation.
-- predicted: full · documented: none · derivable: no · legible: full · trap: no
-
-### `post`
-- spec 2 · read at `6097e8772f8d` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:25:20Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Makes a synchronous HTTP POST request to the backend endpoint's URL joined with path, sending body as JSON, then parses and returns the JSON response, mapping any network or non-success-status errors into a String error.
-- found: Uses reqwest::blocking Client to POST ep.url()+path with body as JSON, chains .json() to parse response, maps any error (network or parse) to a String via to_string() — matches prediction closely.
+- spec 3 · read at `66dc3af230b8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:05Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: probe takes an Endpoint and returns the pid from the backend's response if it answers, or None otherwise. It likely calls health on the endpoint and extracts the pid field from the reply, never reading the pid from the endpoint file. Any connection error or failed response becomes None.
+- found: Calls health(ep), then reads the "pid" key as u64 from the JSON, converts it to u32 with try_from, and returns Some on success. Any missing key, non-integer, out-of-range value, or failed health call yields None. Reads the pid only from the response.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
-### `ensure_backend` — PREDICTED SOME
-- spec 3 · read at `2437cd3c63fc` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:45:33Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: First checks SANITY_BACKEND env var and returns that Endpoint if set. Otherwise probes for an already-live backend (via probe/health/live, possibly retiring stale state via retire_stale_backend) and returns it if found. If none is live, calls take_spawn_lock — if it wins, spawns `sanity serve` on the current executable (via std::env::current_exe) with null stdio, then waits for it to come up via await_backend; if it loses the lock, waits on the winner's backend instead of spawning its own. Returns the resulting Endpoint or an error string on timeout/failure.
-- found: Checks live() first (not SANITY_BACKEND first as I guessed); if not live and SANITY_BACKEND is set, errors immediately rather than spawning. Otherwise takes the spawn lock, re-checks live() under the lock to avoid a double-spawn race, then spawns `sanity serve` via current_exe with null stdio and (on Unix) its own process group so a terminal Ctrl-C doesn't SIGINT the daemon along with the CLI. Waits for it via await_backend with a 15s deadline, returning descriptive error strings on each failure mode.
-- predicted: some · documented: full · derivable: no · legible: most · trap: no
-- note: The Unix process_group(0) detail — spawning the backend into its own process group so Ctrl-C on the CLI doesn't also kill the daemon — is a load-bearing fix documented only in an inline comment, not derivable from the signature; also retire_stale_backend, despite being a listed peer, isn't actually called here.
+### `health`
+- spec 3 · read at `188781c513c3` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:54Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Takes an endpoint and returns the backend's health reply as an optional JSON value, presumably by sending a GET to a health route on the endpoint and returning None if the request fails or the response isn't parseable. It is a thin wrapper around get or probe, so it probably just calls one of those and returns the parsed value.
+- found: Builds a blocking reqwest client with PROBE_TIMEOUT, GETs {endpoint url}/health, and returns the response parsed as JSON. Any failure (client build, send, or JSON parse) becomes None. It does no retry and does not check the HTTP status.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `retire_stale_backend`
+- spec 3 · read at `3b3d0fdbb061` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Probes the running backend and, if its build_id differs from this binary's, sends it a request to /retire so it stops. It does not kill processes or compare versions by number. Failures (no endpoint, old backend without /retire, refusal) are reported and the function returns without error so the run continues.
+- found: Reads the endpoint and health; returns silently if either is missing or if build ids are equal or either is 'unknown'. Otherwise POSTs /retire. On failure it prints a hint (or a `kill <pid>` suggestion) and returns. On success it polls live() every 250ms up to START_WAIT, returning when the endpoint disappears, and proceeds regardless if it never does.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `live`
+- spec 3 · read at `e7b382a7d397` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:07Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Returns Some(Endpoint) only if an endpoint file exists and probe() gets an answer from it, otherwise None. Probably reads the endpoint file, calls probe on it, and returns the endpoint or None, with no spawning and no starting of a backend.
+- found: Reads the endpoint via agentapi::read_endpoint (returns None early if absent), then probes it; if probe answers with a pid, returns Some(Endpoint) with that pid written in, else None. No spawning.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `get` — TRAP
+- spec 3 · read at `225a571d858c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:01Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Performs a blocking HTTP GET against the backend at the endpoint with the given path, then parses the response body as JSON into a Value. Connection, non-success status, and parse failures are each turned into an error String. It probably sets a short timeout since it serves the liveness probe.
+- found: Blocking reqwest GET to ep.url() + path, then .json() into Value; any transport or decode error becomes its string. No HTTP status check, so non-2xx responses with JSON bodies return Ok.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: yes
+- note: No status check: reqwest's .json() does not reject non-2xx responses, so a backend 404/500 whose body is valid JSON comes back as Ok(Value) and a caller treats the error body as a successful reply. There is also no explicit timeout; it relies on reqwest's blocking default.
+
+### `post`
+- spec 3 · read at `3c822be1036c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:02Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: post sends an HTTP POST with a JSON body to the backend at the endpoint's address plus path, probably using a blocking HTTP client with a timeout, and returns the parsed JSON response. Errors come back as a String, covering connection failures and non-success status codes.
+- found: Builds a fresh blocking reqwest client, POSTs the JSON body to ep.url() plus path, and parses the response as JSON; any send or parse error is turned into a String. It does not check the HTTP status, so a non-2xx response with a JSON body is returned as Ok, and no timeout is set on the client.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `ensure_backend`
+- spec 3 · read at `603a2d580559` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:18Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Returns the endpoint of a live backend. It first honours SANITY_BACKEND, then probes the recorded endpoint. If nothing answers, it takes the spawn lock, starts `sanity serve` from the current executable with null stdio, and waits for that backend to answer. Otherwise, when another caller already holds the lock, it waits for that caller's backend. Failure comes back as an Err string.
+- found: Returns a live endpoint if one answers. If SANITY_BACKEND is set and nothing answers, it errors rather than spawning. Otherwise it takes the spawn lock; if another caller holds it, it waits for that caller's backend. Under the lock it re-probes, then spawns `sanity serve` from current_exe with null stdio and a new process group on unix, and waits up to 15s for it to answer. Errors are returned as strings.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `serve` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `c58110d91799` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Starts the headless daemon: first probes for an already-running backend and returns 0 if one answers. Otherwise it takes the spawn lock, binds a loopback port, writes the endpoint file, and runs the HTTP server until shutdown, returning an i32 exit code. Likely also handles failure to bind or lock contention by returning a nonzero code.
+- found: Idempotent start: returns 0 if a backend is already live. Otherwise builds a tokio runtime, marks headless and stamps build_id before binding, restores saved projects, binds loopback, and installs a SIGTERM/ctrl-c handler that stops readers and releases the endpoint. Then loops every WATCH_EVERY, standing down on retire request, on being superseded by another endpoint owner, on a missing endpoint file, or after IDLE_FOR with no agent calls.
+- predicted: some · documented: full · derivable: no · legible: some · trap: no
+
+### `only_one_caller_may_start_a_backend_at_a_time`
+- spec 3 · read at `8ccd05e6a93b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:11Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that takes the spawn lock twice from two callers and checks the second is refused or waits, so only one backend can be started at a time. It likely calls take_spawn_lock in a loop or with two threads, asserts exactly one succeeds, and drops the lock afterward.
+- found: Sets up the data home, takes the spawn lock once (expects Some), asserts a second take_spawn_lock returns None, then drops the first and asserts the lock can be taken again. It checks that exclusion holds while held and that release on drop works.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `an_abandoned_spawn_lock_is_taken_rather_than_blocking_forever`
+- spec 3 · read at `b42c68542415` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: A test that creates a stale spawn lock file with an old mtime (older than START_WAIT), then calls take_spawn_lock and asserts it succeeds rather than blocking or failing. It probably also checks that a fresh lock is respected, returning an error or None.
+- found: Test. Takes the spawn lock, checks a one-hour threshold does not steal it, then a zero threshold steals it, and after both drop the lock can be taken again, showing it is not left behind.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/cli/check.rs
+
+### the file itself
+- spec 3 · read at `e4212ba4d4df` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:27Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the CLI `check` verb. It opens a backend, picks which model will read the repo (from prior readings, an interactive prompt, or a harness default that gets announced), and starts a wave, reporting an already-running run instead of failing. It also persists the requested run as a `Wanted` so `resume` can re-request it on a new backend. Peers are `check` and `resume`, so it's probably the entry point plus a small amount of shared plumbing.
+- found: The file is the `sanity check` CLI verb plus its resume helper. `check` resolves the repo, retires a stale backend, ensures a backend is running, and opens the repo on it. It settles the model in order: inherited from the backend's /status for the repo, else an interactive prompt if nothing is known, else the harness default with a banner saying so. It POSTs /check; an already-running run is attached to via `tail` (or printed with --detach) rather than treated as an error. Otherwise it prints a "Reading <repo> with <model>" banner and tails, or detaches. Ctrl-C stops the run server-side. `resume` re-opens the repo and reissues the same /check from a `Wanted` record (repo, model, readers, limit) after a backend handover.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `check` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `c6f5c2fdc8f4` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:12Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Entry point for the check verb: opens or starts the backend for the repo, decides which model will read (from the flag, the repo's existing readings, or an interactive prompt), then starts a wave of readers with optional reader count and limit, or detaches and returns immediately. Returns an exit code. Likely a long sequence of early returns on error.
+- found: Resolves the repo (exit 1 on failure), retires any stale backend, ensures a backend is running, and opens the repo on it. Model choice: uses the flag if given, else the backend's /status model for the repo (marked inherited), else prompts interactively among the harness models, else leaves it unset. Posts /check with model, readers and limit. If a run is already going it either returns 0 (detach) or tails it. Otherwise it prints a banner naming the model and harness (warning if the default was used), returns 0 when detached, or tails the run with Ctrl-C meaning stop the run.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+
+### `resume`
+- spec 3 · read at `7de5ba30a5d5` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: resume takes an endpoint and the Wanted record of what the run asked for, and re-asks the backend to start that same wave again. It probably returns Ok on success and Err(()) when the backend refuses or cannot be reached, printing a message either way. It likely does not re-pick the model, since the Wanted record keeps that choice.
+- found: POSTs to /open for the repo with focus false and returns Err if that fails or reports not ok. Then POSTs to /check with the project key, model, readers and limit from Wanted. Returns Ok only if the check call reports ok, otherwise Err. Errors are mapped to unit and nothing is printed here.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+## src-tauri/src/cli/export.rs
+
+### the file itself
+- spec 3 · read at `7fb6f6bd476b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:25Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This file is the export-data verb. It builds one JSON document holding everything the offline PDF renderer needs for a repo, using export_of to run the same scan, deepen, load, retest and findings steps the app runs. Its shape is an export_of helper plus an export_data entry point that serializes the result, with a few tests at the bottom.
+- found: Defines the Export struct (versioned JSON: scan, reports, groups, summary, render cache dir, git remote/head). export_of runs untraced scan, then trace::deepen to the banked depth so it hits the tree cache, loads and stamps readings, retests links, computes findings and summary, and sets the render cache dir. export_data wraps it as a CLI verb writing JSON to a file or stdout with timing to stderr. Two tests check that exports carry whole files and stamped readings, and that stamping marks size, staleness and dating.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `export_of` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `168deda30c5c` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Builds an Export for the repo at path the way the app opens a project: a scan at untraced depth, then trace::deepen to the chosen depth (or the app's banked depth, defaulting to Files), then loads the readings, retests classifications, and asks the findings. It reports progress through the lap callback at each step and returns Err with a String on failure.
+- found: Scans untraced (the only Err path besides it is the scan failure), deepens to the given depth or the banked depth defaulting to Files, loads and stamps readings, retests links, builds the findings groups and summary, resolves the project name from the index or directory, creates and prunes a render-cache directory, adds git remote/head and grammar count, and returns the Export.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+
+### `export_data`
+- spec 3 · read at `cc63718ddeea` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:46:51Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: export_data is the CLI entry for the export-data verb. It resolves the path, calls export_of to build the whole report structure for that repo with an optional trace depth, serializes it to JSON, and writes it to the out file or stdout, with timing printed to stderr. It returns an i32 exit code, 0 on success and nonzero on failure such as an unresolvable path or write error.
+- found: Canonicalizes the path (exit 2 on failure), builds the export via export_of with a lap timer that logs phase timings to stderr, then serializes it as JSON to the out file or stdout (exit 1 on write failure). It logs a summary line with name, trace depth, reading and group counts, and size when writing a file, and returns 0.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `an_export_carries_whole_files_and_stamped_readings` — LEGIBLE SOME
+- spec 3 · read at `e5e59aa39204` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:35Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds an export for a fixture repo and asserts that every file arrives with its functions present and that each reading has a nonzero loc and stamp. It probably calls export_of on a temp repo with a few files and readings, then checks the counts and stamped fields on the result.
+- found: Makes a git repo in a tempdir with one file of two functions, saves readings for both, edits one function's body, then calls export_of and asserts: version/traceDepth/path, two stamped reports with nonzero loc, stale only for the edited function, the file carries both functions as children, and summary counts (2 functions, 1 assessed, 1 stale, banked model, depth), plus groups, grammars, and a real renderCache directory.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+- note: Test is a fixture-heavy end-to-end check; the git setup and the stale-only-the-moved-body assertion are the parts a reader would not guess.
+
+### `stamping_marks_size_expiry_and_dating`
+- spec 3 · read at `b184533f6bc3` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:52Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that builds a small tree, exports it with export_of, and asserts the stamped fields on the reports: an orphan has loc 0 and is not stale, an edited body is marked stale, and the expiry/dating fields match the spec. Probably writes temp files, calls stamp_reports or agent_reports, then checks specific values.
+- found: A unit test. It builds a two-function tree plus a missing-from-tree report, calls crate::stamp::stamp_reports directly (not export_of), and asserts on loc/stale/legible_dated/trap_dated for three cases: live (loc 7, not stale, not dated), moved with changed body (loc 3, stale, both dated), and gone/orphan (loc 0, not stale, legible dated only).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+
+## src-tauri/src/cli/findings.rs
+
+### the file itself
+- spec 3 · read at `4259a8dd5f9d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:55:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the CLI layer for findings: public verbs findings, callers, decide, clear and balance, plus helpers survey (builds an in-process Survey from the tree, the .sanity/ readings and rules on disk), verdict_note, trim, list and wrap, and a test that clearing a finding takes back every rule under it. Each verb reads the survey from disk rather than calling the backend, and each write is read back from disk to confirm it landed before reporting. Expect formatting and output plumbing as much as logic.
+- found: CLI layer for the findings verbs: findings (ranked worklist), callers (named caller pairs grouped by file), decide (writes a verdict per raising rule, read back from the archive), clear (removes decisions, read back to verify), balance (proposes and optionally saves rule thresholds). Shared helpers: survey builds an in-process scan from disk (no backend call), verdict_note, trim, list (renders the worklist with blocked-rule footer), wrap. Includes one test that clearing takes back every rule under a key. Much of the body is output formatting and explanatory comments about why verbs are in-process and why writes are verified.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `findings`
+- spec 3 · read at `2497b171734a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:24Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Survey in process for the path at the requested depth (edits and blame flags choose the git rung), then prints the top limit findings as a ranked list, one entry per subject merged across rules. Returns an exit code, with nonzero if the survey fails. Likely a thin wrapper that calls survey and then list or wrap.
+- found: Runs survey at the rung chosen by edits/blame and returns its error code if it fails. Otherwise it builds grouped reports from facts, traced depth, read flag, rules and the on-disk archive of decisions, then lists the top limit groups with the declined depth. Returns that list's exit code.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `callers`
+- spec 3 · read at `d51f72a5ffb0` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: callers takes a file path and a function key, builds a Survey in-process, looks up the named function, and prints its callers and dependents as pairs grouped by file, marking the subject's own file. It returns an i32 exit code, likely 0 on success and nonzero if the function or file is not found.
+- found: Builds a file-depth Survey, finds the fact whose key matches, and returns 1 with messages if the key is missing, is a file, or has no call graph or no function at that line. Otherwise prints the caller count split into same-file and elsewhere, then lists callers grouped by file with the subject's file marked, returning 0. It returns 0 without listing when the language is not wired for calls, so a silence is not shown as zero callers.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `survey` — LEGIBLE SOME
+- spec 3 · read at `05f3b6e3940e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:06Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Builds a Survey for a repo path in process: canonicalize the path, run a scan at the requested git-history depth (rung), and if rung is unspecified run an untraced scan first then deepen it up to the affordable level. It gathers per-subject facts, rules, depth info and the call graph into a Survey, returning Err with an exit code on failure.
+- found: Canonicalizes the path (Err(2) on failure), opens the scan cache, and runs a scan at Ordering fidelity: untraced when the rung is Budget, otherwise at the forced depth. For Budget it asks trace::affordable for a depth and deepens the scan to it. It then loads assessment reports, applies them to the tree via links::retest_tree (test-body marking), and folds the stats, facts, rules and call links into a Survey with a read flag and declined depth. Scan errors return Err(1).
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: The reading is applied after the scan, not during it; any caller that scans the tree directly without this function gets structural test classification only.
+
+### `decide` — LEGIBLE SOME
+- spec 3 · read at `ba0bebf39b04` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Builds an in-process Survey and finds the finding at path/key. Without `rule`, it files the verdict on every rule under that subject, and with `rule` only that one; rules that can't answer, such as churn rules when blame is off, are refused. It writes the decisions to the .sanity/ readings on disk, reads them back to confirm, prints the result, and returns an exit code (0 on success, nonzero on refusal).
+- found: Builds a Survey for the path at the rung given by edits/blame, finds the finding whose subject key matches, and exits 1 with a hint if none. It selects the rules that raise that finding (all, or only `rule` if given), refuses any rule that is blocked (e.g. needs history without --edits/--blame) and prints why, and otherwise writes one Decision per remaining rule with the pin of what the rule measured, the reason, and who/when. It then re-reads the archive from disk and checks the filed count against what it wrote before printing the decisions and a verdict note; returns 0 on success, 1 on any refusal or write/read-back failure.
+- predicted: most · documented: most · derivable: no · legible: some · trap: no
+- note: Returns 1 without a message when every raising rule is blocked (wrote == 0), so a caller sees a silent failure apart from the per-rule "not decided" lines.
+
+### `verdict_note`
+- spec 3 · read at `022bc4f3f15d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:00Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Maps a Verdict enum value to a fixed static human-readable sentence describing what that decision will do, such as a match on each variant returning a string literal. It is a pure lookup with no I/O, used when printing the result of a decide call.
+- found: A four-arm match mapping each Verdict to a fixed sentence: Flagged stays listed and can be cleared; FineForNow is hidden until the underlying numbers change; FineAlways is hidden regardless of code; FalsePositive is hidden until the rule itself changes.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `balance` — TRAP
+- spec 3 · read at `1afa8d659549` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:03Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: balance builds a Survey of the repo at path, computes threshold proposals that aim at the target count of findings, and prints them. When apply is true it writes the proposed thresholds to the rules on disk and reads them back to confirm. The stock flag probably chooses between the repo's current rules and the default rules. It returns an exit code as an i32.
+- found: Builds a survey of the repo at path and balances rule thresholds toward the target finding count. Prints a before/after summary and a per-rule table. Without apply it writes nothing and returns 0. With apply it sets each changed rule's calibrated clause to the proposed value and saves the rule set to .sanity/rules/catalog.md, returning 1 if the save fails. stock swaps in the built-in catalog as the rules to balance.
+- predicted: most · documented: most · derivable: no · legible: most · trap: yes
+- note: With `stock` set, the rules are the built-in catalog, not the repo's own, so `--apply` saves catalog defaults plus the proposed thresholds over .sanity/rules/catalog.md. Also `rule.clauses[at]` indexes without a bounds check, and the file doc says every write is read back, but this function does not read back what it saved.
+
+### `trim`
+- spec 3 · read at `3f69037e7dae` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:07Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Formats a float to a fixed number of decimal places, probably two, then strips trailing zeros and any dangling decimal point so 0.50 reads as 0.5 and 1.00 as 1. Returns that string.
+- found: Formats v to two decimal places, then strips trailing '0' characters and then any trailing '.', so 0.50 becomes "0.5" and 1.00 becomes "1".
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: no
+
+### `clear`
+- spec 3 · read at `a5c96b2d5810` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Removes the recorded verdict for a finding key, either for one named rule or for every rule under that key when rule is None. It edits the on-disk archive directly without running a scan, then reads the file back to confirm and returns an exit code (0 on success, nonzero on failure).
+- found: Canonicalizes the archive path (exit 2 on failure), collects the decisions matching key (and rule, if given), and exits 1 with a message if none match. Undecides each matching rule, reads the archive back and checks the remaining count for that key, then prints each cleared finding's title and returns 0. Only the file archive is touched; no scan runs.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+- note: Partial failure is not rolled back: if undecide fails partway through the loop, earlier rules stay cleared and the function returns 1 without saying which ones were removed.
+
+### `list` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `88ad9bc9794a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:23Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: list prints the ranked findings worklist for a repo path, capped at limit entries and filtered by the given rule groups, and may mention declined findings when a declined threshold is passed. It returns an i32 exit code, probably 0 on success, and likely prints a message and returns nonzero when there are no findings or the survey fails.
+- found: Merges hits from unblocked rule groups by subject key, sorts rows by line count descending, prints a header with the finding and ignored counts, and prints a footer folding blocked rules by the needed rung with their reasons. It then prints each row up to limit with its flag, rule titles, stale marks and wrapped text, plus a background paragraph shown once per rule and an overflow note. Always returns 0; it never signals an empty or failed list.
+- predicted: some · documented: none · derivable: yes · legible: some · trap: no
+
+### `wrap`
+- spec 3 · read at `6ef603e38ac1` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:28Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Greedy word-wrap: splits the text on whitespace and packs words into lines no wider than `width`, starting a new line when the next word would overflow. Returns the collected lines as Vec<String>, probably handling empty input and words longer than the width by putting them on their own line.
+- found: Greedy word-wrap. Splits on whitespace, starts a new line when adding the next word (plus a space) would exceed width in chars, and returns the lines. Empty input gives an empty Vec; an over-long word gets its own line without being split.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `clearing_a_finding_takes_back_every_rule_under_it`
+- spec 3 · read at `5413ec050f8d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:16Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: This is a test that decides several rules under one key, then calls clear on that key and checks that every rule is gone, reading the archive back from disk to confirm. It probably sets up a temp repo with a few rules sharing a key, runs the clear verb, and asserts the rules are no longer present in the file.
+- found: Files three rules under a.rs#run plus one under b.rs#other in a temp repo, clears one rule and checks only that one is gone, clears the rest and checks the a.rs decisions are gone while b.rs survives, then checks a second clear returns 1 for nothing left. Test code.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
+
+## src-tauri/src/cli/init.rs
+
+### the file itself
+- spec 3 · read at `10aadfcc8931` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:55:34Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: This is the `sanity init` CLI verb. It records which harness and model read this repo in the per-machine index, without touching any global agent config. At a terminal it prompts for the choices; otherwise it prints the current and available settings and returns. With --show it also calls reveal_in_window to point an open window at the repo.
+- found: The file is the `sanity init` CLI verb. It resolves the repo and requires it to be a git repo, then records the model (if --model given) and the harness (from --harness, else an interactive pick among installed agents, else a printout of the current settings) in the per-machine index via crate::reports, never in global agent config. Unknown harnesses are rejected with exit 2; a missing binary is only a warning. If interactive and no model is set or stored, it offers a model choice. With --show, reveal_in_window starts a backend and POSTs /open with focus. It ends by printing the next step, `sanity check`, and a note that readers run isolated from the repo.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+
+### `reveal_in_window`
+- spec 3 · read at `0a095f48affa` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:04Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Does nothing unless show is true. When it is, it starts the backend if needed and asks the running window to open this repo path, ignoring failures silently. Likely spawns a process or sends a request to the app, with errors swallowed.
+- found: Returns immediately unless show is set. Otherwise ensure_backend() to get an endpoint, and if that fails returns silently; then POSTs /open with the repo path and focus true, ignoring the response.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `init` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `d9495de675fb` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:13Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: init resolves the repo path, then either takes harness and model from the arguments or, when running at a terminal with no harness given, prompts the user interactively to choose one from the known list, otherwise prints current settings and options and returns without prompting. It writes the chosen harness and model into the per-machine index, and if show is true it asks a running window to open that repo. It returns an i32 exit code, with nonzero on errors like an unknown harness or unresolvable path.
+- found: Resolves the path and requires a git repo (exit 1 otherwise). Records a trimmed --model immediately via set_reader, independent of harness. With no --harness and an interactive terminal with agents found, it prompts to choose one; if declined it prints a nothing-chosen note and exits 0. Otherwise it prints current config and the installed agents and exits 0 (1 if none installed). An unknown harness name exits 2. Otherwise it warns if the binary is not on PATH, saves the harness via set_harness, offers a model prompt if none is set and the terminal is interactive, optionally reveals in the window, and prints next-step guidance returning 0.
+- predicted: some · documented: full · derivable: no · legible: some · trap: no
+
+## src-tauri/src/cli/mod.rs
+
+### the file itself
+- spec 3 · read at `8fe44c44b854` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:55:35Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the CLI entry module: it holds the top-level `main`, argument resolution (`resolve`, `launch_target`, `is_verb`) that decides whether an argument is a repo directory to open or a verb to run, interactive prompts (`choose`, `interactive`, `fancy`), and small formatting helpers (`commas`, `num`, `plural`, `text`, `after_help`). It dispatches headless verbs like serve/check and the window launch, and the two tests check that a directory argument opens its repo while verbs and flag values never get treated as the repo path.
+- found: The CLI entry module for sanity. It holds the clap command definitions (the Cli struct, the Verb and Decide enums with every subcommand's flags and defaults), main() which parses argv and dispatches each verb to its sibling module (backend, check, trace, status, findings, store, export), launch_target() which decides whether `sanity .` or a bare `sanity` in a terminal opens a repo in the window (a verb always wins), and small helpers: commas, num, text, resolve, interactive/choose/fancy prompts, plural, name_for_window. Mcp is intercepted in main.rs before reaching here; Serve is hidden. Two tests cover launch_target and that a flag's value is not taken as the repo path.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `commas`
-- spec 2 · read at `9e6a9f989078` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:05:51Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Formats a u64 as a decimal string with comma thousands separators (e.g. 1234567 -> "1,234,567"), by converting to a digit string and inserting commas every three digits from the right, likely via chunking and reversing.
-- found: Converts n to a digit string and inserts a comma before every group of three digits from the right (checked via (len-i) % 3 == 0), building the output left to right in one pass.
+- spec 3 · read at `9e6a9f989078` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:42Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Formats a u64 with comma thousands separators, e.g. 1234567 becomes "1,234,567", probably by converting to a string and inserting a comma every three digits from the right. Small numbers under 1000 come back unchanged.
+- found: Formats a u64 with thousands separators by walking the decimal digits and inserting a comma before each group of three from the right. Numbers under 1000 are returned unchanged.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `num`
-- spec 2 · read at `fe762c4e62a4` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:22Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Extracts v[key] from a serde_json::Value, calls as_u64() on it, and defaults to 0 if the field is missing or not a number — a small helper for pulling numeric fields out of JSON responses from the backend.
-- found: Gets v[key], converts to u64 via as_u64, defaults to 0 if missing/wrong type — exactly as predicted.
+- spec 3 · read at `fe762c4e62a4` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:07Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: num reads a numeric field from a JSON value by key and returns it as u64, probably with a default of 0 when the key is missing or not a number. Since it is a three-line helper used by the CLI when printing counts from backend responses, it likely uses as_u64 with unwrap_or(0).
+- found: Looks up key in the JSON value and returns it as u64 if present and an unsigned integer, otherwise 0. Missing, null, negative, float and string values all become 0.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
+- note: Returns 0 for any non-unsigned value, so a float or negative field from the backend reads as zero with no error.
 
 ### `text`
-- spec 2 · read at `7b81ea5945d2` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:27Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Looks up `key` in the JSON object `v` and returns it as a &str, falling back to an empty string "" if the key is missing or the value isn't a string.
-- found: Extracts a string field by key from a JSON Value, defaulting to empty string if absent or not a string.
+- spec 3 · read at `7b81ea5945d2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:08Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: text takes a JSON Value and a key and returns the string at that key as a &str. If the key is missing or not a string it probably returns an empty string rather than panicking. It is a small helper used by the CLI when reading backend replies.
+- found: Looks up key in the Value, takes it as a string slice if it is a string, and returns "" otherwise (missing key, non-string value, or non-object). Never panics.
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `resolve`
-- spec 2 · read at `ad2b1804e3c0` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:30Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Calls std::fs::canonicalize on the path (via PathBuf::from(path).canonicalize()), mapping any IO error to a readable String error message, so the resulting PathBuf matches the canonical form the backend uses as project_key.
-- found: Calls std::fs::canonicalize(path) directly, mapping the error to a formatted string including the original path and the error — matches prediction closely, minor difference being it doesn't go through PathBuf::from first.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `serve` — PREDICTED SOME
-- spec 3 · read at `efc3b1895176` · commit `cecdbb2` · read by claude-sonnet-5 · via claude · when 2026-08-19T00:37:07Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether the loopback backend is already answering (via something like `health`); if so, prints that it's already running and returns 0 without starting anything. Otherwise it starts the backend server process/listener in the current process (no window), binding to the loopback port and blocking to serve the API, returning an exit code when it eventually stops.
-- found: Idempotent early-return if already live, otherwise builds a tokio runtime, restores prior state, binds the loopback server, and enters a watch loop: it spawns a signal handler that stops all runs and exits on SIGTERM/ctrl-c, and the main loop periodically checks for retire-requests, being superseded by a newer endpoint owner (e.g. the window app), the endpoint file disappearing, or idling out — stopping all runs and releasing the endpoint on any of those exits.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The file/function doc only covers the idempotency property; the far larger surface is the shutdown-discipline invariant ("nothing this backend spawned outlives it") threaded through every exit path, including a specific past bug where a poisoned mutex read as \"not idle\" and kept the daemon alive forever.
+- spec 3 · read at `ad2b1804e3c0` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:10Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Canonicalises the given path string into an absolute PathBuf, most likely via std::fs::canonicalize so symlinks and relative segments resolve. A path that does not exist or cannot be canonicalised becomes an Err string. It may also reject a non-directory, since it is used to find a repo.
+- found: std::fs::canonicalize(path), with any error reformatted as "{path}: {err}". It does not check that the target is a directory.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `interactive`
-- spec 2 · read at `bd3deef0c049` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:31Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether both stdin and stdout are connected to a terminal (using something like an is-terminal check on both), returning true only if both are, so prompting is safe. False if either is piped/redirected, covering cases like `sanity check . | tee log`.
-- found: Uses std::io::IsTerminal to check both stdin and stdout are terminals, exactly as predicted (the docs basically told me this one).
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `7d765aba66bd` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:10Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Returns true only when both stdin and stdout are terminals, checked with IsTerminal on each and combined with a logical AND. Any environment that is not a person at a terminal (pipes, CI, captured output) gets false.
+- found: Returns true only if stdin and stdout are both terminals, using IsTerminal on each and ANDing them.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: no
 
 ### `choose`
-- spec 2 · read at `0341d3dcc597` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:41:39Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Prints the prompt followed by a numbered list of `options` (and maybe marks the default), then reads a line from stdin. If the input is empty, returns `default.map(String::from)` or None. If it parses as a number in range, returns the corresponding option; otherwise treats the raw trimmed input as free text and returns Some(it) — letting the caller "type something else."
-- found: Prints numbered options with the default marked, reads a line from stdin, returns default on empty/error input, parses a number to pick an option, otherwise returns the raw typed text as a free-form answer.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `reveal_in_window`
-- spec 3 · read at `bb4943dd22e8` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:47:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: If `show` is false, does nothing; if true, it calls ensure_backend() to make sure the daemon is running, then fires a request (likely post) to the backend telling it to open/focus a window on the given `repo` path — swallowing any error since the docs say failures here are silent.
-- found: Early-returns if show is false or ensure_backend() fails; otherwise POSTs to /open with the repo path and focus:true, discarding the result.
-- predicted: full · documented: most · derivable: no · legible: full · trap: no
-
-### `init` — PREDICTED SOME
-- spec 3 · read at `c8e28dbd2989` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:51:57Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Resolves the given path to a canonical project path, loads or creates a local project-state entry (the same store the GUI window uses) and writes the harness name and optional model into it — deliberately not touching global MCP/harness config. If `show` is true it also reveals the project in the GUI window; it prints a confirmation and returns a process exit code (0 on success, non-zero for a bad path/harness).
-- found: Resolves the path, verifies it's a git repo, records an explicit --model immediately (independent of harness), then either uses the given --harness, interactively prompts to choose one (if a terminal and agents are found on PATH), or falls back to printing current config/detected agents without guessing. Validates the chosen harness, warns (doesn't fail) if its binary isn't on PATH yet, persists it, optionally interactively prompts for a model choice if none is set, reveals the project in the window, and prints guidance plus an explanation of why readers run as separate sandboxed processes. Returns 0/1/2 exit codes depending on the failure mode.
-- predicted: some · documented: most · derivable: no · legible: most · trap: no
-- note: The interactive-prompt-vs-script-safe fallback branching and the git-repo precheck aren't guessable from the signature alone.
-
-### `check` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `049ecd79fbac` · commit `b85303a` · read by claude-sonnet-5 · via claude · when 2026-09-16T04:54:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: `check` is the CLI implementation of `sanity check` — it resolves the given path to a project, ensures the backend is running (`ensure_backend`), then spawns `readers` concurrent CLI subprocesses (each a stateless MCP client reader) against the given `model`, up to `limit` items, optionally detaching to run in the background. While running it likely polls/prints progress (using helpers like `bar`, `elapsed`, `plural`, `grade_ink`) and returns a process exit code reflecting success or failure.
-- found: check() is the CLI's `sanity check` handler: it resolves the repo path, retires any stale backend, ensures a backend is running, opens the project, then determines which model to use (explicit flag > known/previously-used model from backend status > interactive prompt > silent default), and posts to the backend's /check endpoint to actually start the run (the backend, not this function, spawns the readers). It handles an "already running" case by attaching/tailing instead of erroring, and otherwise either detaches (prints and returns) or tails the run live with a banner and Ctrl-C/Ctrl-X semantics.
-- predicted: some · documented: some · derivable: no · legible: some · trap: no
-
-### `resume`
-- spec 3 · read at `4ede0ab882c1` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:45:16Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Resolves the wanted repo path/spec via resolve, then makes a request to the backend Endpoint to (re)open that project — similar to what happens when a window opens a repo — and kicks off a fresh assessment wave (re-triggers scanning/model dispatch) on it, printing a status header via project_header and returning Err(()) on failure so the CLI can exit non-zero.
-- found: POSTs /open with the repo path to the backend endpoint, checks ok, then POSTs /check with project key/model/readers/limit to restart the assessment wave, checking ok again; returns Err(()) on any failure or non-ok response, Ok(()) otherwise. No resolve() or project_header() call — those were my invention.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: I predicted extra steps (resolve, project_header printing) that aren't in the actual body — it's a lean two-POST sequence.
+- spec 3 · read at `0341d3dcc597` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:47:28Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Prints the prompt and numbered options to the terminal, reads a line from stdin, and returns the chosen option. A number picks by index, a typed string matches an option or is returned as-is, and an empty line returns the default or None. It likely returns None when stdin is not interactive.
+- found: Prints numbered options (marking the default), reads one stdin line. On read error or empty input it returns the default (which may be None). A number within range picks that option; any other text is returned verbatim, even if not in the list, since the list is only a suggestion.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `fancy`
-- spec 2 · read at `2ed08bb71b2e` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:28:32Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether stdout is a terminal (e.g. std::io::stdout().is_terminal()), returning true if so, to decide whether to draw progress with carriage returns or just print plain lines.
-- found: Returns std::io::stdout().is_terminal() using the IsTerminal trait.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `29d75340e04f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:10Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Returns a bool saying whether stdout is a terminal, probably by calling std::io::IsTerminal on stdout. Possibly it also checks an environment override or a no-color flag. Used by the CLI to decide between drawn and plain output.
+- found: Returns std::io::stdout().is_terminal(). Nothing else: no env override, no no-color check.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `plural`
-- spec 2 · read at `5d2354082e2b` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:23:03Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Returns a formatted string like "{n} {word}" or "{n} {word}s" — appending "s" to word when n is not 1, and leaving it singular when n equals 1.
-- found: Formats "n word" for n==1, else "commas(n) words" with comma-separated thousands via a `commas` helper.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Missed that the plural branch also comma-formats the number, not just pluralizing.
-
-### `bar`
-- spec 2 · read at `d5c39b979261` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:24:42Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Renders a fixed-width text progress bar string, filling a proportion of block/fill characters equal to frac (0.0-1.0) and leaving the rest as empty characters, for display in CLI status output.
-- found: Clamps frac to [0,1], rounds to nearest integer count of BAR-width filled blocks, and returns a string of that many '█' followed by '░' for the remainder.
+- spec 3 · read at `5d2354082e2b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:39Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Pluralizes a word for a count: returns the word with an "s" appended when n is not 1, otherwise the word unchanged, formatted as "{n} {word}" with the number maybe comma-grouped. Likely it returns a String like "1 reader" or "5 readers".
+- found: If n == 1 returns "1 word" unchanged; otherwise returns the count comma-grouped via commas(n) followed by the word with an "s" appended, e.g. "1,234 readers".
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `elapsed`
-- spec 2 · read at `eb69519c2bbf` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:23:03Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Computes since.elapsed() and formats it as "{m}m{s}s" when 60 seconds or more, or just "{s}s" when under a minute.
-- found: Formats since.elapsed() as seconds-only "{s}s" under a minute, or zero-padded "{m}m{ss}s" at or above a minute.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `grade_ink`
-- spec 2 · read at `728d01d8f1e4` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:03:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Maps a grade string ("full", "most", "some", "none") to a pair of ANSI escape codes (start, reset) used to color terminal output, with "full" dimmed/gray and "none" the brightest/boldest, and intermediate grades getting intermediate emphasis. Likely returns empty strings when not writing to a terminal.
-- found: Checks fancy() (terminal capability) and returns empty codes if not fancy; otherwise matches grade to ANSI codes: full=dim, most=no styling, some=yellow, none=bold yellow, with a fallback default of dim for unknown strings.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `tail` — PREDICTED SOME — LEGIBLE SOME
-- spec 2 · read at `ebcc282fd7da` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:15:32Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Polls the backend Endpoint repeatedly for the project keyed by `key`, printing/updating a live progress display (bar, elapsed time, plural counts) using the banner lines as a header, until the scan reaches the state described by `want` (e.g. finished scanning, certain grades ready). Returns an integer exit code reflecting success, failure, or timeout, for use as the process's exit status.
-- found: A long-lived polling loop that tails a running scan: handles Ctrl-C (stop the run) vs Ctrl-X (detach and let it continue) via signal/raw-mode key capture threads, polls /status every 2s, redraws a fixed in-place block of recent readings plus a progress bar (with reader counts, elapsed time), handles the backend dying and a new one taking over (reconnect/resume), and prints a final summary with exit code 0/1 depending on how it ended.
-- predicted: some · documented: none · derivable: no · legible: some · trap: no
-
-### `project_header` — PREDICTED SOME
-- spec 3 · read at `26bb5e54eea1` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:13Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Takes a JSON value describing the project and prints a header: repo name/path, then a progress line with assessed count over total, a bar, and stale/to-go counts, using helpers like plural, bar, fancy. Reads fields with defaults and prints to stdout; no return value.
-- found: Prints project header: total segments (functions+file headers), excluded count, read percent, a history-depth line chosen by trace_depth (absent prints nothing), unread computed as remaining minus stale, stale count, in-flight readers, and assessment file path.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-
-### `offline_status`
-- spec 2 · read at `bb642af55251` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Scans the repo in-process (no HTTP call to a backend), loads existing .sanity reports, and assembles a JSON Value shaped exactly like the /status endpoint response — with counts of functions/files/assessed/stale etc — but leaves out fields only a running backend could know (like in_flight) rather than defaulting them to zero/false, since reporting zero would falsely claim no work is in progress. Returns None if the path can't be resolved/scanned as a repo.
-- found: Uses read_repo to scan and load reports in-process, computes counts via offline_counts, and builds a JSON object with project name, repo path, functions/files/excluded/assessed/remaining/stale counts and the assessment dir path — omitting backend-only fields like in_flight. Returns None if read_repo fails.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `offline_summary`
-- spec 2 · read at `df7017f7e5c0` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:53Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Reads the repo's persisted .sanity state directly from disk (no running backend needed), calls the shared aggregate_of function on it to compute the same aggregate payload the /summary endpoint would produce, and returns it as a serde_json::Value, or None if no saved scan/state exists for that repo.
-- found: Reads persisted scan/report state via read_repo, computes counts and aggregate via offline_counts/aggregate_of, and merges them with project header fields (name, assessment_file path, repo path) into one JSON object matching what the live /summary endpoint would return.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `read_repo`
-- spec 3 · read at `4a986e9229b7` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:32Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Scans the given repo path to build a Scan (parsed tree of functions/files) and loads the committed .sanity/ reports into a HashMap<String, Report> keyed by function id, returning both together for offline/headless CLI use; returns None if the scan fails.
-- found: Opens the scan cache, runs the scan with ordering-only fidelity and no git blame tracing (deliberately, since this verb only prints reading coverage which needs neither), prints an error and returns None on scan failure, then loads committed .sanity/ reports and returns both.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `read_verb` — PREDICTED SOME
-- spec 2 · read at `b00c20b44efb` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:33Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: Checks whether a backend is already running at endpoint and whether it has this repo (path) open, without ever starting one itself; if the repo isn't currently open there, it returns Err with an exit code after printing/explaining which command (e.g. resume or open) the user should run instead — otherwise it returns Ok with the JSON project data fetched from the running backend.
-- found: Resolves the repo path, and if no backend is live or the backend doesn't have this repo open, answers offline by computing status/summary directly from the repo's committed .sanity/ data (never starting a daemon or rescanning) rather than refusing; otherwise fetches the endpoint's JSON from the live backend keyed by project.
-- predicted: some · documented: full · derivable: no · legible: most · trap: no
-
-### `trace` — PREDICTED SOME
-- spec 3 · read at `6fcae93dffec` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:23:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Opens the repo, then walks git history to fill in the requested trace "rung" — either the highest depth affordable within a time budget when unflagged, or the exact named rung regardless of cost when --edits/--blame was passed explicitly — printing progress and saving the updated cache, returning a process exit code (0 success, nonzero on failure to open the repo).
-- found: This is a thin CLI client, not a direct scanner: it resolves the path, ensures a backend process is running, opens the project via a POST to /open (printing "sanity init" guidance if that fails), then POSTs to /trace with either "budget" or the exact requested rung, and prints a human-readable summary of what was read, what was skipped due to budget, and the elapsed time, returning 0/1.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: The doc explains the design rationale well but doesn't hint that this function is a network client to a separate backend process rather than doing the scan/trace work itself.
-
-### `rung_name` — PREDICTED SOME
-- spec 3 · read at `1933e5dbcabf` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:13Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Matches on the Depth enum and returns a short human-phrased static string for each variant, like "skipping it" or "reading it", for display in CLI output.
-- found: Maps Depth variants to labels: Edits -> "The edit timeline", Lines -> "Per-line history", anything else -> "The commit log".
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-
-### `duration`
-- spec 3 · read at `947489df0d64` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:39:22Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Formats a seconds estimate as a rounded human string: under a minute shows "~Ns", under an hour shows minutes, otherwise hours (and maybe minutes), mirroring how status rounds estimates.
-- found: Formats seconds as "N min" at 60s or more, otherwise "Ns" with a floor of 1s. There is no hours tier.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: Only two tiers (seconds and minutes), so long durations show as large minute counts; the doc doesn't say this.
-
-### `status` — PREDICTED SOME
-- spec 2 · read at `139061bd94ca` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:03:45Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
-- expected: Resolves the repo path, queries the running backend's /status endpoint (falling back to offline_status/offline_summary if no backend is reachable), then formats the result using project_header, a progress bar, elapsed time, and grade_ink coloring, printing it to stdout and returning an exit code (0 on success, nonzero if there's no repo or data to show).
-- found: Fetches /status JSON via read_verb (which internally handles online/offline), returning early on error. Then prints whether a backend is running (pid/port) and, if so, whatever it's currently reading (model, live reader count, spawned/failed counts) or 'nothing reading right now'; prints project_header; and prints either 'up to date' or a count of segments needing `sanity check`. Always returns 0 once past the initial fetch.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-- note: I predicted use of bar/elapsed/grade_ink formatting helpers and an explicit offline_status fallback call, but the function is much plainer — no progress bar or color, and the online/offline distinction is handled inside read_verb rather than here.
-
-### `findings`
-- spec 3 · read at `82640faa1c16` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:25:15Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Calls survey (in-process) with a rung derived from the edits/blame flags (explicit depth if either set, else budget), merges rule hits into one entry per subject (function/file), ranks them, prints the top `limit` to stdout, and returns a process exit code.
-- found: Surveys the repo at the rung implied by edits/blame flags, then calls findings::report with the facts, rules, and the on-disk decision archive to build grouped findings, and hands them off to the `list` peer function to print up to `limit` of them, returning list's exit code.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `callers` — PREDICTED SOME
-- spec 3 · read at `5d12c2b5df2a` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:19:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Looks up the edge list built by crate::edges::wire, filters for edges whose target matches (path, key), and returns the count of matching caller edges — a simple counting helper feeding the "callers: N" figure.
-- found: It's a full CLI command handler (returns exit code i32) that surveys the repo at file depth, finds the subject fact by key, resolves its call-graph relation via links.at(), and if the language is "wired" for calls, prints a formatted, grouped-by-file caller list (with in-file vs elsewhere counts); otherwise it explicitly reports that the language isn't read for calls rather than claiming zero. Multiple explicit error/early-return paths for file-not-found, file-vs-function mismatch, empty call graph, etc.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The doc comment describes the module/edges concept generally but doesn't hint at the CLI presentation structure, the distinction between 'zero callers' and 'not wired for calls', or the grouped printing format.
-
-### `of`
-- spec 3 · read at `6175f9191447` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:45:41Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Rung::of(edits, blame) maps the CLI's --edits/--blame flags directly to a specific Rung value, bypassing budget-based selection logic. If edits is true it returns the edits-level rung, else if blame is true it returns the blame-level rung, else it falls back to a default/lowest rung not derived from budget.
-- found: Matches prediction: edits flag forces Rung::Exactly(Depth::Edits), blame flag forces Rung::Exactly(Depth::Lines), and if neither is set it returns Rung::Budget, meaning the depth is chosen by budget instead of an explicit flag.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `survey`
-- spec 3 · read at `c18a56e32e50` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:24:09Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Performs its own in-process scan (not via the backend) to build the file/function tree, reading git history to the given rung — scanning untraced first then deepening per trace::affordable when budget-driven, or scanning directly to the named rung when explicit — then loads this repo's rules and committed readings and builds the call graph, packaging everything into a Survey struct; returns Err(exit_code) on scan failure.
-- found: Canonicalizes the path, scans untraced first (ordering fidelity, no blame paid unless forced), deepens via trace::affordable when budget-driven or scans directly to the forced rung, loads committed reports and applies retest_tree to fold reader test/non-test tags into the scan, then builds facts/rules/call-graph links and packages it all into a Survey, with distinct error codes (2 for bad path, 1 for scan failure).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `decide`
-- spec 3 · read at `678166a8b68a` · commit `0ee551c` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:24:01Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: decide loads the repo at path, finds the finding/subject identified by key, and determines which rules apply — either just the one named by rule, or (if rule is None) every rule that raised that subject. For each applicable rule it tries to write a decision "pin" recording the verdict/reason, but skips (and reports as refused) any rule whose measurement is currently unavailable (e.g. churn rules with edits/blame disabled), printing a summary and returning a process exit code (0 on success, nonzero if something couldn't be decided).
-- found: Surveys the repo, finds the finding by key, filters rules to those matching the optional --rule and that raise that finding; for each, skips if blocked (can't measure here) else writes a Decision with a pin; after writing, re-reads the archive from disk to confirm the decisions actually landed before printing confirmation, exiting 1 on any failure/mismatch.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-
-### `verdict_note`
-- spec 3 · read at `5424b9f25e6d` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:09:26Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: A simple match over the Verdict enum variants (e.g. confirmed/dismissed/etc.) returning a static human-readable string describing the consequence of that verdict — e.g. "removes this finding and everything under it" — used for CLI output when a decision is applied.
-- found: Matches on the four Verdict variants (Flagged, FineForNow, FineAlways, FalsePositive) and returns a static string explaining the practical consequence of that verdict — when/whether the finding reappears.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
-
-### `balance`
-- spec 3 · read at `08e6773c75fd` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:57:35Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Loads a project's scan/facts, picks either the repo's currently tuned rules or the stock/shipped catalog (depending on `stock`), calls findings::balance to compute a proposal tightening toward `target` findings, prints a table of proposed threshold changes with before/after hit counts, and if `apply` is true, writes the new thresholds back via save_rules. Returns an exit code.
-- found: Surveys the project to get facts/rules, swaps to the stock catalog if requested, calls findings::balance, prints a table of rule/threshold/hit-count changes, and on --apply writes the tightened thresholds into the live rules and saves them via save_rules, returning 0/1 exit codes.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-- note: The docs blob mixed in a paragraph that actually documents `undecide`, not `balance` — only the trailing one-liner belongs to this function.
-
-### `trim`
-- spec 3 · read at `13bd3d9e90d8` · commit `fc22b1a` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:58:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Formats v with fixed decimal precision, then trims trailing zeros from the decimal part and removes a trailing "." if nothing remains after it, so 0.50 becomes "0.5" and 1.00 becomes "1".
-- found: Formats v to 2 decimal places then trims trailing zeros and a trailing decimal point.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `clear`
-- spec 3 · read at `c366807f6bee` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:37:19Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Removes archived decisions (from the .sanity/findings decisions archive) matching the given subject key, optionally scoped to a specific rule, rewrites the archive file, prints a short confirmation, and returns an exit code (0 success, nonzero if nothing matched or file missing).
-- found: Canonicalizes the path, finds archived decisions matching `key` (and `rule` if given), calls `undecide` to rewrite the archive for each, then re-reads the archive to verify the expected count actually dropped (since this is a destructive, unrepeatable operation), and prints which decisions were reinstated.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
-
-### `list` — PREDICTED SOME
-- spec 3 · read at `64082d7bd91c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:35:44Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Reads the survey/worklist file at `path`, filters its entries by `groups` and an optional `declined` (depth, confidence) threshold to exclude already-declined items below that bar, truncates to `limit` entries, prints them formatted to stdout, and returns an exit code (0 success, nonzero if file missing/unreadable).
-- found: It doesn't read or filter a worklist file at all — `groups` is already-computed findings data. It merges each group's hits into rows keyed by subject (widest loc first), prints a header with counts, explains any blocked/inactive rules and why (deduped, wrapped), notes what a `declined` depth/budget skipped, then prints up to `limit` rows with their per-group findings text (folding shared rule background text in only once), and always returns 0.
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-
-### `wrap`
-- spec 3 · read at `b2cf6ea9c697` · commit `b231b9d` · read by claude-sonnet-5 · via claude · when 2026-09-04T07:39:08Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: Splits text on whitespace into words and greedily packs them into lines, starting a new line whenever adding the next word would exceed width, joining words on a line with a single space; returns the resulting Vec<String> of wrapped lines. A single word longer than width is likely just placed alone on its own (overflowing) line rather than being hyphenated or force-split.
-- found: Greedy word-wrap: splits on whitespace, accumulates words into a line (space-separated), flushing to the output Vec when the next word would push the char count over width; final partial line flushed at the end.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `summary`
-- spec 2 · read at `6685b01b20a8` · commit `10d6afa` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:47:41Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
-- expected: Resolves the repo path, loads the assessment data, and aggregates it into repo-wide statistics — counts of functions read, breakdown by predicted/documented/legible grade buckets, number of traps flagged, coverage percentage — then prints that as a single aggregate block (deliberately not per-file), possibly falling back to offline_summary if it can't reach a live backend. Returns an exit code.
-- found: Calls read_verb(path, "/summary") to hit the backend, prints project header, then a table of predicted/documented/legible grade histograms (full/most/some/none), trap and derivable-doc counts, a by_model breakdown of reading counts, a priming (exposed vs clean) line, and a by-position curve of full-prediction rate across a reader's batch. Returns early with a "nothing read yet" message if readings is 0.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-
-### `refresh`
-- spec 3 · read at `3aaff0b78ab8` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:42:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Locates the repo's .sanity/ directory for the given path and calls assessment::refresh in-process (not via the backend) to rewrite existing shard files in the current Markdown format. If no assessment exists yet, it does nothing and prints a message saying so, returning a success exit code. Otherwise it reports how many files were rewritten and returns 0, or prints an error and returns nonzero on failure.
-- found: Canonicalizes the path, checks for a .sanity/ dir (prints and returns 0 if absent), runs a full repo scan (Ordering fidelity, Untraced blame) to get current structure, loads existing reports, then calls assessment::refresh and matches its result into four outcomes (Failed/Absent/Current/Refreshed), printing a tailored message and reading count for each, returning 0 except on Failed (1) or canonicalize error (2).
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `verify`
-- spec 3 · read at `fb62881b0ead` · commit `4867125` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:40:52Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Scans the repo at path (exit 2 on failure), loads readings from .sanity/, then computes three checks: complete (no unread units), current (none stale or dated), one instrument (all readings share one harness and model, honoring the pins, waived by mixed). Prints a line per check with pass/fail/skip plus a tally, returns 0 if all pass else 1.
-- found: Canonicalizes path (exit 2 on error), exits 1 early if no .sanity/ dir (with GitHub annotation), reads repo (exit 2 on failure), computes complete/current/one-instrument checks, prints rows with pass/FAIL/skip (skip when mixed), lists outstanding items by stale/unread/dated capped at 20, prints instrument breakdown, emits GitHub ::error annotations (max 10) when in Actions, returns 0 or 1 with a hint.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
-
-### `required`
-- spec 3 · read at `922e0bd365f0` · commit `83a90f8` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:22:05Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Builds a string describing the required model and/or harness, e.g. "model X, harness Y", joining whichever are Some, and a fallback like "any instrument" if neither.
-- found: Formats the requirement as "m via h", "m", "via h", or an empty string when neither is given.
-- predicted: most · documented: full · derivable: no · legible: full · trap: no
-
-### `grades`
-- spec 2 · read at `734a8bc65ba7` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:59:45Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Formats one row of a grade histogram (full/most/some/none counts) pulled out of a JSON `Value`, right-aligning each count into a fixed-width column that lines up under a header row printed elsewhere in the CLI output. Missing or absent counts likely default to 0 rather than erroring.
-- found: Formats one row of the full/most/some/none grade histogram: each count is pulled from the JSON value, comma-formatted (thousands separator via `commas`), and right-aligned to width 7, concatenated with no separator. If `v` is None, returns a single right-aligned em-dash placeholder instead of four columns.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Missed that a None value collapses to one placeholder column rather than four zero columns, and missed the thousands-separator formatting via commas().
-
-### `export_of`
-- spec 3 · read at `b9f39bd49e99` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:46Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Resolves the path to a repo, picks depth (given, else banked, else Files), scans untraced, calls trace::deepen, loads readings, runs links::retest_tree, then assembles an Export struct of findings/files/readings. Calls lap with progress labels between phases; returns Err(String) on scan failure.
-- found: Scans untraced with a scan cache, deepens to the requested/banked/Files depth, loads readings, retests links, stamps reports, builds findings groups and summary, resolves the project name from the index (else directory name), creates and prunes a render cache dir, and assembles Export with remote/head/grammar count, calling lap between phases.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-
-### `export_data`
-- spec 3 · read at `c4e416078619` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:26:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: CLI handler for `sanity export-data`: calls export_of(path, depth) to build the export data structure, serializes it to JSON, writes it either to the file at `out` or to stdout if `out` is None, times the operation and prints elapsed duration to stderr, and returns an i32 exit code (0 on success, nonzero if the path is invalid or writing fails).
-- found: Canonicalizes path (exit 2 on failure), builds an export via export_of with a per-stage `lap` timing callback that eprintln's elapsed time between stages, writes the JSON to `out` file or stdout via a buffered writer (exit 1 on failure), then prints a final summary line (name, trace depth, reading/group counts, byte size if written to file, total elapsed) to stderr; returns 0 on success.
-- predicted: most · documented: none · derivable: yes · legible: most · trap: no
-- note: The file doc describes the whole CLI module, not this function specifically, so per-function coverage is partial.
 
 ### `after_help`
-- spec 3 · read at `60fb9276099f` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:33:07Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Returns a static help string listing the hidden verbs (serve, check) and a line saying what bare `sanity` does, chosen by cfg(feature = "gui"): opens window vs prints help/headless message.
-- found: Builds the help footer: ANSI-styled "Internals" section listing serve and mcp (not check), then a gui-gated line saying whether bare sanity opens the window or the build has no window.
+- spec 3 · read at `60fb9276099f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:26Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: after_help returns a String for clap's help footer. It likely lists the hidden verbs such as serve and check in a fixed text block, then adds one line describing what a bare sanity invocation does, with the wording chosen by the app-versus-headless flag. It probably builds the text with format! or a constant string.
+- found: Builds the help footer as a string: an ANSI-bold, underlined "Internals" heading listing the hidden verbs `sanity serve` and `sanity mcp`, then a blank line and a closing line. The closing line depends on the gui cargo feature: with it, it tells the user to run `sanity .` or plain `sanity` to open the window; without it, it says this build has no window and every verb works.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `launch_target`
-- spec 3 · read at `7577a8b27d92` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:19Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: If args is empty: if interactive, resolve cwd to its git root and return Some(root) if in a repo, else None. If exactly one arg that isn't a verb and is a directory, resolve to git root or Err if not in a repo. Otherwise (verbs, multiple args, flags) return Ok(None).
-- found: Match on args: none+interactive gives git root of cwd (or None); one non-flag non-verb arg that is a directory resolves to its git root or a not-a-repo error; a non-directory arg, flags, verbs, or multiple args give None.
-- predicted: full · documented: full · derivable: no · legible: full · trap: no
+- spec 3 · read at `7577a8b27d92` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:47:23Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: launch_target looks at the command-line args and the working directory and decides which repo the window should open, returning Ok with that path, Ok(None) when there is nothing to open, or Err with a message. Probably: no args and interactive means open cwd's git root; a single directory arg means resolve it to its git root; a verb name means nothing to open; a non-repo directory is an error.
+- found: Matches on args. No args: if interactive, returns the git root of cwd (None if not in a repo), otherwise Ok(None). A single argument that is not a flag or a verb: if it is not an existing directory it returns Ok(None); if it is, it returns that directory's git root or an error from not_a_repo. Any other shape (flags, several args, a verb) returns Ok(None).
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
 
 ### `is_verb`
-- spec 3 · read at `0e6bb2d5c19f` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:26Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
-- expected: Builds the clap Command (via CommandFactory) and checks whether any subcommand name equals word, or word == "help".
-- found: True if word is "help" or matches a clap subcommand's name or any alias.
-- predicted: full · documented: none · derivable: yes · legible: full · trap: no
-
-### `name_for_window`
-- spec 3 · read at `07e643fb502b` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:17Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: Canonicalizes the repo path and adds it to the persisted list of known projects (via a projects/registry function), ignoring errors, so /open will accept it. Probably a 3-5 line wrapper around a register/add call.
-- found: Computes project_key for the repo, takes the directory name (falling back to the key), and records key, path and name via reports::remember.
-- predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: The function name says nothing about registering on the list; the doc comment carries the purpose.
-
-### `main`
-- spec 3 · read at `0c4111e8f906` · commit `83a90f8` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:21:59Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: Dispatches CLI args: takes first arg as a subcommand (serve, check, list, summary, verify, export, etc.), calls the matching handler, and returns an exit code; unknown or missing command prints usage and returns nonzero.
-- found: Parses args with clap (exit 2 on error, 0 for help), then dispatches on Verb to handlers, including nested findings decide verbs.
+- spec 3 · read at `0e6bb2d5c19f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:18Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Returns true if the word matches one of a fixed list of CLI subcommand names (including help), probably via matches! on string literals. Likely a simple boolean membership check with no side effects.
+- found: Returns true for 'help' or for any clap subcommand whose name or alias equals the word, by building the Cli command tree via CommandFactory and checking its subcommands. Pure boolean, no side effects.
 - predicted: most · documented: none · derivable: yes · legible: full · trap: no
-- note: The docs given were the file-level doc, not this function's; the clap parse and exit-code behavior is only in inline comments.
+
+### `name_for_window` — PREDICTED SOME
+- spec 3 · read at `07e643fb502b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:07Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: name_for_window takes a repo path and returns a short name for the window, most likely the final path component (directory name), perhaps falling back to the full path when there is no file name. Given the docs it may also be where the repo is recorded on the known-repos list before the window opens, but from the name alone I'd expect it to only compute a label string.
+- found: Despite the name, it returns nothing. It computes a project key via agentapi::project_key, takes the directory's final component as the display name (falling back to the key), and calls reports::remember(key, full path, name) to record the repo on the known list. The window-name is only the recorded label.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `main` — PREDICTED SOME
+- spec 3 · read at `0c4111e8f906` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:50Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the CLI entry point taking raw args and returning an exit code. It probably parses flags and a verb or directory argument, dispatches to serve, check, or the read-only verbs, and otherwise launches the GUI or interactive mode for a repo. Likely a long match or if-chain over the first argument.
+- found: Parses args with clap (prepending a fake argv[0]); on parse failure prints the clap message and returns 2 for errors or 0 for help/version. Otherwise matches the verb: serve, mcp (delegated to crate::mcp::run), init, trace, check, status, summary, findings (list, or dispatches the decide sub-verbs to verdict-based decide, clear, or balance), callers, refresh, verify, export-data. Each returns the handler's exit code.
+- predicted: some · documented: most · derivable: no · legible: most · trap: no
 
 ### `a_directory_argument_opens_its_repo_and_a_verb_never_does`
-- spec 3 · read at `cefcf5b5508e` · commit `1c5f314` · read by claude-sonnet-5 · via claude · when 2026-09-25T16:28:44Z · by ross@rossturk.com · warm reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Creates a temp dir with a git repo (.git dir) and a subdirectory named like a verb ("check"), then asserts launch_target returns the repo root for "." and a directory arg, Ok(None) for a verb even when a same-named dir exists, an error for a non-repo directory, and behavior for no args with interactive true/false.
-- found: Test: temp git repo with a "check" subdir and a plain non-repo dir; asserts launch_target for ".", relative path, verb vs same-named dir, "./check", non-repo error, unknown arg, verb plus arg, and the no-args interactive cases.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no · test: yes
-- note: Warm on the file's launch_target behavior, since I read launch_target earlier; the test's assertion messages carry the intent.
-
-### `the_progress_line_reads_correctly_at_both_ends` — PREDICTED SOME
-- spec 2 · read at `e58761c44962` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:09:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is a test that builds a progress line out of helper pieces (bar, elapsed, grade_ink, tail, fancy, plural, resume) and checks the resulting string is correct/well-formed at both extremes — likely the start (0% / just begun) and the end (100% / complete) of a scan, verifying things like the bar rendering, elapsed time formatting, and pluralization don't break at either boundary.
-- found: A unit test verifying bar() renders 0 filled blocks at fraction 0.0, 0 empty blocks at 1.0, always the same fixed width (BAR) regardless of fraction (including out-of-range 1.4, clamped rather than panicking), and that plural() correctly pluralizes "reader"/"readers" for counts 1, 0, and 5.
-- predicted: some · documented: some · derivable: no · legible: full · trap: no
-- note: "Both ends" turned out to mean the two extremes of the bar fraction (0.0/1.0) and the fixed-width invariant, not two stages of a progress scan as I guessed.
-
-### `an_export_carries_whole_files_and_stamped_readings` — PREDICTED SOME
-- spec 3 · read at `055d3819768d` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:56:14Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: This test creates a project with files/functions and at least one reading, then calls `export_of`/`export_data` and asserts that the resulting export includes complete function lists per file (not partial) and that readings are properly stamped with a non-zero `loc`, so the offline renderer won't misinterpret an unstamped reading as a deleted function or a functionless file as an empty ring.
-- found: Builds a tiny real git repo with two functions, reads both, saves the assessment, then edits one function's body so its reading goes stale, and calls `export_of` to produce the offline export JSON. Asserts: each report is stamped with a positive `loc`; only the edited function's reading is marked stale; each file in the scan tree carries its full function children (unlike the window's `project_scan`); and various summary/groups/grammars/renderCache fields are present and correctly shaped (including that the render cache path is a real directory ending in `-r1`).
-- predicted: some · documented: some · derivable: no · legible: most · trap: no
-- note: The test covers staleness-after-edit and a whole summary/renderCache contract, not just the "whole files + stamped loc" the name/doc emphasize.
-
-### `verify_refuses_each_kind_of_gap_on_its_own`
-- spec 3 · read at `5970bb4571c8` · commit `4867125` · read by claude-sonnet-5 · via claude · when 2026-09-25T02:40:51Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A test that builds a scan and a store on disk, then for each kind of gap (unassessed function, missing reading, reads by more than one instrument, etc.) mutates the store, reloads it, and asserts verify returns a failure naming that gap. It also likely asserts the clean state passes.
-- found: Test that writes a temp repo, saves readings for all units, and checks verify's exit code and outstanding list for each gap: unread, stale body, dated spec, two models (fails unless mix allowed), pinned model mismatch, empty dir, and unread in a mixed repo.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-
-### `stamping_marks_size_expiry_and_dating`
-- spec 3 · read at `2c8b64a974d8` · commit `28fa5d6` · read by claude-sonnet-5 · via claude · when 2026-09-26T03:32:54Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Test builds a small tree and reports, calls stamp_reports, and asserts: an orphan report gets loc 0 and is not stale, a report whose body moved is stale, and the dating field follows the spec. Likely uses temp files and a hand-built Report or two.
-- found: In-memory test: builds a two-function tree and three reports (live with current SPEC, moved with a stale body hash, gone/orphan), stamps them, and asserts loc, stale, legible_dated and trap_dated for each. No temp files; dating differs by spec and trap flag.
-- predicted: most · documented: some · derivable: no · legible: most · trap: no
-
-### `clearing_a_finding_takes_back_every_rule_under_it` — PREDICTED SOME
-- spec 3 · read at `724afdbc953d` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:10:02Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: A test that archives/decides multiple rules under the same finding key, calls the clear verb for that key, then re-reads the on-disk archive to assert all those rules are no longer present/flagged, proving the deletion was persisted rather than just checking return values.
-- found: Files three decisions under key "a.rs#run" and one under a different key "b.rs#other". Calls clear() with a specific rule name to remove just one, verifies exactly that one is gone and the other two remain; then calls clear() with None to remove the rest, verifies all under "a.rs#run" are gone while "b.rs#other" survives untouched; finally calls clear() again on the now-empty key and asserts it returns a nonzero/error code (1) rather than silently succeeding.
-- predicted: some · documented: most · derivable: no · legible: full · trap: no
-- note: Docs describe the high-level intent (clear takes back every rule under a key, verified against disk) but not that clear() accepts an optional specific-rule filter or that clearing an already-empty key must return a refusal code rather than 0.
+- spec 3 · read at `cefcf5b5508e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:58Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This is a test in the cli tests module. It probably calls launch_target with a directory path and asserts it resolves to opening that repo, then calls it with verb names like serve, check or status and asserts they are not treated as repo paths. It is a plain assert-based test with no return value.
+- found: A test that makes a temp dir with a git repo at repo/ (plus a repo/check subdirectory and a non-repo plain/), then asserts launch_target: "." and "repo" resolve to the repo root; the verb "check" returns None even though a check directory exists, while "./check" resolves to the repo; a non-repo dir errors; unknown names and "findings ." return None; and no-args returns the repo only at a terminal, not from a launcher.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: yes
 
 ### `a_flags_value_is_not_the_repo`
-- spec 2 · read at `23ede843bbce` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:17:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: A unit test that parses CLI args like ["sanity", "init", "--harness", "claude"] using the real parser and asserts the resolved repo path is the default (e.g. current dir), not "./claude" — confirming --harness's value isn't mistaken for a positional repo argument.
-- found: A parameterized unit test using a path_of helper that parses CLI args via clap and extracts the resolved path from various Verb variants. It asserts --harness (both space and = forms) doesn't get treated as the repo path, that a real path wins regardless of position relative to flags, that valueless flags like --show don't swallow the next arg, and that unknown flags produce a parse error.
+- spec 3 · read at `23ede843bbce` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:08Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: A test that parses command lines like `sanity init --harness claude` and asserts the bare word after a flag is taken as that flag's value, not as a positional repo path. It probably checks the parsed struct has harness set to claude and the repo path is unset or defaults to the current directory.
+- found: A clap parsing test. Defines a helper that parses args and extracts the path from init/check/status/summary/refresh; asserts a flag's bare value does not become the path (default "."), a real path wins before or after flags, a valueless flag does not swallow the next argument, and an unknown flag like --wat is a parse error.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/cli/status.rs
+
+### the file itself
+- spec 3 · read at `1aa4591cf49f` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:55:34Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: This file holds the read-only status and summary verbs. Both format a backend endpoint's payload and share a project_header so their denominators agree. When no backend answers, offline_status and offline_summary compute the same payload in-process from a parse and the committed .sanity data, leaving live-only fields absent. grades is a helper and read_verb is the shared entry.
+- found: Shared project_header prints the repo's counts and read/unread/stale split from the payload. status and summary go through read_verb, which calls the live /status or /summary endpoint if a backend answers and the project is open, otherwise falls back to offline_status or offline_summary computed from a parse plus committed .sanity readings. status prints backend state, pid and running run, plus the sentence to run sanity check. summary prints grade histograms as a table, traps, derivable count, models that read, priming counts, and the full-rate curve by position. grades formats one histogram row.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `project_header` — PREDICTED SOME
+- spec 3 · read at `c7b8a5f25729` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:45Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: project_header prints the shared header block from a JSON payload: the repo name or path, then a progress line stating how many functions or files have been read and how many remain, with stale and file-header counts handled consistently. It returns nothing and only writes to stdout.
+- found: Prints a fixed header: project name, segment total split into functions and file headers (with excluded count), read count and percent, history depth or not-read line with cost estimate, unread (remaining minus stale) and stale counts, in-flight readers if any, and the readings file path. Returns nothing and writes only to stdout.
+- predicted: some · documented: none · derivable: yes · legible: most · trap: no
+
+### `offline_status`
+- spec 3 · read at `5e0418b80745` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:16Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Computes the status payload in-process for a repo path with no backend running: it reads the repo and the committed .sanity/ readings, builds a JSON Value shaped like the endpoint's, and returns None if the repo can't be read. It omits live-only fields like in_flight instead of zeroing them and writes nothing to disk.
+- found: Calls read_repo(repo) (returns None on failure, which propagates), computes counts via agentapi::offline_counts, and returns a JSON object with project name (directory basename), repo path, functions, files, excluded, assessed, remaining, stale, and assessment_file path. Live-only fields such as in_flight are simply not included.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `offline_summary`
+- spec 3 · read at `8a0213ed0e2e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:20Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: The offline counterpart to the summary endpoint: it reads the repo and committed readings with read_repo, builds the aggregate payload through the same aggregate_of the endpoint uses, and returns it as Some(Value), or None if the repo can't be read. It writes nothing and starts no backend, and it likely adds the project header so it matches offline_status.
+- found: Reads the repo via read_repo (None propagates), computes offline_counts, and also aggregate_of for the aggregate fields. Returns a JSON object with open: true, the same project/assessment_file/repo header fields as offline_status, the count fields, plus stale, total, by_model, by_position and priming from the aggregate.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `read_repo`
+- spec 3 · read at `820a1bd78c57` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:40Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: It scans the repo path into a Scan and reads the committed reports from the .sanity/ directory into a HashMap keyed by id. It returns None when the repo cannot be scanned or read, and otherwise returns the pair as Some.
+- found: Scans the repo with ScanCache, Ordering fidelity and Untraced depth (no git blame, no proxy scores), prints scan errors to stderr and returns None on failure, otherwise loads the committed assessments from .sanity/ via assessment::load and returns (Scan, reports map).
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `read_verb`
+- spec 3 · read at `6f5907645fd7` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:41Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: read_verb asks the running backend at the given endpoint for this repo's status or summary payload, returning it as JSON on success. If no backend answers or it has not opened the repo, it falls back to computing the payload offline from the committed .sanity/ data, and returns an Err exit code only when that also fails. It must not start a backend or open the repo.
+- found: Resolves the repo path (exit 1 on failure), then if no backend is live computes offline_status or offline_summary from the repo by endpoint string. If a live backend exists it GETs the endpoint with the project key, and falls back to the same offline computation when the response reports the repo is not open. Otherwise returns the live JSON.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `status`
+- spec 3 · read at `a4244017b060` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:39Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Entry point for the `status` verb: takes a repo path, reads the status payload from a live backend if one is answering for that repo, otherwise falls back to computing it offline from the committed .sanity/ data. Prints the formatted progress with the shared project header and returns an exit code as i32.
+- found: Fetches /status via read_verb (which handles the backend-or-offline choice and error codes), then prints backend state (running with pid/port and reader activity, or not running), the project header, and either "every segment up to date" or the count of segments needing `sanity check`. Always returns 0 unless read_verb failed, in which case it returns that error code.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `summary` — PREDICTED SOME
+- spec 3 · read at `271c0fed6cde` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:52Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Entry point for the `summary` verb: fetches the /summary payload for the repo path via read_verb, then prints aggregate grades and finding counts with the shared project header, skipping any per-file or per-function breakdown. Returns an i32 exit code, 0 on success or the error code from read_verb.
+- found: Fetches /summary via read_verb, prints the project header, and says "nothing read yet" if there are no readings. Otherwise prints a predicted/documented/legible grade table, trap and derivable counts (cold deliberately omitted), readers grouped by model, a priming exposed/unprimed line when a brief existed, and the full-prediction rate by batch position. Returns 0 or read_verb's error code.
+- predicted: some · documented: full · derivable: no · legible: most · trap: no
+
+### `grades` — TRAP
+- spec 3 · read at `f899da8bbc99` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:12Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Takes an optional JSON value holding a histogram of the four grades and formats it as one aligned row of four counts in scale order (full, most, some, none), padded into fixed columns. If the value is missing or not an object it probably returns a dash or empty string rather than zeros.
+- found: If None, returns a 7-wide em dash. Otherwise, for each of full/most/some/none, looks up the u64 under that key (missing or non-u64 becomes 0), comma-formats it right-aligned in 7 columns, and concatenates the four with no separator.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: A present value with a missing key, or a non-object, is formatted as 0 for that grade via unwrap_or(0). That reports absent data as a real zero, which the module doc says the offline path must not do.
+
+## src-tauri/src/cli/store.rs
+
+### the file itself
+- spec 3 · read at `50170cd519ab` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:31Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the CLI side of the .sanity store: it holds `refresh` (rescan the repo, rewrite the store with this build) and `verify` (load the store from disk and rule pass or fail, likely as a release gate), plus a `required` helper and tests that check each kind of gap makes verify refuse on its own. It is in-process and never talks to a backend, so the shape is a few public verbs, one or two private helpers, and a test module at the bottom of the file.
+- found: A CLI module with two in-process verbs over the .sanity/ store. `refresh` rescans the repo and rewrites the shards and index in the current format, refusing to create anything and reporting each outcome (failed, absent, current, refreshed); it deliberately bypasses the backend daemon so an old daemon cannot block a format change. `verify` is a release gate that checks three things: completeness (no unread units), currency (no stale or spec-dated readings), and one instrument (all readings from one model and harness, optionally pinned by --model/--harness, waivable with --mixed). It prints each check's pass/FAIL, lists up to 20 outstanding units, emits GitHub ::error annotations when GITHUB_ACTIONS is set, and returns 0/1/2. A private `required` helper formats the pin for failure lines, and the tests break each check in turn against a real scan.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
+
+### `refresh` — LEGIBLE SOME
+- spec 3 · read at `613bf677c157` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:30Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: The in-process CLI verb that rewrites the repo's .sanity/ readings into the current format. It scans the path, loads the store, and calls assessment::refresh to re-render each existing file, then reports what changed and returns an exit code. If there's no assessment directory it prints that and returns 0 without creating anything.
+- found: Canonicalizes the path (exit 2 on failure), returns 0 with a message if there's no .sanity/ dir, otherwise does an Ordering/Untraced scan (exit 1 on failure), loads the readings, and calls assessment::refresh. It maps the Index result to output and exit code: Failed is reported and returns 1; Absent and Current return 0 with a message; Refreshed prints a note to read the diff before committing and returns 0.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
+
+### `verify` — LEGIBLE SOME
+- spec 3 · read at `9f73684dcd80` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:47:11Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: verify scans the repo at path, loads the .sanity store, and checks three things: every unit has a reading, no reading is stale or dated by a spec bump, and all current readings share one harness and model, optionally pinned by the model and harness arguments. The mixed flag waives the single-instrument check and prints a skip. It prints each check's result and returns 0 on pass, 1 on failure, and 2 if the repo can't be scanned. It does not call a backend.
+- found: Canonicalises the path (exit 2 if that fails), refuses with exit 1 if there is no .sanity/ directory, then loads the scan and reports. It prints three rows: complete (no unread units), current (no stale or spec-dated readings), and one instrument (single harness and model, optionally pinned, skipped when mixed is set). It lists up to 20 outstanding items per category, prints per-instrument counts when relevant, emits GitHub ::error annotations when GITHUB_ACTIONS is set, and returns 0 only if complete and current hold and the instrument check passes or is waived.
+- predicted: most · documented: full · derivable: no · legible: some · trap: no
+
+### `required`
+- spec 3 · read at `9f62f9a05ff3` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:15Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: required takes optional model and harness strings and returns a human-readable requirement string for a failure line. It probably formats whichever are present, like "model X, harness Y", and falls back to a generic phrase such as "any model" or "no requirement" when both are None. It is pure formatting with no I/O.
+- found: Matches on the pair: both present gives "model via harness"; model only gives the model; harness only gives "via harness"; neither gives an empty string. Pure formatting, no I/O.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `verify_refuses_each_kind_of_gap_on_its_own`
+- spec 3 · read at `68863de73f5b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:35Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A test that sets up a real scan and a store written to disk, then breaks one thing at a time (for example removes the store, leaves it stale, or drops one instrument's results) and asserts that verify fails each time for that specific reason. It probably also checks that the intact case passes.
+- found: Test that builds a tempdir repo with one source file, then steps through states, asserting verify's exit code and the owed list each time: nothing read fails; an empty dir with no .sanity/ fails; one unread unit fails; a full read passes, including when pinned to a specific model/harness and fails for a different required model; a changed function body makes it Stale; a read at an older spec makes it Dated; two models with nothing owed fails unless mixing is allowed; and with mixing allowed, an unread unit still fails.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no · test: yes
+
+## src-tauri/src/cli/tail.rs
+
+### the file itself
+- spec 3 · read at `6fc13a126c33` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:31Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: This file is the terminal watcher for a run. It polls /status every two seconds for new readings, and a Board draws the header, recent readings and progress line in place on a TTY, or prints each reading plainly when piped. Peers show tail as the entry point, with helpers for progress bar, takeover following and the end-of-run and detached messages.
+- found: tail polls /status every two seconds, printing fresh read events as rows and redrawing a fixed Board on a TTY, or printing plain rows when piped. Ctrl-X sets a detach flag while Ctrl-C sets an interrupt that posts /stop. If the backend vanishes it tries follow_takeover to a new backend, otherwise prints a stopped-early summary. On a run end it prints the backend's reason and totals. Helpers handle the bar, grade coloring (full dimmed, none brightest), the reading header and row layout, and the detached message. Tests pin the progress line.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `bar`
+- spec 3 · read at `759ee76c5bf2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:56Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Renders a fixed-width text progress bar for a fraction: clamps frac to 0..1, computes how many cells are filled by rounding frac times the width, and returns a string of filled block characters followed by empty ones. Likely wrapped in brackets or with a trailing percentage omitted, since the caller composes the progress line.
+- found: Clamps frac to 0..1, rounds frac times BAR to a cell count, and returns that many "█" followed by BAR minus that many "░". No brackets or percentage.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no · test: no
+
+### `elapsed`
+- spec 3 · read at `e35e0307df82` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:39Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Computes the time since the given Instant and formats it as a short string: seconds only (like "40s") under a minute, otherwise minutes and seconds (like "3m20s"). It likely uses Instant::elapsed and integer division, and probably does not special-case hours, so a long run would show a large minute count.
+- found: Returns whole seconds elapsed since `since` as "{s}s" under 60 seconds, otherwise "{m}m{ss}s" with zero-padded seconds. No hour handling, so 75 minutes prints as "75m00s".
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `grade_ink`
+- spec 3 · read at `c458bdbf7c97` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:52Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: grade_ink maps a grade string to a pair of ANSI style strings, probably one for the text and one for the reset or background, with a dim style for the common good grade and bright colors for poor grades. It returns empty strings when output is not a terminal, so logs stay plain.
+- found: Returns two ANSI strings (open, close) for the grade: empty pair when not fancy/terminal; full is dim, most is unstyled, some is yellow, none is bold yellow, anything else falls back to dim.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `tail` — LEGIBLE SOME
+- spec 3 · read at `9bba5d2f9908` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:54Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: The polling watch loop. It sets up a Board on a terminal or prints plainly to a log, then every two seconds asks the endpoint for readings newer than the last sequence number, printing them and redrawing the progress line. It handles Ctrl-C to stop the run, Ctrl-X to detach only the watcher, follows a backend takeover once, and returns an exit code (i32) when the run ends with a spend summary.
+- found: The main watch loop for a run. Copies the endpoint, sets up Ctrl-C (interrupt flag, POST /stop) and Ctrl-X (detach) handling, prints the banner, then loops: on detach returns 0; on a failed /status poll follows a takeover or returns 1 with a stopped-early summary; otherwise adds fresh readings, measures progress against the baseline captured at the first successful poll, returns 0 with a summary when the run stops running, and else redraws the board and sleeps 2s.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
+
+### `watch_detach`
+- spec 3 · read at `a55b7dcf3a33` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:47:26Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: watch_detach spawns a thread that reads stdin byte by byte and sets the shared atomic flag to true when it reads the Ctrl-X byte (0x18). It likely loops on stdin reads and stops when stdin closes, so the flag lets the watch loop detach from the run without stopping it. It is probably only meaningful once the terminal is in raw mode.
+- found: Spawns a thread that reads stdin one byte at a time. On byte 0x18 (Ctrl-X) it sets the shared flag to true and exits the thread. It also exits when a read fails, such as when stdin closes, without setting the flag. Any other byte is discarded.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `only_one_caller_may_start_a_backend_at_a_time`
-- spec 2 · read at `e9104fbd590c` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:18:19Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: Simulates multiple concurrent callers (e.g. threads) racing to start the backend via the spawn-lock mechanism, and asserts that only one caller actually performs the spawn (e.g. by counting spawn attempts or checking a lock file/pid), while the others detect the lock is held and wait/attach to the backend that's already starting rather than launching a second one.
-- found: Sequential (not threaded) calls to take_spawn_lock(): first call succeeds, second call while held returns None, then after dropping the first guard a third call succeeds again — testing lock exclusivity and drop-based release directly rather than via simulated concurrency.
-- predicted: most · documented: some · derivable: no · legible: full · trap: no
-- note: I assumed the test used real concurrent threads to race for the lock; it actually tests exclusivity/release synchronously by calling take_spawn_lock() twice in sequence.
+### `watch_interrupt` — TRAP
+- spec 3 · read at `5ab4d123e791` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:06Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Spawns a thread that listens for Ctrl-C and, when it arrives, stores true into the shared AtomicBool so the polling loop sees it and stops. It probably uses a signal or ctrlc-style handler and sets the flag with a relaxed or sequentially consistent store; the thread itself does not stop the run.
+- found: Spawns a detached thread that builds a current-thread tokio runtime, awaits tokio::signal::ctrl_c, and on success stores true (Relaxed) into the shared flag. Build or registration failures are silently ignored.
+- predicted: most · documented: full · derivable: no · legible: full · trap: yes
+- note: If the runtime build fails or ctrl_c registration errors, both are swallowed by `if let Ok` / `is_ok`, so Ctrl-C silently does nothing and the flag never flips. Nothing logs it.
 
-### `an_abandoned_spawn_lock_is_taken_rather_than_blocking_forever`
-- spec 2 · read at `da454e03c676` · commit `51b9d8d` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:19:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
-- expected: This is a test verifying the stale-lock-takeover logic described in the doc comment: it creates a lock file (via O_EXCL) and artificially backdates its mtime past START_WAIT, then calls the lock-acquisition routine and asserts it succeeds (takes over the lock) rather than blocking/timing out, proving an abandoned lock from a dead process doesn't wedge future callers. It may also check the complementary case that a young/fresh lock is NOT taken over.
-- found: A test that verifies stale-lock takeover: it acquires the spawn lock, confirms a large age threshold (3600s) refuses to steal it (still live), then confirms a zero threshold does steal it (abandoned lock case). It also checks that after both the original holder and the thief drop their locks, a fresh caller can still acquire it — i.e. release-by-path doesn't get confused by the two lock handles pointing at the same file.
+### `new` — PREDICTED SOME
+- spec 3 · read at `9d697f9d043d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:38Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Constructs an empty Board for the terminal watcher: probably a struct literal with an empty or zeroed header/rows buffer, a default or None for the progress state, and maybe a cursor/line counter starting at 0. It likely does no I/O and no terminal querying, since drawing happens later in Board::draw.
+- found: Builds a Board with header set to reading_header() (not empty as I guessed), header_drawn=false, an empty VecDeque for recent readings, drawn=false, and block=0. Pure construction, no I/O.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `erase` — PREDICTED SOME — TRAP
+- spec 3 · read at `b48b4ca079f5` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:58Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Method on Board that, if a progress block is currently drawn, moves the cursor up over the block's lines and clears them, then marks it not drawn. Likely uses ANSI escape sequences (cursor up / erase line) with the block counter, and does nothing when nothing is on screen.
+- found: If self.drawn, prints "\r\x1b[K" (carriage return and clear to end of line, current line only) and sets drawn=false. Otherwise does nothing. It does not use self.block to move up over multiple lines.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: yes
+- note: erase only clears the line the cursor is on (\r then clear-to-end) when drawn is set; it ignores self.block. If draw ever leaves a multi-line block with the cursor on its last line, the rows above it stay on screen. Whoever changes draw must keep the cursor on a single line or erase must walk self.block.
+
+### `add`
+- spec 3 · read at `d855652e985d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:29Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Board::add takes a reading row string. On a terminal it pushes the row into the kept rows and trims the list to the last few, then redraws the block. In a log or pipe it prints the row straight out with no chrome. It probably checks whether stdout is a terminal to pick between the two.
+- found: On the first call it prints the header, erasing the progress line first when on a terminal. Then in fancy (terminal) mode it pushes the row into a bounded deque of KEEP recent rows, dropping the oldest; otherwise it prints the row directly. It does not redraw the block itself.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
-- note: Predicted the age-threshold behavior correctly but not the exact mechanism (a threshold parameter to take_spawn_lock_after rather than backdating mtime), and missed the release-by-path double-drop safety check entirely.
+
+### `draw`
+- spec 3 · read at `52d5cc2a9e24` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:47Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Method on Board that redraws the progress block in place on a terminal: it erases the previous block, then writes the column header, recent readings, and a progress line built from done/target, the run info, and elapsed time since started. Off a terminal it presumably does nothing or prints only plain lines, and it tracks the drawn line count on self so the next draw can erase it.
+- found: Returns immediately unless fancy() (a terminal). Otherwise computes the fraction done, moves the cursor up by the previously drawn reading rows (block), rewrites the recent reading rows, then writes the progress line: bar, done/target, live readers and spawned count, and elapsed time, with no trailing newline. Records block = number of recent rows and sets drawn.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `reading_header` — PREDICTED SOME
+- spec 3 · read at `07407e5ec686` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:12Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: Builds the column-heading line string for the readings table: returns a dimmed header row with labels such as predicted/documented/legible/trap columns, using padded fixed widths to line up with reading_row. Probably returns an empty string when not on a terminal, and the header row is only printed once readings exist.
+- found: Returns the column header line: "function", "predicted", "doc'd", "legible", "derivable" padded to fixed widths. Dimmed with ANSI codes when fancy() (a terminal), plain otherwise. It is not empty off-terminal; only the dimming differs.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+### `fresh_readings`
+- spec 3 · read at `1407d9b31a27` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:15Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: fresh_readings reads the events array from the status JSON, keeps only events with a sequence number above seen, advances seen to the highest sequence it sees, and returns each new event formatted as a row string. It probably ignores a missing events array and returns an empty vector then. Since seen is a mutable reference, the caller's position moves forward each poll.
+- found: Reads the status JSON's events array (returns empty if absent). For each event with a seq above seen, it advances seen to that seq, regardless of stage, then keeps only events whose stage is "read" and formats them as reading_row strings. Hand-out events advance the cursor but produce no row.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `reading_row`
+- spec 3 · read at `90c79e784199` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:32Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: reading_row takes a JSON event value and formats it as one printed row: a name with a leader of dots or spaces, followed by four colored grades pulled from fields of the event. It probably returns a String with ANSI color for the grades and falls back to placeholders when a field is missing.
+- found: Formats one event as a padded row: the name truncated to NAME_COL with dot or space leader, then the predicted grade colored by grade_ink with its off code, then documented and legible (dash if absent) and derivable as yes/no/dash, each padded to GRADE_COL.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `follow_takeover`
+- spec 3 · read at `1d9b4712eb15` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:47:22Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: follow_takeover looks for a new backend that has taken over from the one this run was on, using the Wanted record to reissue the run there. It is single-shot: it tries once, probably by finding the new endpoint and calling resume, and returns Some(new endpoint) on success or None if nothing took over or the reissue was refused. The board is probably updated with a line about the takeover.
+- found: Waits up to START_WAIT for a backend to appear. Returns None if it is the same backend (same pid) as the current one. Otherwise erases the board, prints a "took over, continuing there" message, and calls resume on the new backend, returning Some(new endpoint) if resume succeeds and None if it fails.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `print_detached`
+- spec 3 · read at `8f316f974355` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:44Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: print_detached prints a message telling the user that Ctrl-X detached them from watching, that the run continues in the background, and how to reattach. It likely reads the run id or wanted state to build the hint. It is a short, output-only function with no return value.
+- found: Prints two blank lines, "Detached. The run continues.", a line pointing to `sanity status <repo path>` for progress, and a trailing blank line. Nothing is returned and no state changes.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The hint names the repo path, not a run id, and the body is plain println output with no branching, so it does nothing on a non-terminal beyond printing the same lines.
+
+### `print_stopped_early`
+- spec 3 · read at `007a88b9d281` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:00Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: Prints a short closing message to the terminal for a tail whose backend was lost for good. It says the run is over, reports the number of readings done (already banked in .sanity/), and the elapsed time since started, probably via the elapsed helper. Writes to stdout or stderr and returns nothing.
+- found: Prints a blank line, "The run stopped early.", a blank line, then " N readings in <elapsed>" using plural and the elapsed helper, then " `sanity check` picks up where it left off.", and a trailing blank line. All via println to stdout; returns nothing.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no · test: no
+
+### `print_ended`
+- spec 3 · read at `dfb7f916aa96` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:12Z · by ross@rossturk.com · cold reading · reading 8 of its run · priming: CLAUDE.md excluded
+- expected: Prints the end-of-run summary to stdout: a line giving why the run ended from the run JSON, such as a stop reason, then the count of functions done and the elapsed time from started, plus spend figures from st if present. It is pure printing with no return value.
+- found: Prints a blank line, the backend's "ended" sentence, then the readings count and elapsed time, a failed-reader line only when failures exist (so a misconfigured run is visible), and an "X of Y read, Z to go" line from status counts, then a trailing blank line. Returns nothing.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `the_progress_line_reads_correctly_at_both_ends` — PREDICTED SOME
+- spec 3 · read at `66c8bb7edbb1` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:52:48Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A Rust unit test in the tests module of cli/tail.rs. It checks that the progress line renders correctly at its start and at its end, likely asserting the bar, elapsed time, and grade ink text for a zero-progress and a finished state against expected strings.
+- found: A unit test. Asserts bar(0.0) has no filled cells and bar(1.0) has no empty cells, that bar keeps a fixed BAR width for fractions including out-of-range 1.4, and that plural() pluralizes 1, 0 and 5 correctly ("1 reader", "0 readers", "5 readers").
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no
+
+## src-tauri/src/cli/trace.rs
+
+### the file itself
+- spec 3 · read at `a97391d62e0e` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:32Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: This is the CLI `trace` verb, which opens the repo on a backend and requests a history-depth rung from `/trace`, either a named rung or the deepest that fits a budget. It also holds the `Rung` type with its `of` constructor, and the shared helpers `rung_name` and `duration` that describe a skipped rung and its cost for the findings output. Peers include `trace`, `rung_name`, `duration`, and `Rung::of`, so it is mostly the verb plus those formatters.
+- found: The file is the `sanity trace` CLI verb and the `Rung` type it uses. `trace` resolves the repo, ensures a backend, and POSTs /open, printing the `sanity init` hint instead of the endpoint's agent-facing hint if the repo was never added. It then POSTs /trace with a depth: the named rung (edits or lines, via `Rung::of` from --edits/--blame) or the budget default. It prints the depth reached and elapsed time, and if a rung was declined for cost it prints that rung's name and estimated duration against the budget. `rung_name` and `duration` are the shared formatters for that message.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `trace`
+- spec 3 · read at `1bc66e38be82` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:47:13Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Opens the repo at the given path on the backend, then requests history for the given rung from /trace and prints how far it got, including any rungs skipped and their cost. Returns an exit code: 0 on success, nonzero if the repo could not be opened or the request failed.
+- found: Resolves the path, ensures a backend, and POSTs /open for the project; if /open reports not ok it prints the error plus a 'sanity init' hint and returns 1. Otherwise it POSTs /trace with the depth (budget or the named rung), prints the depth reached, seconds taken, whether it was stopped, and any declined rung with its cost against BUDGET. Returns 0 on success, 1 on any error.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `rung_name`
+- spec 3 · read at `502cb6765527` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:25Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: It maps a trace Depth enum value to a static human-readable name string, probably with a match arm per depth variant such as Untraced, Shallow, Full, returning fixed literals. It's a pure lookup with no I/O.
+- found: A match on Depth: Edits gives "The edit timeline", Lines gives "Per-line history", and every other depth (the default arm) gives "The commit log".
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `duration` — PREDICTED SOME
+- spec 3 · read at `1b8539218772` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:40Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Formats a seconds value as a short human string, switching units by magnitude (seconds, then minutes, then hours), with rounding to a whole number in the chosen unit. It probably prefixes the result with "~" or "about" since it is an estimate. Returns the formatted String.
+- found: Under 60 seconds it returns whole seconds, clamped to at least 1 ("Ns"); at 60 or more it returns whole minutes ("N min") with no hours unit, so 7200 gives "120 min". No tilde or "about" prefix.
+- predicted: some · documented: none · derivable: yes · legible: full · trap: no · test: no
+
+### `of` — TRAP
+- spec 3 · read at `698299420c15` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:55Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Maps the two flags onto a Rung variant. Blame most likely wins over edits, since it is the deeper rung, and if neither flag is set it returns a budget-driven default rung rather than a fixed one. It is a pure match on the two booleans with no I/O.
+- found: Pure match: edits → Rung::Exactly(Depth::Edits); else blame → Rung::Exactly(Depth::Lines); else Rung::Budget. Edits takes precedence over blame when both are set.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: yes
+- note: When both edits and blame are set, edits wins and blame is silently dropped (the match arm for (true, _) comes first), so a caller passing both gets the Edits rung with no warning. Nothing says the flags are exclusive.
 
 ## src-tauri/src/clones.rs
 
@@ -3175,10 +3446,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: no · legible: full · trap: no
 
 ### `has_test_contract`
-- spec 3 · read at `d51688bd86eb` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:10:44Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
-- expected: A short match/matches! on lang returning true for languages whose toolchain enforces a test naming convention (Rust #[test], Go _test.go, Python test_/pytest, JS/TS with jest, etc.) and false for None or languages without one (like C++), used to gate whether the queue bothers asking a reader.
-- found: Delegates to contract_of(lang, "", false) and returns whether it yields Some, rather than a direct match over language variants; still returns false for None.
-- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- spec 3 · read at `bf85f479a19b` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:24Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: Takes an optional language and returns a bool saying whether that language has a test contract, probably by delegating to a match on lang or a helper like contract_of that returns Some for supported languages. The docs say it exists so the queue can skip the test question for languages the toolchain already answers. Likely a short match returning true for some Lang variants and false otherwise, with None returning false.
+- found: One-liner. Returns false for None. For Some(lang), it calls contract_of(lang, "", false) and returns whether that is Some, so it answers "does this language have a test contract" by probing the contract lookup with empty arguments rather than keeping its own list.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `skip_test_ask` — PREDICTED SOME
 - spec 3 · read at `af48bcf14fa6` · commit `ebfef5d` · read by claude-sonnet-5 · via claude · when 2026-09-09T19:10:37Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -5770,10 +6041,10 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: none · derivable: yes · legible: full · trap: no
 
 ### `call`
-- spec 2 · read at `d3711b565c61` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:27Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: Dispatches an MCP tool call: matches the `name` string against a big match/if-else covering every advertised tool (both reader tools like sanity_next/reveal/report and human tools), extracts/validates fields out of `args`, calls the corresponding internal function, and wraps the result as a JSON Value or returns an Err string for unknown tool names or bad args.
-- found: MCP tool dispatcher that first checks the name is a known dispatchable tool, then blocks reader-role callers from admin tools (sanity_open/status/summary), then matches on name to proxy each call over HTTP (get/post) to a local backend server, injecting the session's stored project key into most request bodies/queries, with sanity_open specifically starting the backend and remembering the returned project key.
-- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- spec 3 · read at `ee71852bbd06` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:15Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A dispatcher that matches the tool name string against each sanity tool (next, reveal, report, and the rest) and forwards the args to the matching handler, returning its JSON result. An unrecognized name should produce an Err string. It probably also guards that the tool is allowed for the current role (reader vs human), since the peers include reader_tools and human_tools.
+- found: Dispatcher. First rejects names not in dispatches(). Then refuses sanity_open/status/summary when role is Reader. Then matches each tool: sanity_open calls ensure_backend, posts /open with a contract fingerprint and stores the returned project key in PROJECT; the others get or post to the backend, injecting the stored project key into the body or query. sanity_next clamps n to 1..25 and omits it when absent so the backend default applies. Unknown names return Err.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
 
 ### `run`
 - spec 3 · read at `0eb2cb945e5e` · commit `9f5abcc` · read by claude-sonnet-5 · via claude · when 2026-08-21T22:44:10Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -7024,12 +7295,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/scan.rs
 
-### the file itself — PREDICTED SOME
-- spec 3 · served in 5 parts · read at `e9b13d89965c` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T03:46:12Z · by ross@rossturk.com · warm reading · reading 4 of its run · priming: CLAUDE.md excluded
-- expected: scan.rs is the core scanning engine: it walks a repository's file tree (respecting gitignore, detecting git roots/nested repos), parses each file, computes size/complexity/quality scores per file and directory, and assembles the results into the hierarchical tree structure the sunburst visualization renders. It likely handles progress reporting during the walk, cost/time estimation for the scan, collapsing single-child directory chains for display, and detecting test files.
-- found: Confirms the core shape I predicted (walk with gitignore respected, parse, score, build the tree the sunburst renders, collapse single-child directory chains), but the file does far more than I described: git-root detection and a "you picked a folder of repos" refusal message, a whole caching/signature layer (treecache) to skip rescans, cost/time budget estimation for a scan, throttled progress event streaming with named phases and sub-step gauges, streaming per-file "shape" events so the map draws while scanning, git blame/churn/edit-history integration for age/churn/authorship scores, repo-wide call-graph wiring and clone detection, cognitive-complexity banding calibrated per repo, and declared-test detection from package manifests/config files.
-- predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
-- note: The file-level doc comment ("Walk a repo, parse it, score it, and hand back the tree the sunburst renders") is accurate but covers only a fraction of what this 1600-line file actually does — most of the substance (caching, budgeting, wiring, clones, blame, test declarations) is undocumented at the file level, though individual items are documented inline near their definitions.
+### the file itself — LEGIBLE SOME
+- spec 3 · served in 5 parts · read at `1aec74a70b29` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:47:25Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: This file is the Rust scan pipeline: it walks the repo's files honouring ignores, parses each into functions, reads git history (log, blame, edits) and per-file stats, scores directories and functions, and assembles the nested tree the sunburst draws. It also reports progress while it runs and carries tests for pricing rescans, identity of functions across edits, and chain collapsing. The header is a one-line summary that covers the main pipeline but not the git reading or progress parts.
+- found: The Rust scan pipeline. It walks files (ignore-aware, with NOT_CODE, VENDORED, size and minified-line filters), parses functions through a content-keyed cache, reads git (log, per-line blame, timeline edits), wires the call graph, finds copies, and scores every directory in parallel. It streams file shapes and progress to the UI, assembles the tree (collapsed chains, rolled-up stats, unparsed counts), and banks the result in treecache. Also holds repo-level refusal (git_root, not_a_repo), declared-test detection, a cost estimate against BUDGET, and tests. The header covers only the walk-parse-score-tree outline, not the git reading, streaming, or the estimate.
+- predicted: most · documented: none · derivable: yes · legible: some · trap: no
 
 ### `git_root`
 - spec 2 · read at `bfbf34880a2f` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T20:48:12Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
@@ -7180,12 +7450,11 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: full · documented: full · derivable: no · legible: full · trap: no
 - note: Warm reading — I'd already read this function's body in full while reading scan.rs whole-file earlier in this session.
 
-### `score_dir` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `dcebb75e41dd` · commit `db52825` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:55:15Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Processes the files belonging to one directory (positioned via base in the repo-wide flat list), computes per-file/subdirectory score/size (likely via file_surface/ordinals) to size sunburst wedges, and assembles this directory's immediate children — files and collapsed single-child subdir chains (collapse_chains) — returning (name, Node) pairs for the parent to insert into the tree.
-- found: For each file in the directory slice, builds a Func Node per function (computing surprise/distinctiveness heuristics, documented score, churn/age/commits from trace, tangle/cognitive bands, wiring callers/dependents/tested, clone info) and wraps them in a File Node (main_author/headcount from blame, file_doc, reading_hash, byte length, code_kind). Returns (rel_path, Node) pairs — no subdirectory collapsing happens here, that's elsewhere.
-- predicted: some · documented: none · derivable: yes · legible: some · trap: no
-- note: Docs given (file_doc) describe the whole scan.rs module's pipeline, not this specific function's much more detailed per-function scoring logic.
+### `score_dir` — LEGIBLE SOME
+- spec 3 · read at `4af4e6162843` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-06T04:34:00Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: score_dir takes the parsed files of one directory, plus the base offset into the repo-wide flat list and the repo-wide context, and scores each function against its directory peers to build a Node per file. It likely computes distinctiveness and other signals per function, then returns a Vec of (path, Node) pairs for the sunburst tree. The base offset is used to index into the wired edges for each function.
+- found: Builds a Node for every parsed file in one directory and, for each function in it, a leaf Node: distinctiveness is computed against same-file peers if the file has more than one function, otherwise against the directory's fingerprints (skipped at ordering fidelity). It also fills surprise, documentation coverage with provenance weight, git churn/age/authors from a per-file trace, tangle from cognitive complexity, caller/call wiring, test/code classification, and clone group. Returns Vec<(rel_path, Node)> with the file node carrying its functions as children and the file's own banner and surface hash.
+- predicted: most · documented: some · derivable: no · legible: some · trap: no
 
 ### `ordinals`
 - spec 2 · read at `6eedc9651175` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:07:56Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
@@ -7211,12 +7480,109 @@ What this is and how to add to it: [README.md](README.md)
 - found: Recurses into children first (bottom-up), then while node is a Dir with exactly one child that is itself a Dir, absorbs that child: takes its id/path, joins the name with '/', carries forward unparsed_here (since nothing else recomputes it), and replaces its own children with the grandchild's children.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
 
-### `scan` — LEGIBLE SOME
-- spec 3 · read at `65199675028c` · commit `47d0c3c` · read by claude-sonnet-5 · via claude · when 2026-09-25T03:42:04Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Collects files under root, parses them in parallel per directory using the cache, emitting progress and shape callbacks and checking cancel. Then, depending on depth, runs git blame/trace, scores each directory, collapses chains, builds the tree and neighbour table, and returns a Scan. Errors if cancelled or root unreadable.
-- found: Walks files, returns a cached tree if the signature matches, else reads commit log per depth, parses per directory in parallel (streaming shape/progress, honoring cancel), runs blame and edits per depth, bails if cancelled, wires call graph and clones, computes complexity bands, scores directories in parallel, builds and collapses the tree, aggregates, applies history, saves caches, and returns Scan with stats.
-- predicted: most · documented: some · derivable: no · legible: some · trap: no
-- note: Long orchestration with much commentary; the model-pass comment block near the end is stale (no model pass follows).
+### `scan`
+- spec 3 · read at `f7610fead5ad` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:45:01Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- expected: scan walks the repo under root and returns a cached tree early if the stored signature still matches. Otherwise it reads git history at the requested depth, parses each directory's files while reporting progress and streaming shape through the callbacks, and checks cancel between directories. It then assembles and scores the tree, saves the parse cache, and banks the result in the tree cache.
+- found: Times the phases when SANITY_TIMING is set and reports phase starts. Walks the files and computes a signature; if treecache has a matching tree it returns that. Otherwise it runs read_repo, and if cancel was set it bails with "stopped" without saving. It prunes the scan cache to the files read, assembles and finishes the tree, saves it under the pre-computed signature, and returns it.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `edits`
+- spec 3 · read at `0e084a795fe3` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:19Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: RepoRead::edits returns Option of the edits view. It probably matches on an internal field holding the timeline's edits and returns Some with a borrowed view when the walk ran, or None when it did not. It is an accessor with no side effects.
+- found: Maps the optional walked edits into an edits::At view, pairing them with edits_now and the windows taken from the walked edits. Returns None when walked is None. Pure accessor, no side effects.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `histories`
+- spec 3 · read at `482e2b9f07ad` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:03Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: A method on RepoRead returning a crate::trace::Histories view that borrows self. Probably a thin accessor that bundles the already-read log, blame and edit data into one struct with references, with no new I/O, so consumers can take a single argument.
+- found: Thin borrowing accessor: returns trace::Histories with history and blame borrowed from self, and edits set to self.edits() (a method call, so edits is produced by that method rather than a stored field). No new parsing; it only bundles the three inputs.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `read_repo`
+- spec 3 · read at `05f0a26a1297` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:33Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: read_repo is the middle step of scan. It runs the git log read, then parses the files in parallel with progress and shape callbacks, then blame and the timeline, calling lap after each stage to time it. It returns a RepoRead bundling the edits, histories and parsed data, and it does not itself check the cancel flag, leaving that to the parse and blame stages.
+- found: Runs read_log, then groups files by dir and warms the scan cache (emitting a progress phase), then parse_dirs, then blame and read_edits over the parsed files (blame's file list is taken after the parse), timing each stage with lap, and returns a RepoRead bundling history, parsed dirs, blame, walked edits and edits_now timestamp. Cancel is passed down to the parse and blame stages rather than checked here.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The cache-warm step and the group_by_dir call sit between churn and parse and are not in the docs; the blame file list must be taken after the parse, which the inline comment explains.
+
+### `repo`
+- spec 3 · read at `853932419706` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:54:18Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: Builds a RepoWide view from the Context's own fields plus the given RepoRead, probably by constructing a struct that borrows the read's histories and the context's settings, with no scoring or I/O of its own. The lifetime ties the result to both borrows.
+- found: Pure borrowing constructor: RepoWide with wiring, copies, attrs and bands borrowed from self, and hist set to read.histories(). No scoring or I/O.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `assemble`
+- spec 3 · read at `1ebfb09edc68` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:19Z · by ross@rossturk.com · cold reading · reading 10 of its run · priming: CLAUDE.md excluded
+- expected: The final stage of a scan. It runs the repo-wide passes, scores directories, and builds the tree from the already-parsed RepoRead, reporting progress through on_progress and timing laps through lap. It then saves the parse cache (scans) and returns an Assembled value borrowing from read.
+- found: Builds call wiring and attributes repo-wide over all parsed files, finds copies, scores directories with a context, builds the tree, times laps, saves the scan cache, and returns Assembled with the tree and context borrowing from read.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `finish`
+- spec 3 · read at `85ab88249475` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T23:53:56Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: finish takes the assembled tree plus the repo read and the unscanned and total-found counts, and wraps them into a Scan. It wires the cross-references between nodes (probably wire_calls) and computes stats via stats_of, reporting how many files were skipped against total_found. It returns the Scan for the root path.
+- found: Destructures Assembled into tree and context; counts files_scanned from read.parsed_dirs; builds Arc<Links> from context.flat, wiring and copies; calls stats_of(root, tree, repo, unscanned, files_scanned, total_found); returns Scan with links, root tree and stats. It does not wire calls itself; the link graph is built by Links::build.
+- predicted: most · documented: none · derivable: yes · legible: most · trap: no
+
+### `stats_of` — PREDICTED SOME — LEGIBLE SOME
+- spec 3 · read at `fdf16e7635fb` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:14Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
+- expected: stats_of builds a ScanStats summary from the finished tree, the repo-wide context, and the unscanned count. It probably counts functions, files and scored nodes by walking the tree, derives the score distribution or averages from repo, and copies files_scanned and total_found through, so the report can say how much of the repo was covered.
+- found: Counts Func nodes in the tree; fills ScanStats with files_scanned, files skipped (found minus scanned), unscanned, without_history flag, churn windows (from edits or the span-derived ladder), churned flag, tangle bands, capped author list, blame headcount, age in days, commit count (0 when unknown), the heuristic model name, and resolved/unresolved call counts from wiring.
+- predicted: some · documented: most · derivable: no · legible: some · trap: no
+
+### `read_log` — TRAP
+- spec 3 · read at `5ac609261d41` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:41:50Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: Runs `git log --name-only` over the churn window under root and parses the output into a History of per-file commit and edit records. When depth says the scan is untraced it returns an empty History without running git, and it reports progress through on_progress while it reads.
+- found: If depth is Untraced, returns an empty History without touching git. Otherwise calls crate::trace::depth1 on root with a never-set stop flag, reporting a counting Progress per commit seen, and returns its result or History::default() on error. The git walk is delegated to trace::depth1, not run inline, and it is uninterruptible from here.
+- predicted: most · documented: most · derivable: no · legible: full · trap: yes
+- note: unwrap_or_default() turns any failure of the history walk into an empty History, indistinguishable from a repo with no history. A missing git, a bad root, or an error in depth1 silently disables churn scoring. Don't read an empty result as "no history" without checking the error path.
+
+### `group_by_dir`
+- spec 3 · read at `33fd0eb533c0` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:51Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: group_by_dir takes the repo root and the list of (path, language) files and returns a BTreeMap keyed by each file's repo-relative parent directory string, with values the files in that directory. It probably strips the root prefix via strip_prefix, takes the parent, and inserts into the map with entry().or_default(). The BTreeMap is for stable ordering, as the doc says.
+- found: For each file, computes the repo-relative parent directory via rel(root, parent-or-root) and pushes the (path, lang) pair into a BTreeMap keyed by that directory. Returns the map.
+- predicted: full · documented: none · derivable: yes · legible: full · trap: no
+
+### `parse_dirs`
+- spec 3 · read at `8c433e1ad968` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:43:48Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- expected: A private function that takes the repo root, a map from directory to its (path, language) files, a fidelity level, a scan cache, a cancel flag and two callbacks. It parses files in parallel across directories, checks cancel to skip directories, reports progress and shape through the callbacks, and returns one vector of parsed files per directory. It likely consults the cache so unchanged files are reused rather than reparsed.
+- found: Parallel map over directories with rayon. Skips directories once cancel is set. Per directory, parses each file via parse_file (which takes the scan cache), streams shape and a progress count to the callbacks from inside the map, and collects one Vec<ParsedFile> per directory. Total denominator is the number of files found by the walk.
+- predicted: most · documented: full · derivable: no · legible: full · trap: no
+
+### `read_blame`
+- spec 3 · read at `5cc00c0505b2` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:22Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: If the depth does not blame it returns an empty Blame. Otherwise it runs git blame per file in parallel over for_blame, checking the cancel flag and reporting progress, using the scan cache keyed by content hash to skip files already blamed, and collects the per-line provenance into a Blame value it returns.
+- found: If depth.blames() is false, returns Blame::default() with no git calls. Otherwise delegates to Blame::read over for_blame with history, scans cache, and cancel, passing a per-path callback that increments a local counter and reports Progress "reading per-line history" counted from zero. The counter is local to this phase, not continued from the parse. Returns Blame.
+- predicted: most · documented: most · derivable: no · legible: full · trap: no
+
+### `read_edits`
+- spec 3 · read at `ad8c4bbc5798` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:55Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- expected: Takes a repo root, a trace depth, a cancel flag and a progress callback, and returns an optional Edits. Probably it returns None when the depth is below Edits or the walk is cancelled, and otherwise runs the edit-history walk in crate::edits over the root, reporting progress through the callback.
+- found: If the depth counts edits, it calls crate::edits::gather on the root with the cancel flag, forwarding progress scaled as step 3. Otherwise it returns None without walking anything.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `wire_calls` — PREDICTED SOME
+- spec 3 · read at `d165b4b4de91` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:40:43Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: wire_calls takes the flattened file views and the repo root, and resolves the call edges between them into a Wiring value. It reports progress through the callback as it goes, with a single named phase rather than a count, since the docs say it is one pass over in-memory data. It most likely just delegates to the edges module and returns whatever that produces.
+- found: Emits a "wiring the call graph" progress phase, loads the test-declaration readings from the store under root (declared_for, reading .sanity/readings/ for files whose language can't say itself), then calls edges::wire_with(flat, &declared) and returns its Wiring. It is a thin wrapper that adds the readings lookup.
+- predicted: some · documented: most · derivable: no · legible: full · trap: no
+
+### `bands_of`
+- spec 3 · read at `92a9ecd87f7d` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:55Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- expected: bands_of takes the parsed files grouped by directory and returns crate::tangle::Bands, the complexity thresholds for normal size. It probably flattens all the parsed files across directories, collects each function's size or complexity, and computes percentile-style cut points over the whole repo. Given the doc, it must not be per-directory.
+- found: Flattens every parsed file across all directories and their functions, keeps those with a cognitive score, and feeds (ncloc, cognitive) pairs into crate::tangle::Bands::of. Repo-wide, as documented.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+
+### `score_dirs`
+- spec 3 · read at `e66da82a84ed` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:02Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- expected: Scores each parsed directory against the shared repo-wide context in parallel, using the fidelity setting, and reports progress by file count through on_progress. It returns one vector of (name, Node) pairs per directory, probably via a parallel iterator over parsed_dirs with a mapping per directory and a running counter for progress.
+- found: Computes a prefix-sum offsets vector so each directory knows where its files start in the flat list. Then, in parallel over directories, it calls score_dir with that offset, bumps an atomic files-scored counter and reports Progress after each directory, and collects the results in order.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
+
+### `build_tree`
+- spec 3 · read at `c08a47f6f7ca` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:42:53Z · by ross@rossturk.com · cold reading · reading 5 of its run · priming: CLAUDE.md excluded
+- expected: Assembles a Node tree rooted at the repo name from the per-directory node lists. It probably attaches unparsed counts from the map, collapses single-child directory chains, and rolls up totals and history data from the history and edits arguments. It returns the finished root Node.
+- found: Creates a root dir Node named after the repo's directory name, inserts every scored node by relative path, stamps unparsed counts before collapsing single-child chains on the children (never the root), then aggregates totals and applies directory history and edits. Ordering of stamp-before-collapse is deliberate, as the comments say.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
 
 ### `a_scan_is_priced_from_the_last_one_and_an_unknown_size_is_not_refused`
 - spec 3 · read at `9425cab1ac7d` · commit `9887af2` · read by claude-sonnet-5 · via claude · when 2026-09-25T01:38:23Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
