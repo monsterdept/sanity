@@ -110,7 +110,7 @@ A list that only navigates is the sunburst with worse typography. Every row carr
 - **Open in the editor.**
 - **Dismiss, with a reason.**
 
-[Two of the four are built: a tile flies the map to its subject, and it carries the verdict buttons, with a reason asked for everything but a flag. **Read it** and **Open in the editor** are not built. What is built is the unscoped half of **Read it**: every reading pass takes unread code a live finding points at before the rest of the unread — see `agentapi::findings_first` and the queue bands in [metric.md](metric.md).]
+[Two of the four are built: a tile flies the map to its subject, and it carries the verdict buttons, with a reason asked for everything but a flag. **Read it** and **Open in the editor** are not built. What is built is the unscoped half of **Read it**: every reading pass takes unread code a live finding points at before the rest of the unread — see `agentapi::queue::findings_first` and the queue bands in [metric.md](metric.md).]
 
 ## Dismissal is pinned to the body hash
 

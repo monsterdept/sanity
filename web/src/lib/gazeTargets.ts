@@ -13,7 +13,7 @@ const GAZE_INDIVIDUALS = 6
  *
  *  **Two sources, one answer, because there are two ways this map moves on its own.** A
  *  scan lights the wedge it is reading (`reading`); a replay flashes the wedge the commit
- *  under the playhead touched (`appeared`/`edited`, see `inStep` in `history.ts`). They
+ *  under the playhead touched (`appeared`/`edited`, see `inStep` in `historyScore.ts`). They
  *  never overlap — one is the repo being measured, the other the repo being remembered —
  *  and both are "the action", so both aim the eyes. Anywhere else there is no action, the
  *  answer is null, and the eyes go back to following the pointer, which is the right

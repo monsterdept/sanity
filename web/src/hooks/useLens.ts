@@ -151,6 +151,8 @@ export function useLensChoices() {
   }
 }
 
+export type LensChoices = ReturnType<typeof useLensChoices>
+
 /** Which lenses have nothing in them, and what would change that — see `Locked`.
  *
  *  **A lens with nothing to show is locked, not shown empty.** The first shape of this was

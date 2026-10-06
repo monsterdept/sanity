@@ -1,10 +1,57 @@
-import { useEffect, useState } from 'react'
-import { cliStatus, installCli, onInstallCli, onSetTheme, syncThemeMenu } from '../lib/api'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { cliStatus, installCli, onInstallCli, onSetTheme, syncThemeMenu, type Node } from '../lib/api'
+import { dismissSplash } from '../lib/splash'
+import { marked } from '../lib/stopwatch'
 import { loadTheme, saveTheme, watchSystemTheme, type Theme } from '../lib/theme'
 
 /** Pieces of the window that belong to no project: the webfont, the appearance menu, the
- *  developer context menu and the command-line install. Each is a subscription with no
- *  consumer but the window itself. */
+ *  developer context menu, the command-line install, and the splash coming down. Each is a
+ *  subscription with no consumer but the window itself, and `useWindow` is all of them. */
+
+/** The window's own concerns, called last.
+ *
+ *  **Last because nothing here feeds anything else.** The webfont's revision is read only by
+ *  the map's labels, at render; the theme, the context menu and the CLI link are listeners on
+ *  the document and the menu; and the splash and the stopwatch are about the moment the rest
+ *  has settled, so their inputs come from every layer before them. React runs a component's
+ *  own effects after its children's whatever order its hooks are in, so moving these to the
+ *  end changed nothing a child sees. */
+export function useWindow(
+  setCliLink: Dispatch<SetStateAction<CliLink | null>>,
+  { shapeRoot, projectsLoaded }: { shapeRoot: Node | null; projectsLoaded: boolean },
+  { focus, tree }: { focus: Node | null; tree: Node | null },
+) {
+  const faceRev = useFaceRev()
+  useTheme()
+  useNoDevMenu()
+  useCliInstall(setCliLink)
+
+  /** The splash comes down here, not after the first paint. See `lib/splash.ts`.
+   *
+   *  Ready means the window has something true to say. That used to be a MAP — or, with the
+   *  list fetched and genuinely empty, the card telling you how to get one — and everything
+   *  else was the app booting, which the wordmark covered.
+   *
+   *  **The wait grew a picture, and the wordmark was sitting on it.** A first scan of a large
+   *  repo now names what it is reading, moves a real bar as files are parsed and blamed, and
+   *  draws the map assembling out of the parse. All of that happened under the splash: six
+   *  seconds of wordmark, then two of a bar, then the finished map — the two things built to
+   *  describe the wait, shown for the moment after it ended.
+   *
+   *  So the list arriving is enough. At that point the sidebar has its projects, the pane has
+   *  the project it is waiting on, and neither is a guess. */
+  const booted = focus !== null || shapeRoot !== null || projectsLoaded
+  useEffect(() => {
+    if (booted) dismissSplash()
+  }, [booted])
+  // Where a launch's time actually went. See `lib/stopwatch.ts`. Its marks are taken during
+  // render, so whichever layer takes one, it lands before this prints them.
+  useEffect(() => {
+    if (tree) marked()
+  }, [tree])
+
+  return { faceRev }
+}
 
   /** **One redraw when the webfont lands.**
    *
@@ -79,8 +126,11 @@ export function useNoDevMenu() {
 /** What the menu's Install Command Line Tool… reported, if anything. Split into a
  *  sentence and a path so the path can be set as code rather than the whole message
  *  being set as a transcript. */
-export function useCliInstall() {
-  const [cliLink, setCliLink] = useState<null | { text: string; path?: string }>(null)
+export type CliLink = { text: string; path?: string }
+
+/** The menu's Install Command Line Tool…, carried out, with its outcome raised as a dialog —
+ *  whose state is `useOverlays`'s. */
+export function useCliInstall(setCliLink: Dispatch<SetStateAction<CliLink | null>>) {
   useEffect(
     () =>
       onInstallCli(() => {
@@ -114,5 +164,4 @@ export function useCliInstall() {
       }),
     [],
   )
-  return [cliLink, setCliLink] as const
 }

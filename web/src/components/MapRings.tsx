@@ -182,26 +182,27 @@ function DirRim({
   )
 }
 
-/** A replay's events, moved to the nearest wedge that is actually drawn.
+/** The flash each drawn file or directory wears for a replay event that has no wedge of
+ *  its own to land on, keyed by node id. Functions are never in the map: a drawn
+ *  function flashes through its own colour.
  *
- *  An event belongs to a function. On anything the size of home-assistant no function
- *  has a wedge — `minLoc` folds them away before the tree is built — and neither does
- *  its file: fifteen thousand of them are under the angle a wedge needs. So the commit
- *  under the playhead had nowhere to land, and a replay of a large repo was a grey map
- *  beside a scrolling log. Nothing was wrong with the walk; the picture simply had no
- *  surface for it.
+ *  Each wedge asks one question of the nodes below it. A directory looks only at its
+ *  children that are NOT drawn, and flashes if any of them carries an event, on itself
+ *  (`score.appeared`, `score.edited`) or anywhere under it (`birthBelow`, `touchBelow`,
+ *  which the fold rolls up). A file flashes only when it is drawn solid, since a file
+ *  with room to tile shows the event on the function's own tile. Birth wins over a
+ *  touch, as it does in `colorFor`, because the commit that creates a function also
+ *  touches it.
  *
- *  The ladder is the obvious one — the function if it is drawn, else its file, else the
- *  directory that holds it — and it is decided HERE rather than rolled up in the fold,
- *  because "is it drawn" is a question about this pane at this size with this drill
- *  stack, which the fold cannot see. What makes it cheap is that culling takes whole
- *  subtrees (`layout`), so the drawn wedges are a connected top-down tree: a directory
- *  only has to look at its own children, and an event under a child that is NOT drawn is
- *  an event no descendant can be showing.
- *
- *  It is not a roll-up wearing a hat. A roll-up lights every ring out to the rim on
- *  every commit — that is why `aggregate` refuses one — and this lights exactly one
- *  wedge per event: the deepest one there is room for. */
+ *  Why it exists: on anything the size of home-assistant no function has a wedge, and
+ *  most files do not either, so the commit under the playhead had nowhere to land. The
+ *  ladder (the function if drawn, else its file, else the directory that holds it) is
+ *  decided here rather than in the fold, because "is it drawn" depends on this pane's
+ *  size and drill stack. Looking only at undrawn children is enough because culling
+ *  takes whole subtrees (`layout`), so the drawn wedges form a connected tree and an
+ *  event under an undrawn child is one no drawn descendant can be showing. That is also
+ *  why this is not a roll-up: it lights exactly one wedge per event, the deepest one
+ *  there is room for. */
 export function escalationOf(m: MapModel, geo: (id: string) => Geo) {
   const { wedges, tilingOf } = m
   const escalated = new Map<string, ReturnType<typeof flashPaint>>()

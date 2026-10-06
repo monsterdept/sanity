@@ -371,11 +371,11 @@ function aggregate(fns: Node[], filePath: string): Node {
   return {
     // One per file per layout, so this is unique among the slots it is emitted with — but
     // it is NOT the only roll-up in the app: the replay folds its own per-file stand-in
-    // (`#/folded`, see `history.ts`), and in a replay this aggregate rolls that one up too.
+    // (`#/folded`, see `historyBuild.ts`), and in a replay this aggregate rolls that one up too.
     // The two must keep separate id namespaces or they collide in one patch array, and a
     // duplicate React key there leaves an orphaned wedge on screen forever.
     // The `/` keeps this out of `key_of`'s reach as well as the fold's: a function named
-    // `rest` would otherwise mint exactly this id — see `history.ts` for the argument.
+    // `rest` would otherwise mint exactly this id — see `historyBuild.ts` for the argument.
     id: `${filePath}#/rest`,
     // Read as "126 and more". The count is the useful half and any word after it would
     // not survive the arc this has to fit inside.

@@ -559,7 +559,7 @@ impl Declarations {
 /// Does this language's toolchain answer the test question by itself?
 ///
 /// The queue asks it before deciding whether to spend a sentence asking a reader — see
-/// `agentapi::TEST_ASK`. One function so the two cannot disagree: a language that got a
+/// `agentapi::tasks::TEST_ASK`. One function so the two cannot disagree: a language that got a
 /// contract here and was not removed from the ask list would be paying for an answer it
 /// already has, silently and on every reading.
 pub fn has_test_contract(lang: Option<Lang>) -> bool {

@@ -123,7 +123,7 @@ export interface Score {
    *  loud and rare; an edit is quiet and constant, and drawn far dimmer for exactly that
    *  reason. Every arrival is also an edit — the brighter one wins where they are drawn.
    *
-   *  Functions only. See the note beside the container roll-up in `history.ts`. */
+   *  Functions only. See the note beside the container roll-up in `historyScore.ts`. */
   edited?: number | null
 }
 
@@ -303,7 +303,7 @@ export interface Node {
    *
    *  So the reports themselves ride on the file, carrying the two things the window cannot
    *  work out without the function — its lines, and whether the reading has expired. See
-   *  `Report::loc` in `agentapi.rs`. */
+   *  `Report::loc` in `agentapi/reading.rs`. */
   pending?: AgentReport[]
   cols?: Cols
   /** How many functions this node stands in for, on the synthetic wedge a band draws when
@@ -328,7 +328,7 @@ export interface Node {
    *  Those lenses keep saying nothing about a roll-up, which is the honest half of the old
    *  behaviour without the label that was the dishonest half. */
   folded?: Folded
-  /** Does anything in this subtree flash on this frame of a replay — see `history.ts`'s
+  /** Does anything in this subtree flash on this frame of a replay — see `historyScore.ts`'s
    *  `aggregate`, which rolls it up, and `Sunburst`, which spends it.
    *
    *  A container's own `appeared`/`edited` is deliberately NOT a roll-up: a directory
@@ -472,7 +472,7 @@ export interface Folded {
  *
  *  **A name rather than a literal, because it has changed and the two ends of it live in
  *  different files.** It was four; Age's second reading needed the birth date and made it
- *  five, and the writer (`history.ts`) and the reader (`colorMode.ts`) each had the stride
+ *  five, and the writer (`historyBuild.ts`) and the reader (`colorMode.ts`) each had the stride
  *  written into a loop. A run-length mismatch here does not throw — it reads the next file's
  *  touch date as this one's line count and bands the frame out of numbers that are all real
  *  and all in the wrong slots, which is exactly the class of wrongness this app is built to
@@ -1860,7 +1860,7 @@ export async function projectScan(key: string): Promise<Scan | null> {
   return w ? toScan(w) : null
 }
 
-/** Four-step ordinal from the agent — see `Grade` in agentapi.rs for why it isn't a
+/** Four-step ordinal from the agent — see `Grade` in agentapi/reading.rs for why it isn't a
  *  0-100. */
 export type Grade = 'full' | 'most' | 'some' | 'none'
 

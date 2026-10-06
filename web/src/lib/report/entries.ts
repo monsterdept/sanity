@@ -1,4 +1,4 @@
-import { dirOf, fileOf, lensColor, lensName, nameOf } from '../../components/Findings'
+import { dirOf, fileOf, lensColor, lensName, nameOf } from '../../components/findings/format'
 import type { FindingItem } from '../findings'
 import { fitText, type Sheet } from './sheet'
 import { drawLine, drawLines, setLines, type Line } from './text'

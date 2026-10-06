@@ -677,7 +677,7 @@ fn call(name: &str, args: &Value) -> Result<Value, String> {
             Some(k) => get(&format!("/status?project={}", urlencode(&k))),
             None => get("/status"),
         },
-        // The batch size is decided in exactly one place, `agentapi::default_n`, and this
+        // The batch size is decided in exactly one place, `agentapi::queue::default_n`, and this
         // is why: the shim used to carry its own `unwrap_or(1)` and send `n` on every
         // call, so `default_n` was dead code for every MCP caller. When it moved to 3 the
         // constant changed, the doc comment changed, CLAUDE.md changed, the protocol text

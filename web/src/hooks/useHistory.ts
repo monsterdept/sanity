@@ -14,8 +14,8 @@ import { findById } from '../lib/tree'
 // today's code and cannot be replayed onto a 2019 body, so a frame is colored by
 // recency and the switcher is disabled rather than offered with one option that lies.
 //
-// `historyOn` itself is owned by the window, because the reading poll and the findings ask both
-// stand down while it is set; everything else about the replay is here.
+// The flag `historyOn` itself is held by `useStanding`, because the reading poll and the findings
+// ask both stand down while it is set; everything else about the replay is here.
 export function useHistory({
   historyOn,
   setHistoryOn,
@@ -34,15 +34,147 @@ export function useHistory({
   projectName: string | undefined
   setError: Dispatch<SetStateAction<string | null>>
   scan: Scan | null
-  /** Where the map is rooted, as a path — see `drilled` in `App`. */
+  /** Where the map is rooted, as a path — see `drilled` in `useMap`. */
   drilled: string
 }) {
+  const {
+    history,
+    setHistory,
+    loaded,
+    setLoaded,
+    historyKey,
+    setHistoryKey,
+    shownHistory,
+    busyKey,
+    setBusyKey,
+    walking,
+    historyBusy,
+    historyProgress,
+    setHistoryProgress,
+    histIndex,
+    setHistIndex,
+    playing,
+    setPlaying,
+    duration,
+    setDuration,
+    flashes,
+    setFlashes,
+  } = useReplayState(activeKey)
+  useTimelineFetch({
+    historyOn,
+    repoPath,
+    activeKey,
+    historyKey,
+    historyBusy,
+    setError,
+    setHistoryProgress,
+    setLoaded,
+    setHistory,
+    setHistoryKey,
+    setHistIndex,
+  })
+  const replay = useReplayWalk({
+    walking,
+    shownHistory,
+    setBusyKey,
+    setHistoryProgress,
+    setHistory,
+    setHistoryKey,
+    setLoaded,
+  })
+
+  // A different project is a different timeline. Dropped rather than kept per project:
+  // holding several megabytes of somebody else's commits against the chance they click
+  // back is a cache with no eviction and no owner.
+  //
+  // **And the MODE goes with it, which the drop used to leave behind.** History is a view of
+  // one repo's story, so carrying it across a project switch left the window in a state that
+  // is neither thing: no timeline to draw, so the live map is on screen, but the lens still
+  // pinned to Age with a replay's key under it — a map explaining itself with `new here` and
+  // `touched` while showing nothing of the kind. Re-entering History is one click, and it is
+  // a click that says which repo it means.
+  useEffect(() => {
+    if (historyKey && historyKey !== activeKey) {
+      setHistory(null)
+      setHistoryKey(null)
+      setPlaying(false)
+      setHistoryOn(false)
+    }
+  }, [activeKey, historyKey])
+
+  const { churnWindows, histRoot, headOrder } = useFrameTree({
+    historyOn,
+    history,
+    historyKey,
+    activeKey,
+    histIndex,
+    loaded,
+    projectName,
+    drilled,
+    flashes,
+    scan,
+  })
+  const { scrubTo, indexTo, ensureTo, dateOf } = useTransport({
+    history,
+    setPlaying,
+    setLoaded,
+    setHistIndex,
+  })
+
+  /** History was asked for and this repo has none. Stated rather than drawn as an empty
+   *  circle: a map with no wedges and no sentence reads as a bug in the tool. */
+  const historyEmpty =
+    historyOn && history !== null && historyKey === activeKey && history.tables.commits === 0
+
+  /** Is the replay actually the thing on screen?
+   *
+   *  **Asked for is not arrived.** Opening a replay is a fetch, and on a large repo it is
+   *  a fetch you can watch happen: for those few hundred milliseconds `historyOn` is true
+   *  while the map is still drawing TODAY. Everything that dresses the window for a replay
+   *  — the lens, the sort order, the morphing — was keyed on the request rather than on the
+   *  arrival, so pressing History repainted the live map in Age's greens, and then repainted
+   *  it again as the replay's first frame. Two full redraws of a picture nobody asked to see.
+   *  Keyed on the frame existing, all of it happens once. */
+  const replaying = historyOn && histRoot !== null
+
+  return {
+    history,
+    historyKey,
+    busyKey,
+    historyBusy,
+    historyProgress,
+    histIndex,
+    playing,
+    setPlaying,
+    duration,
+    setDuration,
+    flashes,
+    setFlashes,
+    replay,
+    churnWindows,
+    histRoot,
+    headOrder,
+    scrubTo,
+    historyEmpty,
+    replaying,
+    indexTo,
+    ensureTo,
+    dateOf,
+  }
+}
+
+/** The timeline as held, as one object so a render cannot see the tables without the deltas. */
+type Held = { tables: Tables; deltas: Deltas }
+
+/** Everything the replay holds between renders: the story and how much of it has arrived, which
+ *  project it belongs to, the walk writing one, and the transport's own settings. */
+function useReplayState(activeKey: string | null) {
   /** The timeline's tables, and a handle on the deltas that stream in behind them.
    *
    *  Two halves because they arrive differently: the tables are one bounded fetch and the
    *  deltas are the story — see `lib/timeline.ts`. Held as one object so a render cannot see
    *  one without the other. */
-  const [history, setHistory] = useState<{ tables: Tables; deltas: Deltas } | null>(null)
+  const [history, setHistory] = useState<Held | null>(null)
   /** How far the story has arrived. The scrub bar addresses the whole timeline; this is how
    *  much of it can be drawn right now, and it only ever grows. */
   const [loaded, setLoaded] = useState(0)
@@ -88,7 +220,62 @@ export function useHistory({
    *  go quiet together rather than three of them being switched off by hand. Off until asked
    *  for: a replay is the lens alone, moving. */
   const [flashes, setFlashes] = useState(false)
+  return {
+    history,
+    setHistory,
+    loaded,
+    setLoaded,
+    historyKey,
+    setHistoryKey,
+    shownHistory,
+    busyKey,
+    setBusyKey,
+    walking,
+    historyBusy,
+    historyProgress,
+    setHistoryProgress,
+    histIndex,
+    setHistIndex,
+    playing,
+    setPlaying,
+    duration,
+    setDuration,
+    flashes,
+    setFlashes,
+  }
+}
 
+type ReplayState = ReturnType<typeof useReplayState>
+
+/** Bringing the story in: the walk's progress events, the timeline kept warm, and a banked
+ *  timeline opened when History is asked for. Reads a timeline; never walks one. */
+function useTimelineFetch({
+  historyOn,
+  repoPath,
+  activeKey,
+  historyKey,
+  historyBusy,
+  setError,
+  setHistoryProgress,
+  setLoaded,
+  setHistory,
+  setHistoryKey,
+  setHistIndex,
+}: Pick<
+  ReplayState,
+  | 'historyKey'
+  | 'historyBusy'
+  | 'setHistoryProgress'
+  | 'setLoaded'
+  | 'setHistory'
+  | 'setHistoryKey'
+  | 'setHistIndex'
+> & {
+  historyOn: boolean
+  repoPath: string | null
+  activeKey: string | null
+  setError: Dispatch<SetStateAction<string | null>>
+}) {
   useEffect(() => onHistoryProgress(setHistoryProgress), [])
 
   // Keep this repo's timeline current, if it has one. Never builds one — see
@@ -151,18 +338,37 @@ export function useHistory({
       })
       .catch((e) => setError(String(e)))
   }, [historyOn, repoPath, activeKey, historyKey, historyBusy])
+}
 
-  /** The replay — depth 3 — as something that can be awaited.
-   *
-   *  Split out of `trace` below so the chain can wait for it. Two callers, one body: the
-   *  context menu's "replay from scratch" still fires and forgets, and `chaseTrace` needs to
-   *  know when the walk is over before it looks at what is left. A second copy of this that
-   *  happened to `await` would be two implementations of one walk, and the unwatched one is
-   *  the one that forgets to clear `busyKey`.
-   *
-   *  Takes the repo path rather than looking it up: the chain has a freshly listed project in
-   *  hand, and `projects` in a closure that has been awaiting a minute of `git log` is exactly
-   *  the stale read this avoids. */
+/** The replay — depth 3 — as something that can be awaited.
+ *
+ *  Split out of `trace` below so the chain can wait for it. Two callers, one body: the
+ *  context menu's "replay from scratch" still fires and forgets, and `chaseTrace` needs to
+ *  know when the walk is over before it looks at what is left. A second copy of this that
+ *  happened to `await` would be two implementations of one walk, and the unwatched one is
+ *  the one that forgets to clear `busyKey`.
+ *
+ *  Takes the repo path rather than looking it up: the chain has a freshly listed project in
+ *  hand, and `projects` in a closure that has been awaiting a minute of `git log` is exactly
+ *  the stale read this avoids. */
+function useReplayWalk({
+  walking,
+  shownHistory,
+  setBusyKey,
+  setHistoryProgress,
+  setHistory,
+  setHistoryKey,
+  setLoaded,
+}: Pick<
+  ReplayState,
+  | 'walking'
+  | 'shownHistory'
+  | 'setBusyKey'
+  | 'setHistoryProgress'
+  | 'setHistory'
+  | 'setHistoryKey'
+  | 'setLoaded'
+>) {
   const replay = useCallback(async (key: string, repo: string, fresh = false) => {
     // **One walk at a time.** A walk saturates every core it can get — the parse is
     // `rayon` over each commit's changed files — so two do not run in half the time each,
@@ -205,26 +411,28 @@ export function useHistory({
       setBusyKey(null)
     }
   }, [])
+  return replay
+}
 
-  // A different project is a different timeline. Dropped rather than kept per project:
-  // holding several megabytes of somebody else's commits against the chance they click
-  // back is a cache with no eviction and no owner.
-  //
-  // **And the MODE goes with it, which the drop used to leave behind.** History is a view of
-  // one repo's story, so carrying it across a project switch left the window in a state that
-  // is neither thing: no timeline to draw, so the live map is on screen, but the lens still
-  // pinned to Age with a replay's key under it — a map explaining itself with `new here` and
-  // `touched` while showing nothing of the kind. Re-entering History is one click, and it is
-  // a click that says which repo it means.
-  useEffect(() => {
-    if (historyKey && historyKey !== activeKey) {
-      setHistory(null)
-      setHistoryKey(null)
-      setPlaying(false)
-      setHistoryOn(false)
-    }
-  }, [activeKey, historyKey])
-
+/** The tree for the frame under the playhead, and what it is folded with and sorted by. */
+function useFrameTree({
+  historyOn,
+  history,
+  historyKey,
+  activeKey,
+  histIndex,
+  loaded,
+  projectName,
+  drilled,
+  flashes,
+  scan,
+}: Pick<ReplayState, 'history' | 'historyKey' | 'histIndex' | 'loaded' | 'flashes'> & {
+  historyOn: boolean
+  activeKey: string | null
+  projectName: string | undefined
+  drilled: string
+  scan: Scan | null
+}) {
   /** Where the playhead stood on the previous frame, so a frame can flash what has happened
    *  since — see `inStep`. A ref rather than state: it is read while building the frame it
    *  describes, and setting state there would render the same frame twice to learn a number
@@ -313,7 +521,17 @@ export function useHistory({
       historyOn && history && historyKey === activeKey && scan ? headSizes(scan.root) : undefined,
     [historyOn, history, historyKey, activeKey, scan],
   )
+  return { churnWindows, histRoot, headOrder }
+}
 
+/** Moving the playhead: a click on the log, the transport, and an export's recorder, each of
+ *  which waits for the story to reach the commit in its own way. */
+function useTransport({
+  history,
+  setPlaying,
+  setLoaded,
+  setHistIndex,
+}: Pick<ReplayState, 'history' | 'setPlaying' | 'setLoaded' | 'setHistIndex'>) {
   /** Jump the playhead and stop. Stable across renders on purpose: `CommitLog` memoises
    *  its rows against this, and an inline arrow would rebuild every row on every frame —
    *  the exact cost that component is written to avoid.
@@ -338,22 +556,6 @@ export function useHistory({
     },
     [history],
   )
-
-  /** History was asked for and this repo has none. Stated rather than drawn as an empty
-   *  circle: a map with no wedges and no sentence reads as a bug in the tool. */
-  const historyEmpty =
-    historyOn && history !== null && historyKey === activeKey && history.tables.commits === 0
-
-  /** Is the replay actually the thing on screen?
-   *
-   *  **Asked for is not arrived.** Opening a replay is a fetch, and on a large repo it is
-   *  a fetch you can watch happen: for those few hundred milliseconds `historyOn` is true
-   *  while the map is still drawing TODAY. Everything that dresses the window for a replay
-   *  — the lens, the sort order, the morphing — was keyed on the request rather than on the
-   *  arrival, so pressing History repainted the live map in Age's greens, and then repainted
-   *  it again as the replay's first frame. Two full redraws of a picture nobody asked to see.
-   *  Keyed on the frame existing, all of it happens once. */
-  const replaying = historyOn && histRoot !== null
 
   // The transport addresses the whole timeline and can only DRAW what has
   // arrived. Advancing past the run asks for the next block and holds the
@@ -383,31 +585,7 @@ export function useHistory({
   // uncoloured. `ensure` has already been awaited by then, so the block holding
   // it is here.
   const dateOf = (i: number) => (i < 0 ? null : (history?.deltas.at(i)?.ts ?? null))
-
-  return {
-    history,
-    historyKey,
-    busyKey,
-    historyBusy,
-    historyProgress,
-    histIndex,
-    playing,
-    setPlaying,
-    duration,
-    setDuration,
-    flashes,
-    setFlashes,
-    replay,
-    churnWindows,
-    histRoot,
-    headOrder,
-    scrubTo,
-    historyEmpty,
-    replaying,
-    indexTo,
-    ensureTo,
-    dateOf,
-  }
+  return { scrubTo, indexTo, ensureTo, dateOf }
 }
 
 /** The replay's half that has to wait for the map: the toggle, which needs something on screen
@@ -432,7 +610,7 @@ export function useHistoryScope({
   tree: Node | null
   historyBusy: boolean
   replayed: number | undefined
-  history: { tables: Tables; deltas: Deltas } | null
+  history: Held | null
   repoPath: string | null
 }) {
   /** Open the replay, or leave it — the History button's own action.
@@ -510,7 +688,7 @@ export function useMovieSource({
   markers,
   headOrder,
 }: {
-  history: { tables: Tables; deltas: Deltas } | null
+  history: Held | null
   historyKey: string | null
   activeKey: string | null
   projectName: string | undefined

@@ -1,40 +1,22 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fileFunctions, type Hit, type Node } from '../lib/api'
 import { findById, parentOf } from '../lib/tree'
 import { sameNodes, useSteady } from './useSteady'
+import type { MapView, Standing } from './useMap'
+import type { Overlays } from './useOverlays'
 
 /** Moving around the map: what is selected and open, the ancestry the crumbs and the panel
  *  draw, and every gesture that re-roots the rings — a drill, a crumb, a `→` in the panel, a
  *  search result. */
-export function useNavigation({
-  tree,
-  focus,
-  setStack,
-  picked,
-  setPicked,
-  codeFile,
-  setCodeFile,
-  setReveal,
-  activeKey,
-  asked,
-  landed,
-  activeRef,
-  treeRef,
-}: {
-  tree: Node | null
-  focus: Node | null
-  setStack: Dispatch<SetStateAction<string[]>>
-  picked: Node | null
-  setPicked: Dispatch<SetStateAction<Node | null>>
-  codeFile: string | null
-  setCodeFile: Dispatch<SetStateAction<string | null>>
-  setReveal: Dispatch<SetStateAction<{ id: string; n: number } | null>>
-  activeKey: string | null
-  asked: RefObject<Set<string>>
-  landed: RefObject<Map<string, Node[]>>
-  activeRef: RefObject<string | null>
-  treeRef: RefObject<Node | null>
-}) {
+export function useNavigation(
+  { setStack, picked, setPicked }: Pick<Standing, 'setStack' | 'picked' | 'setPicked'>,
+  { codeFile, setCodeFile, setReveal }: Pick<Overlays, 'codeFile' | 'setCodeFile' | 'setReveal'>,
+  activeKey: string | null,
+  { tree, focus, asked, landed, activeRef, treeRef }: Pick<
+    MapView,
+    'tree' | 'focus' | 'asked' | 'landed' | 'activeRef' | 'treeRef'
+  >,
+) {
   const codeNode = useMemo(
     () => (tree && codeFile ? findById(tree, codeFile) : null),
     [tree, codeFile],
@@ -266,3 +248,5 @@ export function useNavigation({
 
   return { codeNode, selected, pick, clearPick, drill, trail, owners, showIn, jumpTo, goTo, goUp, flyTo }
 }
+
+export type Navigation = ReturnType<typeof useNavigation>

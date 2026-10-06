@@ -135,7 +135,7 @@ export function shapeTree(files: ShapeFile[], repoName: string): Node {
     // key, and React's documented answer is that they "may be duplicated and/or omitted":
     // it loses track of the copy and never renders it again, leaving a wedge frozen where
     // it was born while the assembling map moves under it. Exactly the ghost the replay's
-    // `#folded` roll-up produced, one namespace over — see `history.ts`.
+    // `#folded` roll-up produced, one namespace over — see `historyBuild.ts`.
     //
     // The ordinal is position within the file, so it matches what the real tree will mint
     // when the scan lands and the map does not re-key everything at the swap.

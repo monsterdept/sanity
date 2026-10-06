@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react'
 import {
   estimateTrace,
   explainTrace,
@@ -15,18 +15,15 @@ import {
 export function useAddProject({
   setError,
   setPendingAdd,
+  setBigFolder,
+  setBigHistory,
 }: {
   setError: Dispatch<SetStateAction<string | null>>
   setPendingAdd: Dispatch<SetStateAction<string | null>>
+  /** The two dialogs' own state is `useOverlays`'s; this only raises them. */
+  setBigFolder: Dispatch<SetStateAction<Added | null>>
+  setBigHistory: Dispatch<SetStateAction<{ added: Added; cost: TraceCost } | null>>
 }) {
-  /** A chosen folder that holds several repos, waiting to be confirmed. */
-  const [bigFolder, setBigFolder] = useState<Added | null>(null)
-
-  /** A repo whose history is over the budget, and what it would cost — see the dialog. */
-  const [bigHistory, setBigHistory] = useState<{ added: Added; cost: TraceCost } | null>(null)
-  /** Ticked in that dialog. Written on the way out rather than on every click, so cancelling
-   *  leaves the preference where it was: dismissing a dialog is not answering it. */
-  const [hideExplain, setHideExplain] = useState(false)
 
   // One add path for the sidebar's `+` and the empty gate's button.
   //
@@ -92,5 +89,5 @@ export function useAddProject({
   // sheet for as long as adding by hand did not exist.
   useEffect(() => onOpenProject(() => addProject()), [addProject])
 
-  return { addProject, takeFolder, bigFolder, setBigFolder, bigHistory, setBigHistory, hideExplain, setHideExplain }
+  return { addProject, takeFolder }
 }

@@ -179,7 +179,7 @@ All of the fixes above — the `ollama` harness, the per-reader handout cap, the
 
 - `CLAUDE.md` and `docs/notes/metric.md` say local models were tried as readers and found lacking. For qwen3.8 with thinking, on which functions a map calls surprising, that is no longer what was measured. It is still true of speed.
 - `docs/notes/readers.md` describes four harnesses; there are five, and the Ollama one depends on Claude Code.
-- `agentapi::BATCH` documents one batch for every reader. `Harness::batch()` now makes it one for Ollama.
+- `agentapi::run::BATCH` documents one batch for every reader. `Harness::batch()` now makes it one for Ollama.
 
 ## Caveats
 

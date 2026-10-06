@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { type Node } from '../lib/api'
 import { type Wedge } from '../lib/sunburst'
 import { sectorOf, type Sector } from '../lib/fan'
@@ -56,6 +56,9 @@ const MORPH_TAU_MS = 90
  *  pixel. */
 const MORPH_EPS = 0.02
 
+/** Where every wedge is, as the map hands it to `MapSvg` — see the note at the top of the file for
+ *  the three sources and the order they are asked in. This is the composition: the state the
+ *  level change and the chase share, each of them in turn, and the frame that reads them. */
 export function useLevelMotion({
   root,
   wedges,
@@ -89,6 +92,84 @@ export function useLevelMotion({
    *  quickly used to restart the keyframe from its own beginning, so the second move
    *  visibly jumped backwards before going forwards. */
   const live = useRef<Map<string, Geo>>(new Map())
+  const chase = useChaseState(morph)
+  const { leaving, coring, from, fileFrom, fileLeaving } = useLevelChange({
+    root,
+    wedges,
+    target,
+    rIn,
+    live,
+    setT,
+    setRun,
+  })
+  useKeyframe(run, setT)
+  useChase({ ...chase, morph, target, live })
+  const { soft, chasing } = chase
+
+  const moving = t < 1
+  const e = ease(t)
+  /** A wedge's geometry for this frame: where it belongs once nothing is moving, and on
+   *  the way there while something is.
+   *
+   *  Three sources, in order of who owns the picture. A level change owns it outright, so
+   *  the keyframe wins while it runs. Otherwise, if the caller asked for morphing, the eased
+   *  position is the truth — including for a wedge nobody has seen before, which is SEEDED
+   *  here at zero width so it opens rather than appearing. Seeding has to happen here and
+   *  not in the loop below: a wedge drawn at its target for one frame and then rewound to
+   *  nothing is a flicker, and it is the first thing a new file would do in a replay. */
+  const geo = (id: string): Geo => {
+    const to = target.get(id)
+    if (!to) return { a0: 0, a1: 0, r0: 0, r1: 0 }
+    if (moving) {
+      const f = from.current.get(id)
+      return f ? lerpGeo(f, to, e) : to
+    }
+    if (!chasing) return to
+    const known = soft.current.get(id)
+    if (known) return known
+    const mid = (to.a0 + to.a1) / 2
+    const seeded = { a0: mid, a1: mid, r0: to.r0, r1: to.r1 }
+    soft.current.set(id, seeded)
+    return seeded
+  }
+  // Keep the chase pointed at what is being drawn now.
+  chase.softTarget.current = target
+  chase.softMoving.current = moving
+
+  // Where the picture IS, recorded for whatever interrupts it. Without this an
+  // interrupted transition would restart from the last run's starting positions and the
+  // ring would visibly snap backwards before setting off again.
+  {
+    const now = new Map<string, Geo>()
+    for (const id of target.keys()) now.set(id, geo(id))
+    live.current = now
+  }
+
+  const frame: Frame = {
+    geo,
+    moving,
+    e,
+    leaving: leaving.current,
+    coring: coring.current,
+    fileLeaving: fileLeaving.current,
+  }
+  return {
+    frame,
+    moving,
+    e,
+    /** Bumped once per level change — what the box re-bases on. */
+    run,
+    /** The wedge an open file grew out of, as of this render. */
+    fileFrom: fileFrom.current,
+    /** Turn the chase on for a fold, before the layout it eases toward arrives — see `folding`. */
+    armFold: () => chase.setFolding(true),
+  }
+}
+
+/** The chase's own state: where the rings are while they ease, what they are easing toward, and
+ *  whether a fold rather than a replay is what turned it on. Declared where it always was, before
+ *  the level change's refs, so the hooks are called in the order they always were. */
+function useChaseState(morph: boolean | undefined) {
   /** Where the rings are while they ease toward a shape that changed under them — see
    *  `MORPH_TAU_MS`. Empty unless the caller asked for morphing, and cleared on a level
    *  change, which owns the picture outright while it runs.
@@ -118,6 +199,31 @@ export function useLevelMotion({
   const softMoving = useRef(false)
   /** Bumped by the chase to draw its next frame. Nothing reads the value. */
   const [, redraw] = useState(0)
+  return { soft, setFolding, chasing, softTarget, softMoving, redraw }
+}
+
+/** A level change — drilling in, popping out, opening or closing a file — noticed during render
+ *  and set up as the keyframe's start: where everything flies from, what flies out, what cores
+ *  into the hub, and the file tiling that unrolls or rolls back up. Hands back the refs the frame
+ *  reads, so the frame reads them as of this render. */
+function useLevelChange({
+  root,
+  wedges,
+  target,
+  rIn,
+  live,
+  setT,
+  setRun,
+}: {
+  root: Node
+  wedges: Wedge[]
+  target: Map<string, Geo>
+  rIn: number
+  /** Where every wedge is on screen — see `live` in `useLevelMotion`. Read here, never written. */
+  live: RefObject<Map<string, Geo>>
+  setT: Dispatch<SetStateAction<number>>
+  setRun: Dispatch<SetStateAction<number>>
+}) {
   /** The wedges of the level being left, so they can be animated out rather than dropped.
    *  The old transition unmounted them, which is why changing level read as a hard cut
    *  with an ease-in after it rather than as one movement. */
@@ -218,13 +324,16 @@ export function useLevelMotion({
     setRun((r) => r + 1)
   }
   prevWedges.current = wedges
+  return { leaving, coring, from, fileFrom, fileLeaving }
+}
 
-  /** The rAF loop, started once per level change.
-   *
-   *  Keyed on `run` and NOT on `t`: a dependency on the value the loop is writing tears
-   *  the effect down and rebuilds it every frame, and each rebuild re-reads the clock, so
-   *  the transition restarts its own duration for as long as it runs. `run` changes once,
-   *  when a level change begins. */
+/** The rAF loop, started once per level change.
+ *
+ *  Keyed on `run` and NOT on `t`: a dependency on the value the loop is writing tears
+ *  the effect down and rebuilds it every frame, and each rebuild re-reads the clock, so
+ *  the transition restarts its own duration for as long as it runs. `run` changes once,
+ *  when a level change begins. */
+function useKeyframe(run: number, setT: Dispatch<SetStateAction<number>>) {
   useEffect(() => {
     if (run === 0) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -241,19 +350,35 @@ export function useLevelMotion({
     raf = requestAnimationFrame(step)
     return () => cancelAnimationFrame(raf)
   }, [run])
+}
 
-  /** The chase: every frame, close some of the gap between where the rings are and the shape
-   *  they have been given.
-   *
-   *  It runs for as long as morphing is on rather than being started and stopped per change,
-   *  because a replay changes the target constantly and a loop that has to be re-armed is a
-   *  loop that misses the first frame of every commit. Idle it costs one pass over a few
-   *  hundred structural wedges — `geoOf` skips functions, so the thousands are not in here —
-   *  and, crucially, no re-render: nothing moved, nothing is drawn.
-   *
-   *  It defers to the level change entirely. While the keyframe runs it copies what is on
-   *  screen instead of easing, so the moment the zoom lands the chase is already holding the
-   *  picture and there is nothing to jump from. */
+/** The chase: every frame, close some of the gap between where the rings are and the shape
+ *  they have been given.
+ *
+ *  It runs for as long as morphing is on rather than being started and stopped per change,
+ *  because a replay changes the target constantly and a loop that has to be re-armed is a
+ *  loop that misses the first frame of every commit. Idle it costs one pass over a few
+ *  hundred structural wedges — `geoOf` skips functions, so the thousands are not in here —
+ *  and, crucially, no re-render: nothing moved, nothing is drawn.
+ *
+ *  It defers to the level change entirely. While the keyframe runs it copies what is on
+ *  screen instead of easing, so the moment the zoom lands the chase is already holding the
+ *  picture and there is nothing to jump from. */
+function useChase({
+  soft,
+  setFolding,
+  chasing,
+  softTarget,
+  softMoving,
+  redraw,
+  morph,
+  target,
+  live,
+}: ReturnType<typeof useChaseState> & {
+  morph: boolean | undefined
+  target: Map<string, Geo>
+  live: RefObject<Map<string, Geo>>
+}) {
   useEffect(() => {
     if (!chasing) {
       soft.current.clear()
@@ -349,63 +474,4 @@ export function useLevelMotion({
     for (const [id, g] of seed) if (target.has(id)) soft.current.set(id, { ...g })
   }
   wasMorphing.current = chasing
-
-  const moving = t < 1
-  const e = ease(t)
-  /** A wedge's geometry for this frame: where it belongs once nothing is moving, and on
-   *  the way there while something is.
-   *
-   *  Three sources, in order of who owns the picture. A level change owns it outright, so
-   *  the keyframe wins while it runs. Otherwise, if the caller asked for morphing, the eased
-   *  position is the truth — including for a wedge nobody has seen before, which is SEEDED
-   *  here at zero width so it opens rather than appearing. Seeding has to happen here and
-   *  not in the loop below: a wedge drawn at its target for one frame and then rewound to
-   *  nothing is a flicker, and it is the first thing a new file would do in a replay. */
-  const geo = (id: string): Geo => {
-    const to = target.get(id)
-    if (!to) return { a0: 0, a1: 0, r0: 0, r1: 0 }
-    if (moving) {
-      const f = from.current.get(id)
-      return f ? lerpGeo(f, to, e) : to
-    }
-    if (!chasing) return to
-    const known = soft.current.get(id)
-    if (known) return known
-    const mid = (to.a0 + to.a1) / 2
-    const seeded = { a0: mid, a1: mid, r0: to.r0, r1: to.r1 }
-    soft.current.set(id, seeded)
-    return seeded
-  }
-  // Keep the chase pointed at what is being drawn now.
-  softTarget.current = target
-  softMoving.current = moving
-
-  // Where the picture IS, recorded for whatever interrupts it. Without this an
-  // interrupted transition would restart from the last run's starting positions and the
-  // ring would visibly snap backwards before setting off again.
-  {
-    const now = new Map<string, Geo>()
-    for (const id of target.keys()) now.set(id, geo(id))
-    live.current = now
-  }
-
-  const frame: Frame = {
-    geo,
-    moving,
-    e,
-    leaving: leaving.current,
-    coring: coring.current,
-    fileLeaving: fileLeaving.current,
-  }
-  return {
-    frame,
-    moving,
-    e,
-    /** Bumped once per level change — what the box re-bases on. */
-    run,
-    /** The wedge an open file grew out of, as of this render. */
-    fileFrom: fileFrom.current,
-    /** Turn the chase on for a fold, before the layout it eases toward arrives — see `folding`. */
-    armFold: () => setFolding(true),
-  }
 }

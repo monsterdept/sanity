@@ -485,7 +485,7 @@ function paintOf(
   const hist = memo(
     // **A replay draws these too, and the gate is the lens rather than the mode.** It was off
     // for the whole of `morph`, on the belief that a frame carries no readings — it carries
-    // four grades packed into two bytes (`history.ts`), which is exactly why `REPLAY` marks
+    // four grades packed into two bytes (`historyScore.ts`), which is exactly why `REPLAY` marks
     // Surprise, Legibility, Docs and Traps as live. What a frame genuinely does not carry is
     // the parse-derived lenses, and those are the ones marked `cost`: bucketing them would
     // put a confident grey rim under a lens whose wedges are deliberately neutral.

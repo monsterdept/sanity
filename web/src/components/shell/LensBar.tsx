@@ -151,7 +151,7 @@ export function LensBar({
 
           On `viewMode`, so a replay that cannot paint Blame does not offer a choice
           between two readings of nothing. And a frame carries neither reduction —
-          `history.ts` builds its nodes with both null — so this is the one lens
+          `historyBuild.ts` builds its nodes with both null — so this is the one lens
           control that is genuinely absent during a replay rather than merely
           quiet. */}
       {viewMode === 'blame' && (

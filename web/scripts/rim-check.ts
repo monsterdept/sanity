@@ -200,7 +200,7 @@ console.log('absence — a band says what it knows, not what the repo is')
 console.log('roll-ups — a count is not a member of a distribution')
 {
   /** What a REPLAY frame folds a file's undrawable functions into: their combined lines,
-   *  a count, and by design no reading at all. See `history.ts`'s `standIn`. */
+   *  a count, and by design no reading at all. See `historyBuild.ts`'s `standIn`. */
   const standIn = (loc: number, count: number): Node =>
     ({ kind: 'func', loc, rest: count, children: [], excluded: false, score: null }) as unknown as Node
   const dated = (loc: number): Node =>

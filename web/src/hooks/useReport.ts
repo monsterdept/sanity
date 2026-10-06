@@ -1,20 +1,25 @@
-import { useCallback, useEffect, useMemo, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { fileFunctions, onExportReport, readIntoRing, type Held, type Node } from '../lib/api'
 import { legendFor } from '../lib/colorMode'
 
+/** What File → Export Report as PDF… takes from the window: the languages for its methodology,
+ *  and the tree with every function in it, fetched for the export alone. */
 export function useReport({
   filled,
   activeRef,
   treeRef,
   readings,
+  reporting,
+  setReporting,
 }: {
   filled: Node | null
   activeRef: RefObject<string | null>
   treeRef: RefObject<Node | null>
   readings: RefObject<Held>
+  /** Whether the dialog is up — `useOverlays`'s, raised here by the menu. */
+  reporting: boolean
+  setReporting: Dispatch<SetStateAction<boolean>>
 }) {
-  /** The report dialog is up — File → Export Report as PDF…. */
-  const [reporting, setReporting] = useState(false)
   /** The languages present, largest first, for the report's methodology. Walked only while the
    *  dialog is up, and off the live tree rather than whatever a report has staged. */
   const reportLangs = useMemo(
@@ -68,5 +73,5 @@ export function useReport({
   }, [])
   useEffect(() => onExportReport(() => setReporting(true)), [])
 
-  return { reporting, setReporting, reportLangs, completeTree }
+  return { reportLangs, completeTree }
 }

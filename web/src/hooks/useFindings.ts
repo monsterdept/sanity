@@ -22,17 +22,17 @@ export function useFindings({
   treeRev,
   assessed,
   historyOn,
+  openFindings,
 }: {
   activeKey: string | null
   treeRev: number
   /** The active project's reading count — see the effect below for why it is asked on. */
   assessed: number | undefined
   historyOn: boolean
+  /** Open the panel on one of its tabs. The panel being up is `useOverlays`'s; the hub's badge
+   *  is handed this so a click on it can raise it. */
+  openFindings: (view?: 'findings' | 'rules') => void
 }) {
-  const [findingsOpen, setFindingsOpen] = useState(false)
-  /** Which tab the panel was last asked to open on. `n` counts the asks, so asking for the tab
-   *  it was already asked for still switches back to it after the reader has moved off. */
-  const [findingsAsk, setFindingsAsk] = useState<{ view: 'findings' | 'rules'; n: number } | null>(null)
   const [findingGroups, setFindingGroups] = useState<FindingGroup[] | null>(null)
   const [archive, setArchive] = useState<Decision[] | null>(null)
   /** Bumped after a dismissal lands, to re-ask for both halves.
@@ -223,12 +223,6 @@ export function useFindings({
     ? new Set(findingGroups.filter((g) => !g.blocked).flatMap((g) => g.hits.map((l) => l.key))).size
     : 0
 
-  /** Open the findings panel on one of its tabs — the dial's two halves each open their own. */
-  const openFindings = useCallback((view: 'findings' | 'rules' = 'findings') => {
-    setFindingsAsk((a) => ({ view, n: (a?.n ?? 0) + 1 }))
-    setFindingsOpen(true)
-  }, [])
-
   /** What the hub's badge says, and what a click on it opens — see `Sunburst`'s `findings`.
    *
    *  **Memoised because it reaches the sunburst**, which is a few thousand arcs: a fresh object
@@ -239,9 +233,6 @@ export function useFindings({
   )
 
   return {
-    findingsOpen,
-    setFindingsOpen,
-    findingsAsk,
     findingGroups,
     archive,
     rules,

@@ -1,3 +1,8 @@
+/** The dialog a read starts from: which agent, which model, and how much of the repo.
+ *
+ *  It is where the asking went when the orchestrator stopped doing it — see `ReadDialog`.
+ *  The cost it shows is measured rather than guessed, in functions, readers, lines and
+ *  tokens, and never multiplied out to a price. */
 import { useEffect, useState } from 'react'
 import { Gauge } from './Dials'
 import { Choice, Field } from './Fields'
@@ -42,7 +47,7 @@ function tokensFor(functions: number, batch: number): number {
  *
  *  Ten is where the measurement stops rather than a measured optimum: warming was looked
  *  for twice, at three and at ten, and never found. Fifteen might be fine. Moving it is a
- *  decision about the instrument, taken in `agentapi::BATCH` with the corpus in mind — not
+ *  decision about the instrument, taken in `agentapi::run::BATCH` with the corpus in mind — not
  *  a thing to hand somebody mid-dialog.
  *
  *  It is also the granularity of the extent slider: work goes out a reader at a time, so
@@ -195,6 +200,114 @@ export function ReadDialog({
   onStarted: () => void
   onClose: () => void
 }) {
+  const curve = useReadCurve(project.key)
+  const { installed, harness, setHarness, model, setModel } = useReader(project)
+  /** How many functions this run should read. `null` until the extent is known, because
+   *  it is derived from a count that arrives with the project rather than from a default
+   *  worth writing down. */
+  const [amount, setAmount] = useState<number | null>(null)
+  /** The picker is hidden behind a click when the repo already has a model.
+   *
+   *  Not `model !== banked`, which cannot tell "has not chosen yet" from "chose the same
+   *  thing": this is whether the person asked to see the list. */
+  const [overriding, setOverriding] = useState(false)
+  const { busy, error, go } = useStartRead(project, harness, model, onStarted, onClose)
+
+  const cov = coverageOf(project, amount, curve)
+  const { left, want } = cov
+  const none = installed.length > 0 && installed.every((h) => !h.installed)
+
+  return (
+    <Overlay onClose={onClose}>
+      <div
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div>
+          <div className="text-[15px] font-semibold">Sanity check</div>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
+            The Sanity backend orchestrates readers, each in its own process with no repository
+            access.
+          </p>
+        </div>
+
+        {none ? (
+          // A prerequisite, stated. It replaces "configure an MCP server", and unlike that
+          // one it can be checked rather than explained.
+          <p className="text-xs leading-relaxed text-[var(--destructive)]">
+            No supported agent is installed. Sanity reads with <code>claude</code> or{' '}
+            <code>codex</code> — install one and it will appear here.
+          </p>
+        ) : (
+          <>
+            <AgentField
+              installed={installed}
+              harness={harness}
+              setHarness={setHarness}
+              model={model}
+              setModel={setModel}
+            />
+
+            {/* **Absent until an agent is picked, not present and disabled.** The field
+                cannot be filled in before then — the completions come from the agent, and
+                so does what counts as a valid id — so what it offered was a grayed box
+                reading "choose an agent first", which is a control whose whole content is
+                an instruction to use the control above it. The chips above are the step;
+                this appears when it has something to say. */}
+            {harness && (
+              <ModelField
+                project={project}
+                installed={installed}
+                harness={harness}
+                model={model}
+                setModel={setModel}
+                overriding={overriding}
+                onOverride={() => setOverriding(true)}
+              />
+            )}
+
+            <CoverageField cov={cov} setAmount={setAmount} />
+          </>
+        )}
+
+        {error && <p className="text-[11px] leading-relaxed text-[var(--destructive)]">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-md px-3 py-1.5 text-xs text-[var(--muted-foreground)] hover:opacity-80"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={busy || !harness || !!none || left === 0}
+            /* `null` rather than the number when the slider is at the top: "all" is a
+               different instruction from "exactly this many", and it stays true if a
+               reading lands between opening this dialog and pressing the button. */
+            onClick={() => void go(want >= left ? null : want)}
+            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-foreground)] hover:opacity-90 disabled:opacity-40"
+          >
+            {busy ? 'Starting…' : want >= left ? 'Read all' : `Read ${want.toLocaleString()}`}
+          </button>
+        </div>
+      </div>
+    </Overlay>
+  )
+}
+
+/** Cumulative lines at each batch boundary — see `readCurve`. Empty until it lands, and
+ *  the dial falls back to apportioning by count until then, which is a good enough shape
+ *  for the one frame before it arrives. */
+function useReadCurve(key: string): number[] {
+  const [curve, setCurve] = useState<number[]>([])
+  useEffect(() => {
+    void readCurve(key).then(setCurve)
+  }, [key])
+  return curve
+}
+
+/** Which agent and model read, seeded from the corpus and filled in by the agents installed. */
+function useReader(project: ProjectSummary) {
   const [installed, setInstalled] = useState<HarnessInfo[]>([])
   // **The corpus outranks the setting, for both.** A repo that has been read already has an
   // instrument, and the honest default is the one it is on — so a project read anywhere, by
@@ -210,25 +323,6 @@ export function ReadDialog({
   const [model, setModel] = useState(
     project.banked_model ?? project.recent_model ?? project.model ?? '',
   )
-  /** How many functions this run should read. `null` until the extent is known, because
-   *  it is derived from a count that arrives with the project rather than from a default
-   *  worth writing down. */
-  const [amount, setAmount] = useState<number | null>(null)
-  /** The picker is hidden behind a click when the repo already has a model.
-   *
-   *  Not `model !== banked`, which cannot tell "has not chosen yet" from "chose the same
-   *  thing": this is whether the person asked to see the list. */
-  const [overriding, setOverriding] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  /** Cumulative lines at each batch boundary — see `readCurve`. Empty until it lands, and
-   *  the dial falls back to apportioning by count until then, which is a good enough shape
-   *  for the one frame before it arrives. */
-  const [curve, setCurve] = useState<number[]>([])
-
-  useEffect(() => {
-    void readCurve(project.key).then(setCurve)
-  }, [project.key])
 
   useEffect(() => {
     void harnesses().then((h) => {
@@ -260,6 +354,44 @@ export function ReadDialog({
     if (fallback) setModel((prev) => prev || fallback.id)
   }, [installed, harness])
 
+  return { installed, harness, setHarness, model, setModel }
+}
+
+/** Record the reader for this project and start the run, holding the button while it goes. */
+function useStartRead(
+  project: ProjectSummary,
+  harness: string,
+  model: string,
+  onStarted: () => void,
+  onClose: () => void,
+) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function go(limit: number | null) {
+    setBusy(true)
+    setError('')
+    try {
+      await setReader(project.key, harness || null, model || null)
+      const out = await startCheck(project.key, { model: model || null, limit })
+      if (!out.ok) {
+        setError([out.error, out.hint].filter(Boolean).join(' '))
+        return
+      }
+      onStarted()
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return { busy, error, go }
+}
+
+/** What a run of the asked-for size covers and costs, in every unit the dials show. */
+function coverageOf(project: ProjectSummary, amount: number | null, curve: number[]) {
   const left = readable(project) - project.assessed
   // **The slider starts at everything, and that is not the app inventing a budget.**
   // "Read all" was already what the button did with nothing filled in, so a full slider is
@@ -298,16 +430,69 @@ export function ReadDialog({
     ...DETENTS.filter((d) => d > step && d < left).slice(-5),
     ...(left > step ? [left] : []),
   ]
-  // Whatever the agent said about itself — see `Harness::models`. Never a list of ours.
-  const chosen = installed.find((h) => h.id === harness)
-  const models = chosen?.models ?? []
-  // Aliases need somewhere to type a full version; a real catalog does not — see
-  // `Harness::enumerates`. Defaults to true so the field does not flash into existence
-  // during the moment before `harnesses()` answers.
-  const enumerated = chosen?.enumerated ?? true
-  // Only a change AWAY from a corpus that already has a model is a warning. A repo with no
-  // readings has no scale to break yet.
-  const switching = !!project.banked_model && !!model && model !== project.banked_model
+  return { left, want, step, fraction, totalLines, lines, readers, maxReaders, tokens, detents }
+}
+
+type Coverage = ReturnType<typeof coverageOf>
+
+/** The agent chips: one per agent this machine knows of, the uninstalled ones disabled. */
+function AgentField({
+  installed,
+  harness,
+  setHarness,
+  model,
+  setModel,
+}: {
+  installed: HarnessInfo[]
+  harness: string
+  setHarness: (h: string) => void
+  model: string
+  setModel: (m: string) => void
+}) {
+  return (
+    <Field label="Agent">
+      <div className="flex gap-2">
+        {installed.map((h) => (
+          <Choice
+            key={h.id}
+            on={harness === h.id}
+            disabled={!h.installed}
+            onClick={() => {
+              setHarness(h.id)
+              // A model name from the other harness fails at spawn time as an
+              // unreadable error minutes later — or, on Codex, not until the API
+              // rejects it, since Codex validates nothing.
+              const theirs = installed.find((x) => x.id === h.id)?.models ?? []
+              if (!theirs.some((m) => m.id === model)) setModel('')
+            }}
+            label={h.id}
+            note={h.installed ? undefined : 'not installed'}
+          />
+        ))}
+      </div>
+    </Field>
+  )
+}
+
+/** The model: stated when the repo already has one, a picker when asked or when it has none. */
+function ModelField({
+  project,
+  installed,
+  harness,
+  model,
+  setModel,
+  overriding,
+  onOverride,
+}: {
+  project: ProjectSummary
+  installed: HarnessInfo[]
+  harness: string
+  model: string
+  setModel: (m: string) => void
+  /** Whether the person asked to see the list — see `overriding` in `ReadDialog`. */
+  overriding: boolean
+  onOverride: () => void
+}) {
   /** What to present instead of a picker, and it is a ladder rather than one field.
    *
    *  The last read comes FIRST, even for a corpus that agrees, and that ordering is a bug
@@ -321,309 +506,261 @@ export function ReadDialog({
    *  caption, because "what all of this was read by" and "what the last run asked for" are
    *  different claims and only one of them is about the corpus. */
   const suggested = project.recent_model ?? project.banked_model
-  const none = installed.length > 0 && installed.every((h) => !h.installed)
-
-  async function go(limit: number | null) {
-    setBusy(true)
-    setError('')
-    try {
-      await setReader(project.key, harness || null, model || null)
-      const out = await startCheck(project.key, { model: model || null, limit })
-      if (!out.ok) {
-        setError([out.error, out.hint].filter(Boolean).join(' '))
-        return
-      }
-      onStarted()
-      onClose()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
-    <Overlay onClose={onClose}>
-      <div
-        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div>
-          <div className="text-[15px] font-semibold">Sanity check</div>
-          <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-            The Sanity backend orchestrates readers, each in its own process with no repository
-            access.
-          </p>
-        </div>
+    <Field label="Model">
+      {/* **A repo that has been read already has a model, so this states it rather
+        than asking again.** The picker was always on, so a project with a pinned
+        `claude-sonnet-5` opened showing four alias chips with none selected and
+        `sonnet` marked "(default)" — an interface inviting somebody to pick the
+        one option that would quietly break the corpus, since an alias is not a
+        version and this repo's own readings are the proof: 708 `claude-sonnet-5`
+        against 66 `claude-sonnet-4.5` under one name.
 
-        {none ? (
-          // A prerequisite, stated. It replaces "configure an MCP server", and unlike that
-          // one it can be checked rather than explained.
-          <p className="text-xs leading-relaxed text-[var(--destructive)]">
-            No supported agent is installed. Sanity reads with <code>claude</code> or{' '}
-            <code>codex</code> — install one and it will appear here.
-          </p>
-        ) : (
-          <>
-            <Field label="Agent">
-              <div className="flex gap-2">
-                {installed.map((h) => (
-                  <Choice
-                    key={h.id}
-                    on={harness === h.id}
-                    disabled={!h.installed}
-                    onClick={() => {
-                      setHarness(h.id)
-                      // A model name from the other harness fails at spawn time as an
-                      // unreadable error minutes later — or, on Codex, not until the API
-                      // rejects it, since Codex validates nothing.
-                      const theirs = installed.find((x) => x.id === h.id)?.models ?? []
-                      if (!theirs.some((m) => m.id === model)) setModel('')
-                    }}
-                    label={h.id}
-                    note={h.installed ? undefined : 'not installed'}
-                  />
-                ))}
-              </div>
-            </Field>
-
-            {/* **Absent until an agent is picked, not present and disabled.** The field
-                cannot be filled in before then — the completions come from the agent, and
-                so does what counts as a valid id — so what it offered was a grayed box
-                reading "choose an agent first", which is a control whose whole content is
-                an instruction to use the control above it. The chips above are the step;
-                this appears when it has something to say. */}
-            {harness && (
-              <Field label="Model">
-                {/* **A repo that has been read already has a model, so this states it rather
-                  than asking again.** The picker was always on, so a project with a pinned
-                  `claude-sonnet-5` opened showing four alias chips with none selected and
-                  `sonnet` marked "(default)" — an interface inviting somebody to pick the
-                  one option that would quietly break the corpus, since an alias is not a
-                  version and this repo's own readings are the proof: 708 `claude-sonnet-5`
-                  against 66 `claude-sonnet-4.5` under one name.
-
-                  Changing it is one click away and warned about when taken. What is gone is
-                  the suggestion that a choice is outstanding when it is not. */}
-                {suggested && !overriding ? (
-                  <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1">
-                    <span className="mono min-w-0 truncate text-xs">{suggested}</span>
-                    <button
-                      onClick={() => setOverriding(true)}
-                      className="shrink-0 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                    >
-                      Change
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {/* Chips only while they fit. **What each agent knows about itself differs by
-                  two orders of magnitude**: Claude names four aliases, Codex four models,
-                  Antigravity eleven, and opencode enumerates every model of every provider
-                  it has ever heard of — 341 on this machine, which rendered as a wall of
-                  buttons taller than the window. A list that long is not a set of choices,
-                  it is a search problem, so past a handful it becomes completion on the
-                  field below instead. */}
-                    {models.length > 0 && models.length <= CHIP_LIMIT && (
-                      <div className="flex flex-wrap gap-2">
-                        {models.map((m) => (
-                          <Choice
-                            key={m.id}
-                            on={model === m.id}
-                            onClick={() => setModel(m.id)}
-                            label={m.label}
-                            note={m.default ? 'default' : undefined}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {/* A select once there are too many for buttons. opencode enumerates every
-                  model of every provider it can reach — 358 here, 349 of them OpenRouter's,
-                  because OpenRouter is itself an aggregator — so filtering by credentials
-                  barely dents it and never will. That is a list you scroll, not a row you
-                  scan. */}
-                    {models.length > CHIP_LIMIT && (
-                      <select
-                        value={models.some((m) => m.id === model) ? model : ''}
-                        onChange={(e) => setModel(e.target.value)}
-                        className="w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1.5 text-xs"
-                      >
-                        <option value="">
-                          {models.length.toLocaleString()} models — choose one
-                        </option>
-                        {models.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                            {m.default ? '  (default)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {/* **Only where the list is not the agent's own, which is Claude alone.**
-                  It used to be on every harness, reasoning that pinning a full version is
-                  the only way to be sure which reader you got — an alias mixed this repo's
-                  corpus, 708 `claude-sonnet-5` against 66 `claude-sonnet-4.5` under one
-                  name. That argument holds exactly where the entries ARE aliases. Codex,
-                  opencode and Antigravity report real versioned ids, so beside those a text
-                  box only offers somebody the chance to type one that does not exist, and
-                  find out minutes later when a reader fails to spawn.
-
-                  A datalist rather than a select: it completes against the four aliases
-                  while still accepting a full version they do not name, which is the same
-                  "suggestions, not a gate" rule the chips follow. */}
-                    {!enumerated && (
-                      <>
-                        <datalist id="sanity-models">
-                          {models.map((m) => (
-                            <option key={m.id} value={m.id} />
-                          ))}
-                        </datalist>
-                        <input
-                          list="sanity-models"
-                          value={model}
-                          onChange={(e) => setModel(e.target.value.trim())}
-                          placeholder={
-                            models.length > 0
-                              ? `or a full version, e.g. ${EXAMPLE[harness] ?? models[0].id}`
-                              : 'model name'
-                          }
-                          className="mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
-                        />
-                      </>
-                    )}
-                    {/* The rule, stated where it can still be acted on. `model` is recorded on
-                  every reading, so a mixture stays answerable afterwards — what it does not
-                  stay is readable, and nothing on the map says which wedge is on which
-                  scale. */}
-                    {/* One sentence. The other two explained that a smaller model is surprised by
-                  more and that the map ends up on two scales — the reasoning behind the
-                  rule, which belongs in CLAUDE.md and in the doc comments where it costs
-                  nothing, not in a warning somebody reads while deciding. The fact is the
-                  warning; the argument is why the fact matters, and anybody who needs it
-                  has already been told once. */}
-                    {switching && (
-                      <p className="mt-2 text-[11px] leading-relaxed text-[var(--warning)]">
-                        This repo's {project.assessed.toLocaleString()}{' '}
-                        {project.assessed === 1 ? 'reading was' : 'readings were'} taken by{' '}
-                        <strong>{project.banked_model}</strong>.
-                      </p>
-                    )}
-                    {!switching && project.banked_model && (
-                      <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
-                        Matching the {project.assessed} readings already banked.
-                      </p>
-                    )}
-                  </>
-                )}
-                {suggested && !overriding && (
-                  <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
-                    {project.recent_model
-                      ? // A fact about one run, which is what this string came from.
-                        'The last model used in a read.'
-                      : // Nothing dated, so the corpus itself is the only source — and it
-                        // agrees, or `suggested` would be empty and this a picker.
-                        `What this repo's ${project.assessed.toLocaleString()} ${
-                          project.assessed === 1 ? 'reading was' : 'readings were'
-                        } taken by.`}
-                  </p>
-                )}
-              </Field>
-            )}
-
-            <Field label="Coverage">
-              {/* **Dials rather than bars, and it is the same argument `Dials` already
-                  makes one file over.** These three measure different things on different
-                  scales, so setting them as lengths in a column invites the eye to compare
-                  them — and a comparison between lines and tokens is not a reading anybody
-                  should take. A dial reads as its own instrument. It is also the app's
-                  existing vocabulary for "one figure, at a glance, with the number spelled
-                  out", so this row is the same object as the one in the detail panel rather
-                  than a lookalike.
-
-                  Four, because that is what a run costs: how many functions it covers, how
-                  many agents get launched to do it, how much code they actually look at,
-                  and what it spends. Functions is a dial like the rest rather than a
-                  caption under the slider — the slider is the control, and a control that
-                  is also the only readout for one of four figures makes that figure the odd
-                  one out. The slider keeps the rule it obeys and nothing else. */}
-              <div className="mb-2 grid grid-cols-4 gap-3">
-                <Gauge
-                  label="Functions"
-                  value={fraction}
-                  word={approx(want)}
-                  hint={`${want.toLocaleString()} of ${left.toLocaleString()} functions still outstanding.`}
-                />
-                <Gauge
-                  label="Readers"
-                  value={maxReaders > 0 ? readers / maxReaders : 0}
-                  word={String(readers)}
-                  hint={`${readers} reader${readers === 1 ? '' : 's'}, ${BATCH} functions each. Each is a separate process with its own empty context — which is what makes a reading a prediction rather than a recollection.`}
-                />
-                <Gauge
-                  label="Lines"
-                  /* Its own total, because these three fill together at "all" and a shared
-                     absolute scale would leave lines invisible beside millions of tokens. */
-                  value={totalLines > 0 ? lines / totalLines : 0}
-                  word={approx(lines)}
-                  hint={`About ${lines.toLocaleString()} lines of code, out of ${totalLines.toLocaleString()} outstanding. Looked up along the order the queue hands work out in, not apportioned — so this tracks the function count only as closely as those functions are the same size.`}
-                />
-                <Gauge
-                  label="Tokens"
-                  /* Against the cheapest way to read the same functions, so the dial fills
-                     as the second slider spends — at one per reader it is five times what
-                     the same work costs at ten, and that is the number worth seeing before
-                     pressing the button. */
-                  value={tokens / tokensFor(left, BATCH)}
-                  word={approx(tokens)}
-                  hint={`Roughly ${approx(tokens)} tokens: about ${approx(ENTER_TOKENS)} to start each of ${readers} reader${readers === 1 ? '' : 's'}, plus ${approx(PER_FUNCTION_TOKENS)} a function. Measured averages — a repo of long functions will beat them.`}
-                />
-              </div>
-
-              {left > step ? (
-                <>
-                  <Slider
-                    min={step}
-                    max={left}
-                    step={step}
-                    value={want}
-                    detents={detents}
-                    label="How many functions to read"
-                    valueText={`${want} of ${left} functions`}
-                    onChange={(v) => setAmount(snap(v, detents, left, step))}
-                  />
-                </>
-              ) : (
-                /* Fewer left than one handout: there is nothing to choose, and a slider
-                   with one position is a control that lies about offering a choice. */
-                <p className="text-[11px] text-[var(--muted-foreground)]">
-                  {left.toLocaleString()} left — one reader covers that in a single pass.
-                </p>
-              )}
-            </Field>
-          </>
-        )}
-
-        {error && <p className="text-[11px] leading-relaxed text-[var(--destructive)]">{error}</p>}
-
-        <div className="flex justify-end gap-2">
+        Changing it is one click away and warned about when taken. What is gone is
+        the suggestion that a choice is outstanding when it is not. */}
+      {suggested && !overriding ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1">
+          <span className="mono min-w-0 truncate text-xs">{suggested}</span>
           <button
-            onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-xs text-[var(--muted-foreground)] hover:opacity-80"
+            onClick={onOverride}
+            className="shrink-0 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
           >
-            Cancel
-          </button>
-          <button
-            disabled={busy || !harness || !!none || left === 0}
-            /* `null` rather than the number when the slider is at the top: "all" is a
-               different instruction from "exactly this many", and it stays true if a
-               reading lands between opening this dialog and pressing the button. */
-            onClick={() => void go(want >= left ? null : want)}
-            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-foreground)] hover:opacity-90 disabled:opacity-40"
-          >
-            {busy ? 'Starting…' : want >= left ? 'Read all' : `Read ${want.toLocaleString()}`}
+            Change
           </button>
         </div>
-      </div>
-    </Overlay>
+      ) : (
+        <ModelPicker
+          project={project}
+          installed={installed}
+          harness={harness}
+          model={model}
+          setModel={setModel}
+        />
+      )}
+      {suggested && !overriding && (
+        <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
+          {project.recent_model
+            ? // A fact about one run, which is what this string came from.
+              'The last model used in a read.'
+            : // Nothing dated, so the corpus itself is the only source — and it
+              // agrees, or `suggested` would be empty and this a picker.
+              `What this repo's ${project.assessed.toLocaleString()} ${
+                project.assessed === 1 ? 'reading was' : 'readings were'
+              } taken by.`}
+        </p>
+      )}
+    </Field>
+  )
+}
+
+/** The model picker itself: chips, a select or a completing field, and the scale it lands on. */
+function ModelPicker({
+  project,
+  installed,
+  harness,
+  model,
+  setModel,
+}: {
+  project: ProjectSummary
+  installed: HarnessInfo[]
+  harness: string
+  model: string
+  setModel: (m: string) => void
+}) {
+  // Whatever the agent said about itself — see `Harness::models`. Never a list of ours.
+  const chosen = installed.find((h) => h.id === harness)
+  const models = chosen?.models ?? []
+  // Aliases need somewhere to type a full version; a real catalog does not — see
+  // `Harness::enumerates`. Defaults to true so the field does not flash into existence
+  // during the moment before `harnesses()` answers.
+  const enumerated = chosen?.enumerated ?? true
+  // Only a change AWAY from a corpus that already has a model is a warning. A repo with no
+  // readings has no scale to break yet.
+  const switching = !!project.banked_model && !!model && model !== project.banked_model
+  return (
+    <>
+      {/* Chips only while they fit. **What each agent knows about itself differs by
+        two orders of magnitude**: Claude names four aliases, Codex four models,
+        Antigravity eleven, and opencode enumerates every model of every provider
+        it has ever heard of — 341 on this machine, which rendered as a wall of
+        buttons taller than the window. A list that long is not a set of choices,
+        it is a search problem, so past a handful it becomes completion on the
+        field below instead. */}
+      {models.length > 0 && models.length <= CHIP_LIMIT && (
+        <div className="flex flex-wrap gap-2">
+          {models.map((m) => (
+            <Choice
+              key={m.id}
+              on={model === m.id}
+              onClick={() => setModel(m.id)}
+              label={m.label}
+              note={m.default ? 'default' : undefined}
+            />
+          ))}
+        </div>
+      )}
+      {/* A select once there are too many for buttons. opencode enumerates every
+        model of every provider it can reach — 358 here, 349 of them OpenRouter's,
+        because OpenRouter is itself an aggregator — so filtering by credentials
+        barely dents it and never will. That is a list you scroll, not a row you
+        scan. */}
+      {models.length > CHIP_LIMIT && (
+        <select
+          value={models.some((m) => m.id === model) ? model : ''}
+          onChange={(e) => setModel(e.target.value)}
+          className="w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1.5 text-xs"
+        >
+          <option value="">{models.length.toLocaleString()} models — choose one</option>
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+              {m.default ? '  (default)' : ''}
+            </option>
+          ))}
+        </select>
+      )}
+      {/* **Only where the list is not the agent's own, which is Claude alone.**
+        It used to be on every harness, reasoning that pinning a full version is
+        the only way to be sure which reader you got — an alias mixed this repo's
+        corpus, 708 `claude-sonnet-5` against 66 `claude-sonnet-4.5` under one
+        name. That argument holds exactly where the entries ARE aliases. Codex,
+        opencode and Antigravity report real versioned ids, so beside those a text
+        box only offers somebody the chance to type one that does not exist, and
+        find out minutes later when a reader fails to spawn.
+
+        A datalist rather than a select: it completes against the four aliases
+        while still accepting a full version they do not name, which is the same
+        "suggestions, not a gate" rule the chips follow. */}
+      {!enumerated && (
+        <>
+          <datalist id="sanity-models">
+            {models.map((m) => (
+              <option key={m.id} value={m.id} />
+            ))}
+          </datalist>
+          <input
+            list="sanity-models"
+            value={model}
+            onChange={(e) => setModel(e.target.value.trim())}
+            placeholder={
+              models.length > 0
+                ? `or a full version, e.g. ${EXAMPLE[harness] ?? models[0].id}`
+                : 'model name'
+            }
+            className="mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
+          />
+        </>
+      )}
+      {/* The rule, stated where it can still be acted on. `model` is recorded on
+        every reading, so a mixture stays answerable afterwards — what it does not
+        stay is readable, and nothing on the map says which wedge is on which
+        scale. */}
+      {/* One sentence. The other two explained that a smaller model is surprised by
+        more and that the map ends up on two scales — the reasoning behind the
+        rule, which belongs in CLAUDE.md and in the doc comments where it costs
+        nothing, not in a warning somebody reads while deciding. The fact is the
+        warning; the argument is why the fact matters, and anybody who needs it
+        has already been told once. */}
+      {switching && (
+        <p className="mt-2 text-[11px] leading-relaxed text-[var(--warning)]">
+          This repo's {project.assessed.toLocaleString()}{' '}
+          {project.assessed === 1 ? 'reading was' : 'readings were'} taken by{' '}
+          <strong>{project.banked_model}</strong>.
+        </p>
+      )}
+      {!switching && project.banked_model && (
+        <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+          Matching the {project.assessed} readings already banked.
+        </p>
+      )}
+    </>
+  )
+}
+
+/** How far to read: four dials for what it costs, and the slider that sets it. */
+function CoverageField({ cov, setAmount }: { cov: Coverage; setAmount: (n: number) => void }) {
+  const { left, want, step, detents } = cov
+  return (
+    <Field label="Coverage">
+      <CoverageDials cov={cov} />
+
+      {left > step ? (
+        <>
+          <Slider
+            min={step}
+            max={left}
+            step={step}
+            value={want}
+            detents={detents}
+            label="How many functions to read"
+            valueText={`${want} of ${left} functions`}
+            onChange={(v) => setAmount(snap(v, detents, left, step))}
+          />
+        </>
+      ) : (
+        /* Fewer left than one handout: there is nothing to choose, and a slider
+           with one position is a control that lies about offering a choice. */
+        <p className="text-[11px] text-[var(--muted-foreground)]">
+          {left.toLocaleString()} left — one reader covers that in a single pass.
+        </p>
+      )}
+    </Field>
+  )
+}
+
+/** The four figures a run costs, each on its own dial. */
+function CoverageDials({
+  cov: { left, want, fraction, totalLines, lines, readers, maxReaders, tokens },
+}: {
+  cov: Coverage
+}) {
+  /* **Dials rather than bars, and it is the same argument `Dials` already
+      makes one file over.** These three measure different things on different
+      scales, so setting them as lengths in a column invites the eye to compare
+      them — and a comparison between lines and tokens is not a reading anybody
+      should take. A dial reads as its own instrument. It is also the app's
+      existing vocabulary for "one figure, at a glance, with the number spelled
+      out", so this row is the same object as the one in the detail panel rather
+      than a lookalike.
+
+      Four, because that is what a run costs: how many functions it covers, how
+      many agents get launched to do it, how much code they actually look at,
+      and what it spends. Functions is a dial like the rest rather than a
+      caption under the slider — the slider is the control, and a control that
+      is also the only readout for one of four figures makes that figure the odd
+      one out. The slider keeps the rule it obeys and nothing else. */
+  return (
+    <div className="mb-2 grid grid-cols-4 gap-3">
+      <Gauge
+        label="Functions"
+        value={fraction}
+        word={approx(want)}
+        hint={`${want.toLocaleString()} of ${left.toLocaleString()} functions still outstanding.`}
+      />
+      <Gauge
+        label="Readers"
+        value={maxReaders > 0 ? readers / maxReaders : 0}
+        word={String(readers)}
+        hint={`${readers} reader${readers === 1 ? '' : 's'}, ${BATCH} functions each. Each is a separate process with its own empty context — which is what makes a reading a prediction rather than a recollection.`}
+      />
+      <Gauge
+        label="Lines"
+        /* Its own total, because these three fill together at "all" and a shared
+           absolute scale would leave lines invisible beside millions of tokens. */
+        value={totalLines > 0 ? lines / totalLines : 0}
+        word={approx(lines)}
+        hint={`About ${lines.toLocaleString()} lines of code, out of ${totalLines.toLocaleString()} outstanding. Looked up along the order the queue hands work out in, not apportioned — so this tracks the function count only as closely as those functions are the same size.`}
+      />
+      <Gauge
+        label="Tokens"
+        /* Against the cheapest way to read the same functions, so the dial fills
+           as the second slider spends — at one per reader it is five times what
+           the same work costs at ten, and that is the number worth seeing before
+           pressing the button. */
+        value={tokens / tokensFor(left, BATCH)}
+        word={approx(tokens)}
+        hint={`Roughly ${approx(tokens)} tokens: about ${approx(ENTER_TOKENS)} to start each of ${readers} reader${readers === 1 ? '' : 's'}, plus ${approx(PER_FUNCTION_TOKENS)} a function. Measured averages — a repo of long functions will beat them.`}
+      />
+    </div>
   )
 }

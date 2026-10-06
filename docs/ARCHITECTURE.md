@@ -18,7 +18,7 @@ The map wears one lens at a time: thirteen of them in four families — code sha
 
 Feed a function its name, signature and neighbours; measure how surprised the model is by the body. Low surprise is scaffolding. High surprise is where the decisions are.
 
-The app scores with an offline **proxy** — no model, no download, no network — and takes its real measurement from readers: coding-agent CLIs it launches itself, one process per reader (`harness.rs`, `agentapi::run_wave`), each of which reaches Sanity over MCP and commits to what it expects before it is shown the body. The proxy's only surviving job is ORDERING: it decides which functions a reader is offered first. It never reaches the map, because `Source::Proxy` is refused a colour.
+The app scores with an offline **proxy** — no model, no download, no network — and takes its real measurement from readers: coding-agent CLIs it launches itself, one process per reader (`harness.rs`, `agentapi::run::run_wave`), each of which reaches Sanity over MCP and commits to what it expects before it is shown the body. The proxy's only surviving job is ORDERING: it decides which functions a reader is offered first. It never reaches the map, because `Source::Proxy` is refused a colour.
 
 The heuristic is an honest **proxy**. It was built so a map had color before anyone installed a 4GB model; now that the proxy is refused a color, a wedge nobody has read shows as unread, and the proxy's four terms only decide the order of the queue (`heuristic.rs`):
 
@@ -113,7 +113,7 @@ links.rs      the two above, kept, so the panel can answer "which fourteen"
 model.rs      the tree, LOC-weighted aggregation, temperature
 findings.rs   rules over two lenses at once → the findings list
 assessment.rs `.sanity/` — readings as committed Markdown
-agentapi.rs   the reading queue, and the waves of readers `harness.rs` spawns
+agentapi/     the backend: the reading queue, the waves of readers `harness.rs` spawns, the endpoints
 mcp.rs        `sanity mcp`, the server a reader (or your own agent) talks to
 ```
 

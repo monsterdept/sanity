@@ -15,6 +15,7 @@ import {
   type Score,
   type AgentReport,
   type ChurnWindows,
+  type Folded,
   churnSaturation,
   TANGLE_STRIDE,
   TIME_STRIDE,
@@ -795,7 +796,7 @@ export type AgeRead = 'newest' | 'oldest'
  *  are both inputs to the same ramp and they are threaded through the same six components; as
  *  two arguments they are six chances for a caller to pass the span and forget the reading,
  *  and the symptom would be a tooltip disagreeing with the wedge it is over about which date
- *  it is showing. Prepared once in `App` and passed where the span was already passed. */
+ *  it is showing. Prepared once in `usePaint` and passed where the span was already passed. */
 export interface AgeView {
   /** How far back this repo goes, from `ageSpanOf(root)` — see `ageRamp`. */
   span: number
@@ -1875,7 +1876,10 @@ export const KIND_FILL: Record<'code' | 'test' | 'generated' | 'vendored' | 'hea
  *  set aside — puts nothing: it is not this map's business. And a roll-up stand-in (`n.rest`) is not
  *  a member of the distribution at all: it carries a tally of what it folded, and each entry
  *  is put back through this same function, so a folded file and a drawn one cannot land in
- *  different bands. See the comment below for why each simpler answer was wrong. */
+ *  different bands. See `contributeFolded` for why each simpler answer was wrong.
+ *
+ *  The work is per shape and per lens, in the helpers below; this decides which one a node
+ *  is. */
 function contribute(
   n: Node,
   outOfScope: boolean,
@@ -1885,328 +1889,435 @@ function contribute(
   view: Views,
   put: Put,
 ): void {
-  const { span, read } = view.age
-  const churn = view.churn
-  // **A roll-up stand-in is a COUNT, and a count is not a member of a distribution.**
-  //
-  // `aggregate` already skips these — "rolled into their parent they would dilute its real
-  // numbers with zeroes" — and this is the same node meeting the same argument one surface
-  // over. It was not skipped here, and under a REPLAY that is most of the picture: a frame
-  // folds every function too thin to draw into one stand-in per file (`history.ts`'s
-  // `standIn`), which carries their combined LINES and, by design, no reading at all. Every
-  // one of them landed in the absence bucket.
-  //
-  // So ceph's last frame drew as 94% `no git history` — 890,200 lines of it — while the same
-  // repo with the replay closed was fully coloured, and while the panel beside it listed
-  // 90,878 functions with ages. It got worse the further the story ran, because the later the
-  // frame the more functions there are to fold, which is exactly backwards from a bug about
-  // missing history and is what makes it read as a data problem rather than a drawing one.
-  //
-  // **What it CAN say, it says.** Skipping outright was the first repair and it went too far:
-  // with the roll-ups gone the distribution was drawn over whatever the frame had happened to
-  // materialise, so ceph's `src/pybind` — 71% Python, 29% TypeScript, measured — came out as
-  // 100% TypeScript over 517 of its 195,516 lines. A biased sample stated with total
-  // confidence is the failure `histogramsFor` opens by naming, and it is worse than the
-  // mislabelled absence it replaced, because nothing about it looks wrong.
-  //
-  // So a roll-up now carries a tally of what it folded (see `Node.folded`) and its lines go
-  // back into the distribution under the values they actually belong to. Per FILE, which is
-  // the grain a file already answers at when its ring has not arrived.
-  //
-  // Where there is no tally for this lens the old rule stands and the lines go nowhere: Age
-  // and Churn are facts about a FUNCTION, the frame carries no per-file dates, and a roll-up
-  // that guessed a band would be inventing the reading. `rest` is the marker for both cases —
-  // nothing but a roll-up ever carries one, since the backend never sets it and the layout
-  // mints its own after this walk.
+  // The marker is `rest` — nothing but a roll-up ever carries one, since the backend never
+  // sets it and the layout mints its own after this walk.
   if (n.rest !== undefined) {
-    if (outOfScope) return
-    const held = n.folded
-    if (!held) return
-    // Never listed, only counted: these lines have no node to point at, which is the same
-    // contract `contributeCols`'s stand-in works to — see `put` in `bucketsFor`. One object,
-    // mutated per entry, for the reason that one does it: a fresh node per folded file, per
-    // frame, is an allocation this codebase has already paid for once.
-    const stand: {
-      synthetic: true
-      kind: 'func'
-      loc: number
-      score?: Score
-      /** The Testing lens reads both, and a stand-in that omitted them would report every
-       *  ring-less file as unclassifiable — the confident-wrong-colour failure this whole
-       *  stand-in exists to avoid. */
-      tested?: { isTest: boolean; how: 'contract' | 'reader' | 'convention' } | null
-      underTest?: boolean | null
-      children: Node[]
-    } = { synthetic: true, kind: 'func', loc: 0, children: [] }
-    if (mode === 'language' || mode === 'blame') {
-      for (const [key, lines] of mode === 'language' ? held.lang : held.author) {
-        const rank = ranks?.get(key)
-        stand.loc = lines
-        if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, stand as unknown as Node)
-        else put(key, key, slotColor(rank), stand as unknown as Node)
-      }
-      return
-    }
-    if (mode === 'composition') {
-      // The same two answers the function branch below gives, a kind or `unplaced`, in the
-      // same colours — so a folded body and a drawn one cannot land in different rows.
-      for (const [key, lines] of held.kind) {
-        stand.loc = lines
-        if (key === 'unplaced') {
-          put(UNKNOWN, 'unplaced', 'var(--unanalyzed)', stand as unknown as Node)
-        } else {
-          const k = key as (typeof KIND_ORDER)[number]
-          put(k, k, KIND_FILL[k], stand as unknown as Node)
-        }
-      }
-      return
-    }
-    if (mode === 'age' || mode === 'churn') {
-      // **Through `contribute` itself, so a folded file and a drawn one cannot fall in
-      // different bands.** The tally is a `TimeRow` per file and the branches below already
-      // know what to do with exactly that; running it back through them is the same trick
-      // `contributeCols` plays for a file whose ring never arrived, and it is what keeps one
-      // definition of a band rather than two.
-      for (let i = 0; i < held.time.length; i += TIME_STRIDE) {
-        const touched = held.time[i]
-        const born = held.time[i + 1]
-        stand.loc = held.time[i + 2]
-        const commits = held.time.slice(i + 3, i + 7) as ChurnWindows
-        // `-1` is a file the replayed window never saw touched, or never saw arrive — every
-        // file in the opening state is the second. Undated rather than dropped: the lines are
-        // real, and the window's own rule is that nothing before it makes a claim about its
-        // age, which is the absence bucket and not a band.
-        //
-        // **Reported separately, where they used to be one number twice.** The fold carried a
-        // touch date and wrote it into both fields, which was harmless while `ageDays` was
-        // only a gate and is a lie the moment Age paints it — a file from the truncated prefix
-        // would have been banded as *oldest line* on the day the story happened to reach it.
-        stand.score =
-          touched < 0 && born < 0
-            ? undefined
-            : standScore({
-                commits,
-                // **Derived here rather than carried, and that changed owner rather than
-                // moving.** The row used to bring its own ramp value so `colorMode` would not
-                // hold a second copy of `CHURN_SATURATION` — right while that constant was the
-                // replay's private business. It is `api.ts`'s now, shared with the live map,
-                // because a repo picks its own windows and the two halves must agree about
-                // what saturates one. One owner, so deriving is the single-source version.
-                churn: commits.map((n, w) =>
-                  Math.min(1, n / churnSaturation(churn.windows[w])),
-                ) as ChurnWindows,
-                ageDays: born < 0 ? null : born,
-                lastTouchedDays: touched < 0 ? null : touched,
-              })
-        contribute(stand as unknown as Node, false, mode, ranks, view, put)
-      }
-      return
-    }
-    if (mode === 'tangle') {
-      // Through `contribute` itself, exactly as Age and Churn go — see the note above. The
-      // fold carries the file's own answer, which is what `Node::aggregate` gives a file on
-      // the live map: a LOC-weighted mean of its functions' ramp positions and the sum of
-      // their counts.
-      for (let i = 0; i < held.tangle.length; i += TANGLE_STRIDE) {
-        stand.loc = held.tangle[i]
-        const weighted = held.tangle[i + 1]
-        const cognitive = held.tangle[i + 3]
-        // `-1` is a file in a language nobody has taught the parser. Its lines are real and
-        // stay in the distribution; what it has no opinion about is the band, which is the
-        // absence the lens already draws in the structural neutral.
-        stand.score =
-          weighted < 0
-            ? undefined
-            : standScore({
-                tangle: [weighted, held.tangle[i + 2]],
-                cognitive,
-              })
-        contribute(stand as unknown as Node, false, mode, ranks, view, put)
-      }
-      return
-    }
-    // Callers, Reach, Clones and the reading lenses: a roll-up has nothing to say and says
-    // nothing. Its lines stay out of the distribution rather than inventing a band.
+    if (!outOfScope) contributeFolded(n, mode, ranks, view, put)
     return
   }
-  // A FILE is a reading of its own under Docs — its header — so it is a row here beside
-  // the functions, and the buckets count what the list under them counts. Only Docs:
-  // `legible` and `trap` are never sent on a file reading (see `FILE_ASK`), and the other
-  // lenses ask questions a file has no answer to.
-  // A file stands in for its own functions when they have not arrived — see `legendFor`,
-  // which ranks the colours this fills in. Only where a file has an answer of its own:
-  // its author and its language are its own, while a grade is its functions'.
-  if (
-    n.kind === 'file' &&
-    !outOfScope &&
-    n.funcs > 0 &&
-    (mode === 'blame' || mode === 'language')
-  ) {
-    // The same three cases the function branch below spells out, and deliberately the
-    // same words: a row must not depend on whether the ring happened to be fetched.
-    const key = catKey(n, mode, view.blame)
-    if (key && (mode !== 'blame' || isAuthor(key))) {
-      const rank = ranks?.get(key)
-      // Past the cap there is no rank, and everyone there is ONE row in the structural
-      // neutral rather than a row apiece wearing it — see `OTHER_KEY`.
-      if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, n)
-      else put(key, key, slotColor(rank), n)
-    } else if (mode === 'blame' && key) {
-      put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
-    } else {
-      put(UNKNOWN, mode === 'blame' ? 'no blame' : 'no language', 'var(--unanalyzed)', n)
-    }
+  if (outOfScope) return
+  if (n.kind === 'file') contributeFile(n, mode, ranks, view, put)
+  if (n.kind === 'func') contributeFunc(n, mode, ranks, view, put)
+}
+
+/** The one object a roll-up's entries are put through, mutated per entry — see
+ *  `contributeFolded`. */
+type FoldStand = {
+  synthetic: true
+  kind: 'func'
+  loc: number
+  score?: Score
+  /** The Testing lens reads both, and a stand-in that omitted them would report every
+   *  ring-less file as unclassifiable — the confident-wrong-colour failure this whole
+   *  stand-in exists to avoid. */
+  tested?: { isTest: boolean; how: 'contract' | 'reader' | 'convention' } | null
+  underTest?: boolean | null
+  children: Node[]
+}
+
+/** A roll-up stand-in's lines, put back under the values its tally says they belong to.
+ *
+ *  **A roll-up stand-in is a COUNT, and a count is not a member of a distribution.**
+ *
+ *  `aggregate` already skips these — "rolled into their parent they would dilute its real
+ *  numbers with zeroes" — and this is the same node meeting the same argument one surface
+ *  over. It was not skipped here, and under a REPLAY that is most of the picture: a frame
+ *  folds every function too thin to draw into one stand-in per file (`historyBuild.ts`'s
+ *  `standIn`), which carries their combined LINES and, by design, no reading at all. Every
+ *  one of them landed in the absence bucket.
+ *
+ *  So ceph's last frame drew as 94% `no git history` — 890,200 lines of it — while the same
+ *  repo with the replay closed was fully coloured, and while the panel beside it listed
+ *  90,878 functions with ages. It got worse the further the story ran, because the later the
+ *  frame the more functions there are to fold, which is exactly backwards from a bug about
+ *  missing history and is what makes it read as a data problem rather than a drawing one.
+ *
+ *  **What it CAN say, it says.** Skipping outright was the first repair and it went too far:
+ *  with the roll-ups gone the distribution was drawn over whatever the frame had happened to
+ *  materialise, so ceph's `src/pybind` — 71% Python, 29% TypeScript, measured — came out as
+ *  100% TypeScript over 517 of its 195,516 lines. A biased sample stated with total
+ *  confidence is the failure `histogramsFor` opens by naming, and it is worse than the
+ *  mislabelled absence it replaced, because nothing about it looks wrong.
+ *
+ *  So a roll-up now carries a tally of what it folded (see `Node.folded`) and its lines go
+ *  back into the distribution under the values they actually belong to. Per FILE, which is
+ *  the grain a file already answers at when its ring has not arrived.
+ *
+ *  Where there is no tally for this lens the old rule stands and the lines go nowhere: Age
+ *  and Churn are facts about a FUNCTION, the frame carries no per-file dates, and a roll-up
+ *  that guessed a band would be inventing the reading. */
+function contributeFolded(
+  n: Node,
+  mode: ColorMode,
+  ranks: Map<string, number> | undefined,
+  view: Views,
+  put: Put,
+): void {
+  const held = n.folded
+  if (!held) return
+  // Never listed, only counted: these lines have no node to point at, which is the same
+  // contract `contributeCols`'s stand-in works to — see `put` in `bucketsFor`. One object,
+  // mutated per entry, for the reason that one does it: a fresh node per folded file, per
+  // frame, is an allocation this codebase has already paid for once.
+  const stand: FoldStand = { synthetic: true, kind: 'func', loc: 0, children: [] }
+  if (mode === 'language' || mode === 'blame' || mode === 'composition') {
+    contributeFoldedCategory(held, stand, mode, ranks, put)
+    return
   }
-  if (n.kind === 'file' && !outOfScope && mode === 'docs') {
+  if (mode === 'age' || mode === 'churn') {
+    contributeFoldedTime(held, stand, mode, ranks, view, put)
+    return
+  }
+  if (mode === 'tangle') {
+    contributeFoldedTangle(held, stand, mode, ranks, view, put)
+    return
+  }
+  // Callers, Reach, Clones and the reading lenses: a roll-up has nothing to say and says
+  // nothing. Its lines stay out of the distribution rather than inventing a band.
+}
+
+/** A roll-up's lines by language, author or kind — a fact about each folded file, so the
+ *  tally already holds them per value and they go straight into the rows a drawn node
+ *  would have taken. */
+function contributeFoldedCategory(
+  held: Folded,
+  stand: FoldStand,
+  mode: 'language' | 'blame' | 'composition',
+  ranks: Map<string, number> | undefined,
+  put: Put,
+): void {
+  if (mode === 'composition') {
+    // The same two answers the function branch gives, a kind or `unplaced`, in the same
+    // colours — so a folded body and a drawn one cannot land in different rows.
+    for (const [key, lines] of held.kind) {
+      stand.loc = lines
+      if (key === 'unplaced') {
+        put(UNKNOWN, 'unplaced', 'var(--unanalyzed)', stand as unknown as Node)
+      } else {
+        const k = key as (typeof KIND_ORDER)[number]
+        put(k, k, KIND_FILL[k], stand as unknown as Node)
+      }
+    }
+    return
+  }
+  for (const [key, lines] of mode === 'language' ? held.lang : held.author) {
+    const rank = ranks?.get(key)
+    stand.loc = lines
+    if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, stand as unknown as Node)
+    else put(key, key, slotColor(rank), stand as unknown as Node)
+  }
+}
+
+/** A roll-up's `TimeRow`s, each put through `contribute` as the function it stands for.
+ *
+ *  **Through `contribute` itself, so a folded file and a drawn one cannot fall in different
+ *  bands.** The tally is a `TimeRow` per file and the function branches already know what to
+ *  do with exactly that; running it back through them is the same trick `contributeCols`
+ *  plays for a file whose ring never arrived, and it is what keeps one definition of a band
+ *  rather than two. */
+function contributeFoldedTime(
+  held: Folded,
+  stand: FoldStand,
+  mode: ColorMode,
+  ranks: Map<string, number> | undefined,
+  view: Views,
+  put: Put,
+): void {
+  const churn = view.churn
+  for (let i = 0; i < held.time.length; i += TIME_STRIDE) {
+    const touched = held.time[i]
+    const born = held.time[i + 1]
+    stand.loc = held.time[i + 2]
+    const commits = held.time.slice(i + 3, i + 7) as ChurnWindows
+    // `-1` is a file the replayed window never saw touched, or never saw arrive — every
+    // file in the opening state is the second. Undated rather than dropped: the lines are
+    // real, and the window's own rule is that nothing before it makes a claim about its
+    // age, which is the absence bucket and not a band.
+    //
+    // **Reported separately, where they used to be one number twice.** The fold carried a
+    // touch date and wrote it into both fields, which was harmless while `ageDays` was
+    // only a gate and is a lie the moment Age paints it — a file from the truncated prefix
+    // would have been banded as *oldest line* on the day the story happened to reach it.
+    stand.score =
+      touched < 0 && born < 0
+        ? undefined
+        : standScore({
+            commits,
+            // **Derived here rather than carried, and that changed owner rather than
+            // moving.** The row used to bring its own ramp value so `colorMode` would not
+            // hold a second copy of `CHURN_SATURATION` — right while that constant was the
+            // replay's private business. It is `api.ts`'s now, shared with the live map,
+            // because a repo picks its own windows and the two halves must agree about
+            // what saturates one. One owner, so deriving is the single-source version.
+            churn: commits.map((n, w) =>
+              Math.min(1, n / churnSaturation(churn.windows[w])),
+            ) as ChurnWindows,
+            ageDays: born < 0 ? null : born,
+            lastTouchedDays: touched < 0 ? null : touched,
+          })
+    contribute(stand as unknown as Node, false, mode, ranks, view, put)
+  }
+}
+
+/** A roll-up's `TangleRow`s, each put through `contribute` as the function it stands for.
+ *
+ *  Through `contribute` itself, exactly as Age and Churn go — see `contributeFoldedTime`. The
+ *  fold carries the file's own answer, which is what `Node::aggregate` gives a file on the
+ *  live map: a LOC-weighted mean of its functions' ramp positions and the sum of their
+ *  counts. */
+function contributeFoldedTangle(
+  held: Folded,
+  stand: FoldStand,
+  mode: ColorMode,
+  ranks: Map<string, number> | undefined,
+  view: Views,
+  put: Put,
+): void {
+  for (let i = 0; i < held.tangle.length; i += TANGLE_STRIDE) {
+    stand.loc = held.tangle[i]
+    const weighted = held.tangle[i + 1]
+    const cognitive = held.tangle[i + 3]
+    // `-1` is a file in a language nobody has taught the parser. Its lines are real and
+    // stay in the distribution; what it has no opinion about is the band, which is the
+    // absence the lens already draws in the structural neutral.
+    stand.score =
+      weighted < 0
+        ? undefined
+        : standScore({
+            tangle: [weighted, held.tangle[i + 2]],
+            cognitive,
+          })
+    contribute(stand as unknown as Node, false, mode, ranks, view, put)
+  }
+}
+
+/** A file's own row, for the lenses where a file has an answer of its own.
+ *
+ *  A FILE is a reading of its own under Docs — its header — so it is a row here beside
+ *  the functions, and the buckets count what the list under them counts. Only Docs:
+ *  `legible` and `trap` are never sent on a file reading (see `FILE_ASK`), and the other
+ *  lenses ask questions a file has no answer to.
+ *
+ *  A file stands in for its own functions when they have not arrived — see `legendFor`,
+ *  which ranks the colours this fills in. Only where a file has an answer of its own:
+ *  its author and its language are its own, while a grade is its functions'. */
+function contributeFile(
+  n: Node,
+  mode: ColorMode,
+  ranks: Map<string, number> | undefined,
+  view: Views,
+  put: Put,
+): void {
+  if (n.funcs > 0 && (mode === 'blame' || mode === 'language')) {
+    // The same three cases a function goes through, by the same helper: a row must not
+    // depend on whether the ring happened to be fetched.
+    putRanked(n, mode, ranks, view, put, mode === 'blame' ? 'no blame' : 'no language')
+  }
+  if (mode === 'docs') {
     const g = docGrade(n, view.derivable)
     if (g) put(g, g,heatColor(DOC_GAP[g], 'docs'), n)
     else put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
   }
-  if (n.kind === 'func' && !outOfScope) {
-    const s = n.score
-    if (mode === 'surprise') {
-      // **`Spread`'s own terms, because `Spread` is what this has to match.** The Surprise
-      // pane is the one breakdown that does not come from here — it is counted in
-      // `summarize`, by function rather than by line, because its rows are lists somebody
-      // clicks. So the rim reproduces its categories, its colours and its order, and
-      // differs from it in one stated way: the segments are LINES, like every other rim,
-      // because a wedge's width is lines and a bar inside it measured in something else
-      // would be two units in one shape.
-      //
-      // `predicted` falls back to the boolean it replaced, the same fallback `summarize`
-      // makes, so a reading banked before the grades still lands somewhere real.
-      if (n.agentStale) {
-        put('\u0000expired', 'stale', 'var(--unanalyzed)', n)
-      } else if (n.agent) {
-        const g = n.agent.predicted ?? (n.agent.surprised ? 'none' : 'full')
-        put(g, g, heatColor(GRADE_SURPRISE[g]), n)
-      } else {
-        put(UNKNOWN, 'unread', 'var(--structure)', n)
-      }
-    } else if (mode === 'composition') {
-      // Not read off a reading: a file's kind comes from what the repo declared and what its
-      // path says, so the absence here is "nothing placed this" rather than "nobody has read
-      // it". It takes the unanalyzed neutral for the reason Callers goes grey where calls
-      // were never parsed.
-      const k = n.codeKind
-      if (!k) {
-        put(UNKNOWN, 'unplaced', 'var(--unanalyzed)', n)
-      } else {
-        put(k.kind, k.kind, KIND_FILL[k.kind], n)
-      }
-    } else if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
-      // Both are read straight off the reading, so both share one absence: a function
-      // nobody has read yet. It is a bucket rather than a drop, for the same reason the
-      // map grays it rather than hiding it — a breakdown that silently omits the unread
-      // reports a coverage it has not got.
-      const r = n.agent && !n.agentStale ? n.agent : undefined
-      if (!r) {
-        put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
-      } else if (mode === 'traps') {
-        // A dated answer falls in with the unread, one bucket, for the reason the legible
-        // branch below gives: from where the reader stands they are the same fact.
-        if (r.trapDated) {
-          put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
-        } else {
-          const trap = trapOf(r)
-          put(
-            trap ? 'trap' : 'clear',
-            trap ? 'trap' : 'no trap reported',
-            trap ? 'var(--trap)' : 'var(--structure)',
-            n,
-          )
-        }
-      } else if (mode === 'docs') {
-        const g = docGrade(n, view.derivable)
-        if (g) put(g, g,heatColor(DOC_GAP[g], 'docs'), n)
-        else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
-      } else if (legibleOf(r)) {
-        const g = legibleOf(r)!
-        put(g, g, heatColor(GRADE_SURPRISE[g], 'legible'), n)
-      } else {
-        // Covers both a reading that never graded legibility and one that graded it under
-        // a question since rewritten. Deliberately one bucket: from where the reader is
-        // standing they are the same fact — nobody has answered today's question about
-        // this function — and splitting them would put a row on screen about our own
-        // release history.
-        put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
-      }
-    } else if (mode === 'callers') {
-      // The map's own bands and its absence — a panel that grouped by anything else would
-      // be a legend disagreeing with the picture it sits beside. The exact count is on the
-      // ROW, where it adds what the heading cannot.
-      if (n.callers == null) {
-        put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
-      } else {
-        const band = bandOf(CALLER_BANDS, n.callers)
-        put(band.label, band.label, heatColor(band.t, 'callers'), n)
-      }
-    } else if (mode === 'clones') {
-      if (n.comparable == null) {
-        put(UNKNOWN, 'too small to compare', 'var(--unanalyzed)', n)
-      } else if (n.cloneSize == null) {
-        put('unique', 'no clone in this repo', 'var(--structure)', n)
-      } else {
-        const band = bandOf(CLONE_BANDS, n.cloneSize)
-        put(band.label, band.label, 'var(--clone)', n)
-      }
-    } else if (mode === 'reach') {
-      // The map's bands and its absence, the same shape Callers takes — see `REACH_BANDS`.
-      if (n.calls == null) {
-        put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
-      } else {
-        const band = bandOf(REACH_BANDS, n.calls)
-        put(band.label, band.label, heatColor(band.t, 'reach'), n)
-      }
-    } else if (mode === 'blame' || mode === 'language') {
-      const key = catKey(n, mode, view.blame)
-      if (key && (mode !== 'blame' || isAuthor(key))) {
-        const rank = ranks?.get(key)
-        // Past the cap there is no rank, and everyone there is ONE row in the structural
-        // neutral rather than a row apiece wearing it — see `OTHER_KEY`.
-        if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, n)
-        else put(key, key, slotColor(rank), n)
-      } else if (mode === 'blame' && key) {
-        // Written to but not committed. Its own row, because "these lines are yours and
-        // unsaved" and "this file is not in git" are different things to be told.
-        put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
-      } else {
-        // No blame at all: untracked, a symlink, or not a repo. It was labeled
-        // `uncommitted`, which is the other thing entirely.
-        put(UNKNOWN, mode === 'blame' ? 'not in git' : 'unknown', 'var(--unanalyzed)', n)
-      }
-    } else if (mode === 'tangle') {
-      if (s?.tangle) {
-        const at = view.tangle === 'raw' ? 1 : 0
-        const band =
-          TANGLE_BANDS.find((b) => s.tangle![at] >= b.min) ?? TANGLE_BANDS[TANGLE_BANDS.length - 1]
-        put(band.label, band.label, '', n, s.tangle[at])
-      } else {
-        put(UNKNOWN, NOT_COUNTED, 'var(--unanalyzed)', n)
-      }
-    } else if (mode === 'churn') {
-      // Same gates `colorFor` uses, so a wedge the map left gray is not given a band here:
-      // the repo-level one first — an unwalked timeline has no counts, only zeroes — and then
-      // the per-node date, which moved off `ageDays` for the reason spelled out there.
-      if (!churn.measured) {
-        put(UNKNOWN, NOT_WALKED, 'var(--unanalyzed)', n)
-      } else if (s && s.lastTouchedDays !== null) {
-        const at = s.commits[churn.at]
-        const band = CHURN_BANDS.find((b) => at >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
-        put(band.label, band.label, '', n, s.churn[churn.at])
-      } else {
-        put(UNKNOWN, NO_HISTORY, 'var(--unanalyzed)', n)
-      }
+}
+
+/** A categorical lens's row for one node: its ranked colour, `other` past the cap, or one
+ *  of the two absences. The absence is named by the caller, because a file and a function
+ *  word it differently. */
+function putRanked(
+  n: Node,
+  mode: 'blame' | 'language',
+  ranks: Map<string, number> | undefined,
+  view: Views,
+  put: Put,
+  /** The label for no author or no language at all. */
+  absent: string,
+): void {
+  const key = catKey(n, mode, view.blame)
+  if (key && (mode !== 'blame' || isAuthor(key))) {
+    const rank = ranks?.get(key)
+    // Past the cap there is no rank, and everyone there is ONE row in the structural
+    // neutral rather than a row apiece wearing it — see `OTHER_KEY`.
+    if (rank === undefined) put(OTHER_KEY, OTHER_LABEL, OTHER, n)
+    else put(key, key, slotColor(rank), n)
+  } else if (mode === 'blame' && key) {
+    // Written to but not committed. Its own row, because "these lines are yours and
+    // unsaved" and "this file is not in git" are different things to be told.
+    put('\u0000uncommitted', 'uncommitted lines', 'var(--unanalyzed)', n)
+  } else {
+    // No blame at all: untracked, a symlink, or not a repo. It was labeled
+    // `uncommitted`, which is the other thing entirely.
+    put(UNKNOWN, absent, 'var(--unanalyzed)', n)
+  }
+}
+
+/** A function's row, by the lens: its own value's band, or the absence that lens names. */
+function contributeFunc(
+  n: Node,
+  mode: ColorMode,
+  ranks: Map<string, number> | undefined,
+  view: Views,
+  put: Put,
+): void {
+  if (mode === 'surprise') {
+    putSurprise(n, put)
+  } else if (mode === 'composition') {
+    // Not read off a reading: a file's kind comes from what the repo declared and what its
+    // path says, so the absence here is "nothing placed this" rather than "nobody has read
+    // it". It takes the unanalyzed neutral for the reason Callers goes grey where calls
+    // were never parsed.
+    const k = n.codeKind
+    if (!k) {
+      put(UNKNOWN, 'unplaced', 'var(--unanalyzed)', n)
     } else {
-      // The reading the map is painted in, or the band list describes a different question
-      // from the colours beside it — see `AgeView`.
-      const d = s ? ageOf(s, read) : null
-      if (d !== null) {
-        const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
-        put(band.label, band.label, '', n, ageRamp(d, span))
-      } else {
-        put(UNKNOWN, NO_HISTORY, 'var(--unanalyzed)', n)
-      }
+      put(k.kind, k.kind, KIND_FILL[k.kind], n)
+    }
+  } else if (mode === 'legible' || mode === 'docs' || mode === 'traps') {
+    putReading(n, mode, view, put)
+  } else if (mode === 'callers' || mode === 'clones' || mode === 'reach') {
+    putWiring(n, mode, put)
+  } else if (mode === 'blame' || mode === 'language') {
+    putRanked(n, mode, ranks, view, put, mode === 'blame' ? 'not in git' : 'unknown')
+  } else {
+    putRamped(n, mode, view, put)
+  }
+}
+
+/** A function's row under Surprise.
+ *
+ *  **`Spread`'s own terms, because `Spread` is what this has to match.** The Surprise
+ *  pane is the one breakdown that does not come from here — it is counted in
+ *  `summarize`, by function rather than by line, because its rows are lists somebody
+ *  clicks. So the rim reproduces its categories, its colours and its order, and
+ *  differs from it in one stated way: the segments are LINES, like every other rim,
+ *  because a wedge's width is lines and a bar inside it measured in something else
+ *  would be two units in one shape.
+ *
+ *  The reading's `predicted` falls back to the boolean it replaced, the same fallback
+ *  `summarize` makes, so a reading banked before the grades still lands somewhere real. */
+function putSurprise(n: Node, put: Put): void {
+  if (n.agentStale) {
+    put('\u0000expired', 'stale', 'var(--unanalyzed)', n)
+  } else if (n.agent) {
+    const g = n.agent.predicted ?? (n.agent.surprised ? 'none' : 'full')
+    put(g, g, heatColor(GRADE_SURPRISE[g]), n)
+  } else {
+    put(UNKNOWN, 'unread', 'var(--structure)', n)
+  }
+}
+
+/** A function's row under Legibility, Docs or Traps.
+ *
+ *  All three are read straight off the reading, so they share one absence: a function
+ *  nobody has read yet. It is a bucket rather than a drop, for the same reason the
+ *  map grays it rather than hiding it — a breakdown that silently omits the unread
+ *  reports a coverage it has not got. */
+function putReading(n: Node, mode: 'legible' | 'docs' | 'traps', view: Views, put: Put): void {
+  const r = n.agent && !n.agentStale ? n.agent : undefined
+  if (!r) {
+    put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
+  } else if (mode === 'traps') {
+    // A dated answer falls in with the unread, one bucket, for the reason the legible
+    // branch below gives: from where the reader stands they are the same fact.
+    if (r.trapDated) {
+      put(UNKNOWN, 'unread', 'var(--unanalyzed)', n)
+    } else {
+      const trap = trapOf(r)
+      put(
+        trap ? 'trap' : 'clear',
+        trap ? 'trap' : 'no trap reported',
+        trap ? 'var(--trap)' : 'var(--structure)',
+        n,
+      )
+    }
+  } else if (mode === 'docs') {
+    const g = docGrade(n, view.derivable)
+    if (g) put(g, g,heatColor(DOC_GAP[g], 'docs'), n)
+    else put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
+  } else if (legibleOf(r)) {
+    const g = legibleOf(r)!
+    put(g, g, heatColor(GRADE_SURPRISE[g], 'legible'), n)
+  } else {
+    // Covers both a reading that never graded legibility and one that graded it under
+    // a question since rewritten. Deliberately one bucket: from where the reader is
+    // standing they are the same fact — nobody has answered today's question about
+    // this function — and splitting them would put a row on screen about our own
+    // release history.
+    put(UNKNOWN, 'not graded', 'var(--unanalyzed)', n)
+  }
+}
+
+/** A function's row under Callers, Clones or Reach — the map's own bands and its absence. */
+function putWiring(n: Node, mode: 'callers' | 'clones' | 'reach', put: Put): void {
+  if (mode === 'callers') {
+    // The map's own bands and its absence — a panel that grouped by anything else would
+    // be a legend disagreeing with the picture it sits beside. The exact count is on the
+    // ROW, where it adds what the heading cannot.
+    if (n.callers == null) {
+      put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
+    } else {
+      const band = bandOf(CALLER_BANDS, n.callers)
+      put(band.label, band.label, heatColor(band.t, 'callers'), n)
+    }
+  } else if (mode === 'clones') {
+    if (n.comparable == null) {
+      put(UNKNOWN, 'too small to compare', 'var(--unanalyzed)', n)
+    } else if (n.cloneSize == null) {
+      put('unique', 'no clone in this repo', 'var(--structure)', n)
+    } else {
+      const band = bandOf(CLONE_BANDS, n.cloneSize)
+      put(band.label, band.label, 'var(--clone)', n)
+    }
+  } else {
+    // The map's bands and its absence, the same shape Callers takes — see `REACH_BANDS`.
+    if (n.calls == null) {
+      put(UNKNOWN, 'calls not resolved here', 'var(--unanalyzed)', n)
+    } else {
+      const band = bandOf(REACH_BANDS, n.calls)
+      put(band.label, band.label, heatColor(band.t, 'reach'), n)
+    }
+  }
+}
+
+/** A function's row under Complexity, Churn or Age — the lenses whose bands carry a ramp
+ *  position, so the bar can be filled where its members sit on the scale.
+ *
+ *  Every lens the dispatch above has not claimed lands here, and the last branch is Age's,
+ *  as it was when this was one function. */
+function putRamped(n: Node, mode: ColorMode, view: Views, put: Put): void {
+  const s = n.score
+  if (mode === 'tangle') {
+    if (s?.tangle) {
+      const at = view.tangle === 'raw' ? 1 : 0
+      const band =
+        TANGLE_BANDS.find((b) => s.tangle![at] >= b.min) ?? TANGLE_BANDS[TANGLE_BANDS.length - 1]
+      put(band.label, band.label, '', n, s.tangle[at])
+    } else {
+      put(UNKNOWN, NOT_COUNTED, 'var(--unanalyzed)', n)
+    }
+  } else if (mode === 'churn') {
+    const churn = view.churn
+    // Same gates `colorFor` uses, so a wedge the map left gray is not given a band here:
+    // the repo-level one first — an unwalked timeline has no counts, only zeroes — and then
+    // the per-node date, which moved off `ageDays` for the reason spelled out there.
+    if (!churn.measured) {
+      put(UNKNOWN, NOT_WALKED, 'var(--unanalyzed)', n)
+    } else if (s && s.lastTouchedDays !== null) {
+      const at = s.commits[churn.at]
+      const band = CHURN_BANDS.find((b) => at >= b.min) ?? CHURN_BANDS[CHURN_BANDS.length - 1]
+      put(band.label, band.label, '', n, s.churn[churn.at])
+    } else {
+      put(UNKNOWN, NO_HISTORY, 'var(--unanalyzed)', n)
+    }
+  } else {
+    const { span, read } = view.age
+    // The reading the map is painted in, or the band list describes a different question
+    // from the colours beside it — see `AgeView`.
+    const d = s ? ageOf(s, read) : null
+    if (d !== null) {
+      const band = AGE_BANDS.find((b) => d < b.under) ?? AGE_BANDS[AGE_BANDS.length - 1]
+      put(band.label, band.label, '', n, ageRamp(d, span))
+    } else {
+      put(UNKNOWN, NO_HISTORY, 'var(--unanalyzed)', n)
     }
   }
 }

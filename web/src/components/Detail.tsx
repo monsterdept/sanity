@@ -1,4 +1,9 @@
-import { memo } from 'react'
+/** The detail pane: whatever is selected, described under the lens the map is wearing.
+ *
+ *  Nothing selected is the whole picture, a container is a `Summary` scoped to it, and a
+ *  function is a fixed header over the lens's own section and the list of what it holds.
+ *  Memoised, because most of what re-renders the app is not about this pane. */
+import { memo, type ReactNode } from 'react'
 import { Summary } from './Summary'
 import { Bloom } from './Bloom'
 import { ageOf, colorFor, paintsFromReadings, VIEWS_DEFAULT, type Views, type ColorMode } from '../lib/colorMode'
@@ -219,25 +224,8 @@ function Contents({
   )
 }
 
-function DetailView({
-  node,
-  focus,
-  title,
-  repo,
-  model,
-  mode,
-  ranks,
-  views,
-  tangleBands,
-  tangleOver,
-  onSelect,
-  onDrill,
-  owners,
-  onShowIn,
-  repoKey,
-  replaying,
-  onJump,
-}: {
+/** What the pane is handed. Every lens section below spends some of it. */
+interface DetailProps {
   node: Node | null
   /** The subtree the map is showing, for the pane with no selection to describe. */
   focus?: Node | null
@@ -275,152 +263,16 @@ function DetailView({
    *  spends — see `jumpTo` in `hooks/useNavigation.ts`, which has to fetch the file's ring before it can select
    *  anything inside it. */
   onJump?: (path: string, line: number) => void
-}) {
-  if (!node) {
-    // With nothing selected the pane describes the whole picture instead. The gestures
-    // are still not spelled out here — every one of them is already stated on the wedge
-    // it applies to, in the hover, at the moment it is useful — but "what does this repo
-    // add up to, and what is left to do" has no wedge to be stated on, and this is the
-    // one moment there is room for it.
-    return focus ? (
-      <Summary
-        node={focus}
-        title={title ?? focus.name}
-        repo={repo ?? null}
-        // The pane describes the picture, so it has to know which picture is on screen.
-        mode={mode}
-        ranks={ranks}
-        views={views}
-        onSelect={onSelect}
-        onDrill={onDrill}
-      />
-    ) : (
-      // No scan yet — nothing to summarize, so the pane says nothing rather than showing a
-      // frame full of zeroes. It is not blank, though: this is the pane's one idle state,
-      // during onboarding and again while a project's first scan runs, and a column of
-      // dead space beside a card of instructions reads as something failing to load.
-      // Ground, not content — see `Bloom`, which is one static pattern and owns no frame.
-      <div className="h-full text-[var(--foreground)] opacity-[0.2]">
-        <Bloom className="h-full w-full" />
-      </div>
-    )
-  }
+}
 
-  const s = node.score
-  const isLeaf = node.kind === 'func'
-  /** The other functions in this one's file, when the window is holding them.
-   *
-   *  Off the tree rather than fetched: `owners` is walked from the root, so its last entry is
-   *  the file, and its children are the ring the map has already asked for. Absent where the
-   *  ring has not arrived, which the section that spends it treats as "nobody looked" rather
-   *  than as "there are none". */
-  const siblings =
-    owners && owners.length > 0 && owners[owners.length - 1].kind === 'file'
-      ? owners[owners.length - 1].children
-      : undefined
-  /** The same gate the header badge takes: a stale trap describes a body that has changed,
-   *  so it must not color anything, here or on the map. */
-  const trapped = trapOf(node.agent) && !node.agentStale
+/** The detail pane: the picture with nothing selected, a container's summary, or a function. */
+function DetailView(props: DetailProps) {
+  const { node, model, mode, ranks, views, onSelect, onDrill } = props
+  if (!node) return <IdlePane {...props} />
 
-  /** The path is the way back to where the thing IS.
-   *
-   *  It was static text, and that left the panel able to name a function it could not take
-   *  you to: arriving from a list, the wedge is a sliver in a ring of four thousand, and
-   *  even outlined it is a sliver. Every segment is the container the map can be drilled
-   *  to, so "I found it, now show me it" is one click at whatever level makes it big — the
-   *  file, usually. The selection survives the trip; that is `showIn`.
-   *
-   *  Segments are the tree's NODES, not the path string's pieces, so a collapsed
-   *  single-child chain reads as the one node it is (`cli/flox-config`) rather than as two
-   *  crumbs one of which goes nowhere. It wraps rather than eliding, and only at
-   *  separators: the reason not to wrap was a filename split across two lines, which cannot
-   *  happen when the breaks are chosen.
-   *
-   *  The line number stays plain. It is a position in a file, not a place on the map. */
-  const pathLine =
-    owners && owners.length > 0 && onShowIn ? (
-      <p
-        // `-ml-0.5` cancels the first crumb's own padding. Every segment is a button and
-        // carries `px-0.5` so its hover background clears the text — which left the whole
-        // line sitting two pixels right of the name above it and the counts below it, a
-        // misalignment small enough to read as a mistake rather than as an indent.
-        className="-ml-0.5 mt-0.5 flex flex-wrap items-baseline text-[10px] text-[var(--muted-foreground)]"
-        style={{ fontFamily: FAMILY }}
-      >
-        {owners.map((o, i) => (
-          <span key={o.id} className="contents">
-            {i > 0 && <span aria-hidden>/</span>}
-            <button
-              type="button"
-              onClick={() => onShowIn(o)}
-              title={`Show ${o.name} on the map`}
-              className="max-w-[180px] truncate rounded-[3px] px-0.5 hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-            >
-              {o.name}
-            </button>
-          </span>
-        ))}
-        {node.line !== null && <span>:{node.line}</span>}
-      </p>
-    ) : (
-      <p
-        className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]"
-        style={{ fontFamily: FAMILY }}
-      >
-        {elide(`${node.path}${node.line !== null ? `:${node.line}` : ''}`, 40)}
-      </p>
-    )
+  const pathLine = <PathLine node={node} owners={props.owners} onShowIn={props.onShowIn} />
 
-  /* A selected container is described by the SAME pane the repo is, scoped to it.
-     They were two designs for one job: `Summary` for the whole project, and a row of
-     dials plus a `Contents` list here. But a directory IS a subtree exactly as the root is, and
-     the question either pane answers is the same one — what is this made of, under the
-     lens I am looking through, and which things are they. So drilling in is a change of
-     SUBJECT and not of layout, which is what the header line already claimed to be.
-     What a container loses is the list of its immediate children; what it gains is the
-     mode's own breakdown and a list that follows it, which is what the map is colored by. */
-  /* What this file says about ITSELF, under whatever lens is on.
-     It was the file's reading and only ever the file's reading — Expected and Found, printed
-     under Blame and under Clones like everywhere else. A file carries most of the same
-     answers a function does: its own reading, its module header, its trap, and a whole-file
-     blame. So it takes the same section the leaf pane takes, scoped to it.
-
-     No HEADER block of its own any more. It never had one — the argument was that a file's
-     banner is one click away in its own syntax and this pane shows what was MEASURED rather
-     than the thing. That still holds under ten lenses, and is exactly backwards under the
-     eleventh: Docs grades the header against the body, and a pane that prints the grade
-     without the text being graded is showing half of what the reader was handed. So the
-     header appears under Docs and nowhere else, which is where it answers something.
-
-     Bounded and scrolled on its own. This block sits in the pane's FIXED header, above the
-     breakdown and the list — so a reader that wrote three paragraphs pushed the legibility
-     key and every row under it off the bottom of the window, with no scrollbar anywhere to
-     say so. A third of the pane is enough to read a paragraph in and leaves the key it is
-     qualifying on screen.
-
-     A directory has no reading of its own and no lines to blame, so it gets nothing rather
-     than an empty frame. */
-  const about =
-    node.kind === 'file' ? (
-      /* No rule and no top margin of its own: every `Block` inside brings both, and drawn
-         here as well they landed a dozen pixels apart. */
-      <div className="-mx-4 max-h-[33vh] overflow-y-auto px-4 [overscroll-behavior:contain]">
-        <LensPane
-          node={node}
-          mode={mode}
-          repoKey={repoKey ?? null}
-          replaying={replaying}
-          ranks={ranks}
-          views={views}
-          tangleBands={tangleBands}
-          tangleOver={tangleOver}
-          onJump={onJump}
-          onOpen={onDrill}
-        />
-      </div>
-    ) : null
-
-  if (!isLeaf) {
+  if (node.kind !== 'func') {
     return (
       <Summary
         node={node}
@@ -433,7 +285,7 @@ function DetailView({
         onDrill={onDrill}
         path={pathLine}
         footer={paintsFromReadings(mode) ? provenance(node, model) : undefined}
-        about={about}
+        about={fileAbout(node, props)}
       />
     )
   }
@@ -450,106 +302,8 @@ function DetailView({
           rubber-banding carried the header with it — the pinned block bounced away from
           the top edge and left a gap of panel behind it. Outside the box it cannot move,
           and the bounce happens under it where it belongs. */}
-      {/* **The rule under the header belongs to the header, because the header is the part
-          that stays.** It lived on the first section instead, which is inside the scroller —
-          so the moment anybody scrolled a lens with more than a pane's worth in it, the line
-          between what this pane is ABOUT and what it says went up with the content and the
-          two ran together. `Block` drops its own top border when it is first (`first:`), so
-          there is still exactly one line there and it is now the one that cannot move. */}
-      <div className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4">
-        {/* No bottom margin: the path's own `mt-0.5` is the whole gap, which pulls the name and
-          the thing it names into one block and leaves the `mt-2` above the counts as the only
-          real break in the header. Two groups, not three lines — the same spacing the repo and
-          history headers get, where a name and its path were never further apart than a path
-          and its totals. */}
-        <div className="flex items-center gap-2">
-          {/* No swatch. It was the wedge's own color repeated beside its name, and the lens
-            section below already says that — in words, on the scale the reading actually
-            has. Two encodings of one number, the smaller of which cannot be read. */}
-          {/* The label face, not the monospace one — see `FAMILY`. A name is a NAME here, the
-            same one the wedge is wearing three inches to the left, and setting it in the
-            code face made the panel read as a listing of source rather than as a caption on
-            the picture. Monospace stays where alignment is doing work: line counts, hashes,
-            the code view. */}
-          <h2 className="truncate text-sm font-semibold" style={{ fontFamily: FAMILY }}>
-            {node.name}
-          </h2>
-          {/* No kind badge. `FILE` and `DIRECTORY` beside the name said what the name and
-            the path under it already say — `history.rs` under `src-tauri / src` is not
-            something anyone mistakes for a directory — and it took the eye first, being the
-            only outlined thing in the header. The distinction it defended is real for
-            FUNCTIONS, and those are told apart by what the pane holds: a function's panel
-            has a reading and prose in it, a container's has a breakdown and a list. */}
-          {/* In the header, beside the name.
-            A trap is the one thing here that is not a measurement on a scale — it is a
-            warning about this specific function, and it was reachable only by finding the
-            same function again in the notes list. Beside the name is where it is unmissable,
-            and it is the same badge the list uses so the two read as one fact. */}
-          {trapped && (
-            <span
-              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-              style={{ background: 'var(--trap)', color: 'var(--card)' }}
-              title="A reader said something here will bite whoever edits it next."
-            >
-              trap
-            </span>
-          )}
-        </div>
-        {pathLine}
-        {/* The same line every other pane opens with, minus the one figure a function cannot
-          have — see `Counts`.
-
-          **It replaced a rank row rather than joining one.** `FunctionRanks` printed these
-          same two numbers with a percentile rail beside each — `47 lines … 85th`, `traces to
-          4 commits … 90th` — on the argument that a length only means something against the
-          code it sits in. True, and it bought a rail: two facts became four, in a header,
-          about a function whose actual reading is one scroll below. The counts are what the
-          header is for; where this one sits in the repo's distribution is a question the map
-          answers by drawing it. */}
-        <Counts node={node} />
-      </div>
-
-      {/* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
-          below its content, which would push the pane's own height past the window and
-          scroll the shell instead of this. `contain` keeps a flick at either end from
-          chaining out to whatever is behind the panel. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [overscroll-behavior:contain]">
-        {/* **One section, and it follows the tabs.** Everything above this qualifies every
-          lens; this is the pane's answer to the one the map is under — see `LensPane`, which
-          holds all eleven and the argument for each.
-
-          There is no `analyzed` gate on it any more. It used to be the whole scroller, and
-          the whole scroller was the surprise reading, so clicking a gray wedge under Blame
-          got you "this has not yet been analyzed" — true about a reading nobody had asked
-          for, and beside the point under a lens that reads git. Each section says what its
-          own absence is; that is the rule they are all written to. */}
-        {!s ? (
-          <p className="pt-3 text-xs text-[var(--muted-foreground)]">Not scored.</p>
-        ) : (
-          <LensPane
-            node={node}
-            mode={mode}
-            repoKey={repoKey ?? null}
-            replaying={replaying}
-            siblings={siblings}
-            ranks={ranks}
-            views={views}
-            tangleBands={tangleBands}
-            tangleOver={tangleOver}
-            onJump={onJump}
-            onOpen={onDrill}
-          />
-        )}
-
-        <Contents
-          node={node}
-          mode={mode}
-          ranks={ranks}
-          views={views}
-          onSelect={onSelect}
-          onDrill={onDrill}
-        />
-      </div>
+      <FunctionHeader node={node} pathLine={pathLine} />
+      <FunctionBody {...props} node={node} />
 
       {/* Pinned to the bottom, a flex sibling of the scroller rather than the last thing
           inside it. What it says depends on the lens: who produced these numbers, where the
@@ -557,6 +311,287 @@ function DetailView({
           `lensFooter`. A footer that moves with the list is not a footer, it is the end of
           the list. */}
       {paintsFromReadings(mode) && <Provenance node={node} model={model} />}
+    </div>
+  )
+}
+
+/** The pane with nothing selected: the whole picture, or before there is one, the bloom. */
+function IdlePane({ focus, title, repo, mode, ranks, views, onSelect, onDrill }: DetailProps) {
+  // With nothing selected the pane describes the whole picture instead. The gestures
+  // are still not spelled out here — every one of them is already stated on the wedge
+  // it applies to, in the hover, at the moment it is useful — but "what does this repo
+  // add up to, and what is left to do" has no wedge to be stated on, and this is the
+  // one moment there is room for it.
+  return focus ? (
+    <Summary
+      node={focus}
+      title={title ?? focus.name}
+      repo={repo ?? null}
+      // The pane describes the picture, so it has to know which picture is on screen.
+      mode={mode}
+      ranks={ranks}
+      views={views}
+      onSelect={onSelect}
+      onDrill={onDrill}
+    />
+  ) : (
+    // No scan yet — nothing to summarize, so the pane says nothing rather than showing a
+    // frame full of zeroes. It is not blank, though: this is the pane's one idle state,
+    // during onboarding and again while a project's first scan runs, and a column of
+    // dead space beside a card of instructions reads as something failing to load.
+    // Ground, not content — see `Bloom`, which is one static pattern and owns no frame.
+    <div className="h-full text-[var(--foreground)] opacity-[0.2]">
+      <Bloom className="h-full w-full" />
+    </div>
+  )
+}
+
+/** The path is the way back to where the thing IS.
+ *
+ *  It was static text, and that left the panel able to name a function it could not take
+ *  you to: arriving from a list, the wedge is a sliver in a ring of four thousand, and
+ *  even outlined it is a sliver. Every segment is the container the map can be drilled
+ *  to, so "I found it, now show me it" is one click at whatever level makes it big — the
+ *  file, usually. The selection survives the trip; that is `showIn`.
+ *
+ *  Segments are the tree's NODES, not the path string's pieces, so a collapsed
+ *  single-child chain reads as the one node it is (`cli/flox-config`) rather than as two
+ *  crumbs one of which goes nowhere. It wraps rather than eliding, and only at
+ *  separators: the reason not to wrap was a filename split across two lines, which cannot
+ *  happen when the breaks are chosen.
+ *
+ *  The line number stays plain. It is a position in a file, not a place on the map. */
+function PathLine({
+  node,
+  owners,
+  onShowIn,
+}: {
+  node: Node
+  owners?: Node[]
+  onShowIn?: (n: Node) => void
+}) {
+  if (!(owners && owners.length > 0 && onShowIn)) {
+    return (
+      <p
+        className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]"
+        style={{ fontFamily: FAMILY }}
+      >
+        {elide(`${node.path}${node.line !== null ? `:${node.line}` : ''}`, 40)}
+      </p>
+    )
+  }
+  return (
+    <p
+      // `-ml-0.5` cancels the first crumb's own padding. Every segment is a button and
+      // carries `px-0.5` so its hover background clears the text — which left the whole
+      // line sitting two pixels right of the name above it and the counts below it, a
+      // misalignment small enough to read as a mistake rather than as an indent.
+      className="-ml-0.5 mt-0.5 flex flex-wrap items-baseline text-[10px] text-[var(--muted-foreground)]"
+      style={{ fontFamily: FAMILY }}
+    >
+      {owners.map((o, i) => (
+        <span key={o.id} className="contents">
+          {i > 0 && <span aria-hidden>/</span>}
+          <button
+            type="button"
+            onClick={() => onShowIn(o)}
+            title={`Show ${o.name} on the map`}
+            className="max-w-[180px] truncate rounded-[3px] px-0.5 hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+          >
+            {o.name}
+          </button>
+        </span>
+      ))}
+      {node.line !== null && <span>:{node.line}</span>}
+    </p>
+  )
+}
+
+/* A selected container is described by the SAME pane the repo is, scoped to it.
+   They were two designs for one job: `Summary` for the whole project, and a row of
+   dials plus a `Contents` list here. But a directory IS a subtree exactly as the root is, and
+   the question either pane answers is the same one — what is this made of, under the
+   lens I am looking through, and which things are they. So drilling in is a change of
+   SUBJECT and not of layout, which is what the header line already claimed to be.
+   What a container loses is the list of its immediate children; what it gains is the
+   mode's own breakdown and a list that follows it, which is what the map is colored by. */
+/** What this file says about ITSELF, under whatever lens is on.
+ *
+ *  It was the file's reading and only ever the file's reading — Expected and Found, printed
+ *  under Blame and under Clones like everywhere else. A file carries most of the same
+ *  answers a function does: its own reading, its module header, its trap, and a whole-file
+ *  blame. So it takes the same section the leaf pane takes, scoped to it.
+ *
+ *  No HEADER block of its own any more. It never had one — the argument was that a file's
+ *  banner is one click away in its own syntax and this pane shows what was MEASURED rather
+ *  than the thing. That still holds under ten lenses, and is exactly backwards under the
+ *  eleventh: Docs grades the header against the body, and a pane that prints the grade
+ *  without the text being graded is showing half of what the reader was handed. So the
+ *  header appears under Docs and nowhere else, which is where it answers something.
+ *
+ *  Bounded and scrolled on its own. This block sits in the pane's FIXED header, above the
+ *  breakdown and the list — so a reader that wrote three paragraphs pushed the legibility
+ *  key and every row under it off the bottom of the window, with no scrollbar anywhere to
+ *  say so. A third of the pane is enough to read a paragraph in and leaves the key it is
+ *  qualifying on screen.
+ *
+ *  A directory has no reading of its own and no lines to blame, so it gets nothing rather
+ *  than an empty frame. */
+function fileAbout(node: Node, p: DetailProps) {
+  if (node.kind !== 'file') return null
+  return (
+    /* No rule and no top margin of its own: every `Block` inside brings both, and drawn
+       here as well they landed a dozen pixels apart. */
+    <div className="-mx-4 max-h-[33vh] overflow-y-auto px-4 [overscroll-behavior:contain]">
+      <LensPane
+        node={node}
+        mode={p.mode}
+        repoKey={p.repoKey ?? null}
+        replaying={p.replaying}
+        ranks={p.ranks}
+        views={p.views}
+        tangleBands={p.tangleBands}
+        tangleOver={p.tangleOver}
+        onJump={p.onJump}
+        onOpen={p.onDrill}
+      />
+    </div>
+  )
+}
+
+/** A function's fixed header: its name, its trap if a reader left one, its path and counts. */
+function FunctionHeader({ node, pathLine }: { node: Node; pathLine: ReactNode }) {
+  /** The same gate the header badge takes: a stale trap describes a body that has changed,
+   *  so it must not color anything, here or on the map. */
+  const trapped = trapOf(node.agent) && !node.agentStale
+  return (
+    /* **The rule under the header belongs to the header, because the header is the part
+        that stays.** It lived on the first section instead, which is inside the scroller —
+        so the moment anybody scrolled a lens with more than a pane's worth in it, the line
+        between what this pane is ABOUT and what it says went up with the content and the
+        two ran together. `Block` drops its own top border when it is first (`first:`), so
+        there is still exactly one line there and it is now the one that cannot move. */
+    <div className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4">
+      {/* No bottom margin: the path's own `mt-0.5` is the whole gap, which pulls the name and
+        the thing it names into one block and leaves the `mt-2` above the counts as the only
+        real break in the header. Two groups, not three lines — the same spacing the repo and
+        history headers get, where a name and its path were never further apart than a path
+        and its totals. */}
+      <div className="flex items-center gap-2">
+        {/* No swatch. It was the wedge's own color repeated beside its name, and the lens
+          section below already says that — in words, on the scale the reading actually
+          has. Two encodings of one number, the smaller of which cannot be read. */}
+        {/* The label face, not the monospace one — see `FAMILY`. A name is a NAME here, the
+          same one the wedge is wearing three inches to the left, and setting it in the
+          code face made the panel read as a listing of source rather than as a caption on
+          the picture. Monospace stays where alignment is doing work: line counts, hashes,
+          the code view. */}
+        <h2 className="truncate text-sm font-semibold" style={{ fontFamily: FAMILY }}>
+          {node.name}
+        </h2>
+        {/* No kind badge. `FILE` and `DIRECTORY` beside the name said what the name and
+          the path under it already say — `history.rs` under `src-tauri / src` is not
+          something anyone mistakes for a directory — and it took the eye first, being the
+          only outlined thing in the header. The distinction it defended is real for
+          FUNCTIONS, and those are told apart by what the pane holds: a function's panel
+          has a reading and prose in it, a container's has a breakdown and a list. */}
+        {/* In the header, beside the name.
+          A trap is the one thing here that is not a measurement on a scale — it is a
+          warning about this specific function, and it was reachable only by finding the
+          same function again in the notes list. Beside the name is where it is unmissable,
+          and it is the same badge the list uses so the two read as one fact. */}
+        {trapped && (
+          <span
+            className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ background: 'var(--trap)', color: 'var(--card)' }}
+            title="A reader said something here will bite whoever edits it next."
+          >
+            trap
+          </span>
+        )}
+      </div>
+      {pathLine}
+      {/* The same line every other pane opens with, minus the one figure a function cannot
+        have — see `Counts`.
+
+        **It replaced a rank row rather than joining one.** `FunctionRanks` printed these
+        same two numbers with a percentile rail beside each — `47 lines … 85th`, `traces to
+        4 commits … 90th` — on the argument that a length only means something against the
+        code it sits in. True, and it bought a rail: two facts became four, in a header,
+        about a function whose actual reading is one scroll below. The counts are what the
+        header is for; where this one sits in the repo's distribution is a question the map
+        answers by drawing it. */}
+      <Counts node={node} />
+    </div>
+  )
+}
+
+/** A function's scroller: the section for the lens the map is under, then what it contains. */
+function FunctionBody({
+  node,
+  mode,
+  ranks,
+  views,
+  tangleBands,
+  tangleOver,
+  onSelect,
+  onDrill,
+  owners,
+  repoKey,
+  replaying,
+  onJump,
+}: DetailProps & { node: Node }) {
+  /** The other functions in this one's file, when the window is holding them.
+   *
+   *  Off the tree rather than fetched: `owners` is walked from the root, so its last entry is
+   *  the file, and its children are the ring the map has already asked for. Absent where the
+   *  ring has not arrived, which the section that spends it treats as "nobody looked" rather
+   *  than as "there are none". */
+  const siblings =
+    owners && owners.length > 0 && owners[owners.length - 1].kind === 'file'
+      ? owners[owners.length - 1].children
+      : undefined
+  return (
+    /* `min-h-0` because a flex child's default `min-height:auto` refuses to shrink
+        below its content, which would push the pane's own height past the window and
+        scroll the shell instead of this. `contain` keeps a flick at either end from
+        chaining out to whatever is behind the panel. */
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [overscroll-behavior:contain]">
+      {/* **One section, and it follows the tabs.** Everything above this qualifies every
+        lens; this is the pane's answer to the one the map is under — see `LensPane`, which
+        holds all eleven and the argument for each.
+
+        There is no `analyzed` gate on it any more. It used to be the whole scroller, and
+        the whole scroller was the surprise reading, so clicking a gray wedge under Blame
+        got you "this has not yet been analyzed" — true about a reading nobody had asked
+        for, and beside the point under a lens that reads git. Each section says what its
+        own absence is; that is the rule they are all written to. */}
+      {!node.score ? (
+        <p className="pt-3 text-xs text-[var(--muted-foreground)]">Not scored.</p>
+      ) : (
+        <LensPane
+          node={node}
+          mode={mode}
+          repoKey={repoKey ?? null}
+          replaying={replaying}
+          siblings={siblings}
+          ranks={ranks}
+          views={views}
+          tangleBands={tangleBands}
+          tangleOver={tangleOver}
+          onJump={onJump}
+          onOpen={onDrill}
+        />
+      )}
+
+      <Contents
+        node={node}
+        mode={mode}
+        ranks={ranks}
+        views={views}
+        onSelect={onSelect}
+        onDrill={onDrill}
+      />
     </div>
   )
 }

@@ -1202,14 +1202,6 @@ pub enum Fidelity {
     Ordering,
 }
 
-/// Score every function in one directory.
-///
-/// Scoring is grouped by directory rather than by file for one reason: a function needs
-/// peers to be compared against, and plenty of real files hold exactly one function. A
-/// lone function with no peers scores an undecided 0.5 distinctiveness (see
-/// `heuristic::distinctiveness`), so without the directory fallback every
-/// one-function-per-file codebase — which is most React frontends — would have its
-/// strongest signal switched off.
 /// The facts a directory cannot see for itself, gathered once for the repo.
 ///
 /// **One argument because they are one KIND of argument.** Every field here is repo-wide by
@@ -1233,6 +1225,14 @@ pub(crate) struct RepoWide<'a> {
     pub(crate) bands: &'a crate::tangle::Bands,
 }
 
+/// Score every function in one directory.
+///
+/// Scoring is grouped by directory rather than by file for one reason: a function needs
+/// peers to be compared against, and plenty of real files hold exactly one function. A
+/// lone function with no peers scores an undecided 0.5 distinctiveness (see
+/// `heuristic::distinctiveness`), so without the directory fallback every
+/// one-function-per-file codebase — which is most React frontends — would have its
+/// strongest signal switched off.
 fn score_dir(
     files: &[ParsedFile],
     // Index of this directory's first file in the flat list [`edges::wire`] was given.
@@ -1630,6 +1630,20 @@ pub const HEURISTIC: &str = "heuristic (no model)";
 
 /// The whole pipeline. `on_progress` fires per directory — the app lights the wedge being
 /// read off it, so a scan of a big repo shows something moving rather than a frozen window.
+///
+/// Four steps, and the first may make the rest unnecessary:
+///
+/// 1. **Walk the repo**, and answer from `treecache` if the stored map is still the answer.
+/// 2. **Read it** ([`read_repo`]): the commit log, the parse, the blame and the timeline —
+///    everything that touches the disk or git. A stop requested during the read bails here,
+///    before anything is saved; otherwise the parse cache forgets the files that are gone.
+/// 3. **Assemble the tree** ([`assemble`]): wire the calls, find the copies, score every
+///    directory and build the tree, then save the parse cache. [`finish`] adds the
+///    cross-references and the stats.
+/// 4. **Bank it** in `treecache`, last, under the signature taken before the work started.
+///
+/// The bank happens at whatever `depth` was asked for, and the app asks for
+/// `Depth::Untraced` — so a stored tree is an untraced one until `redraw` banks it again.
 pub fn scan(
     root: &Path,
     on_progress: &(dyn Fn(Progress) + Sync),
@@ -1680,13 +1694,261 @@ pub fn scan(
         return Ok(cached);
     }
 
-    let scope = scope_of(root);
-    // Reported as its own phase because it is one: `git log --name-only` over the churn
-    // window, measured at 3.5s on ceph, with nothing else happening.
-    // Named for the log it reads, not for "history", because the blame pass below is also
-    // history and is the one that takes the hours. Two phases with the same noun on the
-    // same bar is the ambiguity this whole run of naming exists to remove.
-    let history = if depth == crate::trace::Depth::Untraced {
+    let read =
+        read_repo(root, files, depth, fidelity, scans, cancel, on_progress, on_shape, &mut lap);
+    if cancel.load(Ordering::Relaxed) {
+        // Reported rather than returned. Half a parse is not a smaller map, it is a WRONG
+        // one — every wedge is drawn from lines that were counted, so the directories the
+        // walk never reached simply would not be there and nothing on screen would say so.
+        // The caller keeps the tree it had; the work is in the cache for the next attempt.
+        anyhow::bail!("stopped");
+    }
+    // A repo shrinks as well as grows, and an entry nobody asks about again is never
+    // invalidated by anything — without this a cache would carry every file of every
+    // branch anyone had ever checked out.
+    scans.retain(&read.for_blame.iter().map(|(p, _)| p.clone()).collect());
+
+    let built = assemble(root, &read, &unparsed_dirs, fidelity, scans, on_progress, &mut lap);
+    let scan = finish(root, built, &read, unscanned, total_found);
+    // Kept under the signature computed before the work started, so the next launch of this
+    // repo — unchanged, which is the normal case — reads this instead of deriving it again.
+    // A stopped parse never gets here, which is right: half a tree is not an answer.
+    crate::treecache::save(root, signature, &scan);
+    lap("save");
+    Ok(scan)
+}
+
+/// Everything a scan reads out of the repo before it scores anything: the commit log, every
+/// directory's parsed files, their per-line blame, and the timeline's edit counts.
+///
+/// One value because the steps after it borrow from all of it at once — the scoring pass asks
+/// about a function's history while holding its parsed body.
+struct RepoRead {
+    history: History,
+    parsed_dirs: Vec<Vec<ParsedFile>>,
+    /// The files that actually parsed, with their content hashes — what the blame was read
+    /// over and what the parse cache keeps.
+    for_blame: Vec<(String, u64)>,
+    blame: Blame,
+    walked: Option<crate::edits::Edits>,
+    /// The clock the edit counts are read against, taken when the timeline was read.
+    edits_now: i64,
+}
+
+impl RepoRead {
+    /// The timeline's edit counts as the scorer reads them, or `None` when it was not walked.
+    fn edits(&self) -> Option<crate::edits::At<'_>> {
+        self.walked.as_ref().map(|e| crate::edits::At {
+            edits: e,
+            now: self.edits_now,
+            windows: e.windows,
+        })
+    }
+
+    /// The log, the blame and the edit counts, as the one argument every consumer takes.
+    fn histories(&self) -> crate::trace::Histories<'_> {
+        crate::trace::Histories { history: &self.history, blame: &self.blame, edits: self.edits() }
+    }
+}
+
+/// The second step of [`scan`]: the log, the parse, the blame and the timeline, in that order,
+/// each reporting itself and each timed at its own boundary.
+///
+/// The stop is not checked here. The parse and the blame both honour it as they go, and what a
+/// stopped read is worth is the caller's decision.
+#[allow(clippy::too_many_arguments)]
+fn read_repo(
+    root: &Path,
+    files: Vec<(PathBuf, Lang)>,
+    depth: crate::trace::Depth,
+    fidelity: Fidelity,
+    scans: &ScanCache,
+    cancel: &AtomicBool,
+    on_progress: &(dyn Fn(Progress) + Sync),
+    on_shape: &(dyn Fn(&[ShapeFile]) + Sync),
+    lap: &mut dyn FnMut(&str),
+) -> RepoRead {
+    let history = read_log(root, depth, on_progress);
+    lap("churn");
+
+    let by_dir = group_by_dir(root, files);
+    // Under its own name, before the parse rather than inside it — see `ScanCache::warm`.
+    // The parse cannot report a fraction until it has this, and on a large repo reading it
+    // takes far longer than the phase whose label would otherwise be left on screen.
+    on_progress(Progress::phase("reading the cached scan"));
+    scans.warm();
+    lap("cache");
+
+    let parsed_dirs = parse_dirs(root, &by_dir, fidelity, scans, cancel, on_progress, on_shape);
+    lap("parse");
+
+    // Taken AFTER the parse, over the files that actually parsed — see `read_blame`.
+    let for_blame: Vec<(String, u64)> =
+        parsed_dirs.iter().flatten().map(|f| (f.rel_path.clone(), f.hash)).collect();
+    let blame = read_blame(root, &for_blame, &history, scans, cancel, depth, on_progress);
+    let walked = read_edits(root, depth, cancel, on_progress);
+    let edits_now = crate::churn::now_secs();
+    lap("blame");
+    RepoRead { history, parsed_dirs, for_blame, blame, walked, edits_now }
+}
+
+/// The repo-wide facts a directory cannot see for itself, built once over the whole read and
+/// kept so [`finish`] can cross-reference and count against the same ones the scoring used.
+struct Context<'a> {
+    /// Every parsed file as the call graph and the copy finder saw it, borrowed from the read.
+    flat: Vec<crate::edges::FileView<'a>>,
+    wiring: crate::edges::Wiring,
+    copies: crate::clones::Copies,
+    attrs: crate::edges::Attributes,
+    bands: crate::tangle::Bands,
+}
+
+impl Context<'_> {
+    /// The context as `score_dir` and `stats_of` take it, with the read's histories beside it.
+    fn repo<'b>(&'b self, read: &'b RepoRead) -> RepoWide<'b> {
+        RepoWide {
+            wiring: &self.wiring,
+            copies: &self.copies,
+            hist: read.histories(),
+            attrs: &self.attrs,
+            bands: &self.bands,
+        }
+    }
+}
+
+/// What [`assemble`] hands to [`finish`]: the finished tree, and the context it was scored in.
+struct Assembled<'a> {
+    tree: Node,
+    context: Context<'a>,
+}
+
+/// The third step of [`scan`]: the repo-wide passes, the per-directory scoring and the tree,
+/// then the parse cache saved now that there is a tree to show for it.
+fn assemble<'a>(
+    root: &Path,
+    read: &'a RepoRead,
+    unparsed_dirs: &std::collections::HashMap<String, u32>,
+    fidelity: Fidelity,
+    scans: &ScanCache,
+    on_progress: &(dyn Fn(Progress) + Sync),
+    lap: &mut dyn FnMut(&str),
+) -> Assembled<'a> {
+    // Call edges, repo-wide, before anything is scored. It has to be one pass over every
+    // file at once — a call in `web/src/App.tsx` resolves against a definition three
+    // directories away, so the per-directory scoring pass below is exactly the wrong shape
+    // to compute it in. Cheap: it reads the `calls` the parse already collected and does not
+    // touch a file.
+    let flat: Vec<crate::edges::FileView<'_>> = read
+        .parsed_dirs
+        .iter()
+        .flatten()
+        .map(|f| crate::edges::FileView { path: &f.rel_path, lang: f.lang, funcs: &f.funcs })
+        .collect();
+    let wiring = wire_calls(root, &flat, on_progress);
+    let attrs = attributes(root);
+    on_progress(Progress::phase("finding copies"));
+    let copies = crate::clones::find(&flat);
+    let bands = bands_of(&read.parsed_dirs);
+    let context = Context { flat, wiring, copies, attrs, bands };
+
+    let per_dir = score_dirs(&read.parsed_dirs, context.repo(read), fidelity, on_progress);
+    lap("score");
+
+    let tree = build_tree(root, per_dir, unparsed_dirs, &read.history, read.edits());
+    lap("tree");
+
+    // Written at the end as well as every `FLUSH_EVERY`, so a scan that finishes under the
+    // flush threshold — which is every small repo — still leaves something behind.
+    scans.save();
+    Assembled { tree, context }
+}
+
+/// The assembled tree as a [`Scan`]: its cross-references built and its stats counted.
+fn finish(
+    root: &Path,
+    built: Assembled<'_>,
+    read: &RepoRead,
+    unscanned: Unscanned,
+    total_found: usize,
+) -> Scan {
+    let Assembled { tree, context } = built;
+    let files_scanned: usize = read.parsed_dirs.iter().map(|d| d.len()).sum();
+    let links = std::sync::Arc::new(crate::links::Links::build(
+        &context.flat,
+        &context.wiring,
+        &context.copies,
+    ));
+    let stats = stats_of(root, &tree, context.repo(read), unscanned, files_scanned, total_found);
+    Scan { links: links.clone(), root: tree, stats }
+}
+
+/// The numbers a scan reports about itself, read off the finished tree and the repo-wide
+/// context it was scored against.
+fn stats_of(
+    root: &Path,
+    tree: &Node,
+    repo: RepoWide<'_>,
+    unscanned: Unscanned,
+    files_scanned: usize,
+    total_found: usize,
+) -> ScanStats {
+    // ── The model pass, in priority order ────────────────────────────────────────
+    //
+    // Forced decoding costs a decode step per token, so a large repo takes hours. Rather
+    // than make the user wait for all of it, the work is ordered by how much it could
+    // possibly matter — lines × the proxy's guess at surprise — and streamed
+    // as it lands. The most consequential wedges color in within the first minutes, and
+    // stopping early costs the least valuable results rather than an arbitrary
+    // directory's worth. Total runtime stops being the number that matters.
+    let mut functions = 0;
+    tree.visit(&mut |n| {
+        if n.kind == NodeKind::Func {
+            functions += 1;
+        }
+    });
+    let history = repo.hist.history;
+    ScanStats {
+        files_scanned,
+        files_skipped: total_found.saturating_sub(files_scanned),
+        unscanned,
+        functions,
+        without_history: history.is_empty(),
+        // The ladder this repo can answer, whether or not it has been walked — a control
+        // has to be able to name its rungs before there is anything behind them.
+        churn_windows: repo
+            .hist
+            .edits
+            .map(|e| e.windows)
+            .unwrap_or_else(|| crate::edits::windows_for(crate::edits::span_days(root))),
+        churned: repo.hist.edits.is_some(),
+        tangle_bands: repo.bands.clone(),
+        // Capped where the palette stops meaning anything — see `ScanStats::authors`.
+        authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
+        headcount: repo.hist.blame.headcount(),
+        age_days: crate::edits::span_days(root),
+        // Out of the walk that just ran rather than a `git rev-list` of its own — see
+        // `trace::apply`, which fills this the same way when the trace arrives later.
+        // Zero means "print no count" rather than "a repo with none".
+        commits: history.total_commits_of("").unwrap_or(0) as usize,
+        model: HEURISTIC.into(),
+        calls_resolved: repo.wiring.resolved,
+        calls_unresolved: repo.wiring.unresolved,
+    }
+}
+
+/// The commit log over the churn window, or nothing at all when the scan is untraced.
+///
+/// Reported as its own phase because it is one: `git log --name-only` over the churn
+/// window, measured at 3.5s on ceph, with nothing else happening.
+/// Named for the log it reads, not for "history", because the blame pass is also history
+/// and is the one that takes the hours. Two phases with the same noun on the same bar is
+/// the ambiguity this whole run of naming exists to remove.
+fn read_log(
+    root: &Path,
+    depth: crate::trace::Depth,
+    on_progress: &(dyn Fn(Progress) + Sync),
+) -> History {
+    if depth == crate::trace::Depth::Untraced {
         // Not "this repo has no history" — nobody has asked for it yet. `trace::apply` fills
         // these fields in later, and the map says which of the two it is meanwhile.
         History::default()
@@ -1698,37 +1960,54 @@ pub fn scan(
             on_progress(Progress::counting("reading the commit log", "commits", seen, 0).step(1))
         })
         .unwrap_or_default()
-    };
-    lap("churn");
+    }
+}
 
-    // Group by parent directory so `score_dir` has peers to compare against. BTreeMap
-    // rather than HashMap: iteration order decides sibling order in the sunburst, and a
-    // ring that reshuffles itself between two scans of an unchanged repo would make the
-    // before/after diff — the reason to open this twice — unreadable.
+/// The walked files, grouped by their repo-relative parent directory.
+///
+/// Grouped so `score_dir` has peers to compare against. BTreeMap rather than HashMap:
+/// iteration order decides sibling order in the sunburst, and a ring that reshuffles itself
+/// between two scans of an unchanged repo would make the before/after diff — the reason to
+/// open this twice — unreadable.
+fn group_by_dir(
+    root: &Path,
+    files: Vec<(PathBuf, Lang)>,
+) -> BTreeMap<String, Vec<(PathBuf, Lang)>> {
     let mut by_dir: BTreeMap<String, Vec<(PathBuf, Lang)>> = BTreeMap::new();
     for (path, lang) in files {
         let dir = rel(root, path.parent().unwrap_or(root));
         by_dir.entry(dir).or_default().push((path, lang));
     }
+    by_dir
+}
 
-    // Parse everything first, then score. Splitting the two passes costs nothing —
-    // parsing is CPU-bound and quick — and buys an honest denominator: until every file
-    // is parsed there is no way to know how many functions the scan is about to score,
-    // and a progress bar whose total moves is worse than none.
-    // **The phases that actually run report themselves.** Every `on_progress` call used to
-    // sit inside the model pass, which the app has not run since `OllamaModel` was removed —
-    // so a scan of a large repo showed a bar that could not move for minutes, sweeping to say
-    // "something is happening" because nothing could say what. Parsing and blaming are the
-    // two long phases and they are both countable.
-    // Under its own name, before the parse rather than inside it — see `ScanCache::warm`.
-    // The parse cannot report a fraction until it has this, and on a large repo reading it
-    // takes far longer than the phase whose label would otherwise be left on screen.
-    on_progress(Progress::phase("reading the cached scan"));
-    scans.warm();
-    lap("cache");
-
+/// Every directory's files parsed, in parallel, streaming each directory's shape to the
+/// window as it lands. Directories skipped after `cancel` is set are simply absent.
+///
+/// Parse everything first, then score. Splitting the two passes costs nothing — parsing is
+/// CPU-bound and quick — and buys an honest denominator: until every file is parsed there is
+/// no way to know how many functions the scan is about to score, and a progress bar whose
+/// total moves is worse than none.
+///
+/// **The phases that actually run report themselves.** Every `on_progress` call used to sit
+/// inside the model pass, which the app has not run since `OllamaModel` was removed — so a
+/// scan of a large repo showed a bar that could not move for minutes, sweeping to say
+/// "something is happening" because nothing could say what. Parsing and blaming are the two
+/// long phases and they are both countable.
+fn parse_dirs(
+    root: &Path,
+    by_dir: &BTreeMap<String, Vec<(PathBuf, Lang)>>,
+    fidelity: Fidelity,
+    scans: &ScanCache,
+    cancel: &AtomicBool,
+    on_progress: &(dyn Fn(Progress) + Sync),
+    on_shape: &(dyn Fn(&[ShapeFile]) + Sync),
+) -> Vec<Vec<ParsedFile>> {
+    let scope = scope_of(root);
+    // Every file the walk found, which is what the bar divides by.
+    let total_found: usize = by_dir.values().map(|v| v.len()).sum();
     let parsed = AtomicUsize::new(0);
-    let parsed_dirs: Vec<Vec<ParsedFile>> = by_dir
+    by_dir
         .par_iter()
         // **Stoppable, per directory.** A cold parse of a repo of a hundred thousand files is
         // the other phase somebody can be left waiting on, and what it has done survives being
@@ -1760,24 +2039,30 @@ pub fn scan(
             );
             files
         })
-        .collect();
+        .collect()
+}
 
-    lap("parse");
-    let files_scanned: usize = parsed_dirs.iter().map(|d| d.len()).sum();
-
-    // Per-line provenance, so churn, age and blame resolve to the FUNCTION rather than to
-    // its file. One `git blame` per file, in parallel — 22ms each on a small Swift file,
-    // and 29.4s across 2,518 C++ files, which is why `scancache` memoises it.
-    //
-    // Taken AFTER the parse, over the files that actually parsed, rather than before it
-    // over every file the walk found. Two reasons, and the second is the load-bearing one.
-    // Nothing ever read the blame of a file with no functions in it — `score_dir` asks per
-    // function — so blaming minified bundles and empty headers was always waste. And the
-    // cache is keyed on content, so the blame pass needs the hash the parse pass computed;
-    // running first would mean stat-ing and reading every file twice to learn the same
-    // thing.
-    let for_blame: Vec<(String, u64)> =
-        parsed_dirs.iter().flatten().map(|f| (f.rel_path.clone(), f.hash)).collect();
+/// Per-line provenance for every parsed file, or none when the depth does not blame.
+///
+/// So churn, age and blame resolve to the FUNCTION rather than to its file. One `git blame`
+/// per file, in parallel — 22ms each on a small Swift file, and 29.4s across 2,518 C++
+/// files, which is why `scancache` memoises it.
+///
+/// Taken AFTER the parse, over the files that actually parsed, rather than before it over
+/// every file the walk found. Two reasons, and the second is the load-bearing one. Nothing
+/// ever read the blame of a file with no functions in it — `score_dir` asks per function —
+/// so blaming minified bundles and empty headers was always waste. And the cache is keyed on
+/// content, so the blame pass needs the hash the parse pass computed; running first would
+/// mean stat-ing and reading every file twice to learn the same thing.
+fn read_blame(
+    root: &Path,
+    for_blame: &[(String, u64)],
+    history: &History,
+    scans: &ScanCache,
+    cancel: &AtomicBool,
+    depth: crate::trace::Depth,
+    on_progress: &(dyn Fn(Progress) + Sync),
+) -> Blame {
     // **Counted from zero, under its own name.** It used to continue the parse's numbering —
     // one bar from the top of the scan, on the argument that the two phases are one wait as
     // far as anybody watching is concerned, and that a bar which fills, empties and fills
@@ -1790,8 +2075,8 @@ pub fn scan(
     // is that the scan has hung. A phase boundary the viewer can see is worth a bar that
     // restarts; a false start is a smaller lie than a false estimate.
     let blamed = AtomicUsize::new(0);
-    let blame = if depth.blames() {
-        Blame::read(root, &for_blame, &history, scans, cancel, &|path: &str| {
+    if depth.blames() {
+        Blame::read(root, for_blame, history, scans, cancel, &|path: &str| {
             on_progress(
                 Progress::counting(
                     "reading per-line history",
@@ -1807,54 +2092,39 @@ pub fn scan(
         // always described: every function takes its file's numbers. Blocky rings under Age
         // and Churn, and honestly so.
         Blame::default()
-    };
+    }
+}
 
-    // **The timeline, at the deepest rung only.** A different quantity from the two above it
-    // rather than a finer reading of them — see `trace::Depth::Edits` and `edits.rs`. A stopped
-    // walk yields `None` and the scan carries on without it, which is the same absence a repo
-    // that has never been asked for one shows.
-    let walked = if depth.counts_edits() {
+/// **The timeline, at the deepest rung only.** A different quantity from the log and the
+/// blame rather than a finer reading of them — see `trace::Depth::Edits` and `edits.rs`. A
+/// stopped walk yields `None` and the scan carries on without it, which is the same absence a
+/// repo that has never been asked for one shows.
+fn read_edits(
+    root: &Path,
+    depth: crate::trace::Depth,
+    cancel: &AtomicBool,
+    on_progress: &(dyn Fn(Progress) + Sync),
+) -> Option<crate::edits::Edits> {
+    if depth.counts_edits() {
         crate::edits::gather(root, cancel, &|p| on_progress(p.step(3)))
     } else {
         None
-    };
-    let edits_now = crate::churn::now_secs();
-    let edits = walked.as_ref().map(|e| crate::edits::At {
-        edits: e,
-        now: edits_now,
-        windows: e.windows,
-    });
-    let hist = crate::trace::Histories { history: &history, blame: &blame, edits };
-
-    lap("blame");
-    if cancel.load(Ordering::Relaxed) {
-        // Reported rather than returned. Half a parse is not a smaller map, it is a WRONG
-        // one — every wedge is drawn from lines that were counted, so the directories the
-        // walk never reached simply would not be there and nothing on screen would say so.
-        // The caller keeps the tree it had; the work is in the cache for the next attempt.
-        anyhow::bail!("stopped");
     }
-    // A repo shrinks as well as grows, and an entry nobody asks about again is never
-    // invalidated by anything — without this a cache would carry every file of every
-    // branch anyone had ever checked out.
-    scans.retain(&for_blame.iter().map(|(p, _)| p.clone()).collect());
+}
 
-    // Call edges, repo-wide, before anything is scored. It has to be one pass over every
-    // file at once — a call in `web/src/App.tsx` resolves against a definition three
-    // directories away, so the per-directory scoring pass below is exactly the wrong shape
-    // to compute it in. Cheap: it reads the `calls` the parse already collected and does not
-    // touch a file.
-    let flat: Vec<crate::edges::FileView<'_>> = parsed_dirs
-        .iter()
-        .flatten()
-        .map(|f| crate::edges::FileView { path: &f.rel_path, lang: f.lang, funcs: &f.funcs })
-        .collect();
-    // **Named, because everything from here to the tree used to be silent.** The parse and
-    // the blame both count themselves and then hand over to four phases that did not — so on
-    // a large repo the row sat on the blame's final `5,302 / 5,302 files` for as long as the
-    // rest took, which reads as a scan that finished and then hung. It was reported as one.
-    // These two are single passes over what is already in memory and are over in moments;
-    // they get a name rather than a count because there is nothing to divide.
+/// The repo's call graph, with what readers have already said about which bodies are tests.
+///
+/// **Named, because everything from here to the tree used to be silent.** The parse and the
+/// blame both count themselves and then hand over to four phases that did not — so on a
+/// large repo the row sat on the blame's final `5,302 / 5,302 files` for as long as the rest
+/// took, which reads as a scan that finished and then hung. It was reported as one. This and
+/// the copies are single passes over what is already in memory and are over in moments; they
+/// get a name rather than a count because there is nothing to divide.
+fn wire_calls(
+    root: &Path,
+    flat: &[crate::edges::FileView<'_>],
+    on_progress: &(dyn Fn(Progress) + Sync),
+) -> crate::edges::Wiring {
     on_progress(Progress::phase("wiring the call graph"));
     // **What a reader has already said about which bodies are tests**, for the languages
     // where nothing else can say — see `edges::contract_of`. Read from the store here rather
@@ -1865,51 +2135,57 @@ pub fn scan(
     let named: Vec<(String, Lang)> =
         flat.iter().map(|f| (f.path.to_string(), f.lang)).collect();
     let declared = declared_for(root, &named);
-    let attrs = &attributes(root);
-    let wiring = crate::edges::wire_with(&flat, &declared);
-    on_progress(Progress::phase("finding copies"));
-    let copies = crate::clones::find(&flat);
-    // Where each directory's files start in `flat`. A prefix sum over the same iteration
-    // order the flattening used, which is the only thing that makes the two agree.
-    let mut offsets: Vec<usize> = Vec::with_capacity(parsed_dirs.len());
-    let mut acc = 0usize;
-    for d in &parsed_dirs {
-        offsets.push(acc);
-        acc += d.len();
-    }
+    crate::edges::wire_with(flat, &declared)
+}
 
-    // Build the whole tree from the proxy first. It is fast, it is entirely gray (no
-    // wedge claims to have been analyzed), and it means the user has the repo's shape on
-    // screen in about a second instead of after the model finishes.
-    // Counted in FILES rather than directories, because directories are wildly uneven — one
-    // holding four hundred files and the next holding two would make a bar that jumps and
-    // then stops. Files are also the unit the two phases before this counted in, so the
-    // number keeps meaning the same thing across the whole scan.
-    // **Derived before anything is scored, and from every function in the repo.** The
-    // question the lens answers is "is this more complicated than others its size", so the
-    // population is the whole codebase and not the directory a wedge happens to sit in — a
-    // per-directory normal would make the same function change colour when you drilled.
-    let bands = crate::tangle::Bands::of(
+/// What counts as normal complexity for a body this size, across the whole repo.
+///
+/// **Derived before anything is scored, and from every function in the repo.** The question
+/// the lens answers is "is this more complicated than others its size", so the population is
+/// the whole codebase and not the directory a wedge happens to sit in — a per-directory
+/// normal would make the same function change colour when you drilled.
+fn bands_of(parsed_dirs: &[Vec<ParsedFile>]) -> crate::tangle::Bands {
+    crate::tangle::Bands::of(
         parsed_dirs
             .iter()
             .flatten()
             .flat_map(|f| f.funcs.iter())
             .filter_map(|f| f.cognitive.map(|c| (f.ncloc, c))),
-    );
+    )
+}
+
+/// Every directory scored against the repo-wide context, in parallel, counting files as
+/// each directory finishes.
+///
+/// Build the whole tree from the proxy first. It is fast, it is entirely gray (no wedge
+/// claims to have been analyzed), and it means the user has the repo's shape on screen in
+/// about a second instead of after the model finishes.
+/// Counted in FILES rather than directories, because directories are wildly uneven — one
+/// holding four hundred files and the next holding two would make a bar that jumps and then
+/// stops. Files are also the unit the two phases before this counted in, so the number keeps
+/// meaning the same thing across the whole scan.
+fn score_dirs(
+    parsed_dirs: &[Vec<ParsedFile>],
+    repo: RepoWide<'_>,
+    fidelity: Fidelity,
+    on_progress: &(dyn Fn(Progress) + Sync),
+) -> Vec<Vec<(String, Node)>> {
+    // Where each directory's files start in the flat list the wiring was given. A prefix sum
+    // over the same iteration order the flattening used, which is the only thing that makes
+    // the two agree.
+    let mut offsets: Vec<usize> = Vec::with_capacity(parsed_dirs.len());
+    let mut acc = 0usize;
+    for d in parsed_dirs {
+        offsets.push(acc);
+        acc += d.len();
+    }
 
     let scored = AtomicUsize::new(0);
     let to_score: usize = parsed_dirs.iter().map(|d| d.len()).sum();
-    let per_dir: Vec<Vec<(String, Node)>> = parsed_dirs
+    parsed_dirs
         .par_iter()
         .enumerate()
         .map(|(di, parsed)| {
-            let repo = RepoWide {
-                wiring: &wiring,
-                copies: &copies,
-                hist,
-                attrs,
-                bands: &bands,
-            };
             let out = score_dir(parsed, offsets[di], repo, fidelity);
             // After the directory rather than during it: `score_dir` is one call per
             // directory and splitting it to report inside would be reshaping the work to
@@ -1923,9 +2199,18 @@ pub fn scan(
             ));
             out
         })
-        .collect();
+        .collect()
+}
 
-    lap("score");
+/// The scored nodes assembled into one tree under the repo's name: unparsed counts stamped,
+/// single-child chains collapsed, totals rolled up and directory history applied.
+fn build_tree(
+    root: &Path,
+    per_dir: Vec<Vec<(String, Node)>>,
+    unparsed_dirs: &std::collections::HashMap<String, u32>,
+    history: &History,
+    edits: Option<crate::edits::At<'_>>,
+) -> Node {
     let root_name = root
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -1939,70 +2224,13 @@ pub fn scan(
     // by that directory's.
     // Before the chains collapse, so a directory is still addressable by its own segments —
     // and before `aggregate`, which is what rolls these up into `Node::unparsed`.
-    stamp_unparsed(&mut tree, &unparsed_dirs);
+    stamp_unparsed(&mut tree, unparsed_dirs);
     for child in &mut tree.children {
         collapse_chains(child);
     }
     tree.aggregate();
-    crate::trace::apply_dir_history(&mut tree, &history, edits);
-    lap("tree");
-
-    // ── The model pass, in priority order ────────────────────────────────────────
-    //
-    // Forced decoding costs a decode step per token, so a large repo takes hours. Rather
-    // than make the user wait for all of it, the work is ordered by how much it could
-    // possibly matter — lines × the proxy's guess at surprise — and streamed
-    // as it lands. The most consequential wedges color in within the first minutes, and
-    // stopping early costs the least valuable results rather than an arbitrary
-    // directory's worth. Total runtime stops being the number that matters.
-    let mut functions = 0;
-    tree.visit(&mut |n| {
-        if n.kind == NodeKind::Func {
-            functions += 1;
-        }
-    });
-
-    // Written at the end as well as every `FLUSH_EVERY`, so a scan that finishes under the
-    // flush threshold — which is every small repo — still leaves something behind.
-    scans.save();
-
-    let links = std::sync::Arc::new(crate::links::Links::build(&flat, &wiring, &copies));
-    let scan = Scan {
-        links: links.clone(),
-        root: tree,
-        stats: ScanStats {
-            files_scanned,
-            files_skipped: total_found.saturating_sub(files_scanned),
-            unscanned,
-            functions,
-            without_history: history.is_empty(),
-            // The ladder this repo can answer, whether or not it has been walked — a control
-            // has to be able to name its rungs before there is anything behind them.
-            churn_windows: walked
-                .as_ref()
-                .map(|e| e.windows)
-                .unwrap_or_else(|| crate::edits::windows_for(crate::edits::span_days(root))),
-            churned: walked.is_some(),
-            tangle_bands: bands.clone(),
-            // Capped where the palette stops meaning anything — see `ScanStats::authors`.
-            authors: history.authors().iter().take(AUTHOR_SLOTS).cloned().collect(),
-            headcount: blame.headcount(),
-            age_days: crate::edits::span_days(root),
-            // Out of the walk that just ran rather than a `git rev-list` of its own — see
-            // `trace::apply`, which fills this the same way when the trace arrives later.
-            // Zero means "print no count" rather than "a repo with none".
-            commits: history.total_commits_of("").unwrap_or(0) as usize,
-            model: HEURISTIC.into(),
-            calls_resolved: wiring.resolved,
-            calls_unresolved: wiring.unresolved,
-        },
-    };
-    // Kept under the signature computed before the work started, so the next launch of this
-    // repo — unchanged, which is the normal case — reads this instead of deriving it again.
-    // A stopped parse never gets here, which is right: half a tree is not an answer.
-    crate::treecache::save(root, signature, &scan);
-    lap("save");
-    Ok(scan)
+    crate::trace::apply_dir_history(&mut tree, history, edits);
+    tree
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ import type { HistoryFunc } from '../src/lib/history'
 import type { Delta, Deltas, Tables } from '../src/lib/timeline'
 import type { Node } from '../src/lib/api'
 
-/** `history.ts`'s own checkpoint spacing, which this file has to know to say what a bounded
+/** `historyFrame.ts`'s own checkpoint spacing, which this file has to know to say what a bounded
  *  remainder is. Duplicated rather than exported: it is a constant of the accelerator, and a
  *  harness that imported its own expectation from the thing it is checking would agree with
  *  whatever that thing was changed to. */

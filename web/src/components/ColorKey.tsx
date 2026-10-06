@@ -419,7 +419,7 @@ export function ModeSwitcher({
    *
    *  **It used to disable the whole control during a replay, and then dim four tabs.** Both
    *  were versions of the same evasion: the row said "not now" without saying what would
-   *  change it. Decided in `App`, because the answers come from three different places — the
+   *  change it. Decided in `useLocks`, because the answers come from three different places — the
    *  project's readings, the repo's git, this language's wiring — and a control that went
    *  looking for them would be the fourth place that knows.
    */
