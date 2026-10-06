@@ -1,6 +1,6 @@
 # src-tauri — sanity assessment
 
-1375 of 1375 read · 217 unpredicted
+1377 of 1377 read · 215 unpredicted
 
 Each entry below is one **reading**, of a function or of a whole file. An
 agent was given its name, signature, neighboring names and comments — never
@@ -183,11 +183,11 @@ What this is and how to add to it: [README.md](README.md)
 - found: Returns None early if predicted, documented and legible are all present. Otherwise scans expected, found and note for tool-call closing tags or '<parameter name=' markers and returns Some with the offending field's name, else None. It returns the field name, not a message.
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
-### `report` — PREDICTED SOME — LEGIBLE SOME
-- spec 3 · read at `05bec9cc1702` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:08Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
-- expected: An async axum handler that takes the shared state and a ReportRequest, validates it (refuses mangled prose, traps without a note, unknown ids, or unfinished parts), then builds a stored reading with server-stamped fields like body hash, prediction, spec and timestamps, and writes it through to the .sanity directory. It returns a JSON response saying whether it was saved and, on refusal, how to resend.
-- found: The /report handler. It refuses mangled prose, traps with no note, unknown ids, and bodies with unseen parts, each with saved:false and a resend hint, and pings and counts refusals. Otherwise it looks up the owning project, stamps body hash, the stored prediction, spec, paged, who/at/asked/harness/when and agent docs, notes the read, inserts into reports, reclassifies test code via retest_tree when the test field is set, saves to disk, and returns counts and a surprise-rate hint.
-- predicted: some · documented: full · derivable: no · legible: some · trap: no
+### `report`
+- spec 3 · read at `851005ea3fa6` · commit `7cb718d` · read by claude-sonnet-5 · via claude · when 2026-10-06T05:44:24Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: An axum async handler that takes a ReportRequest JSON body and returns JSON. It refuses early (saved:false) on mangled prose, a trap without a note, no matching project for the id, or unfetched body parts. Otherwise it stamps the server-side facts (body hash, stored prediction, spec, paging, timestamp, run) over the reader's values and writes the reading through to .sanity/, returning a saved status.
+- found: An axum handler that refuses a report before storing it in three cases: mangled prose (a field carrying the rest of the tool call), trap=true with no note, or a body served in parts the reader hasn't all fetched. It then routes by id to an open project (returning NO_PROJECT if none is loaded, or saved:false if the id matches no project), releases the lease, and stamps the server-side fields over what the reader sent: the body from the live scan, the stored pre-reveal prediction as `expected`, spec, paged, by/at/asked/harness, agent_docs, and timestamp. It writes all reports to .sanity/ and returns saved/ok with the remaining and in-flight counts and a repo-wide surprise-rate hint.
+- predicted: most · documented: full · derivable: no · legible: most · trap: no
 
 ### `a_trap_must_say_what_it_is`
 - spec 3 · read at `5d6a3bdb22f8` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:44:47Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
@@ -1337,12 +1337,11 @@ What this is and how to add to it: [README.md](README.md)
 
 ## src-tauri/src/assessment.rs
 
-### the file itself — PREDICTED SOME
-- spec 3 · served in 4 parts · read at `17edb9f6a443` · commit `346dd08` · read by claude-sonnet-5 · via claude · when 2026-09-15T22:20:16Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
-- expected: This is the module implementing the `.sanity/` on-disk assessment store described in the header: reads/writes markdown-as-store shard files (keyed and hashed by file+function identity, sharded by top-level directory), computes staleness by hashing bodies/docs so a reading expires when the underlying code or docs change, includes git metadata helpers (head commit, author/who), date/ISO-time utilities, and a large test suite validating round-tripping, sharding, staleness/expiry, and edge cases like duplicate function names or mangled entries.
-- found: Matches the broad shape predicted (markdown shard store, staleness via body/doc hashing, git metadata, ISO dates, big test suite) but the file is far deeper: it carries a versioned `SPEC`/`*_SINCE` system so individual grade axes (legible, trap) expire independently when the underlying question is reworded rather than the code; a `packed()` function bit-packs four grades into a u16 with a three-state (unknown/no/yes) encoding for `derivable` so old timelines aren't misread as negative answers; extensive round-trip parsing handles same-named-function collisions via ordinals, file-vs-function entries, priming/agent-docs provenance, paged/large-body staleness, and a sweep that only deletes files the tool itself previously linked (never arbitrary `.md` files), with path-traversal-safe shard naming.
-- predicted: some · documented: full · derivable: no · legible: not judged · trap: no
-- note: The module's design rationale (why markdown-as-store, why per-axis spec versioning, why the packed derivable is three-state) is carried entirely in prose comments — none of it is derivable from the code's structure alone.
+### the file itself
+- spec 3 · served in 5 parts · read at `9fc246992cf5` · commit `7cb718d` · read by claude-sonnet-5 · via claude · when 2026-10-06T05:44:25Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: This file is the persistence layer for the assessment store: it parses and renders the markdown shards under `.sanity/`, hashes function bodies and docs to decide when a reading has gone stale, and exposes load/save/refresh plus the git and timestamp helpers. The `tests::` peers suggest it is also the home of the round-trip and staleness tests, so it is a large mixed module rather than a thin file.
+- found: The file is the persistence layer for the `.sanity/` assessment store. It parses and renders per-top-level-directory markdown shards under `readings/` plus a `README.md` index, and it keys each reading by `path#name` (with ordinals for same-named functions). Staleness is a body/doc hash check, and a large-body guard expires readings that were never served in parts. It versions the question each grade answers (SPEC, LEGIBLE_SINCE, TRAP_SINCE), packs grades into a u16 for the timeline, and handles load/save/refresh with a sweep that only removes files the old index linked. It also carries git/timestamp helpers and the in-file round-trip and staleness tests.
+- predicted: most · documented: most · derivable: no · legible: not judged · trap: no
 
 ### `legible_current`
 - spec 2 · read at `8c75b2b322f6` · commit `9ea3e1f` · read by claude-sonnet-5 · via claude · when 2026-08-13T22:04:16Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
@@ -1464,10 +1463,17 @@ What this is and how to add to it: [README.md](README.md)
 - note: I assumed this function derives the key and inserts into out itself; actually parse_shard owns both parsing and insertion.
 
 ### `parse_shard`
-- spec 3 · read at `22728b82281a` · commit `6c5e6fc` · read by claude-sonnet-5 · via claude · when 2026-09-17T05:36:02Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
-- expected: Line-by-line markdown parser: tracks the current file from `## path` headers and current entry name from `### name` headers (adding an ordinal suffix when a name repeats within the file), then reads prose bullets and the single `·`-delimited metadata line beneath each entry, dispatching each metadata segment by its own prefix to fill in fields of a Report (spec, paging, hash, commit, model, harness, timestamp, author, cold/warm, primed, position, grades). Unrecognized lines/segments are skipped rather than causing a parse error, and finished entries are inserted into `out` keyed by "path#name", except an entry with neither `expected` nor `found` set, which is dropped.
-- found: Matches prediction closely: line-scanning state machine over `##`/`###` headers and `- ` bullets, flushing the previous entry on each new heading, dropping entries with neither expected nor found. Additional details not predicted: a `### FILE_ENTRY` name maps to the bare file's own key via `file_key`, the ordinal after a name is 1-based on the page but stored 0-based in the key, and each metadata segment maps to a specifically-named field (spec/paged/body/at/model/asked/harness/when/by/cold/primed+agent_docs/position/predicted/documented/derivable/legible/trap/test) with garbled numeric values deliberately treated as absent rather than erroring.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- spec 3 · read at `fc0a1439ce11` · commit `7cb718d` · read by claude-sonnet-5 · via claude · when 2026-10-06T05:44:21Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: It walks the markdown shard text line by line, tracking the current `##` file heading and `###` entry heading. It collects the prose bullets (expected/found) and the `·`-separated metadata line into a Report, inserting each under a `path#name` key in the map. Unrecognised lines are skipped, and entries lacking both expected and found are dropped.
+- found: Parses one `.sanity/` markdown shard into a map keyed `path#name`. `## ` sets the current file, `### ` starts an entry (with an ordinal suffix `#N` for repeated names, stored 0-based; `FILE_ENTRY` names map to the bare file key). Bullets set expected/found/note, and the `·`-separated metadata line is parsed segment by segment by prefix (spec, served in, read at, commit, read by, asked for, via, when, by, cold/warm, priming, reading, predicted/documented/derivable/legible/trap/test). Unknown lines are skipped. Each entry is flushed on the next heading, running settle_model, and kept only if expected or found is non-empty.
+- predicted: most · documented: most · derivable: no · legible: most · trap: no
+- note: The metadata line is the real format contract: segment prefixes must match the writer exactly, and a `#1` heading is not treated as an ordinal (it stays in the name).
+
+### `settle_model`
+- spec 3 · read at `3030d25c36e6` · commit `7cb718d` · read by claude-sonnet-5 · via claude · when 2026-10-06T05:44:18Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: settle_model takes a mutable Report and rewrites its `model` field to the asked model id when the self-reported model string contains that id as a whole token, so spellings like "Sonnet 5 (claude-sonnet-5)" collapse to "claude-sonnet-5". If the report names a different model, or the asked id is a prefix of a longer id like claude-sonnet-5.5, it leaves the field alone so the disagreement is preserved.
+- found: Returns early if the asked id is empty or already equal to the model string. Otherwise splits the model string on any character that is not alphanumeric, '-', '.', or '_', and if one of the resulting tokens equals the asked id exactly, replaces the model field with the asked id. Otherwise leaves it unchanged.
+- predicted: full · documented: full · derivable: no · legible: full · trap: no
 
 ### `live_funcs`
 - spec 3 · read at `10edd80b73ec` · commit `2c4bb89` · read by claude-sonnet-5 · via claude · when 2026-08-24T21:58:26Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
@@ -1664,6 +1670,13 @@ What this is and how to add to it: [README.md](README.md)
 - found: Three cases, not two: (1) parses a markdown shard line with "read by haiku · asked for sonnet" and checks the parsed Report's model/asked fields and that render_entry reproduces "asked for sonnet"; (2) a Report built directly where model==asked shows no "asked for" text since agreement is silent; (3) a hand-driven Report with no `asked` at all must show neither "asked for" nor "via " — an unasked reading must not grow a phantom claim.
 - predicted: some · documented: most · derivable: no · legible: most · trap: no
 - note: Missed that it parses from markdown text via parse_shard rather than a full save/load cycle, and missed the third no-asked case entirely.
+
+### `a_self_report_naming_the_asked_model_is_that_model`
+- spec 3 · read at `08d887ec68ce` · commit `7cb718d` · read by claude-sonnet-5 · via claude · when 2026-10-06T05:44:20Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: A test in the tests module of assessment.rs. It probably builds two readings whose recorded model strings differ in form, such as "Sonnet 5 (claude-sonnet-5)" and "claude-sonnet-5", and asserts that the assessment treats them as the same model, so the readings are not split into two groups. The docs suggest this is about normalizing model names when a store is loaded.
+- found: A test that parses a shard with two entries. The first says "read by Sonnet 5 (claude-sonnet-5)" and "asked for claude-sonnet-5"; the parsed model normalizes to "claude-sonnet-5" and the rendered entry drops the "asked for" note because they agree. The second says "claude-sonnet-5.5", which is kept as a distinct model, so a shared prefix is not treated as agreement.
+- predicted: most · documented: none · derivable: yes · legible: full · trap: no
+- note: The test also pins that a prefix-sharing different model (claude-sonnet-5.5) stays a disagreement; my prediction missed that and the suppression of the "asked for" note.
 
 ### `a_reading_says_when_it_was_taken` — PREDICTED SOME
 - spec 2 · read at `51ff8e76f83d` · commit `ba429b4` · read by claude-sonnet-5 · via claude · when 2026-08-13T21:17:05Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded

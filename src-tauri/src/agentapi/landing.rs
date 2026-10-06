@@ -307,6 +307,7 @@ pub(super) async fn report(
     // and leaves it empty, which is honest: nobody here asked for anything.
     r.asked = project.run.as_ref().map(|run| run.model.clone()).unwrap_or_default();
     r.harness = project.run.as_ref().map(|run| run.harness.clone()).unwrap_or_default();
+    crate::assessment::settle_model(&mut r);
     r.when = crate::assessment::now_iso();
     // The hazard half of the priming question, on the same grounds as the hash: what the
     // repo held is a fact about the reading conditions, and a reader has no business

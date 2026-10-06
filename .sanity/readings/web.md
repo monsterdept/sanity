@@ -2770,7 +2770,7 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/shell/LensRow.tsx
 
 ### the file itself — PREDICTED SOME
-- spec 3 · read at `abcdb01e151a` · commit `3730843` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · via claude · when 2026-10-05T21:12:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
+- spec 3 · read at `abcdb01e151a` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-05T21:12:59Z · by ross@rossturk.com · cold reading · reading 3 of its run · priming: CLAUDE.md excluded
 - expected: This file exports one component, LensRow, which renders a horizontal row of lens/view toggle buttons for the paint mode. It sits in the shell chrome and calls back into paint state to switch the active lens. It has no header comment, so its purpose comes from the name and the single peer.
 - found: A thin wrapper: LensRow puts a LensBar inside a TopRow, rendering it only when map.focus is set. It maps the choices, overlays, paint and map slices onto LensBar's many props (view mode, locks, caps, markers, age/tangle/blame/derivable reads, rings, history toggle and busy state, findings). The control logic itself lives in LensBar, not in this file.
 - predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
@@ -2846,14 +2846,14 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/components/shell/SidePanel.tsx
 
 ### the file itself
-- spec 3 · read at `b0557a49f445` · commit `3730843` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · via claude · when 2026-10-05T21:13:11Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
+- spec 3 · read at `b0557a49f445` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-05T21:13:11Z · by ross@rossturk.com · warm reading · reading 5 of its run · priming: CLAUDE.md excluded
 - expected: The file exports only SidePanel, the right-hand aside that shows the commit log while history is on and the detail view otherwise. It is a thin layout component that passes slices of project, standing, map, paint and nav into CommitLog or Detail. I have seen this body before in item 2, so this is a warm prediction.
 - found: Only exports SidePanel: a thin aside that shows CommitLog when historyOn, history and a matching historyKey are present, and otherwise Detail. The file has no other declarations. Its one-line header describes the switch but not the historyKey gate or the subtree-scoped summary.
 - predicted: full · documented: none · derivable: yes · legible: not judged · trap: no
 - note: This file is the same body as item 2 (SidePanel function), so this reading is warm, not cold; it was graded as a separate handout only because the protocol asked for a file task here.
 
 ### `SidePanel`
-- spec 3 · read at `2f13be881fc6` · commit `3730843` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · via claude · when 2026-10-05T21:12:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
+- spec 3 · read at `2f13be881fc6` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-05T21:12:53Z · by ross@rossturk.com · cold reading · reading 2 of its run · priming: CLAUDE.md excluded
 - expected: A React component that switches between two bodies: when history is on and a replay is active it renders the commit log from map.hist, otherwise it renders the detail view for nav.selected with its owners and show-in/jump actions. It reads only the fields its Pick-typed props expose, and probably shows a placeholder when nothing is selected.
 - found: Renders an aside. Shows CommitLog only when standing.historyOn, hist.history is present, and hist.historyKey matches activeKey; otherwise shows Detail for nav.selected, with the summary scoped to the focused subtree (title becomes the project name at the tree root), tangle stats from scan, and the replaying flag passed through.
 - predicted: most · documented: most · derivable: no · legible: full · trap: no
@@ -3002,7 +3002,7 @@ What this is and how to add to it: [README.md](README.md)
 ## web/src/hooks/useFindings.ts
 
 ### the file itself — PREDICTED SOME
-- spec 3 · read at `c18dd378c4ec` · commit `3730843` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · via claude · when 2026-10-05T21:13:18Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
+- spec 3 · read at `c18dd378c4ec` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-05T21:13:18Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
 - expected: This file exports useFindings, a sizeable hook of about 230 lines that fetches the findings for the active repo and holds the open or selected finding state. It probably filters or sorts the list and tracks dismissed or resolved findings, possibly persisting them. It is the state behind the findings overlay.
 - found: The file is a store for findings and rules. It exports useFindings, which fetches the report (findings groups, rules, grammar) on a single effect and the decisions archive on another, then exposes write actions (decide, undecide, writeRule, removeRule, restoreRule, saveBalance, toStock) that bump an archiveAt counter to re-ask. It also computes the live-rule count and a memoised badge object for the map. It does no local filtering or sorting.
 - predicted: some · documented: none · derivable: yes · legible: not judged · trap: no
@@ -3142,7 +3142,7 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: most · documented: full · derivable: no · legible: full · trap: no
 
 ### `useMap`
-- spec 3 · read at `b969073bb139` · commit `3730843` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · via claude · when 2026-10-05T21:13:24Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
+- spec 3 · read at `b969073bb139` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-05T21:13:24Z · by ross@rossturk.com · cold reading · reading 7 of its run · priming: CLAUDE.md excluded
 - expected: A large hook that chooses the tree on screen: it uses the replay frame while a replay is up and the scan tree otherwise, applies ignore pruning and grafts function rings as they arrive, then resolves focus from the drill stack. It also owns the replay and history state, using the setters passed in.
 - found: Derives drilled from the top of the stack; composes useHistory and useTraceChain; memoises drawn as the scan with excluded nodes pruned; grafts rings via useRingGraft, which must run before useNavigation (commented); sets tree to the history root or the filled tree and keeps a ref for callbacks; resolves focus by walking the stack ids; then useHistoryScope and useRingFetch. Returns the bundle of map state.
 - predicted: most · documented: full · derivable: no · legible: most · trap: no
@@ -3187,7 +3187,7 @@ What this is and how to add to it: [README.md](README.md)
 - note: No header on the file; the usePaint doc comment is the only description, and the viewMode comment is the reasoning a future editor needs.
 
 ### `usePaint` — LEGIBLE SOME
-- spec 3 · read at `ff0a214bfeff` · commit `3730843` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · via claude · when 2026-10-05T21:13:05Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
+- spec 3 · read at `ff0a214bfeff` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-05T21:13:05Z · by ross@rossturk.com · cold reading · reading 4 of its run · priming: CLAUDE.md excluded
 - expected: A large hook that composes the paint state: it derives the view mode, ranks and per-lens views from the lens choices plus scan and readings, and registers keyboard handlers that switch lenses. It also exposes the report and movie export actions, which paint from the same ranks and look, and it may gate some of this on historyOn and the active project.
 - found: Composes sub-hooks: useLocks (lens availability), useRanks, useReport, useLensViews, useMovieSource, and useLensKeys. viewMode is simply the chosen mode, with no substitution for locked lenses; a locked lens paints as absence. Returns locks, viewMode, author/lang/ranks, slotsFor, report languages and complete tree, lensViews, and the movie source plus setPaneSide.
 - predicted: most · documented: full · derivable: no · legible: some · trap: no
@@ -3392,7 +3392,7 @@ What this is and how to add to it: [README.md](README.md)
 - predicted: some · documented: most · derivable: no · legible: full · trap: no
 
 ### `useNoDevMenu`
-- spec 3 · read at `b8ce5204ee00` · commit `3730843` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · via claude · when 2026-10-05T21:12:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- spec 3 · read at `b8ce5204ee00` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-05T21:12:47Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
 - expected: A React hook that attaches a document-level contextmenu listener which calls preventDefault to suppress WebKit's Reload/Inspect Element menu, probably only in production builds. It likely lets the menu through when the right-click lands on a text selection or an input/textarea. It should return a cleanup that removes the listener on unmount.
 - found: A hook that, in production builds only (returns early under import.meta.env.DEV), adds a document contextmenu listener. The listener lets the native menu through when the target is inside input/textarea/select/contenteditable or when there is a non-empty text selection; otherwise it calls preventDefault. The listener is removed on unmount.
 - predicted: full · documented: full · derivable: no · legible: full · trap: no

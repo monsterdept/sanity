@@ -575,7 +575,8 @@ pub(crate) fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
     // in the loop and after it.
     macro_rules! flush {
         () => {
-            if let Some((key, r)) = cur.take() {
+            if let Some((key, mut r)) = cur.take() {
+                settle_model(&mut r);
                 if !r.expected.is_empty() || !r.found.is_empty() {
                     out.insert(key, r);
                 }
@@ -703,6 +704,28 @@ pub(crate) fn parse_shard(text: &str, out: &mut HashMap<String, Report>) {
         }
     }
     flush!();
+}
+
+/// Take the model a run asked for as the reader's name for itself, when the self-report names it.
+///
+/// **One model spelled two ways is one instrument.** `model` is free text, and a reader asked
+/// for "name and version" may answer `Sonnet 5 (claude-sonnet-5)` where the rest of its run
+/// answered `claude-sonnet-5`. Compared as strings, those are two instruments, and `verify`
+/// fails a repo read on one scale. Only the asked id can settle it, and only when the report
+/// carries that id as a whole token: `claude-sonnet-5.5` does not name `claude-sonnet-5`, and
+/// a report naming another model entirely is the disagreement `asked` exists to keep.
+///
+/// Applied where a reading lands and where one is parsed back, so `sanity refresh` settles a
+/// store written before this rule.
+pub fn settle_model(r: &mut Report) {
+    let asked = r.asked.trim();
+    if asked.is_empty() || r.model == asked {
+        return;
+    }
+    let token = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_');
+    if r.model.split(|c: char| !token(c)).any(|t| t == asked) {
+        r.model = asked.to_string();
+    }
 }
 
 // ── Writing ────────────────────────────────────────────────────────────────────
@@ -1923,6 +1946,31 @@ mod tests {
         let hand = Report { model: "sonnet".into(), body: "aabb".into(), ..Report::blank() };
         assert!(!render_entry("foo", 0, false, &hand, false).contains("asked for"));
         assert!(!render_entry("foo", 0, false, &hand, false).contains("via "));
+    }
+
+    /// A self-report that names the asked id IS that id, and a store that spelled it the long
+    /// way settles on a refresh. Seven readings saying `Sonnet 5 (claude-sonnet-5)` beside
+    /// 2,653 saying `claude-sonnet-5` failed `verify` as two instruments.
+    #[test]
+    fn a_self_report_naming_the_asked_model_is_that_model() {
+        let mut back = HashMap::new();
+        parse_shard(
+            "## src/a.rs\n\
+             \n### `foo`\n\
+             - spec 1 · read at `aabb` · read by Sonnet 5 (claude-sonnet-5) · asked for claude-sonnet-5 · cold reading\n\
+             - expected: x\n\
+             - found: y\n\
+             \n### `bar`\n\
+             - spec 1 · read at `aabb` · read by claude-sonnet-5.5 · asked for claude-sonnet-5 · cold reading\n\
+             - expected: x\n\
+             - found: y\n",
+            &mut back,
+        );
+        let settled = &back["src/a.rs#foo"];
+        assert_eq!(settled.model, "claude-sonnet-5");
+        assert!(!render_entry("foo", 0, false, settled, false).contains("asked for"));
+        // A different model that merely shares a prefix is a disagreement, and stays one.
+        assert_eq!(back["src/a.rs#bar"].model, "claude-sonnet-5.5");
     }
 
     /// A reading's date round trips, and the conversion is right for dates nobody waited for.
