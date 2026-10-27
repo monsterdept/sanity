@@ -42,6 +42,10 @@
  * and the movie export reads these same two rules off this file as text (`groundVars`), so it
  * can write a file on either ground without the window changing. */
 :root {
+  /* What WebKit draws its own widgets in — scrollbar tracks above all. Unset, it is light in
+   * both themes, which nobody sees under overlay scrollbars and everybody sees once macOS is
+   * set to show them always (or a mouse is paired): a white track down the dark panel. */
+  color-scheme: light;
   --radius: 0.625rem;
   --titlebar-h: 43px;
   /* Room for the macOS overlay traffic lights, which float over the sidebar header. */
@@ -622,6 +626,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #1a1a1a; /* Ink */
   --foreground: #f5f1ea; /* Paper */
   --card: color-mix(in oklch, #1a1a1a 93%, #f5f1ea 7%);

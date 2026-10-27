@@ -53,7 +53,7 @@ pub mod watch;
 /// here rather than declared in config. Tally and Sewcrates use this exact inset, so the
 /// department's windows line up when they overlap.
 #[cfg(all(feature = "gui", target_os = "macos"))]
-pub(crate) const TRAFFIC_LIGHTS: (f64, f64) = (16.0, 23.0);
+pub(crate) const TRAFFIC_LIGHTS: (f64, f64) = (16.0, 22.0);
 
 /// Build the main window in code, because the traffic-light inset above cannot be
 /// expressed in config. Everything else here is what tauri.conf.json used to declare.
