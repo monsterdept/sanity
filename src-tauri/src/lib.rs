@@ -50,8 +50,8 @@ pub mod watch;
 /// ONLY the window builder can set this. `trafficLightPosition` is not a tauri.conf.json
 /// key — it isn't in Tauri's schema, so putting it there is accepted and silently
 /// ignored — and there is no runtime setter on Window. That is why the window is built
-/// here rather than declared in config. Tally and Sewcrates use this exact inset, so the
-/// department's windows line up when they overlap.
+/// here rather than declared in config. The wordmark sets the top bar's layout, and the
+/// inset follows it: the buttons share the wordmark's centerline.
 #[cfg(all(feature = "gui", target_os = "macos"))]
 pub(crate) const TRAFFIC_LIGHTS: (f64, f64) = (16.0, 22.0);
 
