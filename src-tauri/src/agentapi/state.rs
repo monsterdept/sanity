@@ -546,7 +546,7 @@ impl AppState {
         // The caller's answer wins WHEN IT IS ALSO TRUE. This keeps the single-repo case
         // — every call in it — on exactly the path it was on before.
         if let Some(k) = asked {
-            if self.projects.get(k).is_some_and(&holds) {
+            if self.projects.get(k).is_some_and(holds) {
                 return Some(k.to_string());
             }
         }
