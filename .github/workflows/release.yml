@@ -113,7 +113,7 @@ jobs:
           # natively on its own architecture: no cross-compiling, so no second
           # toolchain, no LLVM on PATH for the C grammars, and each installer
           # carries its own architecture in its name.
-          - os: macos-15
+          - os: macos-26
             platform: macos_arm64
           # 22.04, not latest: an AppImage runs on distros whose glibc is at
           # least the one it was built against, so the oldest supported image

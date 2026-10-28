@@ -34,7 +34,7 @@ jobs:
           # The arm64 builds are release-only. Testing on the three platforms
           # people develop on is what this job is for; the release proves the
           # other two build.
-          - os: macos-15
+          - os: macos-26
             platform: macos_arm64
           - os: ubuntu-22.04
             platform: linux_x86-64
