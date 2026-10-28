@@ -1086,10 +1086,11 @@ What this is and how to add to it: [README.md](README.md)
 - note: The no-key fallback is most_recent(), not the active project, so the doc's account of the fallback is out of date with the code or the doc is describing a different path; check which one is intended before relying on it.
 
 ### `owner_of`
-- spec 3 · read at `fea4c2e45072` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:39:37Z · by ross@rossturk.com · cold reading · reading 6 of its run · priming: CLAUDE.md excluded
-- expected: A method on AppState that returns the project key owning a function id. It probably first checks the caller's asked key and returns it if that project holds the id, otherwise searches loaded projects for the one whose live lease or scan contains the id, returning None if none do. Likely it locks the state and iterates the projects map.
-- found: Holds a project if its lease map contains the id or its scan does. If the caller's asked key is loaded and holds the id, returns it. Otherwise collects all holding keys, sorts them, returns the sole match, or among several prefers the most recently opened one if it is among them, falling back to the first sorted key. Returns None when none hold it. Takes &self with no lock inside.
-- predicted: most · documented: full · derivable: no · legible: most · trap: no
+- spec 3 · read at `8d5409e41dfc` · commit `ab9fc44` · read by claude-sonnet-5 · via claude · when 2026-10-28T04:13:20Z · by ross@rossturk.com · cold reading · reading 1 of its run · priming: CLAUDE.md excluded
+- expected: owner_of resolves which loaded project a given task id actually belongs to, prioritizing provenance over the caller's claimed key. It likely first checks whether `asked` (if given) names a loaded project that actually holds/knows `id`, and if so returns it; otherwise it searches all loaded projects for one with a live lease issued for `id`, falling back to any project whose scan still contains that id; returns None if no project recognizes the id at all.
+- found: Checks if the asked-for project key is loaded and holds the id (via lease map or scan); if so returns it immediately. Otherwise collects all loaded projects that hold the id (sorted by key for determinism), and if multiple match, breaks the tie toward whichever was most recently opened, falling back to the first sorted key otherwise.
+- predicted: most · documented: some · derivable: no · legible: full · trap: no
+- note: The docs explain the conceptual rationale well but omit the deterministic-sort and most-recent tie-break mechanics for the multi-match case.
 
 ### `holds_id`
 - spec 3 · read at `e6b8f928f614` · commit `3730843` · read by claude-sonnet-5 · via claude · when 2026-10-04T22:45:56Z · by ross@rossturk.com · cold reading · reading 9 of its run · priming: CLAUDE.md excluded
